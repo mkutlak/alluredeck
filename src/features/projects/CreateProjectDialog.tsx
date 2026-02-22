@@ -1,0 +1,98 @@
+import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
+import { createProject } from '@/api/projects'
+import { extractErrorMessage } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { toast } from '@/components/ui/use-toast'
+
+interface CreateProjectDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
+  const [projectId, setProjectId] = useState('')
+  const [error, setError] = useState('')
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: createProject,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      toast({ title: 'Project created', description: `"${projectId}" is ready.` })
+      setProjectId('')
+      onOpenChange(false)
+    },
+    onError: (err) => {
+      setError(extractErrorMessage(err))
+    },
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    const id = projectId.trim()
+    if (!id) {
+      setError('Project ID is required.')
+      return
+    }
+    mutation.mutate({ id })
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          setProjectId('')
+          setError('')
+        }
+        onOpenChange(v)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create project</DialogTitle>
+          <DialogDescription>
+            Enter a unique identifier for the new project. Only letters, numbers, dashes and
+            underscores are recommended.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="new-project-id">Project ID</Label>
+            <Input
+              id="new-project-id"
+              placeholder="my-project"
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              disabled={mutation.isPending}
+              autoFocus
+            />
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={mutation.isPending}>
+              {mutation.isPending && <Loader2 className="animate-spin" />}
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

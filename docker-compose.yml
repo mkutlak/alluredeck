@@ -1,0 +1,35 @@
+services:
+  allure-dashboard-ui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      VITE_API_URL: "${VITE_API_URL:-http://localhost:5050}"
+      VITE_APP_TITLE: "${VITE_APP_TITLE:-Allure Dashboard}"
+    ports:
+      - "7474:7474"
+    depends_on:
+      - allure-api
+    restart: unless-stopped
+
+  allure-api:
+    build:
+      context: ../allure-docker-service/allure-docker-api
+      dockerfile: ../../allure-docker-service/docker/Dockerfile
+    environment:
+      SECURITY_ENABLED: "1"
+      SECURITY_USER: "${SECURITY_USER:-admin}"
+      SECURITY_PASS: "${SECURITY_PASS:-admin}"
+      SECURITY_VIEWER_USER: "${SECURITY_VIEWER_USER:-viewer}"
+      SECURITY_VIEWER_PASS: "${SECURITY_VIEWER_PASS:-viewer}"
+      KEEP_HISTORY: "1"
+      KEEP_HISTORY_LATEST: "20"
+      CHECK_RESULTS_EVERY_SECONDS: "NONE"
+    ports:
+      - "5050:5050"
+    volumes:
+      - allure-projects:/app/projects
+    restart: unless-stopped
+
+volumes:
+  allure-projects:

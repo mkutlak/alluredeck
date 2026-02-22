@@ -1,0 +1,149 @@
+import { useRef, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { Loader2, Upload, X, FileText } from 'lucide-react'
+import { sendResultsMultipart } from '@/api/reports'
+import { extractErrorMessage } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { toast } from '@/components/ui/use-toast'
+import { cn } from '@/lib/utils'
+
+interface SendResultsDialogProps {
+  projectId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function SendResultsDialog({ projectId, open, onOpenChange }: SendResultsDialogProps) {
+  const [files, setFiles] = useState<File[]>([])
+  const [dragging, setDragging] = useState(false)
+  const [error, setError] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const mutation = useMutation({
+    mutationFn: () => sendResultsMultipart(projectId, files),
+    onSuccess: () => {
+      toast({
+        title: 'Results sent',
+        description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${projectId}".`,
+      })
+      setFiles([])
+      onOpenChange(false)
+    },
+    onError: (err) => {
+      setError(extractErrorMessage(err))
+    },
+  })
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return
+    setFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name))
+      return [...prev, ...Array.from(incoming).filter((f) => !existing.has(f.name))]
+    })
+  }
+
+  const removeFile = (name: string) => setFiles((prev) => prev.filter((f) => f.name !== name))
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          setFiles([])
+          setError('')
+        }
+        onOpenChange(v)
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Send results</DialogTitle>
+          <DialogDescription>
+            Upload Allure result files (.json, .xml, attachments) for project{' '}
+            <span className="font-mono font-medium">{projectId}</span>.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Drop zone */}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Drop zone for result files"
+          className={cn(
+            'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 text-sm transition-colors',
+            dragging ? 'border-primary bg-primary/5' : 'border-input hover:border-primary/50',
+          )}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragging(false)
+            addFiles(e.dataTransfer.files)
+          }}
+        >
+          <Upload size={24} className="text-muted-foreground" />
+          <p className="text-muted-foreground">
+            Drag & drop files here, or <span className="text-primary">browse</span>
+          </p>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
+          />
+        </div>
+
+        {/* File list */}
+        {files.length > 0 && (
+          <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+            {files.map((f) => (
+              <div key={f.name} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted">
+                <FileText size={12} className="shrink-0 text-muted-foreground" />
+                <span className="flex-1 truncate font-mono">{f.name}</span>
+                <button
+                  onClick={() => removeFile(f.name)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${f.name}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={files.length === 0 || mutation.isPending}
+            onClick={() => {
+              setError('')
+              mutation.mutate()
+            }}
+          >
+            {mutation.isPending && <Loader2 className="animate-spin" />}
+            Upload {files.length > 0 && `(${files.length})`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
