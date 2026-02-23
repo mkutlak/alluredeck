@@ -14,14 +14,16 @@ services:
 
   allure-api:
     build:
-      context: ../allure-docker-service/allure-docker-api
-      dockerfile: ../../allure-docker-service/docker/Dockerfile
+      context: ../allure-docker-service
+      dockerfile: docker/Dockerfile
     environment:
       SECURITY_ENABLED: "1"
       SECURITY_USER: "${SECURITY_USER:-admin}"
       SECURITY_PASS: "${SECURITY_PASS:-admin}"
       SECURITY_VIEWER_USER: "${SECURITY_VIEWER_USER:-viewer}"
       SECURITY_VIEWER_PASS: "${SECURITY_VIEWER_PASS:-viewer}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-68af59c5a580cf01e094ff4cf6722203c6e2a6de6ed6c3fb8185bfac9c490f3e}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:7474}"
       KEEP_HISTORY: "1"
       KEEP_HISTORY_LATEST: "20"
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
