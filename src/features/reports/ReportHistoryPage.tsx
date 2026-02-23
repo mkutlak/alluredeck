@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft,
   Upload,
@@ -11,12 +11,11 @@ import {
   ExternalLink,
   FileText,
 } from 'lucide-react'
-import { fetchReportSummary, getEmailableReportUrl } from '@/api/reports'
-import { getConfig } from '@/api/system'
+import { fetchReportHistory, getEmailableReportUrl, deleteReport } from '@/api/reports'
+import { extractErrorMessage } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { env } from '@/lib/env'
 import { formatDate, formatDuration, calcPassRate } from '@/lib/utils'
-import type { ReportItem } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -28,6 +27,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { toast } from '@/components/ui/use-toast'
 import { SendResultsDialog } from './SendResultsDialog'
 import { GenerateReportDialog } from './GenerateReportDialog'
 import { CleanDialog } from './CleanDialog'
@@ -35,65 +45,38 @@ import { CleanDialog } from './CleanDialog'
 export function ReportHistoryPage() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore((s) => s.isAdmin)
+  const queryClient = useQueryClient()
   const [sendOpen, setSendOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [cleanResultsOpen, setCleanResultsOpen] = useState(false)
   const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
-  const [reports, setReports] = useState<ReportItem[]>([])
-  const [loadingReports, setLoadingReports] = useState(true)
+  const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
 
-  // Get config to know how many history items to probe
-  const { data: configData } = useQuery({
-    queryKey: ['config'],
-    queryFn: getConfig,
-    staleTime: 60_000,
+  const { data: historyData, isLoading: loadingReports } = useQuery({
+    queryKey: ['report-history', projectId],
+    queryFn: () => fetchReportHistory(projectId!),
+    enabled: !!projectId,
+    staleTime: 10_000,
   })
-  const keepLatest = configData?.data.keep_history_latest ?? 20
 
-  // Discover reports by probing numbered paths + latest
-  useEffect(() => {
-    if (!projectId) return
+  const deleteMutation = useMutation({
+    mutationFn: (reportId: string) => deleteReport(projectId!, reportId),
+    onSuccess: (_, reportId) => {
+      queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
+      toast({ title: 'Report deleted', description: `Report #${reportId} has been removed.` })
+      setDeleteReportId(null)
+    },
+    onError: (err) => {
+      toast({
+        title: 'Delete failed',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
+      setDeleteReportId(null)
+    },
+  })
 
-    setLoadingReports(true)
-    const results: ReportItem[] = []
-
-    const probeAll = async () => {
-      // Probe "latest" first
-      const latestSummary = await fetchReportSummary(projectId, 'latest')
-      if (latestSummary) {
-        results.push({
-          reportId: 'latest',
-          isLatest: true,
-          summary: latestSummary,
-          generatedAt: latestSummary.time?.stop
-            ? new Date(latestSummary.time.stop).toISOString()
-            : undefined,
-          durationMs: latestSummary.time?.duration,
-        })
-      }
-
-      // Probe numbered history (from highest to lowest)
-      for (let i = keepLatest; i >= 1; i--) {
-        const summary = await fetchReportSummary(projectId, String(i))
-        if (summary) {
-          results.push({
-            reportId: String(i),
-            isLatest: false,
-            summary,
-            generatedAt: summary.time?.stop
-              ? new Date(summary.time.stop).toISOString()
-              : undefined,
-            durationMs: summary.time?.duration,
-          })
-        }
-      }
-
-      setReports(results)
-      setLoadingReports(false)
-    }
-
-    probeAll()
-  }, [projectId, keepLatest])
+  const reports = historyData?.reports ?? []
 
   if (!projectId) return null
 
@@ -201,21 +184,21 @@ export function ReportHistoryPage() {
             </TableHeader>
             <TableBody>
               {reports.map((r) => {
-                const stat = r.summary?.statistic
+                const stat = r.statistic
                 const passRate = stat ? calcPassRate(stat.passed, stat.total) : null
-                const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.reportId)}`
+                const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
 
                 return (
-                  <TableRow key={r.reportId} className="cursor-pointer hover:bg-muted/50">
+                  <TableRow key={r.report_id} className="cursor-pointer hover:bg-muted/50">
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Link
                           to={reportUrl}
                           className="font-mono text-sm font-medium text-primary hover:underline"
                         >
-                          #{r.reportId}
+                          #{r.report_id}
                         </Link>
-                        {r.isLatest && (
+                        {r.is_latest && (
                           <Badge variant="secondary" className="text-xs">
                             latest
                           </Badge>
@@ -223,7 +206,7 @@ export function ReportHistoryPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {r.generatedAt ? formatDate(r.generatedAt) : '—'}
+                      {r.generated_at ? formatDate(r.generated_at) : '—'}
                     </TableCell>
                     <TableCell className="text-center font-mono text-sm">
                       {stat?.total ?? '—'}
@@ -264,7 +247,7 @@ export function ReportHistoryPage() {
                         </Button>
                         <Button asChild size="sm" variant="ghost">
                           <a
-                            href={`${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.reportId)}/index.html`}
+                            href={`${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}/index.html`}
                             target="_blank"
                             rel="noopener noreferrer"
                             aria-label="Open in new tab"
@@ -272,6 +255,17 @@ export function ReportHistoryPage() {
                             <ExternalLink size={12} />
                           </a>
                         </Button>
+                        {isAdmin() && !r.is_latest && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            aria-label={`Delete report #${r.report_id}`}
+                            onClick={() => setDeleteReportId(r.report_id)}
+                          >
+                            <Trash2 size={12} />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -283,11 +277,11 @@ export function ReportHistoryPage() {
       )}
 
       {/* Duration summary for latest */}
-      {reports[0]?.durationMs && (
+      {reports[0]?.duration_ms && (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock size={12} />
           Latest suite duration:{' '}
-          <span className="font-mono">{formatDuration(reports[0].durationMs)}</span>
+          <span className="font-mono">{formatDuration(reports[0].duration_ms)}</span>
         </p>
       )}
 
@@ -314,6 +308,31 @@ export function ReportHistoryPage() {
           />
         </>
       )}
+
+      {/* Delete individual report confirmation */}
+      <AlertDialog
+        open={deleteReportId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteReportId(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete report #{deleteReportId}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete report <span className="font-mono font-medium">#{deleteReportId}</span> for project{' '}
+              <span className="font-mono font-medium">{projectId}</span>. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteReportId && deleteMutation.mutate(deleteReportId)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

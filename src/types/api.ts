@@ -111,6 +111,22 @@ export interface AllureSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Report history API response
+// ---------------------------------------------------------------------------
+export interface ReportHistoryEntry {
+  report_id: string
+  is_latest: boolean
+  generated_at: string | null
+  duration_ms: number | null
+  statistic: AllureStatistic | null
+}
+
+export interface ReportHistoryData {
+  project_id: string
+  reports: ReportHistoryEntry[]
+}
+
+// ---------------------------------------------------------------------------
 // Local report metadata (derived / assembled by the UI)
 // ---------------------------------------------------------------------------
 export interface ReportItem {

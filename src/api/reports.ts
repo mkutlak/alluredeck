@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ApiResponse, AllureSummary, GenerateReportData, GenerateReportParams } from '@/types/api'
+import type { ApiResponse, AllureSummary, GenerateReportData, GenerateReportParams, ReportHistoryData } from '@/types/api'
 import { env } from '@/lib/env'
 
 export async function generateReport(
@@ -44,6 +44,24 @@ export async function sendResultsMultipart(projectId: string, files: File[]): Pr
 /** Build the URL for the emailable report page (GET, rendered as HTML). */
 export function getEmailableReportUrl(projectId: string): string {
   return `${env.apiUrl}/emailable-report/render?project_id=${encodeURIComponent(projectId)}`
+}
+
+export async function deleteReport(
+  projectId: string,
+  reportId: string,
+): Promise<ApiResponse<{ report_id: string; project_id: string }>> {
+  const res = await apiClient.delete<ApiResponse<{ report_id: string; project_id: string }>>(
+    '/report',
+    { params: { project_id: projectId, report_id: reportId } },
+  )
+  return res.data
+}
+
+export async function fetchReportHistory(projectId: string): Promise<ReportHistoryData> {
+  const res = await apiClient.get<ApiResponse<ReportHistoryData>>('/report-history', {
+    params: { project_id: projectId },
+  })
+  return res.data.data
 }
 
 /** Attempt to load Allure summary JSON from the static report files. */

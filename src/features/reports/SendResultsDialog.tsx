@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Upload, X, FileText } from 'lucide-react'
-import { sendResultsMultipart } from '@/api/reports'
+import { sendResultsMultipart, generateReport } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -25,19 +27,34 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState('')
+  const [generateAfterUpload, setGenerateAfterUpload] = useState(true)
+  const [uploadPhase, setUploadPhase] = useState<'uploading' | 'generating' | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: () => sendResultsMultipart(projectId, files),
+    mutationFn: async () => {
+      setUploadPhase('uploading')
+      await sendResultsMultipart(projectId, files)
+      if (generateAfterUpload) {
+        setUploadPhase('generating')
+        await generateReport({ project_id: projectId })
+      }
+    },
     onSuccess: () => {
       toast({
-        title: 'Results sent',
-        description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${projectId}".`,
+        title: generateAfterUpload ? 'Report generated' : 'Results sent',
+        description: generateAfterUpload
+          ? `${files.length} file${files.length !== 1 ? 's' : ''} uploaded and report generated for "${projectId}".`
+          : `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${projectId}".`,
       })
+      void queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
       setFiles([])
+      setUploadPhase(null)
       onOpenChange(false)
     },
     onError: (err) => {
+      setUploadPhase(null)
       setError(extractErrorMessage(err))
     },
   })
@@ -59,6 +76,7 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
         if (!v) {
           setFiles([])
           setError('')
+          setUploadPhase(null)
         }
         onOpenChange(v)
       }}
@@ -126,10 +144,23 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
           </div>
         )}
 
+        {/* Auto-generate checkbox */}
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="generate-after-upload"
+            checked={generateAfterUpload}
+            onCheckedChange={(v: boolean | 'indeterminate') => setGenerateAfterUpload(v === true)}
+            disabled={mutation.isPending}
+          />
+          <Label htmlFor="generate-after-upload" className="text-sm font-normal cursor-pointer">
+            Generate report after upload
+          </Label>
+        </div>
+
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
             Cancel
           </Button>
           <Button
@@ -140,7 +171,11 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
             }}
           >
             {mutation.isPending && <Loader2 className="animate-spin" />}
-            Upload {files.length > 0 && `(${files.length})`}
+            {uploadPhase === 'generating'
+              ? 'Generating…'
+              : uploadPhase === 'uploading'
+                ? 'Uploading…'
+                : `Upload${files.length > 0 ? ` (${files.length})` : ''}`}
           </Button>
         </DialogFooter>
       </DialogContent>
