@@ -6,10 +6,13 @@ interface AuthGuardProps {
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
-  const isSessionValid = useAuthStore((s) => s.isSessionValid)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const expiresAt = useAuthStore((s) => s.expiresAt)
   const location = useLocation()
 
-  if (!isSessionValid()) {
+  const sessionValid = isAuthenticated && (expiresAt === null || expiresAt > Date.now())
+
+  if (!sessionValid) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 

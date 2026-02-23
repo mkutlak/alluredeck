@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Moon, Sun, LogOut, User } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -20,17 +20,20 @@ export function TopBar() {
   const { theme, setTheme } = useTheme()
   const { username, isAdmin, clearAuth } = useAuthStore()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
       clearAuth()
       queryClient.clear()
+      navigate('/login', { replace: true })
     },
     onError: () => {
       // Still clear local state even if server logout fails
       clearAuth()
       queryClient.clear()
+      navigate('/login', { replace: true })
     },
   })
 

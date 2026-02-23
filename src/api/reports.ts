@@ -6,7 +6,7 @@ export async function generateReport(
   params: GenerateReportParams,
 ): Promise<ApiResponse<GenerateReportData>> {
   const { project_id, execution_name, execution_from, execution_type, store_results } = params
-  const res = await apiClient.get<ApiResponse<GenerateReportData>>('/generate-report', {
+  const res = await apiClient.post<ApiResponse<GenerateReportData>>('/generate-report', null, {
     params: {
       project_id,
       ...(execution_name ? { execution_name } : {}),
