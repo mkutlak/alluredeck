@@ -1,1 +1,4 @@
 node_modules/
+
+# Oh My Claude
+.omc
