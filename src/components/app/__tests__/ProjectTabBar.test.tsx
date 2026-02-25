@@ -13,11 +13,11 @@ function Wrapper({ path }: { path: string }) {
 }
 
 describe('ProjectTabBar', () => {
-  it('renders three tabs', () => {
+  it('renders two tabs', () => {
     render(<Wrapper path="/projects/my-project" />)
     expect(screen.getByText('Overview')).toBeInTheDocument()
     expect(screen.getByText('Analytics')).toBeInTheDocument()
-    expect(screen.getByText('History')).toBeInTheDocument()
+    expect(screen.queryByText('History')).not.toBeInTheDocument()
   })
 
   it('returns null when no projectId', () => {

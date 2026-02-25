@@ -24,9 +24,6 @@ export function ProjectTabBar() {
         <NavLink to={`${base}/analytics`} className={tabClass}>
           Analytics
         </NavLink>
-        <NavLink to={`${base}/history`} className={tabClass}>
-          History
-        </NavLink>
       </nav>
     </div>
   )

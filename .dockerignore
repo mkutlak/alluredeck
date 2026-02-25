@@ -1,0 +1,39 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+.github
+
+# Local development tools
+.omc
+.claude
+
+# Dependencies (reinstalled during build)
+node_modules
+
+# Build output (rebuilt during build)
+dist
+
+# Test coverage
+coverage
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Environment files (may contain secrets)
+.env.local
+.env.*.local
+
+# Caches
+.vite
+.eslintcache
+
+# Docs and planning files
+docs
+README.md
+CLAUDE.md
+Makefile
+
+# OS
+.DS_Store
+Thumbs.db

@@ -5,7 +5,6 @@ import { Layout } from '@/components/app/Layout'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { OverviewTab } from '@/features/projects/OverviewTab'
 import { AnalyticsTab } from '@/features/analytics/AnalyticsTab'
-import { HistoryTab } from '@/features/reports/HistoryTab'
 import { ReportViewerPage } from '@/features/reports/ReportViewerPage'
 
 function NotFound() {
@@ -33,7 +32,6 @@ export function AppRoutes() {
         <Route index element={<ProjectsPage />} />
         <Route path="projects/:id" element={<OverviewTab />} />
         <Route path="projects/:id/analytics" element={<AnalyticsTab />} />
-        <Route path="projects/:id/history" element={<HistoryTab />} />
         <Route path="projects/:id/reports/:reportId" element={<ReportViewerPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
