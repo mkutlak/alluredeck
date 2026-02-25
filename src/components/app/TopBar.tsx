@@ -15,6 +15,7 @@ import { useAuthStore } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
 import { env } from '@/lib/env'
+import { ProjectSelector } from './ProjectSelector'
 
 export function TopBar() {
   const { theme, setTheme } = useTheme()
@@ -48,6 +49,8 @@ export function TopBar() {
         <img src="/favicon.svg" alt="Allure" className="h-5 w-5" />
         <span className="text-sm">{env.appTitle}</span>
       </Link>
+
+      <ProjectSelector />
 
       <div className="flex-1" />
 

@@ -18,7 +18,7 @@ export function ReportViewerPage() {
       {/* Toolbar */}
       <div className="flex shrink-0 items-center gap-3 border-b bg-background px-4 py-2">
         <Button asChild variant="ghost" size="sm">
-          <Link to={`/projects/${projectId}`}>
+          <Link to={`/projects/${projectId}/history`}>
             <ChevronLeft size={14} />
             {projectId}
           </Link>

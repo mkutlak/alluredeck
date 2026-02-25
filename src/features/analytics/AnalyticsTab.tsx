@@ -1,0 +1,104 @@
+import { useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { fetchReportHistory } from '@/api/reports'
+import {
+  toStatusTrendData,
+  toPassRateTrendData,
+  toDurationTrendData,
+  toStatusPieData,
+} from '@/lib/chart-utils'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { StatusTrendChart } from './StatusTrendChart'
+import { PassRateTrendChart } from './PassRateTrendChart'
+import { DurationTrendChart } from './DurationTrendChart'
+import { StatusPieChart } from './StatusPieChart'
+
+export function AnalyticsTab() {
+  const { id: projectId } = useParams<{ id: string }>()
+
+  const { data: historyData, isLoading } = useQuery({
+    queryKey: ['report-history', projectId],
+    queryFn: () => fetchReportHistory(projectId!),
+    enabled: !!projectId,
+    staleTime: 10_000,
+  })
+
+  if (!projectId) return null
+
+  const reports = historyData?.reports ?? []
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-72 w-full rounded-lg" />
+        ))}
+      </div>
+    )
+  }
+
+  if (reports.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+        <p className="font-medium">No report data yet</p>
+        <p className="text-sm text-muted-foreground">
+          Generate a report to see analytics charts here.
+        </p>
+      </div>
+    )
+  }
+
+  const statusTrend = toStatusTrendData(reports)
+  const passRateTrend = toPassRateTrendData(reports)
+  const durationTrend = toDurationTrendData(reports)
+  const pieData = toStatusPieData(reports)
+  const total = reports[0]?.statistic?.total ?? 0
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <p className="text-sm text-muted-foreground">Analytics</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Status Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StatusTrendChart data={statusTrend} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Pass Rate Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PassRateTrendChart data={passRateTrend} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Duration Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DurationTrendChart data={durationTrend} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Latest Status Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StatusPieChart data={pieData} total={total} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
