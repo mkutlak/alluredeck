@@ -1,0 +1,82 @@
+# GitHub Actions workflow example: run tests and publish results to Allure Docker Service.
+#
+# Prerequisites:
+#   - Allure Docker Service is running and reachable from your runner.
+#   - If security is enabled, store credentials in GitHub repository secrets:
+#       ALLURE_USERNAME, ALLURE_PASSWORD
+#
+# Adjust the 'Run tests' step to match your test framework and tool.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      ALLURE_SERVER: http://your-allure-host:5050   # Change to your Allure service URL
+      ALLURE_PROJECT_ID: ${{ github.repository_id }} # Use repo ID or a fixed project name
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Run your tests (replace with your actual test command) ---
+      - name: Run tests
+        run: |
+          # Example: pytest --alluredir=allure-results
+          # Example: mvn test
+          # Example: npx playwright test
+          echo "Replace this with your test command"
+        continue-on-error: true  # Always send results even on test failure
+
+      # --- Send results to Allure Docker Service ---
+      - name: Send results to Allure
+        env:
+          ALLURE_USERNAME: ${{ secrets.ALLURE_USERNAME }}
+          ALLURE_PASSWORD: ${{ secrets.ALLURE_PASSWORD }}
+          ALLURE_RESULTS_DIR: allure-results
+          EXECUTION_NAME: "${{ github.workflow }} #${{ github.run_number }}"
+          EXECUTION_FROM: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          EXECUTION_TYPE: github
+        run: |
+          # Collect files
+          FILES=""
+          for f in allure-results/*; do
+            [ -f "$f" ] && FILES="$FILES -F files[]=@$f"
+          done
+
+          # Login if credentials provided
+          AUTH_HEADER=""
+          if [ -n "$ALLURE_USERNAME" ] && [ -n "$ALLURE_PASSWORD" ]; then
+            TOKEN=$(curl -sf -X POST "$ALLURE_SERVER/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"username\":\"$ALLURE_USERNAME\",\"password\":\"$ALLURE_PASSWORD\"}" \
+              | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
+            AUTH_HEADER="Authorization: Bearer $TOKEN"
+          fi
+
+          # Send results
+          CURL_AUTH=""
+          [ -n "$AUTH_HEADER" ] && CURL_AUTH="-H \"$AUTH_HEADER\""
+          eval curl -sf -X POST \"$ALLURE_SERVER/send-results?project_id=$ALLURE_PROJECT_ID\" \
+            -H \"Content-Type: multipart/form-data\" \
+            $CURL_AUTH $FILES
+
+          # Generate report
+          ENC_NAME=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$EXECUTION_NAME")
+          ENC_FROM=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$EXECUTION_FROM")
+          RESPONSE=$(eval curl -sf -X POST \
+            \"$ALLURE_SERVER/generate-report?project_id=$ALLURE_PROJECT_ID&execution_name=$ENC_NAME&execution_from=$ENC_FROM&execution_type=$EXECUTION_TYPE\" \
+            $CURL_AUTH)
+
+          REPORT_URL=$(echo "$RESPONSE" | grep -o '"report_url":"[^"]*' | cut -d'"' -f4)
+          echo "Allure Report: $REPORT_URL"
+          echo "ALLURE_REPORT_URL=$REPORT_URL" >> $GITHUB_ENV
+
+      - name: Report URL summary
+        run: echo "### Allure Report" >> $GITHUB_STEP_SUMMARY && echo "$ALLURE_REPORT_URL" >> $GITHUB_STEP_SUMMARY

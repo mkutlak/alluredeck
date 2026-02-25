@@ -1,0 +1,32 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+.github
+
+# Local development tools
+.omc
+.claude
+
+# Local environment and runtime data
+.env
+.env.local
+.data
+
+# Build artifacts (rebuilt inside Docker)
+allure-docker-api/bin
+
+# Tests, docs, and non-production resources
+tests
+resources
+examples
+docs
+CLAUDE.md
+Makefile
+
+# CI/CD config (not needed in image)
+.golangci.yml
+
+# OS
+.DS_Store
+Thumbs.db

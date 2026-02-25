@@ -1,0 +1,2 @@
+port: "7777"
+keep_history: true

@@ -1,0 +1,34 @@
+port: "9090"
+dev_mode: true
+security_enabled: true
+security_user: "yaml-admin"
+security_pass: "yaml-pass"
+viewer_user: "yaml-viewer"
+viewer_pass: "yaml-viewpass"
+jwt_secret: "yaml-jwt-secret-that-is-long-enough"
+make_viewer_endpoints_public: true
+allure_version_path: "/yaml-version"
+static_content_path: "/yaml/static"
+projects_directory: "/yaml/projects"
+check_results_secs: "5"
+keep_history: true
+keep_history_latest: 50
+tls: true
+url_prefix: "/allure"
+api_response_less_verbose: true
+optimize_storage: true
+legacy_ui: true
+cors_allowed_origins:
+  - "https://a.example.com"
+  - "https://b.example.com"
+access_token_expiry_secs: 1800
+refresh_token_expiry_secs: 86400
+database_path: "/yaml/allure.db"
+storage_type: "s3"
+s3_endpoint: "http://minio-test:9000"
+s3_bucket: "test-bucket"
+s3_region: "eu-central-1"
+s3_access_key: "test-access-key"
+s3_secret_key: "test-secret-key"
+s3_use_ssl: true
+s3_path_style: true

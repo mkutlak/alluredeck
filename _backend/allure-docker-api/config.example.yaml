@@ -1,0 +1,145 @@
+# Allure Docker API - Example Configuration File
+#
+# Copy this file to config.yaml and adjust values as needed.
+# Precedence (highest wins): environment variables > this file > built-in defaults.
+#
+# Set CONFIG_FILE=/path/to/config.yaml to load this file.
+# Default location: /app/config.yaml
+#
+# Sensitive fields (passwords, secrets) should be set via environment variables
+# rather than stored in this file.
+
+# --- Server ---
+
+# TCP port the API server listens on.
+# Default: "5050"
+port: "5050"
+
+# Enable development mode (verbose logging, relaxed checks).
+# Default: false
+dev_mode: false
+
+# URL path prefix for all routes (e.g. "/allure").
+# Default: "" (no prefix)
+url_prefix: ""
+
+# Enable TLS. Requires TLS_CERT_FILE and TLS_KEY_FILE env vars.
+# Default: false
+tls: false
+
+# --- Security ---
+
+# Enable HTTP Basic / JWT authentication.
+# Default: false
+security_enabled: false
+
+# Admin credentials (used when security_enabled: true).
+# Prefer setting these via SECURITY_USER / SECURITY_PASS env vars.
+security_user: "CHANGE_ME"
+security_pass: "CHANGE_ME"
+
+# Read-only viewer credentials.
+# Prefer setting these via SECURITY_VIEWER_USER / SECURITY_VIEWER_PASS env vars.
+viewer_user: "CHANGE_ME"
+viewer_pass: "CHANGE_ME"
+
+# JWT signing secret. MUST be changed in production when security_enabled: true.
+# Prefer setting via JWT_SECRET_KEY env var.
+jwt_secret: "CHANGE_ME"
+
+# JWT access token lifetime in seconds. Default: 900 (15 minutes).
+access_token_expiry_secs: 900
+
+# JWT refresh token lifetime in seconds. Default: 2592000 (30 days).
+refresh_token_expiry_secs: 2592000
+
+# When true, viewer-role endpoints require no authentication.
+# Default: false
+make_viewer_endpoints_public: false
+
+# --- Storage ---
+
+# Directory where Allure project results and reports are stored.
+# Default: "/app/projects"
+projects_directory: "/app/projects"
+
+# Path for the SQLite metadata database.
+# Default: "/app/allure.db"
+database_path: "/app/allure.db"
+
+# Retain report history between builds.
+# Default: false
+keep_history: false
+
+# Number of historical reports to retain per project.
+# Default: 20
+keep_history_latest: 20
+
+# --- Report generation ---
+
+# Seconds between automatic result scans. Use "NONE" to disable the watcher.
+# Default: "1"
+check_results_secs: "1"
+
+# Path to the allure version endpoint.
+# Default: "/version"
+allure_version_path: "/version"
+
+# Directory for static UI assets.
+# Default: "/app/static"
+static_content_path: "/app/static"
+
+# --- UI / API behaviour ---
+
+# Return minimal JSON responses from the API.
+# Default: false
+api_response_less_verbose: false
+
+# Use the legacy Allure 2 UI instead of the default UI.
+# Default: false
+legacy_ui: false
+
+# Kept for API response compatibility; has no effect in the Go runtime.
+# Default: false
+optimize_storage: false
+
+# --- S3/MinIO Storage (optional) ---
+
+# Backend storage type: "local" (filesystem) or "s3" (S3/MinIO).
+# Default: "local"
+# storage_type: "local"
+
+# S3/MinIO endpoint URL.
+# MinIO local: "http://minio:9000"
+# AWS S3: "https://s3.amazonaws.com"
+# Required when storage_type: "s3"
+# s3_endpoint: ""
+
+# S3 bucket name. Required when storage_type: "s3".
+# s3_bucket: ""
+
+# AWS region. Default: "us-east-1"
+# s3_region: "us-east-1"
+
+# S3 access key ID. Prefer setting via S3_ACCESS_KEY env var.
+# s3_access_key: ""
+
+# S3 secret access key. MUST be set via S3_SECRET_KEY env var in production.
+# s3_secret_key: ""
+
+# Enable TLS for S3 connections.
+# Default: false
+# s3_use_ssl: false
+
+# Use path-style S3 URLs (required for MinIO).
+# Default: false
+# s3_path_style: false
+
+# --- CORS ---
+
+# List of allowed origins for Cross-Origin Resource Sharing.
+# Overridden by the CORS_ALLOWED_ORIGINS environment variable (comma-separated).
+# Default: [] (CORS disabled)
+cors_allowed_origins: []
+#  - "https://dashboard.example.com"
+#  - "https://ci.example.com"
