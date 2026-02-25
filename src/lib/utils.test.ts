@@ -14,7 +14,8 @@ describe('cn', () => {
   })
 
   it('handles conditional classes', () => {
-    expect(cn('base', false && 'skipped', 'included')).toBe('base included')
+    const skip = false
+    expect(cn('base', skip && 'skipped', 'included')).toBe('base included')
   })
 
   it('handles tailwind conflicts by keeping last', () => {
