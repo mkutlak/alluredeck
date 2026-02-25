@@ -42,9 +42,9 @@ api-run: api-build ## Build and run API locally
 api-build-static: ## Build static API binary (matches Docker)
 	cd $(GODIR) && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
 		-ldflags="-s -w \
-		  -X main.buildDate=$(BUILD_DATE) \
-		  -X main.buildVersion=$(BUILD_VERSION) \
-		  -X main.buildRef=$(BUILD_REF)" \
+		  -X github.com/mkutlak/alluredeck/api/internal/version.BuildDate=$(BUILD_DATE) \
+		  -X github.com/mkutlak/alluredeck/api/internal/version.Version=$(BUILD_VERSION) \
+		  -X github.com/mkutlak/alluredeck/api/internal/version.BuildRef=$(BUILD_REF)" \
 		-o bin/$(BINARY_NAME) ./cmd/api/
 
 api-test: ## Run API tests

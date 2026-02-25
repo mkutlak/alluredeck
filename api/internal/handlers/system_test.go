@@ -46,4 +46,13 @@ func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 	if resp.Data.CheckResultsEverySeconds != "5" {
 		t.Errorf("handler returned unexpected CheckResultsEverySeconds: got %v want 5", resp.Data.CheckResultsEverySeconds)
 	}
+	if resp.Data.AppVersion == "" {
+		t.Error("handler returned empty AppVersion")
+	}
+	if resp.Data.AppBuildDate == "" {
+		t.Error("handler returned empty AppBuildDate")
+	}
+	if resp.Data.AppBuildRef == "" {
+		t.Error("handler returned empty AppBuildRef")
+	}
 }

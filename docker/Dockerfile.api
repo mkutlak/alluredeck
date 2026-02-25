@@ -6,12 +6,20 @@ ARG GID=1000
 
 ###### Go Build Stage
 FROM golang:1.25-alpine AS build_stage
+ARG BUILD_DATE
+ARG BUILD_VERSION
+ARG BUILD_REF
 WORKDIR /build
 COPY api/go.mod api/go.sum ./
 RUN go mod download
 COPY api/ ./
-# Build the Go binary statically
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o alluredeck-api ./cmd/api/
+# Build the Go binary statically with version injection
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+    -ldflags="-s -w \
+      -X github.com/mkutlak/alluredeck/api/internal/version.Version=${BUILD_VERSION:-dev} \
+      -X github.com/mkutlak/alluredeck/api/internal/version.BuildDate=${BUILD_DATE:-unknown} \
+      -X github.com/mkutlak/alluredeck/api/internal/version.BuildRef=${BUILD_REF:-unknown}" \
+    -o alluredeck-api ./cmd/api/
 
 ###### Final Image
 # Use TARGETPLATFORM so cross-compilation builds the correct architecture image

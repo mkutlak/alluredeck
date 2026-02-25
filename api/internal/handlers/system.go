@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/version"
 )
 
 // SystemHandler handles HTTP requests for system-level endpoints (version, config).
@@ -74,6 +75,9 @@ type ConfigData struct {
 	APIRespLessVerbose       int    `json:"api_response_less_verbose"`
 	OptimizeStorage          int    `json:"optimize_storage"`
 	MakeViewerEndptsPub      int    `json:"make_viewer_endpoints_public"`
+	AppVersion               string `json:"app_version"`
+	AppBuildDate             string `json:"app_build_date"`
+	AppBuildRef              string `json:"app_build_ref"`
 }
 
 // ConfigMetaData holds the response message for config responses.
@@ -103,6 +107,9 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 			APIRespLessVerbose:       btoi(h.cfg.APIRespLessVerbose),
 			OptimizeStorage:          btoi(h.cfg.OptimizeStorage),
 			MakeViewerEndptsPub:      btoi(h.cfg.MakeViewerEndptsPub),
+			AppVersion:               version.Version,
+			AppBuildDate:             version.BuildDate,
+			AppBuildRef:              version.BuildRef,
 		},
 		MetaData: ConfigMetaData{Message: "Config successfully obtained"},
 	})

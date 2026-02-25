@@ -36,6 +36,9 @@ coverage/
 # Oh-My-Claude
 .omc/
 
+# Semantic-release temp file
+.VERSION
+
 # IDE
 .idea/
 .vscode/
