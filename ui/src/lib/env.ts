@@ -8,5 +8,5 @@ export const env = {
   appTitle:
     window.__env__?.VITE_APP_TITLE && !window.__env__.VITE_APP_TITLE.startsWith('$')
       ? window.__env__.VITE_APP_TITLE
-      : (import.meta.env.VITE_APP_TITLE ?? 'Allure Dashboard'),
+      : (import.meta.env.VITE_APP_TITLE ?? 'AllureDeck'),
 } as const

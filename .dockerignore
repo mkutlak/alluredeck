@@ -9,10 +9,11 @@
 .claude
 
 # Dependencies (reinstalled during build)
-node_modules
+ui/node_modules
 
 # Build output (rebuilt during build)
-dist
+ui/dist
+api/bin
 
 # Test coverage
 coverage
@@ -21,8 +22,12 @@ coverage
 *.tsbuildinfo
 
 # Environment files (may contain secrets)
+.env
 .env.local
 .env.*.local
+
+# Runtime data
+.data
 
 # Caches
 .vite
@@ -33,6 +38,9 @@ docs
 README.md
 CLAUDE.md
 Makefile
+
+# Go lint config
+.golangci.yml
 
 # OS
 .DS_Store

@@ -4,7 +4,7 @@
 set -eu
 
 VITE_API_URL="${VITE_API_URL:-http://localhost:5050}"
-VITE_APP_TITLE="${VITE_APP_TITLE:-Allure Dashboard}"
+VITE_APP_TITLE="${VITE_APP_TITLE:-AllureDeck}"
 
 export VITE_API_URL VITE_APP_TITLE
 

@@ -1,9 +1,0 @@
-basePath: /
-host: localhost:5050
-info:
-  contact: {}
-  description: This is an API service for managing Allure reports.
-  title: Allure Docker Service API
-  version: "2.0"
-paths: {}
-swagger: "2.0"

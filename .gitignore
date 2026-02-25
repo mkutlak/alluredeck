@@ -1,8 +1,17 @@
-# Dependencies
-node_modules/
+# Go build artifacts
+api/bin/
 
-# Build output
-dist/
+# Go coverage
+*.out
+
+# Go swagger security (may contain secrets)
+api/static/swagger/swagger_security.json
+
+# Node dependencies
+ui/node_modules/
+
+# Frontend build output
+ui/dist/
 
 # TypeScript build info
 *.tsbuildinfo
@@ -11,8 +20,12 @@ dist/
 coverage/
 
 # Environment files (may contain secrets)
+.env
 .env.local
 .env.*.local
+
+# Runtime data
+.data/
 
 # Vite dev cache
 .vite/

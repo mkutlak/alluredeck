@@ -50,7 +50,7 @@ export function LoginPage() {
           <div className="mb-2 flex justify-center">
             <img src="/favicon.svg" alt="Allure" className="h-10 w-10" />
           </div>
-          <CardTitle className="text-2xl">Allure Dashboard</CardTitle>
+          <CardTitle className="text-2xl">AllureDeck</CardTitle>
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
