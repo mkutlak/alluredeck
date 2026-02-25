@@ -1,5 +1,6 @@
 services:
   allure-dashboard-ui:
+    image: allure-dashboard-ui:dev-api
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -13,6 +14,7 @@ services:
     restart: unless-stopped
 
   allure-api:
+    image: allure-docker-service:dev-ui
     build:
       context: ../allure-docker-service
       dockerfile: docker/Dockerfile
