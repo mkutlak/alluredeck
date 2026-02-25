@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { Moon, Sun, LogOut, User } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useMutation, useQueryClient } from '@tanstack/react-query'

@@ -1,4 +1,4 @@
-import { Outlet, useMatch, useParams } from 'react-router-dom'
+import { Outlet, useMatch, useParams } from 'react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TopBar } from './TopBar'
 import { ProjectTabBar } from './ProjectTabBar'

@@ -1,13 +1,13 @@
 # ============================================================
 # Stage 1 — build
 # ============================================================
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
 # Install dependencies first (layer-cached unless lockfile changes)
 COPY package.json package-lock.json* ./
-RUN npm ci --prefer-offline
+RUN npm ci --prefer-offline --legacy-peer-deps
 
 # Copy source and build
 COPY . .
@@ -23,7 +23,7 @@ RUN npm run build
 # ============================================================
 # Stage 2 — serve
 # ============================================================
-FROM nginx:1.27-alpine AS runner
+FROM nginx:1.29-alpine AS runner
 
 # Remove default nginx config and copy ours
 RUN rm /etc/nginx/conf.d/default.conf

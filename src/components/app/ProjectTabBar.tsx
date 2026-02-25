@@ -1,4 +1,4 @@
-import { NavLink, useParams } from 'react-router-dom'
+import { NavLink, useParams } from 'react-router'
 import { cn } from '@/lib/utils'
 
 const tabClass = ({ isActive }: { isActive: boolean }) =>

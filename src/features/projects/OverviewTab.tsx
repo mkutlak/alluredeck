@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, FileText, Upload, Play, Trash2, CheckCircle2, XCircle, Clock, BarChart3 } from 'lucide-react'
 import { useState } from 'react'

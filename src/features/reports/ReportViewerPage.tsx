@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 import { ChevronLeft, ExternalLink, FileText } from 'lucide-react'
 import { env } from '@/lib/env'
 import { getEmailableReportUrl } from '@/api/reports'

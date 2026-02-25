@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router'
 import { useAuthStore } from '@/store/auth'
 
 interface AuthGuardProps {
@@ -10,6 +10,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const expiresAt = useAuthStore((s) => s.expiresAt)
   const location = useLocation()
 
+  // eslint-disable-next-line react-hooks/purity -- intentional: session expiry must reflect current time on each render
   const sessionValid = isAuthenticated && (expiresAt === null || expiresAt > Date.now())
 
   if (!sessionValid) {
