@@ -1,6 +1,4 @@
-ARG BUILD_DATE
-ARG BUILD_VERSION
-ARG BUILD_REF
+# syntax=docker/dockerfile:1
 ARG UID=1000
 ARG GID=1000
 
@@ -11,46 +9,41 @@ ARG BUILD_VERSION
 ARG BUILD_REF
 WORKDIR /build
 COPY api/go.mod api/go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 COPY api/ ./
 # Build the Go binary statically with version injection
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -installsuffix cgo \
     -ldflags="-s -w \
       -X github.com/mkutlak/alluredeck/api/internal/version.Version=${BUILD_VERSION:-dev} \
       -X github.com/mkutlak/alluredeck/api/internal/version.BuildDate=${BUILD_DATE:-unknown} \
       -X github.com/mkutlak/alluredeck/api/internal/version.BuildRef=${BUILD_REF:-unknown}" \
     -o alluredeck-api ./cmd/api/
 
+###### Allure Install Stage
+FROM node:25-alpine AS allure_stage
+ARG ALLURE_RELEASE=3
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g allure@${ALLURE_RELEASE}
+
 ###### Final Image
 # Use TARGETPLATFORM so cross-compilation builds the correct architecture image
 FROM --platform=$TARGETPLATFORM node:25-alpine
-ARG BUILD_DATE
-ARG BUILD_VERSION
-ARG BUILD_REF
 ARG UID=1000
 ARG GID=1000
 
-LABEL org.label-schema.build-date=${BUILD_DATE} \
-    org.label-schema.docker.dockerfile="docker/Dockerfile.api" \
-    org.label-schema.license="MIT" \
-    org.label-schema.name="AllureDeck" \
-    org.label-schema.version=${BUILD_VERSION} \
-    org.label-schema.description="Allure Framework is a flexible lightweight multi-language test report tool." \
-    org.label-schema.url="https://allurereport.org/docs/" \
-    org.label-schema.vcs-ref=${BUILD_REF} \
-    org.label-schema.vcs-type="Git" \
-    org.label-schema.vcs-url="https://github.com/mkutlak/alluredeck" \
-    org.label-schema.arch=${TARGETPLATFORM}
-
-# Pin allure to a specific major version to ensure reproducible builds.
-# Update this pin deliberately when upgrading Allure.
-ARG ALLURE_RELEASE=3
 RUN apk update && \
     apk add --no-cache \
-    tzdata \
-    curl && \
-    npm install -g allure@${ALLURE_RELEASE} && \
+    ca-certificates \
+    tzdata && \
     mkdir -p /app
+
+# Copy pre-installed allure CLI from build stage (avoids ~110MB npm cache bloat)
+COPY --from=allure_stage /usr/local/lib/node_modules/allure /usr/local/lib/node_modules/allure
+RUN ln -s /usr/local/lib/node_modules/allure/cli.js /usr/local/bin/allure \
+    && chmod +x /usr/local/bin/allure
 
 RUN deluser --remove-home node || true && \
     adduser -D -u ${UID} -h /home/allure allure && \
@@ -72,10 +65,15 @@ ENV ALLURE_VERSION_FILE=${ROOT}/version
 ENV ALLURE_NO_ANALYTICS=1
 ENV CI=true
 
+# Directory structure, symlinks, and allure version file (consolidated layer)
 RUN echo -n $(allure --version) > ${ALLURE_VERSION_FILE} && \
     echo "ALLURE_VERSION: "$(cat ${ALLURE_VERSION_FILE}) && \
     ln -s ${STATIC_CONTENT_PROJECTS} ${ROOT}/projects && \
-    ln -s ${DEFAULT_PROJECT_REPORTS} ${ROOT}/default-reports
+    ln -s ${DEFAULT_PROJECT_REPORTS} ${ROOT}/default-reports && \
+    mkdir ${RESULTS_DIRECTORY} && \
+    mkdir -p ${DEFAULT_PROJECT_REPORTS}/latest && \
+    ln -sf ${RESULTS_DIRECTORY} ${DEFAULT_PROJECT_RESULTS} && \
+    ln -sf ${DEFAULT_PROJECT_REPORTS}/latest ${REPORT_DIRECTORY}
 
 WORKDIR ${ROOT}
 
@@ -85,21 +83,29 @@ COPY --from=build_stage --chown=${UID}:${GID} /build/alluredeck-api ${ROOT}/allu
 # Copy static contents (swagger UI, etc.)
 COPY --chown=${UID}:${GID} api/static ${STATIC_CONTENT}
 
-RUN mkdir ${RESULTS_DIRECTORY} && \
-    mkdir -p ${DEFAULT_PROJECT_REPORTS}/latest && \
-    ln -sf ${RESULTS_DIRECTORY} ${DEFAULT_PROJECT_RESULTS} && \
-    ln -sf ${DEFAULT_PROJECT_REPORTS}/latest ${REPORT_DIRECTORY}
-
 RUN chown -R ${UID}:${GID} ${ROOT}
+
+# Volatile build metadata — placed last to avoid busting layer cache
+ARG BUILD_DATE
+ARG BUILD_VERSION
+ARG BUILD_REF
+LABEL org.label-schema.build-date=${BUILD_DATE} \
+    org.label-schema.docker.dockerfile="docker/Dockerfile.api" \
+    org.label-schema.license="MIT" \
+    org.label-schema.name="AllureDeck" \
+    org.label-schema.version=${BUILD_VERSION} \
+    org.label-schema.description="Allure Framework is a flexible lightweight multi-language test report tool." \
+    org.label-schema.url="https://allurereport.org/docs/" \
+    org.label-schema.vcs-ref=${BUILD_REF} \
+    org.label-schema.vcs-type="Git" \
+    org.label-schema.vcs-url="https://github.com/mkutlak/alluredeck" \
+    org.label-schema.arch=${TARGETPLATFORM}
 
 VOLUME ["/app/allure-results"]
 
 ENV PORT=8080
 
 EXPOSE $PORT
-
-HEALTHCHECK --interval=10s --timeout=60s --retries=3 \
-    CMD curl -f http://localhost:$PORT/version || exit 1
 
 USER allure
 
