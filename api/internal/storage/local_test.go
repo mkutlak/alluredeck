@@ -680,7 +680,7 @@ func TestLocalStore_OpenReportFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenReportFile: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {

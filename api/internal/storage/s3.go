@@ -588,7 +588,7 @@ func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error
 	if err != nil {
 		return nil, fmt.Errorf("get object %q: %w", key, err)
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	data, err := io.ReadAll(out.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read object %q: %w", key, err)

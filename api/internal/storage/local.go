@@ -115,7 +115,7 @@ func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, filename str
 	if err != nil {
 		return fmt.Errorf("create result file %q: %w", dest, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := io.Copy(f, r); err != nil {
 		return fmt.Errorf("write result file %q: %w", dest, err)
 	}
@@ -492,7 +492,7 @@ func (ls *LocalStore) ResultsDirHash(_ context.Context, projectID string) (strin
 
 	h := sha256.New()
 	for _, f := range files {
-		fmt.Fprintf(h, "%s:%d:%d\n", f.name, f.size, f.modTime)
+		_, _ = fmt.Fprintf(h, "%s:%d:%d\n", f.name, f.size, f.modTime)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -508,7 +508,7 @@ func removeDirContents(dir string) error {
 		}
 		return fmt.Errorf("open source dir %q: %w", dir, err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	names, err := d.Readdirnames(-1)
 	if err != nil {
 		return fmt.Errorf("list entries in %q: %w", dir, err)
@@ -572,13 +572,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open source file %q: %w", src, err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination file %q: %w", dst, err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err = io.Copy(out, in); err != nil {
 		return fmt.Errorf("copy %q to %q: %w", src, dst, err)
@@ -601,7 +601,7 @@ func isDirEmpty(name string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("open dir %q: %w", name, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = f.Readdirnames(1)
 	if errors.Is(err, io.EOF) {

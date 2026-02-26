@@ -41,7 +41,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open database at %s: %v", cfg.DatabasePath, err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	projectStore := store.NewProjectStore(db)
 	buildStore := store.NewBuildStore(db)

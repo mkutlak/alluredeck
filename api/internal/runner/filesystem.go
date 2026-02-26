@@ -143,7 +143,7 @@ func removeDirContents(dir string) error {
 		}
 		return fmt.Errorf("open source dir %q: %w", dir, err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	names, err := d.Readdirnames(-1)
 	if err != nil {
 		return fmt.Errorf("list entries in %q: %w", dir, err)
@@ -207,13 +207,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open source file %q: %w", src, err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination file %q: %w", dst, err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err = io.Copy(out, in); err != nil {
 		return fmt.Errorf("copy %q to %q: %w", src, dst, err)

@@ -13,7 +13,7 @@ func TestFileSystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := &config.Config{
 		ProjectsDirectory: tmpDir,

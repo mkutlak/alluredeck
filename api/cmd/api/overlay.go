@@ -127,7 +127,7 @@ func newS3ReportHandler(st storage.Store) http.Handler {
 		// Try direct serve from the requested build dir
 		rc, contentType, err := st.OpenReportFile(r.Context(), projectID, reportID, filePath)
 		if err == nil {
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			w.Header().Set("Content-Type", contentType)
 			_, _ = io.Copy(w, rc)
 			return
@@ -137,7 +137,7 @@ func newS3ReportHandler(st storage.Store) http.Handler {
 		if isNumericID(reportID) {
 			rc, contentType, err = st.OpenReportFile(r.Context(), projectID, "latest", filePath)
 			if err == nil {
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				w.Header().Set("Content-Type", contentType)
 				_, _ = io.Copy(w, rc)
 				return

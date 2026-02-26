@@ -15,7 +15,7 @@ func TestOpen_CreatesDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	// Verify DB is usable.
 	var n int
@@ -30,7 +30,7 @@ func TestOpen_WALMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	var mode string
 	if err := s.DB().QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
@@ -56,7 +56,7 @@ func TestOpen_IdempotentMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Open (idempotent): %v", err)
 	}
-	defer s2.Close()
+	defer func() { _ = s2.Close() }()
 
 	// schema_version should have exactly one entry (migration 001).
 	var count int
@@ -74,7 +74,7 @@ func TestOpen_TablesExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	tables := []string{"projects", "builds", "jwt_blacklist", "schema_version"}
 	for _, tbl := range tables {

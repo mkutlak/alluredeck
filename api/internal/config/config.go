@@ -127,7 +127,7 @@ func LoadConfig() *Config {
 		ViewerPass:          getEnvOrYAML("SECURITY_VIEWER_PASS", yc.ViewerPass, ""),
 		JWTSecret:           jwtSecret,
 		MakeViewerEndptsPub: getEnvOrYAMLBool("MAKE_VIEWER_ENDPOINTS_PUBLIC", yc.MakeViewerEndptsPub),
-		AllureVersionPath:   getEnvOrYAML("ALLURE_VERSION", yc.AllureVersionPath, "/version"),
+		AllureVersionPath:   getEnvOrYAML("ALLURE_VERSION_FILE", yc.AllureVersionPath, "/app/version"),
 		StaticContentPath:   getEnvOrYAML("STATIC_CONTENT", yc.StaticContentPath, "/app/static"),
 		ProjectsDirectory:   getEnvOrYAML("STATIC_CONTENT_PROJECTS", yc.ProjectsDirectory, "/app/projects"),
 		CheckResultsSecs:    getEnvOrYAML("CHECK_RESULTS_EVERY_SECONDS", yc.CheckResultsSecs, "1"),

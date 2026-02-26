@@ -81,9 +81,10 @@ keep_history_latest: 20
 # Default: "1"
 check_results_secs: "1"
 
-# Path to the allure version endpoint.
-# Default: "/version"
-allure_version_path: "/version"
+# Path to the file containing the Allure CLI version string.
+# Env var: ALLURE_VERSION_FILE
+# Default: "/app/version"
+allure_version_path: "/app/version"
 
 # Directory for static UI assets.
 # Default: "/app/static"

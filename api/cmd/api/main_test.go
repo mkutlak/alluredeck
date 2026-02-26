@@ -21,7 +21,7 @@ func TestRegisterRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	blacklistStore := store.NewBlacklistStore(db)
 	buildStore := store.NewBuildStore(db)

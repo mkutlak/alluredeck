@@ -108,7 +108,7 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 	if err != nil {
 		return nil, fmt.Errorf("list builds: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var builds []Build
 	for rows.Next() {
@@ -176,7 +176,7 @@ func (bs *BuildStore) PruneBuilds(ctx context.Context, projectID string, keep in
 	if err != nil {
 		return nil, fmt.Errorf("prune builds query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var toRemove []int
 	for rows.Next() {
