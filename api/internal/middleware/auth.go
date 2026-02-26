@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -48,10 +49,11 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 
 			_, claims, err := jwtManager.ValidateToken(tokenStr, expectedType)
 			if err != nil {
+				log.Printf("auth: token validation failed: %v", err)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "Invalid token: " + err.Error()},
+					"meta_data": map[string]string{"message": "Invalid token"},
 				})
 				return
 			}
@@ -80,4 +82,46 @@ func extractToken(r *http.Request, cookieName string) string {
 func ClaimsFromContext(ctx context.Context) (jwt.MapClaims, bool) {
 	claims, ok := ctx.Value(ClaimsKey).(jwt.MapClaims)
 	return claims, ok
+}
+
+// roleLevel maps role names to a numeric hierarchy for comparison.
+// Higher values imply more permissions. Unknown roles get level 0.
+var roleLevel = map[string]int{
+	"viewer": 1,
+	"admin":  2,
+}
+
+// RequireRole returns middleware that enforces a minimum role level.
+// It reads the "role" claim from the JWT claims set by AuthMiddleware.
+// Returns 403 Forbidden if the user's role level is below the required level.
+func RequireRole(required string) func(http.HandlerFunc) http.HandlerFunc {
+	requiredLevel := roleLevel[required]
+
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := ClaimsFromContext(r.Context())
+			if !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"meta_data": map[string]string{"message": "Access denied: missing claims"},
+				})
+				return
+			}
+
+			userRole, _ := claims["role"].(string)
+			userLevel := roleLevel[userRole]
+
+			if userLevel < requiredLevel {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"meta_data": map[string]string{"message": "Access denied: insufficient permissions"},
+				})
+				return
+			}
+
+			next(w, r)
+		}
+	}
 }

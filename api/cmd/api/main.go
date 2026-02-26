@@ -105,13 +105,20 @@ func main() {
 	mux.Handle("/api/v1/projects/", http.StripPrefix("/api/v1/projects/", reportHandler))
 	mux.Handle("/projects/", http.StripPrefix("/projects/", reportHandler))
 
-	registerRoutes(mux, "", cfg, jwtManager, systemHandler, authHandler, allureHandler)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, systemHandler, authHandler, allureHandler)
+	// Rate limiter for login endpoint — 5 req/s, burst 10, 15min stale TTL (REVIEW #8).
+	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
+	limiterDone := make(chan struct{})
+	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	// Chain middleware: Recovery → SecurityHeaders → CORS → mux (AUDIT 3.1, 2.6).
+	registerRoutes(mux, "", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
+
+	// Chain middleware: Recovery → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11).
 	handler := middleware.Recovery(
 		middleware.SecurityHeaders(
-			middleware.CORSMiddleware(cfg, mux),
+			middleware.CSRFMiddleware(cfg)(
+				middleware.CORSMiddleware(cfg, mux),
+			),
 		),
 	)
 
@@ -144,14 +151,16 @@ func main() {
 		}
 	}()
 
-	awaitShutdown(ctx, srv, backgroundWatcher, cfg)
+	awaitShutdown(ctx, srv, backgroundWatcher, cfg, limiterDone)
 }
 
 // awaitShutdown waits for the context to be cancelled then drains the HTTP
 // server and stops the background watcher before returning.
-func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, cfg *config.Config) {
+func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, cfg *config.Config, limiterDone chan struct{}) {
 	<-ctx.Done()
 	log.Println("Shutdown signal received, draining connections...")
+
+	close(limiterDone) // stop rate limiter cleanup goroutine
 
 	if cfg.StorageType != "s3" {
 		watcher.Stop()
@@ -187,6 +196,7 @@ func registerRoutes(
 	prefix string,
 	cfg *config.Config,
 	jwtManager *security.JWTManager,
+	loginLimiter *middleware.IPRateLimiter,
 	system *handlers.SystemHandler,
 	authHandler *handlers.AuthHandler,
 	allure *handlers.AllureHandler,
@@ -194,20 +204,39 @@ func registerRoutes(
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false)(h)
 	}
+	rateLimit := middleware.RateLimitMiddleware(loginLimiter)
 
+	// RBAC wrappers (REVIEW #9): auth + role enforcement.
+	adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
+		return auth(middleware.RequireRole("admin")(h))
+	}
+	// viewerUp: when MakeViewerEndptsPub is true, these endpoints are public (no auth).
+	viewerUp := func(h http.HandlerFunc) http.HandlerFunc {
+		if cfg.MakeViewerEndptsPub {
+			return h
+		}
+		return auth(middleware.RequireRole("viewer")(h))
+	}
+
+	// Public endpoints
 	mux.HandleFunc("GET "+prefix+"/version", system.Version)
 	mux.HandleFunc("GET "+prefix+"/config", system.ConfigEndpoint)
-	mux.HandleFunc("POST "+prefix+"/login", authHandler.Login)
+	mux.HandleFunc("POST "+prefix+"/login", rateLimit(authHandler.Login))
+
+	// Auth only (no specific role required)
 	mux.HandleFunc("DELETE "+prefix+"/logout", auth(authHandler.Logout))
 
-	mux.HandleFunc("POST "+prefix+"/projects", auth(allure.CreateProject))
-	mux.HandleFunc("GET "+prefix+"/projects", auth(allure.GetProjects))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", auth(allure.DeleteProject))
-	mux.HandleFunc("POST "+prefix+"/generate-report", auth(allure.GenerateReport))
-	mux.HandleFunc("GET "+prefix+"/clean-history", auth(allure.CleanHistory))
-	mux.HandleFunc("GET "+prefix+"/clean-results", auth(allure.CleanResults))
-	mux.HandleFunc("POST "+prefix+"/send-results", auth(allure.SendResults))
-	mux.HandleFunc("GET "+prefix+"/emailable-report/render", auth(allure.GetEmailableReport))
-	mux.HandleFunc("GET "+prefix+"/report-history", auth(allure.GetReportHistory))
-	mux.HandleFunc("DELETE "+prefix+"/report", auth(allure.DeleteReport))
+	// Viewer+ endpoints (public when MakeViewerEndptsPub=true)
+	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(allure.GetProjects))
+	mux.HandleFunc("GET "+prefix+"/emailable-report/render", viewerUp(allure.GetEmailableReport))
+	mux.HandleFunc("GET "+prefix+"/report-history", viewerUp(allure.GetReportHistory))
+
+	// Admin only endpoints
+	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(allure.CreateProject))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(allure.DeleteProject))
+	mux.HandleFunc("POST "+prefix+"/generate-report", adminOnly(allure.GenerateReport))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/history", adminOnly(allure.CleanHistory))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(allure.CleanResults))
+	mux.HandleFunc("POST "+prefix+"/send-results", adminOnly(allure.SendResults))
+	mux.HandleFunc("DELETE "+prefix+"/report", adminOnly(allure.DeleteReport))
 }

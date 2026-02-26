@@ -5,9 +5,11 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/handlers"
+	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
@@ -35,9 +37,11 @@ func TestRegisterRoutes(t *testing.T) {
 	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, localStore)
 
+	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
+
 	mux := http.NewServeMux()
-	registerRoutes(mux, "", cfg, jwtManager, systemHandler, authHandler, allureHandler)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, systemHandler, authHandler, allureHandler)
+	registerRoutes(mux, "", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
 
 	tests := []struct {
 		method string
@@ -46,6 +50,10 @@ func TestRegisterRoutes(t *testing.T) {
 		{"GET", "/version"},
 		{"GET", "/config"},
 		{"POST", "/login"},
+		{"DELETE", "/projects/testproj/history"},
+		{"DELETE", "/projects/testproj/results"},
+		{"DELETE", "/api/v1/projects/testproj/history"},
+		{"DELETE", "/api/v1/projects/testproj/results"},
 		{"GET", "/api/v1/version"},
 	}
 

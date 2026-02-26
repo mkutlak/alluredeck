@@ -43,8 +43,9 @@ func NewJWTManager(cfg *config.Config, blacklist BlacklistStore) *JWTManager {
 	}
 }
 
-// GenerateTokens creates access and refresh tokens with JTI claims for revocation support
-func (m *JWTManager) GenerateTokens(username string) (accessToken, refreshToken string, err error) {
+// GenerateTokens creates access and refresh tokens with JTI claims for revocation support.
+// The role is embedded in the access token claims for RBAC enforcement (REVIEW #9).
+func (m *JWTManager) GenerateTokens(username, role string) (accessToken, refreshToken string, err error) {
 	accessJTI, err := generateJTI()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate access token JTI: %w", err)
@@ -58,6 +59,7 @@ func (m *JWTManager) GenerateTokens(username string) (accessToken, refreshToken 
 
 	accessClaims := jwt.MapClaims{
 		"sub":  username,
+		"role": role,
 		"type": "access",
 		"jti":  accessJTI,
 		"exp":  jwt.NewNumericDate(now.Add(m.cfg.AccessTokenExpiry)),

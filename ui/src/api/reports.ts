@@ -19,16 +19,16 @@ export async function generateReport(
 }
 
 export async function cleanHistory(projectId: string): Promise<ApiResponse<{ output: string }>> {
-  const res = await apiClient.get<ApiResponse<{ output: string }>>('/clean-history', {
-    params: { project_id: projectId },
-  })
+  const res = await apiClient.delete<ApiResponse<{ output: string }>>(
+    `/projects/${encodeURIComponent(projectId)}/history`,
+  )
   return res.data
 }
 
 export async function cleanResults(projectId: string): Promise<ApiResponse<{ output: string }>> {
-  const res = await apiClient.get<ApiResponse<{ output: string }>>('/clean-results', {
-    params: { project_id: projectId },
-  })
+  const res = await apiClient.delete<ApiResponse<{ output: string }>>(
+    `/projects/${encodeURIComponent(projectId)}/results`,
+  )
   return res.data
 }
 

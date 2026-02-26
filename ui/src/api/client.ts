@@ -23,11 +23,27 @@ export const apiClient = axios.create({
   withCredentials: true, // send httpOnly cookies automatically
 })
 
-// Attach Bearer token when available
+// Read csrf_token cookie for double-submit CSRF pattern (REVIEW #11).
+function getCSRFToken(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+// Attach Bearer token and CSRF header when available
 apiClient.interceptors.request.use((config) => {
   if (_accessToken) {
     config.headers.Authorization = `Bearer ${_accessToken}`
   }
+
+  // Set CSRF header for state-changing methods
+  const method = config.method?.toUpperCase()
+  if (method && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+    const csrfToken = getCSRFToken()
+    if (csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken
+    }
+  }
+
   return config
 })
 

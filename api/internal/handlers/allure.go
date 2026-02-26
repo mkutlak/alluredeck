@@ -249,8 +249,16 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, r.URL.Query().Get("project_id"))
+	raw := r.PathValue("project_id")
+	projectID, err := url.PathUnescape(raw)
 	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"meta_data": map[string]string{"message": "invalid project_id encoding"},
+		})
+		return
+	}
+	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"meta_data": map[string]string{"message": err.Error()},
@@ -276,8 +284,16 @@ func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, r.URL.Query().Get("project_id"))
+	raw := r.PathValue("project_id")
+	projectID, err := url.PathUnescape(raw)
 	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"meta_data": map[string]string{"message": "invalid project_id encoding"},
+		})
+		return
+	}
+	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"meta_data": map[string]string{"message": err.Error()},
@@ -581,10 +597,8 @@ func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx := context.Background()
-
 	// Fetch numbered builds from DB (sorted descending by build_order).
-	builds, err := h.buildStore.ListBuilds(ctx, projectID)
+	builds, err := h.buildStore.ListBuilds(r.Context(), projectID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -771,9 +785,9 @@ func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.runner.DeleteReport(projectID, reportID); err != nil {
 		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, storage.ErrReportNotFound) {
 			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "invalid") {
+		} else if errors.Is(err, storage.ErrReportIDEmpty) || errors.Is(err, storage.ErrReportIDInvalid) {
 			status = http.StatusBadRequest
 		}
 		w.WriteHeader(status)

@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 )
 
@@ -86,8 +88,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, refreshToken, err := h.jwtManager.GenerateTokens(username)
+	accessToken, refreshToken, err := h.jwtManager.GenerateTokens(username, roles[0])
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"meta_data": map[string]string{"message": "Failed to generate tokens"},
+		})
+		return
+	}
+
+	// Generate CSRF token for double-submit cookie pattern (REVIEW #11).
+	csrfToken, err := middleware.GenerateCSRFToken()
+	if err != nil {
+		log.Printf("auth: failed to generate CSRF token: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"meta_data": map[string]string{"message": "Failed to generate tokens"},
@@ -99,11 +112,22 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]any{
 			"access_token":  accessToken,
 			"refresh_token": refreshToken,
+			"csrf_token":    csrfToken,
 			"expires_in":    int(h.cfg.AccessTokenExpiry.Seconds()),
 			"roles":         roles,
 		},
 		"meta_data": map[string]string{"message": "Successfully logged"},
 	}
+
+	// CSRF cookie — HttpOnly=false so JavaScript can read it (REVIEW #11).
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    csrfToken,
+		HttpOnly: false, //nolint:gosec // intentionally readable by JS for double-submit pattern
+		Secure:   h.cfg.TLS,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
 
 	// SameSite: Lax prevents CSRF while allowing top-level navigation (AUDIT 1.1).
 	http.SetCookie(w, &http.Cookie{
@@ -155,7 +179,16 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		h.blacklistToken(refreshTokenStr, "refresh", h.cfg.RefreshTokenExpiry)
 	}
 
-	// Expire both cookies with SameSite: Lax (AUDIT 1.1).
+	// Expire all auth cookies with SameSite: Lax (AUDIT 1.1, REVIEW #11).
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    "",
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   h.cfg.TLS,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "jwt",
 		Value:    "",

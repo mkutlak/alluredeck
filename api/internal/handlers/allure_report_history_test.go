@@ -211,6 +211,31 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 	}
 }
 
+func TestGetReportHistory_CancelledContext(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "proj-cancel"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil { //nolint:gosec // G301: test fixture
+		t.Fatal(err)
+	}
+
+	h := newTestAllureHandler(t, projectsDir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately — handler should propagate this to DB queries
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/report-history?project_id="+projectID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	h.GetReportHistory(rr, req)
+
+	if rr.Code == http.StatusOK {
+		t.Errorf("expected non-200 status with cancelled context, got %d", rr.Code)
+	}
+}
+
 func TestGetReportHistory_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
 	h := newTestAllureHandler(t, projectsDir)

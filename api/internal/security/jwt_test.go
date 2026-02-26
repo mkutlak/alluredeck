@@ -49,7 +49,7 @@ func testJWTConfig() *config.Config {
 func TestJWTManager_GenerateAndValidate(t *testing.T) {
 	manager := NewJWTManager(testJWTConfig(), newMemBlacklist())
 
-	access, refresh, err := manager.GenerateTokens("testuser")
+	access, refresh, err := manager.GenerateTokens("testuser", "admin")
 	if err != nil {
 		t.Fatalf("Failed to generate tokens: %v", err)
 	}
@@ -86,6 +86,40 @@ func TestJWTManager_GenerateAndValidate(t *testing.T) {
 	}
 }
 
+func TestGenerateTokensWithRole(t *testing.T) {
+	manager := NewJWTManager(testJWTConfig(), newMemBlacklist())
+
+	t.Run("AdminRole", func(t *testing.T) {
+		access, _, err := manager.GenerateTokens("admin-user", "admin")
+		if err != nil {
+			t.Fatalf("GenerateTokens failed: %v", err)
+		}
+		_, claims, err := manager.ValidateToken(access, "access")
+		if err != nil {
+			t.Fatalf("ValidateToken failed: %v", err)
+		}
+		role, ok := claims["role"].(string)
+		if !ok || role != "admin" {
+			t.Errorf("expected role 'admin', got %v", claims["role"])
+		}
+	})
+
+	t.Run("ViewerRole", func(t *testing.T) {
+		access, _, err := manager.GenerateTokens("viewer-user", "viewer")
+		if err != nil {
+			t.Fatalf("GenerateTokens failed: %v", err)
+		}
+		_, claims, err := manager.ValidateToken(access, "access")
+		if err != nil {
+			t.Fatalf("ValidateToken failed: %v", err)
+		}
+		role, ok := claims["role"].(string)
+		if !ok || role != "viewer" {
+			t.Errorf("expected role 'viewer', got %v", claims["role"])
+		}
+	})
+}
+
 func TestJWTManager_Blacklist(t *testing.T) {
 	manager := NewJWTManager(testJWTConfig(), newMemBlacklist())
 	jti := "test-jti-123"
@@ -104,7 +138,7 @@ func TestJWTManager_Blacklist(t *testing.T) {
 func TestJWTManager_BlacklistedTokenRejected(t *testing.T) {
 	manager := NewJWTManager(testJWTConfig(), newMemBlacklist())
 
-	access, _, err := manager.GenerateTokens("testuser")
+	access, _, err := manager.GenerateTokens("testuser", "admin")
 	if err != nil {
 		t.Fatalf("Failed to generate tokens: %v", err)
 	}

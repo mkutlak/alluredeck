@@ -1,0 +1,113 @@
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func makeDeleteReportReq(t *testing.T, projectID, reportID string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodDelete,
+		"/report?project_id="+projectID+"&report_id="+reportID,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
+
+func TestDeleteReport_OK(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "myproject"
+
+	// Create project with a numbered report directory.
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports", "3"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+		t.Fatal(err)
+	}
+
+	h := newTestAllureHandler(t, projectsDir)
+	rr := httptest.NewRecorder()
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, "3"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	meta, ok := resp["meta_data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected meta_data in response")
+	}
+	if msg, _ := meta["message"].(string); msg != `Report "3" successfully deleted` {
+		t.Errorf("unexpected message: %v", meta["message"])
+	}
+
+	// Report directory must be gone.
+	if _, err := os.Stat(filepath.Join(projectsDir, projectID, "reports", "3")); !os.IsNotExist(err) {
+		t.Error("report directory should be removed after DeleteReport")
+	}
+}
+
+func TestDeleteReport_NotFound(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "myproject"
+
+	// Create project dir but no report "999".
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+		t.Fatal(err)
+	}
+
+	h := newTestAllureHandler(t, projectsDir)
+	rr := httptest.NewRecorder()
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, "999"))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDeleteReport_InvalidID(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "myproject"
+
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+		t.Fatal(err)
+	}
+
+	h := newTestAllureHandler(t, projectsDir)
+	rr := httptest.NewRecorder()
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, "abc"))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDeleteReport_MissingReportID(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "myproject"
+
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+		t.Fatal(err)
+	}
+
+	h := newTestAllureHandler(t, projectsDir)
+	rr := httptest.NewRecorder()
+	// No report_id param
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, ""))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
