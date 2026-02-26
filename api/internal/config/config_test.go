@@ -174,7 +174,7 @@ func TestMissingConfigFileNotError(t *testing.T) {
 }
 
 func TestDefaultConfigPathMissing(t *testing.T) {
-	// No CONFIG_FILE set; default /app/config.yaml doesn't exist in test env
+	// No CONFIG_FILE set; default /app/alluredeck/config.yaml doesn't exist in test env
 	orig, wasSet := os.LookupEnv("CONFIG_FILE")
 	_ = os.Unsetenv("CONFIG_FILE")
 	if wasSet {

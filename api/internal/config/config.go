@@ -94,10 +94,10 @@ const defaultJWTSecret = "super-secret-key-for-dev"
 
 // LoadConfig parses environment variables (with optional YAML file fallback) and returns a populated Config struct.
 // Precedence (highest to lowest): env vars > YAML file > hardcoded defaults.
-// The YAML file path is read from CONFIG_FILE env var (default: /app/config.yaml).
+// The YAML file path is read from CONFIG_FILE env var (default: /app/alluredeck/config.yaml).
 // A missing config file is silently ignored; a malformed file causes a fatal log.
 func LoadConfig() *Config {
-	configFile := getEnv("CONFIG_FILE", "/app/config.yaml")
+	configFile := getEnv("CONFIG_FILE", "/app/alluredeck/config.yaml")
 	yc, err := loadFromYAML(configFile)
 	if err != nil {
 		log.Fatalf("ERROR: failed to parse config file %q: %v", configFile, err)

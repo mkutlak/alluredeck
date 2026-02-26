@@ -4,7 +4,7 @@
 # Precedence (highest wins): environment variables > this file > built-in defaults.
 #
 # Set CONFIG_FILE=/path/to/config.yaml to load this file.
-# Default location: /app/config.yaml
+# Default location: /app/alluredeck/config.yaml
 #
 # Sensitive fields (passwords, secrets) should be set via environment variables
 # rather than stored in this file.
