@@ -12,8 +12,8 @@
 # --- Server ---
 
 # TCP port the API server listens on.
-# Default: "5050"
-port: "5050"
+# Default: "8080"
+port: "8080"
 
 # Enable development mode (verbose logging, relaxed checks).
 # Default: false

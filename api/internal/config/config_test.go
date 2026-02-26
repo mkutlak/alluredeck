@@ -168,8 +168,8 @@ func TestMissingConfigFileNotError(t *testing.T) {
 	cfg := LoadConfig()
 
 	// Must not panic/fatal; defaults apply
-	if cfg.Port != "5050" {
-		t.Errorf("default port: want 5050, got %s", cfg.Port)
+	if cfg.Port != "8080" {
+		t.Errorf("default port: want 8080, got %s", cfg.Port)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestDefaultConfigPathMissing(t *testing.T) {
 
 	cfg := LoadConfig()
 
-	if cfg.Port != "5050" {
-		t.Errorf("default port: want 5050, got %s", cfg.Port)
+	if cfg.Port != "8080" {
+		t.Errorf("default port: want 8080, got %s", cfg.Port)
 	}
 }
 
@@ -202,8 +202,8 @@ func TestEmptyYAMLFile(t *testing.T) {
 
 	cfg := LoadConfig()
 
-	if cfg.Port != "5050" {
-		t.Errorf("empty YAML should use default port 5050, got %s", cfg.Port)
+	if cfg.Port != "8080" {
+		t.Errorf("empty YAML should use default port 8080, got %s", cfg.Port)
 	}
 	if cfg.KeepHistoryLatest != 20 {
 		t.Errorf("empty YAML should use default KeepHistoryLatest 20, got %d", cfg.KeepHistoryLatest)

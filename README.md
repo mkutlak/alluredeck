@@ -29,7 +29,7 @@ docker compose -f docker/docker-compose.yml up --build -d
 
 # Full stack with S3 / MinIO
 docker compose -f docker/docker-compose-s3.yml up -d
-# Dashboard: http://localhost:7575  API: http://localhost:5555  MinIO: http://localhost:9001
+# Dashboard: http://localhost:7474  API: http://localhost:5050  MinIO: http://localhost:9001
 
 # API-only (dev)
 docker compose -f docker/docker-compose-dev.yml up --build -d

@@ -27,6 +27,6 @@ services:
       API_RESPONSE_LESS_VERBOSE: 0
       TLS: 0
     ports:
-      - "${ALLUREDECK_API_PORT:-5050}:5050"
+      - "${ALLUREDECK_API_PORT:-5050}:8080"
     volumes:
       - ../.data/alluredeck/allure-results:/app/allure-results

@@ -118,7 +118,7 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		Port:                getEnvOrYAML("PORT", yc.Port, "5050"),
+		Port:                getEnvOrYAML("PORT", yc.Port, "8080"),
 		DevMode:             getEnvOrYAMLBool("DEV_MODE", yc.DevMode),
 		SecurityEnabled:     securityEnabled,
 		SecurityUser:        getEnvOrYAML("SECURITY_USER", yc.SecurityUser, ""),

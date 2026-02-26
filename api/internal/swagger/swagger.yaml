@@ -1,5 +1,5 @@
 basePath: /
-host: localhost:5050
+host: localhost:8080
 info:
   contact: {}
   description: This is an API service for managing Allure reports.

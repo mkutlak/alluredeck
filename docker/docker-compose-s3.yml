@@ -5,8 +5,8 @@
 #   # Upload results via API, reports stored in MinIO
 #
 # MinIO console:     http://localhost:9001 (minioadmin / minioadmin)
-# Allure API:        http://localhost:5555
-# AllureDeck UI:     http://localhost:7575 (admin / admin)
+# Allure API:        http://localhost:5050
+# AllureDeck UI:     http://localhost:7474 (admin / admin)
 
 services:
   minio:
@@ -58,7 +58,7 @@ services:
       S3_SECRET_KEY: "minioadmin"
       S3_PATH_STYLE: "true"
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
-      CORS_ALLOWED_ORIGINS: "http://localhost:7575"
+      CORS_ALLOWED_ORIGINS: "http://localhost:7474"
       SECURITY_ENABLED: "1"
       SECURITY_USER: "admin"
       SECURITY_PASS: "admin"
@@ -66,9 +66,9 @@ services:
       KEEP_HISTORY: "true"
       KEEP_HISTORY_LATEST: "20"
     ports:
-      - "5555:5050"
+      - "5050:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5050/version"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/version"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -83,10 +83,10 @@ services:
       allure-api:
         condition: service_healthy
     environment:
-      VITE_API_URL: "http://localhost:5555"
+      VITE_API_URL: "http://localhost:5050"
       VITE_APP_TITLE: "AllureDeck (S3)"
     ports:
-      - "7575:7474"
+      - "7474:8080"
     restart: unless-stopped
 
 volumes:

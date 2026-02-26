@@ -26,7 +26,7 @@ import (
 // @title           AllureDeck API
 // @version         2.0
 // @description     This is an API service for managing Allure reports.
-// @host            localhost:5050
+// @host            localhost:8080
 // @BasePath        /
 func main() {
 	cfg := config.LoadConfig()

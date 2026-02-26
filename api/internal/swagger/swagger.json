@@ -6,7 +6,7 @@
         "contact": {},
         "version": "2.0"
     },
-    "host": "localhost:5050",
+    "host": "localhost:8080",
     "basePath": "/",
     "paths": {}
 }

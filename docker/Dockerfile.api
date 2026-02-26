@@ -94,7 +94,7 @@ RUN chown -R ${UID}:${GID} ${ROOT}
 
 VOLUME ["/app/allure-results"]
 
-ENV PORT=5050
+ENV PORT=8080
 
 EXPOSE $PORT
 
