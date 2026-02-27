@@ -113,9 +113,9 @@ func TestAuthMiddleware(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("Failed to decode response body: %v", err)
 		}
-		meta, ok := resp["meta_data"].(map[string]any)
+		meta, ok := resp["metadata"].(map[string]any)
 		if !ok {
-			t.Fatal("expected meta_data in response")
+			t.Fatal("expected metadata in response")
 		}
 		msg, _ := meta["message"].(string)
 		if msg != "Invalid token" {
@@ -154,9 +154,9 @@ func TestAuthMiddleware(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("Failed to decode response body: %v", err)
 		}
-		meta, ok := resp["meta_data"].(map[string]any)
+		meta, ok := resp["metadata"].(map[string]any)
 		if !ok {
-			t.Fatal("expected meta_data in response")
+			t.Fatal("expected metadata in response")
 		}
 		msg, _ := meta["message"].(string)
 		if msg != "Invalid token" {

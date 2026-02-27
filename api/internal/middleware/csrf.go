@@ -75,6 +75,6 @@ func csrfForbidden(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"meta_data": map[string]string{"message": "CSRF token missing or invalid"},
+		"metadata": map[string]string{"message": "CSRF token missing or invalid"},
 	})
 }

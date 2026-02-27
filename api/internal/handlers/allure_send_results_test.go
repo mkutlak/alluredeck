@@ -13,7 +13,7 @@ import (
 
 // makeJSONSendResultsReq builds a POST request with a JSON body containing the
 // given results slice. It mirrors the wire format expected by sendJSONResults.
-func makeJSONSendResultsReq(t *testing.T, results []map[string]string) *http.Request {
+func makeJSONSendResultsReq(t *testing.T, projectID string, results []map[string]string) *http.Request {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"results": results})
 	if err != nil {
@@ -22,12 +22,13 @@ func makeJSONSendResultsReq(t *testing.T, results []map[string]string) *http.Req
 	req, err := http.NewRequestWithContext(
 		context.Background(),
 		http.MethodPost,
-		"/api/v1/send-results",
+		"/api/v1/projects/"+projectID+"/results",
 		bytes.NewReader(body),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.SetPathValue("project_id", projectID)
 	req.Header.Set("Content-Type", "application/json")
 	return req
 }
@@ -46,7 +47,7 @@ func TestSendJSONResults_WritesFileCorrectly(t *testing.T) {
 	wantContent := []byte("<allure-result><status>passed</status></allure-result>")
 	encoded := base64.StdEncoding.EncodeToString(wantContent)
 
-	req := makeJSONSendResultsReq(t, []map[string]string{
+	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
 		{"file_name": "test-result.xml", "content_base64": encoded},
 	})
 
@@ -99,7 +100,7 @@ func TestSendJSONResults_MultipleFiles(t *testing.T) {
 	}
 
 	h := newTestAllureHandler(t, projectsDir)
-	processed, failed, err := h.sendJSONResults(makeJSONSendResultsReq(t, results), projectID)
+	processed, failed, err := h.sendJSONResults(makeJSONSendResultsReq(t, projectID, results), projectID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestSendJSONResults_InvalidBase64(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := makeJSONSendResultsReq(t, []map[string]string{
+	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
 		{"file_name": "bad.xml", "content_base64": "not!valid!base64!!!"},
 	})
 
@@ -153,7 +154,7 @@ func TestSendJSONResults_DuplicateFileNames(t *testing.T) {
 	}
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("data"))
-	req := makeJSONSendResultsReq(t, []map[string]string{
+	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
 		{"file_name": "dup.xml", "content_base64": encoded},
 		{"file_name": "dup.xml", "content_base64": encoded},
 	})
@@ -175,7 +176,7 @@ func TestSendJSONResults_MissingContentBase64(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := makeJSONSendResultsReq(t, []map[string]string{
+	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
 		{"file_name": "missing-content.xml"},
 	})
 
@@ -195,7 +196,7 @@ func TestSendJSONResults_EmptyResults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := makeJSONSendResultsReq(t, []map[string]string{})
+	req := makeJSONSendResultsReq(t, projectID, []map[string]string{})
 
 	h := newTestAllureHandler(t, projectsDir)
 	_, _, err := h.sendJSONResults(req, projectID)

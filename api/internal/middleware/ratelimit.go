@@ -125,7 +125,7 @@ func RateLimitMiddleware(rl *IPRateLimiter) func(http.HandlerFunc) http.HandlerF
 				w.Header().Set("Retry-After", "1")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "Too many requests, please try again later"},
+					"metadata": map[string]string{"message": "Too many requests, please try again later"},
 				})
 				return
 			}

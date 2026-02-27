@@ -161,6 +161,80 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 	return builds, nil
 }
 
+// ListBuildsPaginated returns a page of builds for a project in descending build_order, plus the total count.
+func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]Build, int, error) {
+	var totalCount int
+	if err := bs.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM builds WHERE project_id = ?", projectID,
+	).Scan(&totalCount); err != nil {
+		return nil, 0, fmt.Errorf("count builds: %w", err)
+	}
+
+	offset := (page - 1) * perPage
+	rows, err := bs.db.QueryContext(ctx, `
+		SELECT id, project_id, build_order, created_at,
+		       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
+		       duration_ms, is_latest
+		FROM builds
+		WHERE project_id = ?
+		ORDER BY build_order DESC
+		LIMIT ? OFFSET ?`, projectID, perPage, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list builds paginated: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var builds []Build
+	for rows.Next() {
+		var b Build
+		var createdAt string
+		var passed, failed, broken, skipped, unknown, total sql.NullInt64
+		var durationMs sql.NullInt64
+		var isLatest int
+		if err := rows.Scan(
+			&b.ID, &b.ProjectID, &b.BuildOrder, &createdAt,
+			&passed, &failed, &broken, &skipped, &unknown, &total,
+			&durationMs, &isLatest,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan build: %w", err)
+		}
+		b.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		b.IsLatest = isLatest == 1
+		if passed.Valid {
+			v := int(passed.Int64)
+			b.StatPassed = &v
+		}
+		if failed.Valid {
+			v := int(failed.Int64)
+			b.StatFailed = &v
+		}
+		if broken.Valid {
+			v := int(broken.Int64)
+			b.StatBroken = &v
+		}
+		if skipped.Valid {
+			v := int(skipped.Int64)
+			b.StatSkipped = &v
+		}
+		if unknown.Valid {
+			v := int(unknown.Int64)
+			b.StatUnknown = &v
+		}
+		if total.Valid {
+			v := int(total.Int64)
+			b.StatTotal = &v
+		}
+		if durationMs.Valid {
+			b.DurationMs = &durationMs.Int64
+		}
+		builds = append(builds, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate build rows: %w", err)
+	}
+	return builds, totalCount, nil
+}
+
 // PruneBuilds removes the oldest builds exceeding `keep` count.
 // Returns the build_orders of removed builds (for filesystem cleanup).
 func (bs *BuildStore) PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error) {

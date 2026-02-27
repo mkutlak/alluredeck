@@ -26,7 +26,7 @@ func Recovery(next http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "internal server error"},
+					"metadata": map[string]string{"message": "internal server error"},
 				})
 			}
 		}()

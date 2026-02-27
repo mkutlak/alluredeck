@@ -35,14 +35,24 @@ type LoginRequest struct {
 	Password string `json:"password"` //nolint:gosec // G117: field name is intentional for login request struct
 }
 
-// Login validates credentials and issues JWT access and refresh tokens.
+// Login godoc
+// @Summary      Authenticate user
+// @Description  Validates credentials and issues JWT access and refresh tokens.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      LoginRequest  true  "Login credentials"
+// @Success      200   {object}  map[string]any
+// @Failure      400   {object}  map[string]any
+// @Failure      401   {object}  map[string]any
+// @Router       /login [post]
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !h.cfg.SecurityEnabled {
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"meta_data": map[string]string{"message": "SECURITY is not enabled"},
+			"metadata": map[string]string{"message": "SECURITY is not enabled"},
 		})
 		return
 	}
@@ -51,7 +61,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"meta_data": map[string]string{"message": "Missing JSON in body request"},
+			"metadata": map[string]string{"message": "Missing JSON in body request"},
 		})
 		return
 	}
@@ -83,7 +93,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if !valid {
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"meta_data": map[string]string{"message": "Invalid username/password"},
+			"metadata": map[string]string{"message": "Invalid username/password"},
 		})
 		return
 	}
@@ -92,7 +102,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"meta_data": map[string]string{"message": "Failed to generate tokens"},
+			"metadata": map[string]string{"message": "Failed to generate tokens"},
 		})
 		return
 	}
@@ -103,7 +113,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		log.Printf("auth: failed to generate CSRF token: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"meta_data": map[string]string{"message": "Failed to generate tokens"},
+			"metadata": map[string]string{"message": "Failed to generate tokens"},
 		})
 		return
 	}
@@ -116,7 +126,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			"expires_in":    int(h.cfg.AccessTokenExpiry.Seconds()),
 			"roles":         roles,
 		},
-		"meta_data": map[string]string{"message": "Successfully logged"},
+		"metadata": map[string]string{"message": "Successfully logged"},
 	}
 
 	// CSRF cookie — HttpOnly=false so JavaScript can read it (REVIEW #11).
@@ -152,13 +162,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// Logout revokes the current access and refresh tokens and expires both auth cookies.
+// Logout godoc
+// @Summary      Log out
+// @Description  Revokes the current access and refresh tokens and expires auth cookies.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  map[string]any
+// @Router       /logout [delete]
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !h.cfg.SecurityEnabled {
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"meta_data": map[string]string{"message": "SECURITY is not enabled"},
+			"metadata": map[string]string{"message": "SECURITY is not enabled"},
 		})
 		return
 	}
@@ -210,7 +226,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"meta_data": map[string]string{"message": "Successfully logged out"},
+		"metadata": map[string]string{"message": "Successfully logged out"},
 	})
 }
 

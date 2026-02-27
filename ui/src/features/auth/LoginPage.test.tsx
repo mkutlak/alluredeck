@@ -57,7 +57,7 @@ describe('LoginPage', () => {
     const user = userEvent.setup()
     vi.mocked(authApi.login).mockResolvedValue({
       data: { access_token: 'tok', refresh_token: 'ref', expires_in: 3600, roles: ['admin'] },
-      meta_data: { message: 'ok' },
+      metadata: { message: 'ok' },
     })
 
     renderLoginPage()
@@ -78,7 +78,7 @@ describe('LoginPage', () => {
     const user = userEvent.setup()
     vi.mocked(authApi.login).mockResolvedValue({
       data: { access_token: 'tok', refresh_token: 'ref', expires_in: 3600, roles: ['admin'] },
-      meta_data: { message: 'ok' },
+      metadata: { message: 'ok' },
     })
 
     renderLoginPage()

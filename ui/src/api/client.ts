@@ -64,8 +64,8 @@ apiClient.interceptors.response.use(
 // ---------------------------------------------------------------------------
 export function extractErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const body = error.response?.data as { meta_data?: { message?: string } } | undefined
-    if (body?.meta_data?.message) return body.meta_data.message
+    const body = error.response?.data as { metadata?: { message?: string } } | undefined
+    if (body?.metadata?.message) return body.metadata.message
     return error.message
   }
   if (error instanceof Error) return error.message

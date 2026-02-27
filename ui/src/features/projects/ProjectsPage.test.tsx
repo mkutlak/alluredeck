@@ -47,11 +47,12 @@ describe('ProjectsPage', () => {
 
   it('renders project cards when loaded', async () => {
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: {
-        'my-project': { project_id: 'my-project' },
-        'other-project': { project_id: 'other-project' },
-      },
-      meta_data: { message: 'ok' },
+      data: [
+        { project_id: 'my-project' },
+        { project_id: 'other-project' },
+      ],
+      metadata: { message: 'ok' },
+      pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
     })
 
     renderPage()
@@ -64,8 +65,9 @@ describe('ProjectsPage', () => {
 
   it('shows empty state when no projects', async () => {
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: {},
-      meta_data: { message: 'ok' },
+      data: [],
+      metadata: { message: 'ok' },
+      pagination: { page: 1, per_page: 20, total: 0, total_pages: 0 },
     })
 
     renderPage()
@@ -76,8 +78,9 @@ describe('ProjectsPage', () => {
 
   it('shows "New project" button for admin', async () => {
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: {},
-      meta_data: { message: 'ok' },
+      data: [],
+      metadata: { message: 'ok' },
+      pagination: { page: 1, per_page: 20, total: 0, total_pages: 0 },
     })
 
     renderPage(true)
@@ -88,8 +91,9 @@ describe('ProjectsPage', () => {
 
   it('hides "New project" button for viewer', async () => {
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: {},
-      meta_data: { message: 'ok' },
+      data: [],
+      metadata: { message: 'ok' },
+      pagination: { page: 1, per_page: 20, total: 0, total_pages: 0 },
     })
 
     renderPage(false)
@@ -110,8 +114,9 @@ describe('ProjectsPage', () => {
   it('opens create dialog when "New project" is clicked', async () => {
     const user = userEvent.setup()
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: {},
-      meta_data: { message: 'ok' },
+      data: [],
+      metadata: { message: 'ok' },
+      pagination: { page: 1, per_page: 20, total: 0, total_pages: 0 },
     })
 
     renderPage(true)

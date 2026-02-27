@@ -31,7 +31,7 @@ func TestRegisterRoutes(t *testing.T) {
 	lockManager := store.NewLockManager()
 
 	jwtManager := security.NewJWTManager(cfg, blacklistStore)
-	systemHandler := handlers.NewSystemHandler(cfg)
+	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
 	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
@@ -40,21 +40,21 @@ func TestRegisterRoutes(t *testing.T) {
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
 
 	mux := http.NewServeMux()
-	registerRoutes(mux, "", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
 
 	tests := []struct {
 		method string
 		path   string
 	}{
-		{"GET", "/version"},
-		{"GET", "/config"},
-		{"POST", "/login"},
-		{"DELETE", "/projects/testproj/history"},
-		{"DELETE", "/projects/testproj/results"},
-		{"DELETE", "/api/v1/projects/testproj/history"},
-		{"DELETE", "/api/v1/projects/testproj/results"},
 		{"GET", "/api/v1/version"},
+		{"GET", "/api/v1/config"},
+		{"POST", "/api/v1/login"},
+		{"DELETE", "/api/v1/projects/testproj/reports/history"},
+		{"DELETE", "/api/v1/projects/testproj/results"},
+		{"POST", "/api/v1/projects/testproj/reports"},
+		{"POST", "/api/v1/projects/testproj/results"},
+		{"GET", "/api/v1/projects/testproj/reports"},
+		{"DELETE", "/api/v1/projects/testproj/reports/42"},
 	}
 
 	for _, tc := range tests {
@@ -67,6 +67,55 @@ func TestRegisterRoutes(t *testing.T) {
 			// which is fine as it confirms the route is registered and reached the handler.
 			if rr.Code == http.StatusNotFound {
 				t.Errorf("Path %s %s not registered. Response: %d", tc.method, tc.path, rr.Code)
+			}
+		})
+	}
+}
+
+func TestBareRoutes_Return404(t *testing.T) {
+	cfg := &config.Config{SecurityEnabled: false, JWTSecret: "test-secret"}
+
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	blacklistStore := store.NewBlacklistStore(db)
+	buildStore := store.NewBuildStore(db)
+	projectStore := store.NewProjectStore(db)
+	lockManager := store.NewLockManager()
+
+	jwtManager := security.NewJWTManager(cfg, blacklistStore)
+	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
+	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
+	localStore := storage.NewLocalStore(cfg)
+	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, localStore)
+
+	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
+
+	mux := http.NewServeMux()
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
+
+	// Bare routes (no /api/v1 prefix) should return 404.
+	bareRoutes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/version"},
+		{"GET", "/config"},
+		{"POST", "/login"},
+	}
+
+	for _, tc := range bareRoutes {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNotFound {
+				t.Errorf("Bare route %s %s should return 404, got %d", tc.method, tc.path, rr.Code)
 			}
 		})
 	}

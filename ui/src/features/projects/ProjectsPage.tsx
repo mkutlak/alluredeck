@@ -21,7 +21,7 @@ export function ProjectsPage() {
     staleTime: 30_000,
   })
 
-  const projects = data ? Object.values(data.data) : []
+  const projects = data?.data ?? []
 
   return (
     <div className="space-y-6">

@@ -24,10 +24,10 @@ import (
 )
 
 // @title           AllureDeck API
-// @version         2.0
-// @description     This is an API service for managing Allure reports.
+// @version         2.0.0
+// @description     API for managing Allure test reports.
 // @host            localhost:8080
-// @BasePath        /
+// @BasePath        /api/v1
 func main() {
 	cfg := config.LoadConfig()
 
@@ -59,7 +59,7 @@ func main() {
 	}
 
 	jwtManager := security.NewJWTManager(cfg, blacklistStore)
-	systemHandler := handlers.NewSystemHandler(cfg)
+	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 
 	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager)
@@ -68,6 +68,12 @@ func main() {
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore)
 
 	mux := http.NewServeMux()
+
+	// Infrastructure endpoints (outside /api/v1)
+	mux.HandleFunc("GET /health", systemHandler.Health)
+	mux.HandleFunc("GET /healthz", systemHandler.Health)
+	mux.HandleFunc("GET /ready", systemHandler.Ready)
+	mux.HandleFunc("GET /readyz", systemHandler.Ready)
 
 	// Swagger UI
 	mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
@@ -103,21 +109,21 @@ func main() {
 		overlayFS.ServeHTTP(w, r)
 	})
 	mux.Handle("/api/v1/projects/", http.StripPrefix("/api/v1/projects/", reportHandler))
-	mux.Handle("/projects/", http.StripPrefix("/projects/", reportHandler))
 
 	// Rate limiter for login endpoint — 5 req/s, burst 10, 15min stale TTL (REVIEW #8).
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
 
-	// Chain middleware: Recovery → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11).
+	// Chain middleware: Recovery → RequestID → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
-		middleware.SecurityHeaders(
-			middleware.CSRFMiddleware(cfg)(
-				middleware.CORSMiddleware(cfg, mux),
+		middleware.RequestID(
+			middleware.SecurityHeaders(
+				middleware.CSRFMiddleware(cfg)(
+					middleware.CORSMiddleware(cfg, mux),
+				),
 			),
 		),
 	)
@@ -188,9 +194,7 @@ func createDataStore(cfg *config.Config) (storage.Store, error) {
 	}
 }
 
-// registerRoutes mounts all API routes under an optional URL prefix.
-// Having this helper ensures both the bare and /api/v1 prefixed
-// routes are always identical — adding one route adds both automatically.
+// registerRoutes mounts all API routes under the given URL prefix.
 func registerRoutes(
 	mux *http.ServeMux,
 	prefix string,
@@ -228,15 +232,15 @@ func registerRoutes(
 
 	// Viewer+ endpoints (public when MakeViewerEndptsPub=true)
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(allure.GetProjects))
-	mux.HandleFunc("GET "+prefix+"/emailable-report/render", viewerUp(allure.GetEmailableReport))
-	mux.HandleFunc("GET "+prefix+"/report-history", viewerUp(allure.GetReportHistory))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/emailable", viewerUp(allure.GetEmailableReport))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(allure.GetReportHistory))
 
 	// Admin only endpoints
 	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(allure.CreateProject))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(allure.DeleteProject))
-	mux.HandleFunc("POST "+prefix+"/generate-report", adminOnly(allure.GenerateReport))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/history", adminOnly(allure.CleanHistory))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", adminOnly(allure.GenerateReport))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(allure.CleanHistory))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(allure.CleanResults))
-	mux.HandleFunc("POST "+prefix+"/send-results", adminOnly(allure.SendResults))
-	mux.HandleFunc("DELETE "+prefix+"/report", adminOnly(allure.DeleteReport))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", adminOnly(allure.SendResults))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(allure.DeleteReport))
 }

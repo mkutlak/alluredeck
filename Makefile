@@ -76,7 +76,7 @@ api-modernize: ## Apply Go modernization patterns
 api-check: api-fmt api-vet api-lint api-test ## API quality gate (fmt + vet + lint + test)
 
 api-swagger: ## Regenerate API Swagger docs
-	cd $(GODIR) && swag init -g cmd/api/main.go -o static/swagger
+	cd $(GODIR) && swag init -g cmd/api/main.go -o internal/swagger --parseDependency
 
 api-clean: ## Remove API build artifacts
 	rm -rf $(GODIR)/bin

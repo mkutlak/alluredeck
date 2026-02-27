@@ -28,7 +28,7 @@ describe('extractErrorMessage', () => {
     const error = {
       isAxiosError: true,
       response: {
-        data: { meta_data: { message: 'Invalid credentials' } },
+        data: { metadata: { message: 'Invalid credentials' } },
       },
       message: 'Request failed',
     }

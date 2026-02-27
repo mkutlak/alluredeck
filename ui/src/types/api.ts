@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 export interface ApiResponse<T> {
   data: T
-  meta_data: {
+  metadata: {
     message: string
   }
 }
@@ -29,15 +29,31 @@ export interface LoginData {
 // ---------------------------------------------------------------------------
 export interface ProjectEntry {
   project_id: string
+  created_at?: string
 }
 
-export type ProjectsData = Record<string, ProjectEntry>
+export type ProjectsData = ProjectEntry[]
+
+export interface PaginationMeta {
+  page: number
+  per_page: number
+  total: number
+  total_pages: number
+}
+
+export interface PaginatedResponse<T> {
+  data: T
+  metadata: {
+    message: string
+  }
+  pagination: PaginationMeta
+}
 
 export interface CreateProjectRequest {
   id: string
 }
 
-export type CreateProjectData = Record<string, ProjectEntry>
+export type CreateProjectData = ProjectEntry
 
 // ---------------------------------------------------------------------------
 // System
@@ -48,16 +64,16 @@ export interface VersionData {
 
 export interface ConfigData {
   version: string
-  dev_mode: number
+  dev_mode: boolean
   check_results_every_seconds: string
-  keep_history: number
+  keep_history: boolean
   keep_history_latest: number
-  tls: number
-  security_enabled: number
+  tls: boolean
+  security_enabled: boolean
   url_prefix: string
-  api_response_less_verbose: number
-  optimize_storage: number
-  make_viewer_endpoints_public: number
+  api_response_less_verbose: boolean
+  optimize_storage: boolean
+  make_viewer_endpoints_public: boolean
 }
 
 // ---------------------------------------------------------------------------

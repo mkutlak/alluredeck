@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -10,14 +11,48 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/version"
 )
 
-// SystemHandler handles HTTP requests for system-level endpoints (version, config).
+// SystemHandler handles HTTP requests for system-level endpoints (version, config, health).
 type SystemHandler struct {
 	cfg *config.Config
+	db  *sql.DB
 }
 
 // NewSystemHandler creates and returns a new SystemHandler.
-func NewSystemHandler(cfg *config.Config) *SystemHandler {
-	return &SystemHandler{cfg: cfg}
+// The db parameter is used by the readiness probe; pass nil if not needed.
+func NewSystemHandler(cfg *config.Config, db *sql.DB) *SystemHandler {
+	return &SystemHandler{cfg: cfg, db: db}
+}
+
+// Health godoc
+// @Summary      Liveness probe
+// @Description  Returns 200 OK with no dependency checks.
+// @Tags         infrastructure
+// @Produce      json
+// @Success      200  {object}  map[string]string
+// @Router       /health [get]
+func (h *SystemHandler) Health(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// Ready godoc
+// @Summary      Readiness probe
+// @Description  Returns 200 when the database is reachable, 503 otherwise.
+// @Tags         infrastructure
+// @Produce      json
+// @Success      200  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /ready [get]
+func (h *SystemHandler) Ready(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.db == nil || h.db.PingContext(r.Context()) != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unavailable", "db": "error"})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "db": "ok"})
 }
 
 // VersionResponse structures
@@ -25,7 +60,7 @@ func NewSystemHandler(cfg *config.Config) *SystemHandler {
 // VersionResponse wraps the version data and metadata for the /version endpoint.
 type VersionResponse struct {
 	Data     VersionData     `json:"data"`
-	MetaData VersionMetaData `json:"meta_data"`
+	MetaData VersionMetaData `json:"metadata"`
 }
 
 // VersionData holds the Allure version string.
@@ -38,7 +73,13 @@ type VersionMetaData struct {
 	Message string `json:"message"`
 }
 
-// Version returns the installed Allure version.
+// Version godoc
+// @Summary      Get Allure version
+// @Description  Returns the installed Allure CLI version.
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  VersionResponse
+// @Router       /version [get]
 func (h *SystemHandler) Version(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -59,22 +100,22 @@ func (h *SystemHandler) Version(w http.ResponseWriter, _ *http.Request) {
 // ConfigResponse wraps the config data and metadata for the /config endpoint.
 type ConfigResponse struct {
 	Data     ConfigData     `json:"data"`
-	MetaData ConfigMetaData `json:"meta_data"`
+	MetaData ConfigMetaData `json:"metadata"`
 }
 
 // ConfigData holds the service configuration serialised for API consumers.
 type ConfigData struct {
 	Version                  string `json:"version"`
-	DevMode                  int    `json:"dev_mode"`
+	DevMode                  bool   `json:"dev_mode"`
 	CheckResultsEverySeconds string `json:"check_results_every_seconds"`
-	KeepHistory              int    `json:"keep_history"`
+	KeepHistory              bool   `json:"keep_history"`
 	KeepHistoryLatest        int    `json:"keep_history_latest"`
-	TLS                      int    `json:"tls"`
-	SecurityEnabled          int    `json:"security_enabled"`
+	TLS                      bool   `json:"tls"`
+	SecurityEnabled          bool   `json:"security_enabled"`
 	URLPrefix                string `json:"url_prefix"`
-	APIRespLessVerbose       int    `json:"api_response_less_verbose"`
-	OptimizeStorage          int    `json:"optimize_storage"`
-	MakeViewerEndptsPub      int    `json:"make_viewer_endpoints_public"`
+	APIRespLessVerbose       bool   `json:"api_response_less_verbose"`
+	OptimizeStorage          bool   `json:"optimize_storage"`
+	MakeViewerEndptsPub      bool   `json:"make_viewer_endpoints_public"`
 	AppVersion               string `json:"app_version"`
 	AppBuildDate             string `json:"app_build_date"`
 	AppBuildRef              string `json:"app_build_ref"`
@@ -85,7 +126,13 @@ type ConfigMetaData struct {
 	Message string `json:"message"`
 }
 
-// ConfigEndpoint returns the current service configuration.
+// ConfigEndpoint godoc
+// @Summary      Get service configuration
+// @Description  Returns the current AllureDeck service configuration.
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  ConfigResponse
+// @Router       /config [get]
 func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -97,28 +144,20 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(ConfigResponse{
 		Data: ConfigData{
 			Version:                  versionStr,
-			DevMode:                  btoi(h.cfg.DevMode),
+			DevMode:                  h.cfg.DevMode,
 			CheckResultsEverySeconds: h.cfg.CheckResultsSecs,
-			KeepHistory:              btoi(h.cfg.KeepHistory),
+			KeepHistory:              h.cfg.KeepHistory,
 			KeepHistoryLatest:        h.cfg.KeepHistoryLatest,
-			TLS:                      btoi(h.cfg.TLS),
-			SecurityEnabled:          btoi(h.cfg.SecurityEnabled),
+			TLS:                      h.cfg.TLS,
+			SecurityEnabled:          h.cfg.SecurityEnabled,
 			URLPrefix:                h.cfg.URLPrefix,
-			APIRespLessVerbose:       btoi(h.cfg.APIRespLessVerbose),
-			OptimizeStorage:          btoi(h.cfg.OptimizeStorage),
-			MakeViewerEndptsPub:      btoi(h.cfg.MakeViewerEndptsPub),
+			APIRespLessVerbose:       h.cfg.APIRespLessVerbose,
+			OptimizeStorage:          h.cfg.OptimizeStorage,
+			MakeViewerEndptsPub:      h.cfg.MakeViewerEndptsPub,
 			AppVersion:               version.Version,
 			AppBuildDate:             version.BuildDate,
 			AppBuildRef:              version.BuildRef,
 		},
 		MetaData: ConfigMetaData{Message: "Config successfully obtained"},
 	})
-}
-
-// btoi converts a bool to 0/1 for backward-compatible JSON responses
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

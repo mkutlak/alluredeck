@@ -15,12 +15,14 @@ func makeDeleteReportReq(t *testing.T, projectID, reportID string) *http.Request
 	req, err := http.NewRequestWithContext(
 		context.Background(),
 		http.MethodDelete,
-		"/report?project_id="+projectID+"&report_id="+reportID,
+		"/api/v1/projects/"+projectID+"/reports/"+reportID,
 		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("report_id", reportID)
 	return req
 }
 
@@ -45,9 +47,9 @@ func TestDeleteReport_OK(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	meta, ok := resp["meta_data"].(map[string]any)
+	meta, ok := resp["metadata"].(map[string]any)
 	if !ok {
-		t.Fatal("expected meta_data in response")
+		t.Fatal("expected metadata in response")
 	}
 	if msg, _ := meta["message"].(string); msg != `Report "3" successfully deleted` {
 		t.Errorf("unexpected message: %v", meta["message"])

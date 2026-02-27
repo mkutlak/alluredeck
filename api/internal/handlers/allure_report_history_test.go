@@ -46,12 +46,13 @@ func makeGetReportHistoryReq(t *testing.T, projectID string) *http.Request {
 	req, err := http.NewRequestWithContext(
 		context.Background(),
 		http.MethodGet,
-		"/report-history?project_id="+projectID,
+		"/api/v1/projects/"+projectID+"/reports",
 		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.SetPathValue("project_id", projectID)
 	return req
 }
 

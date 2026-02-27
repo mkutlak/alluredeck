@@ -36,6 +36,9 @@ coverage/
 # Oh-My-Claude
 .omc/
 
+# Beads
+.beads/
+
 # Semantic-release temp file
 .VERSION
 

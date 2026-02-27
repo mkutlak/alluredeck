@@ -42,7 +42,7 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "Missing authorization token"},
+					"metadata": map[string]string{"message": "Missing authorization token"},
 				})
 				return
 			}
@@ -53,7 +53,7 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "Invalid token"},
+					"metadata": map[string]string{"message": "Invalid token"},
 				})
 				return
 			}
@@ -104,7 +104,7 @@ func RequireRole(required string) func(http.HandlerFunc) http.HandlerFunc {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "Access denied: missing claims"},
+					"metadata": map[string]string{"message": "Access denied: missing claims"},
 				})
 				return
 			}
@@ -116,7 +116,7 @@ func RequireRole(required string) func(http.HandlerFunc) http.HandlerFunc {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"meta_data": map[string]string{"message": "Access denied: insufficient permissions"},
+					"metadata": map[string]string{"message": "Access denied: insufficient permissions"},
 				})
 				return
 			}

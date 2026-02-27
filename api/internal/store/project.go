@@ -85,6 +85,38 @@ func (ps *ProjectStore) ListProjects(ctx context.Context) ([]Project, error) {
 	return projects, nil
 }
 
+// ListProjectsPaginated returns a page of projects ordered by ID, plus the total count.
+func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int) ([]Project, int, error) {
+	var total int
+	if err := ps.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects").Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count projects: %w", err)
+	}
+
+	offset := (page - 1) * perPage
+	rows, err := ps.db.QueryContext(ctx,
+		"SELECT id, created_at FROM projects ORDER BY id LIMIT ? OFFSET ?",
+		perPage, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list projects paginated: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var projects []Project
+	for rows.Next() {
+		var p Project
+		var createdAt string
+		if err := rows.Scan(&p.ID, &createdAt); err != nil {
+			return nil, 0, fmt.Errorf("scan project: %w", err)
+		}
+		p.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		projects = append(projects, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate project rows: %w", err)
+	}
+	return projects, total, nil
+}
+
 // DeleteProject removes a project and all its builds (CASCADE).
 func (ps *ProjectStore) DeleteProject(ctx context.Context, id string) error {
 	res, err := ps.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", id)

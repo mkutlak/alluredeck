@@ -50,9 +50,9 @@ func TestDeleteProject_OK(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	meta, ok := resp["meta_data"].(map[string]any)
+	meta, ok := resp["metadata"].(map[string]any)
 	if !ok {
-		t.Fatal("expected meta_data in response")
+		t.Fatal("expected metadata in response")
 	}
 	if meta["message"] != "Project successfully deleted" {
 		t.Errorf("unexpected message: %v", meta["message"])

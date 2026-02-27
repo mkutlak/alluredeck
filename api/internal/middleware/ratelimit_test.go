@@ -137,12 +137,12 @@ func TestRateLimitMiddleware_ExcessiveRequests(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("expected valid JSON response: %v", err)
 	}
-	meta, ok := resp["meta_data"].(map[string]any)
+	meta, ok := resp["metadata"].(map[string]any)
 	if !ok {
-		t.Fatal("expected meta_data in response")
+		t.Fatal("expected metadata in response")
 	}
 	if _, ok := meta["message"].(string); !ok {
-		t.Error("expected message string in meta_data")
+		t.Error("expected message string in metadata")
 	}
 }
 

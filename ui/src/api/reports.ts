@@ -6,21 +6,24 @@ export async function generateReport(
   params: GenerateReportParams,
 ): Promise<ApiResponse<GenerateReportData>> {
   const { project_id, execution_name, execution_from, execution_type, store_results } = params
-  const res = await apiClient.post<ApiResponse<GenerateReportData>>('/generate-report', null, {
-    params: {
-      project_id,
-      ...(execution_name ? { execution_name } : {}),
-      ...(execution_from ? { execution_from } : {}),
-      ...(execution_type ? { execution_type } : {}),
-      ...(store_results !== undefined ? { store_results: store_results ? '1' : '0' } : {}),
+  const res = await apiClient.post<ApiResponse<GenerateReportData>>(
+    `/projects/${encodeURIComponent(project_id)}/reports`,
+    null,
+    {
+      params: {
+        ...(execution_name ? { execution_name } : {}),
+        ...(execution_from ? { execution_from } : {}),
+        ...(execution_type ? { execution_type } : {}),
+        ...(store_results !== undefined ? { store_results: store_results ? '1' : '0' } : {}),
+      },
     },
-  })
+  )
   return res.data
 }
 
 export async function cleanHistory(projectId: string): Promise<ApiResponse<{ output: string }>> {
   const res = await apiClient.delete<ApiResponse<{ output: string }>>(
-    `/projects/${encodeURIComponent(projectId)}/history`,
+    `/projects/${encodeURIComponent(projectId)}/reports/history`,
   )
   return res.data
 }
@@ -35,15 +38,14 @@ export async function cleanResults(projectId: string): Promise<ApiResponse<{ out
 export async function sendResultsMultipart(projectId: string, files: File[]): Promise<void> {
   const formData = new FormData()
   files.forEach((file) => formData.append('files[]', file))
-  await apiClient.post('/send-results', formData, {
-    params: { project_id: projectId },
+  await apiClient.post(`/projects/${encodeURIComponent(projectId)}/results`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
 
 /** Build the URL for the emailable report page (GET, rendered as HTML). */
 export function getEmailableReportUrl(projectId: string): string {
-  return `${env.apiUrl}/emailable-report/render?project_id=${encodeURIComponent(projectId)}`
+  return `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/emailable`
 }
 
 export async function deleteReport(
@@ -51,16 +53,15 @@ export async function deleteReport(
   reportId: string,
 ): Promise<ApiResponse<{ report_id: string; project_id: string }>> {
   const res = await apiClient.delete<ApiResponse<{ report_id: string; project_id: string }>>(
-    '/report',
-    { params: { project_id: projectId, report_id: reportId } },
+    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}`,
   )
   return res.data
 }
 
 export async function fetchReportHistory(projectId: string): Promise<ReportHistoryData> {
-  const res = await apiClient.get<ApiResponse<ReportHistoryData>>('/report-history', {
-    params: { project_id: projectId },
-  })
+  const res = await apiClient.get<ApiResponse<ReportHistoryData>>(
+    `/projects/${encodeURIComponent(projectId)}/reports`,
+  )
   return res.data.data
 }
 
