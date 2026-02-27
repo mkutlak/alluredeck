@@ -5,7 +5,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.ui
     environment:
-      VITE_API_URL: "${VITE_API_URL:-http://localhost:5050}"
+      VITE_API_URL: "${VITE_API_URL:-http://localhost:5050/api/v1}"
       VITE_APP_TITLE: "${VITE_APP_TITLE:-AllureDeck}"
     ports:
       - "7474:8080"

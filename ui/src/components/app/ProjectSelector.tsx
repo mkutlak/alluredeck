@@ -16,7 +16,7 @@ export function ProjectSelector() {
 
   const { data } = useQuery({
     queryKey: ['projects'],
-    queryFn: getProjects,
+    queryFn: () => getProjects(),
     staleTime: 30_000,
   })
 

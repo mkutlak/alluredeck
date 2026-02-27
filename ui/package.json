@@ -12,7 +12,7 @@
     "test:coverage": "vitest run --coverage --config vitest.config.ts",
     "lint": "eslint .",
     "format": "prettier --write 'src/**/*.{ts,tsx,css}'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.2",

@@ -17,7 +17,7 @@ export function ProjectsPage() {
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['projects'],
-    queryFn: getProjects,
+    queryFn: () => getProjects(),
     staleTime: 30_000,
   })
 

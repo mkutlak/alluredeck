@@ -68,7 +68,7 @@ services:
     ports:
       - "5050:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/version"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -83,7 +83,7 @@ services:
       allure-api:
         condition: service_healthy
     environment:
-      VITE_API_URL: "http://localhost:5050"
+      VITE_API_URL: "http://localhost:5050/api/v1"
       VITE_APP_TITLE: "AllureDeck (S3)"
     ports:
       - "7474:8080"
