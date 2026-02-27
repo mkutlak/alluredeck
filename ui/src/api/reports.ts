@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ApiResponse, AllureSummary, GenerateReportData, GenerateReportParams, ReportHistoryData } from '@/types/api'
+import type { ApiResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportData, GenerateReportParams, KnownFailuresData, ReportHistoryData, TimelineData } from '@/types/api'
 import { env } from '@/lib/env'
 
 export async function generateReport(
@@ -79,4 +79,44 @@ export async function fetchReportSummary(
   } catch {
     return null
   }
+}
+
+export async function fetchReportCategories(
+  projectId: string,
+  reportId = 'latest',
+): Promise<CategoryEntry[]> {
+  const res = await apiClient.get<ApiResponse<CategoryEntry[]>>(
+    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/categories`,
+  )
+  return res.data.data
+}
+
+export async function fetchReportEnvironment(
+  projectId: string,
+  reportId = 'latest',
+): Promise<EnvironmentEntry[]> {
+  const res = await apiClient.get<ApiResponse<EnvironmentEntry[]>>(
+    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/environment`,
+  )
+  return res.data.data
+}
+
+export async function fetchReportKnownFailures(
+  projectId: string,
+  reportId = 'latest',
+): Promise<KnownFailuresData> {
+  const res = await apiClient.get<ApiResponse<KnownFailuresData>>(
+    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/known-failures`,
+  )
+  return res.data.data
+}
+
+export async function fetchReportTimeline(
+  projectId: string,
+  reportId = 'latest',
+): Promise<TimelineData> {
+  const res = await apiClient.get<ApiResponse<TimelineData>>(
+    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/timeline`,
+  )
+  return res.data.data
 }

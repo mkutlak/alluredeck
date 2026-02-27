@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -56,7 +57,11 @@ func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*Project, er
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
-	p.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+	if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
+		log.Printf("warning: invalid created_at %q for project %s: %v", createdAt, id, err)
+	} else {
+		p.CreatedAt = t
+	}
 	return &p, nil
 }
 
@@ -76,7 +81,11 @@ func (ps *ProjectStore) ListProjects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.ID, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
-		p.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
+			log.Printf("warning: invalid created_at %q for project %s: %v", createdAt, p.ID, err)
+		} else {
+			p.CreatedAt = t
+		}
 		projects = append(projects, p)
 	}
 	if err := rows.Err(); err != nil {
@@ -108,7 +117,11 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 		if err := rows.Scan(&p.ID, &createdAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
-		p.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
+			log.Printf("warning: invalid created_at %q for project %s: %v", createdAt, p.ID, err)
+		} else {
+			p.CreatedAt = t
+		}
 		projects = append(projects, p)
 	}
 	if err := rows.Err(); err != nil {

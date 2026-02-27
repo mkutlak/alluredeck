@@ -38,7 +38,7 @@ func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 	buildStore := store.NewBuildStore(db)
 	lockManager := store.NewLockManager()
 	r := runner.NewAllure(cfg, st, buildStore, lockManager)
-	return NewAllureHandler(cfg, r, store.NewProjectStore(db), buildStore, st)
+	return NewAllureHandler(cfg, r, store.NewProjectStore(db), buildStore, store.NewKnownIssueStore(db), st)
 }
 
 func makeGetReportHistoryReq(t *testing.T, projectID string) *http.Request {

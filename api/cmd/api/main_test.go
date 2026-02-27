@@ -35,9 +35,9 @@ func TestRegisterRoutes(t *testing.T) {
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
 	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, localStore)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, store.NewKnownIssueStore(db), localStore)
 
-	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
+	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
@@ -91,9 +91,9 @@ func TestBareRoutes_Return404(t *testing.T) {
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
 	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, localStore)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, store.NewKnownIssueStore(db), localStore)
 
-	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
+	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)

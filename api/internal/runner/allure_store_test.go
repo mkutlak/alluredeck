@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
@@ -84,7 +85,7 @@ func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
 	makeFullLatestReport(t, latestDir)
 
 	a := newTestAllureDir(t, dir)
-	if err := a.StoreReport(projectID, buildOrder); err != nil {
+	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
 		t.Fatalf("StoreReport: %v", err)
 	}
 
@@ -118,7 +119,7 @@ func TestStoreReport_EmptyLatest(t *testing.T) {
 	}
 
 	a := newTestAllureDir(t, dir)
-	if err := a.StoreReport("myproject", 1); err != nil {
+	if err := a.StoreReport(context.Background(), "myproject", 1); err != nil {
 		t.Fatalf("StoreReport on empty latest: %v", err)
 	}
 }
@@ -128,7 +129,7 @@ func TestStoreReport_EmptyLatest(t *testing.T) {
 func TestStoreReport_LatestNotExist(t *testing.T) {
 	dir := t.TempDir()
 	a := newTestAllureDir(t, dir)
-	if err := a.StoreReport("nonexistent", 1); err != nil {
+	if err := a.StoreReport(context.Background(), "nonexistent", 1); err != nil {
 		t.Fatalf("StoreReport when latest/ missing: %v", err)
 	}
 }
@@ -145,7 +146,7 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 	mustWriteFile(t, filepath.Join(latestDir, "data", "results.json"), `{}`)
 
 	a := newTestAllureDir(t, dir)
-	if err := a.StoreReport(projectID, buildOrder); err != nil {
+	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
 		t.Fatalf("StoreReport with partial dirs: %v", err)
 	}
 
@@ -157,6 +158,74 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(buildDir, d)); !os.IsNotExist(err) {
 			t.Errorf("%s/ should not exist (was absent from latest/)", d)
 		}
+	}
+}
+
+// TestStoreAndPruneBuild_InsertBuildErrorPropagates verifies that when
+// InsertBuild fails (e.g. closed DB), the error is returned instead of swallowed.
+func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
+	dir := t.TempDir()
+	projectID := "err-proj"
+
+	cfg := &config.Config{ProjectsDirectory: dir}
+	st := storage.NewLocalStore(cfg)
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	bs := store.NewBuildStore(s)
+	lm := store.NewLockManager()
+	a := NewAllure(cfg, st, bs, lm)
+
+	// Close the DB so InsertBuild will fail.
+	_ = s.Close()
+
+	err = a.storeAndPruneBuild(context.Background(), projectID, dir, 1)
+	if err == nil {
+		t.Fatal("expected error from storeAndPruneBuild when DB is closed, got nil")
+	}
+	if !strings.Contains(err.Error(), "insert build") {
+		t.Errorf("expected error containing %q, got: %v", "insert build", err)
+	}
+}
+
+// TestRecordBuild_RecordsInDB verifies that recordBuild inserts the build
+// into the database (for pruning) without publishing a report snapshot.
+func TestRecordBuild_RecordsInDB(t *testing.T) {
+	dir := t.TempDir()
+	projectID := "record-proj"
+
+	cfg := &config.Config{ProjectsDirectory: dir}
+	st := storage.NewLocalStore(cfg)
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	// Create project in DB to satisfy FK constraint.
+	ps := store.NewProjectStore(s)
+	if err := ps.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	bs := store.NewBuildStore(s)
+	lm := store.NewLockManager()
+	a := NewAllure(cfg, st, bs, lm)
+
+	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
+		t.Fatalf("recordBuild: %v", err)
+	}
+
+	builds, err := a.buildStore.ListBuilds(context.Background(), projectID)
+	if err != nil {
+		t.Fatalf("ListBuilds: %v", err)
+	}
+	if len(builds) != 1 {
+		t.Fatalf("expected 1 build, got %d", len(builds))
+	}
+	if builds[0].BuildOrder != 1 {
+		t.Errorf("expected build_order=1, got %d", builds[0].BuildOrder)
 	}
 }
 
@@ -172,7 +241,7 @@ func TestStoreReport_WidgetsReadable(t *testing.T) {
 		summaryJSON(10, 8, 1, 0, 1, 0))
 
 	a := newTestAllureDir(t, dir)
-	if err := a.StoreReport(projectID, buildOrder); err != nil {
+	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
 		t.Fatalf("StoreReport: %v", err)
 	}
 

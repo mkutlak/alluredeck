@@ -13,7 +13,7 @@ import {
   BarChart3,
   RefreshCw,
 } from 'lucide-react'
-import { fetchReportHistory, deleteReport, getEmailableReportUrl } from '@/api/reports'
+import { fetchReportHistory, deleteReport, getEmailableReportUrl, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { env } from '@/lib/env'
@@ -44,6 +44,8 @@ import { toast } from '@/components/ui/use-toast'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
+import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
+import { CategoriesCard } from '@/features/projects/CategoriesCard'
 
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -60,6 +62,13 @@ export function OverviewTab() {
     queryFn: () => fetchReportHistory(projectId!),
     enabled: !!projectId,
     staleTime: 10_000,
+  })
+
+  const { data: knownFailuresData } = useQuery({
+    queryKey: ['report-known-failures', projectId],
+    queryFn: () => fetchReportKnownFailures(projectId!),
+    enabled: !!projectId,
+    staleTime: 30_000,
   })
 
   const deleteMutation = useMutation({
@@ -85,6 +94,11 @@ export function OverviewTab() {
   const latest = reports[0]
   const stat = latest?.statistic
   const passRate = stat ? calcPassRate(stat.passed, stat.total) : null
+  const knownCount = knownFailuresData?.known_failures?.length ?? 0
+  const adjustedPassRate =
+    stat && knownCount > 0
+      ? calcPassRate(stat.passed + knownCount, stat.total)
+      : null
   const latestReportUrl = `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/latest/index.html`
 
   return (
@@ -166,6 +180,12 @@ export function OverviewTab() {
                   {passRate !== null ? `${passRate}%` : '—'}
                 </span>
               </div>
+              {adjustedPassRate !== null && adjustedPassRate !== passRate && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {adjustedPassRate}% adjusted
+                  <span className="ml-1 text-xs opacity-70">(excl. {knownCount} known)</span>
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -218,6 +238,12 @@ export function OverviewTab() {
           </Card>
         </div>
       )}
+
+      {/* Environment & Categories — G1/G2 */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <EnvironmentCard projectId={projectId} />
+        <CategoriesCard projectId={projectId} />
+      </div>
 
       {/* Report history table */}
       {isLoading ? (

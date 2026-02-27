@@ -111,6 +111,31 @@ func TestProjectStore_DeleteCascades(t *testing.T) {
 	}
 }
 
+// TestProjectStore_GetProject_InvalidCreatedAt verifies that a project with a
+// corrupt created_at value is still returned with zero-value CreatedAt.
+func TestProjectStore_GetProject_InvalidCreatedAt(t *testing.T) {
+	s := openTestStore(t)
+	ps := store.NewProjectStore(s)
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "bad-ts")
+
+	// Corrupt the created_at value via raw SQL.
+	_, err := s.DB().ExecContext(ctx,
+		"UPDATE projects SET created_at='not-a-timestamp' WHERE id=?", "bad-ts")
+	if err != nil {
+		t.Fatalf("corrupt created_at: %v", err)
+	}
+
+	p, err := ps.GetProject(ctx, "bad-ts")
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if !p.CreatedAt.IsZero() {
+		t.Errorf("expected zero CreatedAt for invalid timestamp, got %v", p.CreatedAt)
+	}
+}
+
 func TestProjectStore_Exists(t *testing.T) {
 	s := openTestStore(t)
 	ps := store.NewProjectStore(s)

@@ -17,21 +17,23 @@ type ipLimiter struct {
 
 // IPRateLimiter implements a per-IP token bucket rate limiter using only stdlib.
 type IPRateLimiter struct {
-	mu      sync.RWMutex
-	clients map[string]*ipLimiter
-	rate    float64       // tokens added per second
-	burst   int           // max tokens (bucket capacity)
-	ttl     time.Duration // stale entry lifetime
+	mu                sync.RWMutex
+	clients           map[string]*ipLimiter
+	rate              float64       // tokens added per second
+	burst             int           // max tokens (bucket capacity)
+	ttl               time.Duration // stale entry lifetime
+	trustForwardedFor bool          // when false, X-Forwarded-For is ignored
 }
 
 // NewIPRateLimiter creates a rate limiter with the given rate (tokens/sec),
-// burst capacity, and TTL for stale entry cleanup.
-func NewIPRateLimiter(rate float64, burst int, ttl time.Duration) *IPRateLimiter {
+// burst capacity, TTL for stale entry cleanup, and whether to trust X-Forwarded-For.
+func NewIPRateLimiter(rate float64, burst int, ttl time.Duration, trustForwardedFor bool) *IPRateLimiter {
 	return &IPRateLimiter{
-		clients: make(map[string]*ipLimiter),
-		rate:    rate,
-		burst:   burst,
-		ttl:     ttl,
+		clients:           make(map[string]*ipLimiter),
+		rate:              rate,
+		burst:             burst,
+		ttl:               ttl,
+		trustForwardedFor: trustForwardedFor,
 	}
 }
 
@@ -96,13 +98,16 @@ func (rl *IPRateLimiter) StartCleanup(interval time.Duration, done <-chan struct
 	}()
 }
 
-// clientIP extracts the client IP from X-Forwarded-For (first entry) or RemoteAddr.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For: client, proxy1, proxy2 — take the leftmost (client) IP
-		ip := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
-		if ip != "" {
-			return ip
+// clientIP extracts the client IP from the request. When trustForwardedFor is true,
+// the first entry in X-Forwarded-For is used. Otherwise, only RemoteAddr is consulted.
+func clientIP(r *http.Request, trustForwardedFor bool) string {
+	if trustForwardedFor {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// X-Forwarded-For: client, proxy1, proxy2 — take the leftmost (client) IP
+			ip := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+			if ip != "" {
+				return ip
+			}
 		}
 	}
 
@@ -119,7 +124,7 @@ func clientIP(r *http.Request) string {
 func RateLimitMiddleware(rl *IPRateLimiter) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
+			ip := clientIP(r, rl.trustForwardedFor)
 			if !rl.Allow(ip) {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "1")

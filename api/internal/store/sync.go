@@ -90,8 +90,13 @@ func (bs *BuildStore) syncStatsIfMissing(ctx context.Context, projectID string, 
 		return nil // already has stats
 	}
 
-	// Read stats from storage (non-fatal if unavailable)
-	storageStats, _ := st.ReadBuildStats(ctx, projectID, buildOrder)
+	// Read stats from storage — skip update if unavailable so stat_total stays NULL
+	// and the row is retried on next startup.
+	storageStats, err := st.ReadBuildStats(ctx, projectID, buildOrder)
+	if err != nil {
+		log.Printf("SyncMetadata: stats unavailable for %s/%d (will retry next startup): %v", projectID, buildOrder, err)
+		return nil
+	}
 
 	_, err = bs.db.ExecContext(ctx, `
 		UPDATE builds

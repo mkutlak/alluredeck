@@ -144,6 +144,30 @@ export interface ReportHistoryData {
 }
 
 // ---------------------------------------------------------------------------
+// Environment info (G1)
+// ---------------------------------------------------------------------------
+export interface EnvironmentEntry {
+  name: string
+  values: string[]
+}
+
+// ---------------------------------------------------------------------------
+// Categories / defects (G2)
+// ---------------------------------------------------------------------------
+export interface CategoryMatchedStatistic {
+  failed: number
+  broken: number
+  known: number
+  unknown: number
+  total: number
+}
+
+export interface CategoryEntry {
+  name: string
+  matchedStatistic: CategoryMatchedStatistic | null
+}
+
+// ---------------------------------------------------------------------------
 // Local report metadata (derived / assembled by the UI)
 // ---------------------------------------------------------------------------
 export interface ReportItem {
@@ -152,4 +176,64 @@ export interface ReportItem {
   generatedAt?: string
   durationMs?: number
   summary?: AllureSummary
+}
+
+// ---------------------------------------------------------------------------
+// Known Failures (G5 analytics)
+// ---------------------------------------------------------------------------
+export interface KnownFailure {
+  test_name: string
+  status: string
+}
+
+export interface KnownFailuresData {
+  known_failures: KnownFailure[]
+  new_failures: KnownFailure[]
+  adjusted_stats: {
+    known_count: number
+    new_count: number
+    total_count: number
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Known Issues (G5)
+// ---------------------------------------------------------------------------
+export interface KnownIssue {
+  id: number
+  project_id: string
+  test_name: string
+  pattern: string
+  ticket_url: string
+  description: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Timeline (G3)
+// ---------------------------------------------------------------------------
+export interface TimelineTestCase {
+  name: string
+  full_name: string
+  status: string
+  start: number
+  stop: number
+  duration: number
+  thread: string
+  host: string
+}
+
+export interface TimelineSummary {
+  total: number
+  min_start: number
+  max_stop: number
+  total_duration: number
+  truncated: boolean
+}
+
+export interface TimelineData {
+  test_cases: TimelineTestCase[]
+  summary: TimelineSummary
 }

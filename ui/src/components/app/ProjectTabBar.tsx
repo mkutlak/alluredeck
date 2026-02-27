@@ -21,6 +21,12 @@ export function ProjectTabBar() {
         <NavLink to={base} end className={tabClass}>
           Overview
         </NavLink>
+        <NavLink to={`${base}/known-issues`} className={tabClass}>
+          Known Issues
+        </NavLink>
+        <NavLink to={`${base}/timeline`} className={tabClass}>
+          Timeline
+        </NavLink>
         <NavLink to={`${base}/analytics`} className={tabClass}>
           Analytics
         </NavLink>

@@ -132,6 +132,37 @@ func TestBuildStore_PruneKeepsNewest(t *testing.T) {
 	}
 }
 
+// TestBuildStore_ListBuilds_InvalidCreatedAt verifies that a build with a
+// corrupt created_at value is still returned with zero-value CreatedAt.
+func TestBuildStore_ListBuilds_InvalidCreatedAt(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s)
+	ps := store.NewProjectStore(s)
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "bad-ts")
+	_ = bs.InsertBuild(ctx, "bad-ts", 1)
+
+	// Corrupt the created_at value via raw SQL.
+	_, err := s.DB().ExecContext(ctx,
+		"UPDATE builds SET created_at='not-a-timestamp' WHERE project_id=? AND build_order=?",
+		"bad-ts", 1)
+	if err != nil {
+		t.Fatalf("corrupt created_at: %v", err)
+	}
+
+	builds, err := bs.ListBuilds(ctx, "bad-ts")
+	if err != nil {
+		t.Fatalf("ListBuilds: %v", err)
+	}
+	if len(builds) != 1 {
+		t.Fatalf("expected 1 build, got %d", len(builds))
+	}
+	if !builds[0].CreatedAt.IsZero() {
+		t.Errorf("expected zero CreatedAt for invalid timestamp, got %v", builds[0].CreatedAt)
+	}
+}
+
 func TestBuildStore_SetLatest(t *testing.T) {
 	s := openTestStore(t)
 	bs := store.NewBuildStore(s)

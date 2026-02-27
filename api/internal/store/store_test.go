@@ -58,13 +58,13 @@ func TestOpen_IdempotentMigrations(t *testing.T) {
 	}
 	defer func() { _ = s2.Close() }()
 
-	// schema_version should have exactly one entry (migration 001).
+	// schema_version should have exactly one entry per migration file.
 	var count int
 	if err := s2.DB().QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("expected 1 schema_version row, got %d", count)
+	if count != 2 {
+		t.Errorf("expected 2 schema_version rows, got %d", count)
 	}
 }
 

@@ -63,7 +63,8 @@ func main() {
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 
 	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager)
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, dataStore)
+	knownIssueStore := store.NewKnownIssueStore(db)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, knownIssueStore, dataStore)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore)
 
@@ -111,7 +112,7 @@ func main() {
 	mux.Handle("/api/v1/projects/", http.StripPrefix("/api/v1/projects/", reportHandler))
 
 	// Rate limiter for login endpoint — 5 req/s, burst 10, 15min stale TTL (REVIEW #8).
-	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute)
+	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, cfg.TrustForwardedFor)
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
@@ -243,4 +244,12 @@ func registerRoutes(
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(allure.CleanResults))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", adminOnly(allure.SendResults))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(allure.DeleteReport))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(allure.GetReportCategories))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(allure.GetReportEnvironment))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(allure.ListKnownIssues))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", adminOnly(allure.CreateKnownIssue))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(allure.UpdateKnownIssue))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(allure.DeleteKnownIssue))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(allure.GetReportKnownFailures))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(allure.GetReportTimeline))
 }

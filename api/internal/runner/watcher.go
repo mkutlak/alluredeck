@@ -102,16 +102,16 @@ func (w *Watcher) checkProject(ctx context.Context, projectID, previousHash stri
 		log.Printf("Watcher detected changes in '%s' results. Triggering report generation...", projectID)
 
 		// Bug 1 fix: call KeepHistory (preserves history) instead of CleanHistory (deletes all history).
-		if err := w.allureCore.KeepHistory(projectID); err != nil {
+		if err := w.allureCore.KeepHistory(ctx, projectID); err != nil {
 			log.Printf("Watcher failed to keep history for '%s': %v", projectID, err)
 		}
 
 		// Bug 4 fix: storeResults=true so numbered history dirs (reports/1/, reports/2/, …) are created.
-		if _, err := w.allureCore.GenerateReport(projectID, "", "", "", true); err != nil {
+		if _, err := w.allureCore.GenerateReport(ctx, projectID, "", "", "", true); err != nil {
 			log.Printf("Watcher failed to generate report for '%s': %v", projectID, err)
 		}
 
-		if _, err := w.allureCore.RenderEmailableReport(projectID); err != nil {
+		if _, err := w.allureCore.RenderEmailableReport(ctx, projectID); err != nil {
 			log.Printf("Watcher failed to render emailable report for '%s': %v", projectID, err)
 		}
 	}

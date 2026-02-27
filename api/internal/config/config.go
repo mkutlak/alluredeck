@@ -46,6 +46,7 @@ type Config struct {
 	OptimizeStorage     bool // dead in Go runtime; kept for /config response compatibility
 	LegacyUI            bool
 	CORSAllowedOrigins  []string
+	TrustForwardedFor   bool
 	AccessTokenExpiry   time.Duration
 	RefreshTokenExpiry  time.Duration
 	DatabasePath        string
@@ -77,6 +78,7 @@ type yamlConfig struct {
 	OptimizeStorage     *bool    `yaml:"optimize_storage"`
 	LegacyUI            *bool    `yaml:"legacy_ui"`
 	CORSAllowedOrigins  []string `yaml:"cors_allowed_origins"`
+	TrustForwardedFor   *bool    `yaml:"trust_forwarded_for"`
 	AccessTokenExpSecs  *int     `yaml:"access_token_expiry_secs"`
 	RefreshTokenExpSecs *int     `yaml:"refresh_token_expiry_secs"`
 	DatabasePath        *string  `yaml:"database_path"`
@@ -139,6 +141,7 @@ func LoadConfig() *Config {
 		OptimizeStorage:     getEnvOrYAMLBool("OPTIMIZE_STORAGE", yc.OptimizeStorage),
 		LegacyUI:            getEnvOrYAMLBool("LEGACY_UI", yc.LegacyUI),
 		CORSAllowedOrigins:  corsOrigins,
+		TrustForwardedFor:   getEnvOrYAMLBool("TRUST_X_FORWARDED_FOR", yc.TrustForwardedFor),
 		AccessTokenExpiry:   time.Duration(getEnvOrYAMLInt("JWT_ACCESS_TOKEN_EXPIRES", yc.AccessTokenExpSecs, 900)) * time.Second,
 		RefreshTokenExpiry:  time.Duration(getEnvOrYAMLInt("JWT_REFRESH_TOKEN_EXPIRES", yc.RefreshTokenExpSecs, 2592000)) * time.Second,
 		DatabasePath:        getEnvOrYAML("DATABASE_PATH", yc.DatabasePath, "/app/allure.db"),

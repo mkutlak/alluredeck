@@ -1,4 +1,4 @@
-import type { ReportHistoryEntry } from '@/types/api'
+import type { ReportHistoryEntry, TimelineTestCase } from '@/types/api'
 import { calcPassRate } from './utils'
 
 export const STATUS_COLORS = {
@@ -77,4 +77,36 @@ export function toStatusPieData(entries: ReportHistoryEntry[]): StatusPiePoint[]
     { name: 'Broken', value: broken, color: STATUS_COLORS.broken },
     { name: 'Skipped', value: skipped, color: STATUS_COLORS.skipped },
   ].filter((d) => d.value > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Timeline lane utilities (G3)
+// ---------------------------------------------------------------------------
+
+export interface TimelineLane {
+  id: string
+  label: string
+}
+
+export type LaneStrategy = 'thread' | 'host' | 'default'
+
+export function detectLaneStrategy(testCases: TimelineTestCase[]): LaneStrategy {
+  if (testCases.some((tc) => tc.thread)) return 'thread'
+  if (testCases.some((tc) => tc.host)) return 'host'
+  return 'default'
+}
+
+export function toTimelineLanes(testCases: TimelineTestCase[], strategy: LaneStrategy): TimelineLane[] {
+  if (strategy === 'default') return [{ id: 'default', label: 'Tests' }]
+  const seen = new Set<string>()
+  const lanes: TimelineLane[] = []
+  for (const tc of testCases) {
+    const key = strategy === 'thread' ? tc.thread : tc.host
+    if (key && !seen.has(key)) {
+      seen.add(key)
+      lanes.push({ id: key, label: key })
+    }
+  }
+  if (lanes.length === 0) return [{ id: 'default', label: 'Tests' }]
+  return lanes
 }

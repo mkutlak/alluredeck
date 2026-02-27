@@ -40,21 +40,23 @@ var (
 
 // AllureHandler handles HTTP requests for Allure report management.
 type AllureHandler struct {
-	cfg          *config.Config
-	runner       *runner.Allure
-	projectStore *store.ProjectStore
-	buildStore   *store.BuildStore
-	store        storage.Store
+	cfg             *config.Config
+	runner          *runner.Allure
+	projectStore    *store.ProjectStore
+	buildStore      *store.BuildStore
+	knownIssueStore *store.KnownIssueStore
+	store           storage.Store
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
-func NewAllureHandler(cfg *config.Config, r *runner.Allure, projectStore *store.ProjectStore, buildStore *store.BuildStore, st storage.Store) *AllureHandler {
+func NewAllureHandler(cfg *config.Config, r *runner.Allure, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, st storage.Store) *AllureHandler {
 	return &AllureHandler{
-		cfg:          cfg,
-		runner:       r,
-		projectStore: projectStore,
-		buildStore:   buildStore,
-		store:        st,
+		cfg:             cfg,
+		runner:          r,
+		projectStore:    projectStore,
+		buildStore:      buildStore,
+		knownIssueStore: knownIssueStore,
+		store:           st,
 	}
 }
 
@@ -186,7 +188,7 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.runner.CreateProject(projectID)
+	err := h.runner.CreateProject(r.Context(), projectID)
 	if err != nil {
 		if errors.Is(err, runner.ErrProjectExists) {
 			w.WriteHeader(http.StatusConflict)
@@ -264,7 +266,7 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		storeResults = storeResultsStr == "1" || strings.EqualFold(storeResultsStr, "true")
 	}
 
-	out, err := h.runner.GenerateReport(projectID, execName, execFrom, execType, storeResults)
+	out, err := h.runner.GenerateReport(r.Context(), projectID, execName, execFrom, execType, storeResults)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -312,7 +314,7 @@ func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.runner.CleanHistory(projectID); err != nil {
+	if err := h.runner.CleanHistory(r.Context(), projectID); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": fmt.Sprintf("Error cleaning history: %v", err)},
@@ -356,7 +358,7 @@ func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.runner.CleanResults(projectID); err != nil {
+	if err := h.runner.CleanResults(r.Context(), projectID); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": fmt.Sprintf("Error cleaning results: %v", err)},
@@ -401,7 +403,7 @@ func (h *AllureHandler) GetEmailableReport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	htmlBytes, err := h.runner.RenderEmailableReport(projectID)
+	htmlBytes, err := h.runner.RenderEmailableReport(r.Context(), projectID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -460,7 +462,7 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 	}
 	if !exists {
 		if r.URL.Query().Get("force_project_creation") == "true" {
-			if err := h.runner.CreateProject(projectID); err != nil && !errors.Is(err, runner.ErrProjectExists) {
+			if err := h.runner.CreateProject(r.Context(), projectID); err != nil && !errors.Is(err, runner.ErrProjectExists) {
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"metadata": map[string]string{"message": fmt.Sprintf("Failed to create project: %v", err)},
@@ -785,6 +787,66 @@ func (h *AllureHandler) readJSONViaStore(ctx context.Context, projectID, relPath
 	return json.Unmarshal(data, v) == nil
 }
 
+// EnvironmentEntry represents one row in the Allure environment widget.
+type EnvironmentEntry struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
+}
+
+// GetReportEnvironment godoc
+// @Summary      Get report environment info
+// @Description  Returns the environment properties from the environment widget JSON for a given report.
+// @Tags         reports
+// @Produce      json
+// @Param        project_id  path  string  true  "Project ID"
+// @Param        report_id   path  string  true  "Report ID or 'latest'"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      500  {object}  map[string]any
+// @Router       /projects/{project_id}/reports/{report_id}/environment [get]
+func (h *AllureHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	ctx := r.Context()
+
+	raw := r.PathValue("project_id")
+	unescaped, err := url.PathUnescape(raw)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": "invalid project_id encoding"},
+		})
+		return
+	}
+	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
+
+	reportID := r.PathValue("report_id")
+	if reportID == "" {
+		reportID = "latest"
+	}
+
+	relPath := "reports/" + reportID + "/widgets/environment.json"
+	entries := make([]EnvironmentEntry, 0)
+	if !h.readJSONViaStore(ctx, projectID, relPath, &entries) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":     entries,
+			"metadata": map[string]string{"message": "No environment data available"},
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data":     entries,
+		"metadata": map[string]string{"message": "Environment info successfully obtained"},
+	})
+}
+
 // applySummaryFile reads widgets/summary.json (Allure 2) and fills entry in-place.
 // Returns true when the file was read and applied successfully.
 func (h *AllureHandler) applySummaryFile(ctx context.Context, projectID string, entry *ReportHistoryEntry, widgetsRelPath string) bool {
@@ -824,6 +886,75 @@ func (h *AllureHandler) buildReportEntry(ctx context.Context, projectID, name st
 	return entry
 }
 
+// CategoryMatchedStatistic holds the defect count breakdown for one category.
+type CategoryMatchedStatistic struct {
+	Failed  int `json:"failed"`
+	Broken  int `json:"broken"`
+	Known   int `json:"known"`
+	Unknown int `json:"unknown"`
+	Total   int `json:"total"`
+}
+
+// CategoryEntry represents one row in the Allure categories widget.
+type CategoryEntry struct {
+	Name             string                    `json:"name"`
+	MatchedStatistic *CategoryMatchedStatistic `json:"matchedStatistic"`
+}
+
+// GetReportCategories godoc
+// @Summary      Get report defect categories
+// @Description  Returns the failure categories from the categories widget JSON for a given report.
+// @Tags         reports
+// @Produce      json
+// @Param        project_id  path  string  true  "Project ID"
+// @Param        report_id   path  string  true  "Report ID or 'latest'"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      500  {object}  map[string]any
+// @Router       /projects/{project_id}/reports/{report_id}/categories [get]
+func (h *AllureHandler) GetReportCategories(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	ctx := r.Context()
+
+	raw := r.PathValue("project_id")
+	unescaped, err := url.PathUnescape(raw)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": "invalid project_id encoding"},
+		})
+		return
+	}
+	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
+
+	reportID := r.PathValue("report_id")
+	if reportID == "" {
+		reportID = "latest"
+	}
+
+	relPath := "reports/" + reportID + "/widgets/categories.json"
+	entries := make([]CategoryEntry, 0)
+	if !h.readJSONViaStore(ctx, projectID, relPath, &entries) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":     entries,
+			"metadata": map[string]string{"message": "No categories data available"},
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data":     entries,
+		"metadata": map[string]string{"message": "Categories successfully obtained"},
+	})
+}
+
 // DeleteProject godoc
 // @Summary      Delete a project
 // @Description  Removes an entire project and all its reports.
@@ -856,7 +987,7 @@ func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.runner.DeleteProject(projectID); err != nil {
+	if err := h.runner.DeleteProject(r.Context(), projectID); err != nil {
 		if errors.Is(err, storage.ErrProjectNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -926,7 +1057,7 @@ func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.runner.DeleteReport(projectID, reportID); err != nil {
+	if err := h.runner.DeleteReport(r.Context(), projectID, reportID); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, storage.ErrReportNotFound) {
 			status = http.StatusNotFound

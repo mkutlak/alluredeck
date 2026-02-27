@@ -73,6 +73,8 @@ type ExecutorJSON struct {
 
 // TestCaseTime holds timing information for a test case or step
 type TestCaseTime struct {
+	Start    int64 `json:"start,omitempty"`
+	Stop     int64 `json:"stop,omitempty"`
 	Duration int64 `json:"duration"`
 }
 
@@ -247,8 +249,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 		return fmt.Errorf("publish report: %w", err)
 	}
 	if err := a.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
-		log.Printf("GenerateReport: failed to record build %d for '%s': %v", buildOrder, projectID, err)
-		return nil
+		return fmt.Errorf("insert build: %w", err)
 	}
 	if stats, err := a.store.ReadBuildStats(ctx, projectID, buildOrder); err == nil {
 		// Convert storage.BuildStats → store.BuildStats for the DB layer
@@ -271,16 +272,26 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 	return nil
 }
 
+// recordBuild records the build in the database for pruning without publishing
+// a report snapshot. Used when storeResults=false but KeepHistory=true.
+func (a *Allure) recordBuild(ctx context.Context, projectID string, buildOrder int) error {
+	if err := a.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
+		return fmt.Errorf("insert build: %w", err)
+	}
+	if err := a.buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
+		log.Printf("GenerateReport: failed to set latest for '%s' build %d: %v", projectID, buildOrder, err)
+	}
+	return nil
+}
+
 // GenerateReport implements generateAllureReport.sh
-func (a *Allure) GenerateReport(projectID, execName, execFrom, execType string, storeResults bool) (string, error) {
+func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFrom, execType string, storeResults bool) (string, error) {
 	if execName == "" {
 		execName = "Automatic Execution"
 	}
 	if execType == "" {
 		execType = "another"
 	}
-
-	ctx := context.Background()
 
 	// 1. Acquire per-project lock to serialize concurrent report generation.
 	unlock, err := a.lockManager.Acquire(ctx, projectID, "generate")
@@ -336,14 +347,20 @@ func (a *Allure) GenerateReport(projectID, execName, execFrom, execType string, 
 	}
 
 	// 7. Store Report and record in database
-	if a.cfg.KeepHistory && storeResults {
-		if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder); err != nil {
-			return "", err
+	if a.cfg.KeepHistory {
+		if storeResults {
+			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder); err != nil {
+				return "", err
+			}
+		} else {
+			if err := a.recordBuild(ctx, projectID, buildOrder); err != nil {
+				return "", err
+			}
 		}
 	}
 
 	// 8. Keep Latest History (Cleanup old reports)
-	if err := a.KeepLatestHistory(projectID); err != nil {
+	if err := a.KeepLatestHistory(ctx, projectID); err != nil {
 		return "", err
 	}
 
@@ -351,8 +368,7 @@ func (a *Allure) GenerateReport(projectID, execName, execFrom, execType string, 
 }
 
 // CleanHistory delegates to the store module and regenerates
-func (a *Allure) CleanHistory(projectID string) error {
-	ctx := context.Background()
+func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 	if err := a.store.CleanHistory(ctx, projectID); err != nil {
 		return fmt.Errorf("clean history for %q: %w", projectID, err)
 	}
@@ -363,11 +379,11 @@ func (a *Allure) CleanHistory(projectID string) error {
 			return fmt.Errorf("keep history for %q: %w", projectID, err)
 		}
 
-		if _, err := a.GenerateReport(projectID, "", "", "", false); err != nil {
+		if _, err := a.GenerateReport(ctx, projectID, "", "", "", false); err != nil {
 			return err
 		}
 
-		if _, err := a.RenderEmailableReport(projectID); err != nil {
+		if _, err := a.RenderEmailableReport(ctx, projectID); err != nil {
 			log.Printf("CleanHistory: emailable report render failed for '%s': %v", projectID, err)
 		}
 	}
@@ -376,24 +392,24 @@ func (a *Allure) CleanHistory(projectID string) error {
 }
 
 // KeepHistory delegates to the store module
-func (a *Allure) KeepHistory(projectID string) error {
-	if err := a.store.KeepHistory(context.Background(), projectID); err != nil {
+func (a *Allure) KeepHistory(ctx context.Context, projectID string) error {
+	if err := a.store.KeepHistory(ctx, projectID); err != nil {
 		return fmt.Errorf("keep history for %q: %w", projectID, err)
 	}
 	return nil
 }
 
 // DeleteProject removes the entire project (filesystem + S3).
-func (a *Allure) DeleteProject(projectID string) error {
-	if err := a.store.DeleteProject(context.Background(), projectID); err != nil {
+func (a *Allure) DeleteProject(ctx context.Context, projectID string) error {
+	if err := a.store.DeleteProject(ctx, projectID); err != nil {
 		return fmt.Errorf("delete project %q: %w", projectID, err)
 	}
 	return nil
 }
 
 // DeleteReport removes a single numbered report directory for a project.
-func (a *Allure) DeleteReport(projectID, reportID string) error {
-	if err := a.store.DeleteReport(context.Background(), projectID, reportID); err != nil {
+func (a *Allure) DeleteReport(ctx context.Context, projectID, reportID string) error {
+	if err := a.store.DeleteReport(ctx, projectID, reportID); err != nil {
 		return fmt.Errorf("delete report %q for %q: %w", reportID, projectID, err)
 	}
 	return nil
@@ -403,7 +419,7 @@ func (a *Allure) DeleteReport(projectID, reportID string) error {
 func (a *Allure) loadTestCases(ctx context.Context, projectID, relPath string) ([]TestCase, error) {
 	entries, err := a.store.ReadDir(ctx, projectID, relPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading test-cases dir: %w", err)
+		return nil, fmt.Errorf("reading test-results dir: %w", err)
 	}
 
 	var testCases []TestCase
@@ -456,9 +472,8 @@ func renderEmailableToDir(outputDir string, data *emailableData) ([]byte, error)
 // RenderEmailableReport reads test cases from the latest report, renders the
 // emailable HTML report from the embedded template, saves it to
 // reports/emailable-report-render/index.html, and returns the rendered bytes.
-func (a *Allure) RenderEmailableReport(projectID string) ([]byte, error) {
-	ctx := context.Background()
-	relPath := "reports/latest/data/test-cases"
+func (a *Allure) RenderEmailableReport(ctx context.Context, projectID string) ([]byte, error) {
+	relPath := "reports/latest/data/test-results"
 
 	testCases, err := a.loadTestCases(ctx, projectID, relPath)
 	if err != nil {
@@ -509,22 +524,22 @@ func computeTestStats(testCases []TestCase) testStats {
 }
 
 // CleanResults delegates to the store module
-func (a *Allure) CleanResults(projectID string) error {
-	if err := a.store.CleanResults(context.Background(), projectID); err != nil {
+func (a *Allure) CleanResults(ctx context.Context, projectID string) error {
+	if err := a.store.CleanResults(ctx, projectID); err != nil {
 		return fmt.Errorf("clean results for %q: %w", projectID, err)
 	}
 	return nil
 }
 
 // CreateProject creates the necessary directories for a new project
-func (a *Allure) CreateProject(projectID string) error {
+func (a *Allure) CreateProject(ctx context.Context, projectID string) error {
 	projectDir := filepath.Join(a.cfg.ProjectsDirectory, projectID)
 
 	if _, err := os.Stat(projectDir); err == nil {
 		return fmt.Errorf("%w: %s", ErrProjectExists, projectID)
 	}
 
-	if err := a.store.CreateProject(context.Background(), projectID); err != nil {
+	if err := a.store.CreateProject(ctx, projectID); err != nil {
 		return fmt.Errorf("create project %q: %w", projectID, err)
 	}
 	return nil
@@ -533,8 +548,7 @@ func (a *Allure) CreateProject(projectID string) error {
 // StoreReport copies variable-content subdirs of the latest report to a numbered snapshot.
 // This thin wrapper exists for backward compatibility with tests; new code should call
 // store.PublishReport directly with the localProjectDir from PrepareLocal.
-func (a *Allure) StoreReport(projectID string, buildOrder int) error {
-	ctx := context.Background()
+func (a *Allure) StoreReport(ctx context.Context, projectID string, buildOrder int) error {
 	localProjectDir := filepath.Join(a.cfg.ProjectsDirectory, projectID)
 	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
@@ -544,12 +558,10 @@ func (a *Allure) StoreReport(projectID string, buildOrder int) error {
 
 // KeepLatestHistory removes the oldest historical report directories when count exceeds keepLatest.
 // Uses the database to determine which builds to prune, then removes their filesystem directories.
-func (a *Allure) KeepLatestHistory(projectID string) error {
+func (a *Allure) KeepLatestHistory(ctx context.Context, projectID string) error {
 	if !a.cfg.KeepHistory {
 		return nil
 	}
-
-	ctx := context.Background()
 	removed, err := a.buildStore.PruneBuilds(ctx, projectID, a.cfg.KeepHistoryLatest)
 	if err != nil {
 		return fmt.Errorf("prune builds from db: %w", err)

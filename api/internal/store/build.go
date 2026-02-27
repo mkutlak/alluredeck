@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -124,7 +125,11 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 		); err != nil {
 			return nil, fmt.Errorf("scan build: %w", err)
 		}
-		b.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
+			log.Printf("warning: invalid created_at %q for build %s/%d: %v", createdAt, projectID, b.BuildOrder, err)
+		} else {
+			b.CreatedAt = t
+		}
 		b.IsLatest = isLatest == 1
 		if passed.Valid {
 			v := int(passed.Int64)
@@ -198,7 +203,11 @@ func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan build: %w", err)
 		}
-		b.CreatedAt, _ = time.Parse("2006-01-02T15:04:05Z", createdAt)
+		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
+			log.Printf("warning: invalid created_at %q for build %s/%d: %v", createdAt, projectID, b.BuildOrder, err)
+		} else {
+			b.CreatedAt = t
+		}
 		b.IsLatest = isLatest == 1
 		if passed.Valid {
 			v := int(passed.Int64)
