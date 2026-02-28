@@ -1,4 +1,4 @@
-import type { ReportHistoryEntry, TimelineTestCase } from '@/types/api'
+import type { CategoryEntry, ReportHistoryEntry, TimelineTestCase } from '@/types/api'
 import { calcPassRate } from './utils'
 
 export const STATUS_COLORS = {
@@ -77,6 +77,37 @@ export function toStatusPieData(entries: ReportHistoryEntry[]): StatusPiePoint[]
     { name: 'Broken', value: broken, color: STATUS_COLORS.broken },
     { name: 'Skipped', value: skipped, color: STATUS_COLORS.skipped },
   ].filter((d) => d.value > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Category breakdown utilities (A4)
+// ---------------------------------------------------------------------------
+
+export interface CategoryBreakdownPoint {
+  name: string
+  failed: number
+  broken: number
+  total: number
+  color: string
+}
+
+export const CATEGORY_COLORS: Record<string, string> = {
+  'Product defects': '#dc2626', // red-600
+  'Test defects': '#d97706',    // amber-600
+} as const
+
+const CATEGORY_DEFAULT_COLOR = '#6b7280' // gray-500
+
+export function toCategoryBreakdownData(entries: CategoryEntry[]): CategoryBreakdownPoint[] {
+  return entries
+    .filter((e) => e.matchedStatistic && e.matchedStatistic.total > 0)
+    .map((e) => ({
+      name: e.name,
+      failed: e.matchedStatistic!.failed,
+      broken: e.matchedStatistic!.broken,
+      total: e.matchedStatistic!.total,
+      color: CATEGORY_COLORS[e.name] ?? CATEGORY_DEFAULT_COLOR,
+    }))
 }
 
 // ---------------------------------------------------------------------------

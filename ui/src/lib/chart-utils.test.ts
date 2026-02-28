@@ -4,9 +4,11 @@ import {
   toPassRateTrendData,
   toDurationTrendData,
   toStatusPieData,
+  toCategoryBreakdownData,
   STATUS_COLORS,
+  CATEGORY_COLORS,
 } from './chart-utils'
-import type { ReportHistoryEntry } from '@/types/api'
+import type { CategoryEntry, ReportHistoryEntry } from '@/types/api'
 
 const makeEntry = (
   id: string,
@@ -97,6 +99,50 @@ describe('toDurationTrendData', () => {
     const entries = [makeEntry('1', { duration_ms: 65000 })]
     const result = toDurationTrendData(entries)
     expect(result[0].durationSec).toBe(65)
+  })
+})
+
+describe('toCategoryBreakdownData', () => {
+  const makeCategory = (
+    name: string,
+    matchedStatistic: CategoryEntry['matchedStatistic'] = { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 },
+  ): CategoryEntry => ({ name, matchedStatistic })
+
+  it('returns empty array for empty input', () => {
+    expect(toCategoryBreakdownData([])).toEqual([])
+  })
+
+  it('filters out categories with null matchedStatistic', () => {
+    const entries = [makeCategory('Product defects'), makeCategory('Test defects', null)]
+    const result = toCategoryBreakdownData(entries)
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Product defects')
+  })
+
+  it('filters out categories with zero total', () => {
+    const entries = [
+      makeCategory('Product defects'),
+      makeCategory('Empty', { failed: 0, broken: 0, known: 0, unknown: 0, total: 0 }),
+    ]
+    const result = toCategoryBreakdownData(entries)
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Product defects')
+  })
+
+  it('maps fields correctly for known category', () => {
+    const entries = [makeCategory('Product defects', { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 })]
+    const result = toCategoryBreakdownData(entries)
+    expect(result[0].name).toBe('Product defects')
+    expect(result[0].failed).toBe(2)
+    expect(result[0].broken).toBe(1)
+    expect(result[0].total).toBe(3)
+    expect(result[0].color).toBe(CATEGORY_COLORS['Product defects'])
+  })
+
+  it('uses default color for unknown category names', () => {
+    const entries = [makeCategory('Some other defect')]
+    const result = toCategoryBreakdownData(entries)
+    expect(result[0].color).toBe('#6b7280')
   })
 })
 

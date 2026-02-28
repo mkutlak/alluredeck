@@ -1,11 +1,12 @@
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { fetchReportHistory } from '@/api/reports'
+import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
 import {
   toStatusTrendData,
   toPassRateTrendData,
   toDurationTrendData,
   toStatusPieData,
+  toCategoryBreakdownData,
 } from '@/lib/chart-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -13,6 +14,7 @@ import { StatusTrendChart } from './StatusTrendChart'
 import { PassRateTrendChart } from './PassRateTrendChart'
 import { DurationTrendChart } from './DurationTrendChart'
 import { StatusPieChart } from './StatusPieChart'
+import { CategoryBreakdownChart } from './CategoryBreakdownChart'
 import { LowPerformingCard } from './LowPerformingCard'
 
 export function AnalyticsTab() {
@@ -21,6 +23,13 @@ export function AnalyticsTab() {
   const { data: historyData, isLoading } = useQuery({
     queryKey: ['report-history', projectId],
     queryFn: () => fetchReportHistory(projectId!),
+    enabled: !!projectId,
+    staleTime: 10_000,
+  })
+
+  const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
+    queryKey: ['report-categories', projectId, 'latest'],
+    queryFn: () => fetchReportCategories(projectId!),
     enabled: !!projectId,
     staleTime: 10_000,
   })
@@ -55,6 +64,7 @@ export function AnalyticsTab() {
   const durationTrend = toDurationTrendData(reports)
   const pieData = toStatusPieData(reports)
   const total = reports[0]?.statistic?.total ?? 0
+  const categoryData = toCategoryBreakdownData(categoriesData ?? [])
 
   return (
     <div className="space-y-4">
@@ -97,6 +107,19 @@ export function AnalyticsTab() {
           </CardHeader>
           <CardContent>
             <StatusPieChart data={pieData} total={total} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Failure Categories</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {categoriesLoading ? (
+              <Skeleton className="h-40 w-full rounded-md" />
+            ) : (
+              <CategoryBreakdownChart data={categoryData} />
+            )}
           </CardContent>
         </Card>
       </div>
