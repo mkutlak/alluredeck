@@ -303,3 +303,38 @@ func TestBuildStore_SetLatest(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildStore_SetLatest_ClearsPreviousOnly(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "prev-proj")
+	_ = bs.InsertBuild(ctx, "prev-proj", 1)
+	_ = bs.InsertBuild(ctx, "prev-proj", 2)
+	_ = bs.InsertBuild(ctx, "prev-proj", 3)
+
+	// First call: mark build 2 as latest.
+	if err := bs.SetLatest(ctx, "prev-proj", 2); err != nil {
+		t.Fatalf("SetLatest(2): %v", err)
+	}
+
+	// Second call: move latest to build 3.
+	if err := bs.SetLatest(ctx, "prev-proj", 3); err != nil {
+		t.Fatalf("SetLatest(3): %v", err)
+	}
+
+	builds, err := bs.ListBuilds(ctx, "prev-proj")
+	if err != nil {
+		t.Fatalf("ListBuilds: %v", err)
+	}
+	for _, b := range builds {
+		if b.BuildOrder == 3 && !b.IsLatest {
+			t.Error("build 3 should be latest")
+		}
+		if b.BuildOrder != 3 && b.IsLatest {
+			t.Errorf("build %d should not be latest after two SetLatest calls", b.BuildOrder)
+		}
+	}
+}
