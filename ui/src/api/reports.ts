@@ -1,12 +1,12 @@
 import { apiClient } from './client'
-import type { ApiResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportData, GenerateReportParams, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
+import type { ApiResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportAccepted, GenerateReportParams, JobData, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
 import { env } from '@/lib/env'
 
 export async function generateReport(
   params: GenerateReportParams,
-): Promise<ApiResponse<GenerateReportData>> {
+): Promise<ApiResponse<GenerateReportAccepted>> {
   const { project_id, execution_name, execution_from, execution_type, store_results } = params
-  const res = await apiClient.post<ApiResponse<GenerateReportData>>(
+  const res = await apiClient.post<ApiResponse<GenerateReportAccepted>>(
     `/projects/${encodeURIComponent(project_id)}/reports`,
     null,
     {
@@ -17,6 +17,16 @@ export async function generateReport(
         ...(store_results !== undefined ? { store_results: store_results ? '1' : '0' } : {}),
       },
     },
+  )
+  return res.data
+}
+
+export async function getJobStatus(
+  projectId: string,
+  jobId: string,
+): Promise<ApiResponse<JobData>> {
+  const res = await apiClient.get<ApiResponse<JobData>>(
+    `/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`,
   )
   return res.data
 }

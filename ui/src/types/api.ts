@@ -92,6 +92,27 @@ export interface GenerateReportData {
   output: string
 }
 
+// ---------------------------------------------------------------------------
+// Async job types
+// ---------------------------------------------------------------------------
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface JobData {
+  job_id: string
+  project_id: string
+  status: JobStatus
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  output: string
+  error: string
+}
+
+// GenerateReportAccepted is the 202 response body
+export interface GenerateReportAccepted {
+  job_id: string
+}
+
 export interface ResultFile {
   file_name: string
   content_base64: string

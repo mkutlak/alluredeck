@@ -63,6 +63,7 @@ var (
 type AllureHandler struct {
 	cfg             *config.Config
 	runner          *runner.Allure
+	jobManager      *runner.JobManager
 	projectStore    *store.ProjectStore
 	buildStore      *store.BuildStore
 	knownIssueStore *store.KnownIssueStore
@@ -71,10 +72,11 @@ type AllureHandler struct {
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
-func NewAllureHandler(cfg *config.Config, r *runner.Allure, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, testResultStore *store.TestResultStore, st storage.Store) *AllureHandler {
+func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.JobManager, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, testResultStore *store.TestResultStore, st storage.Store) *AllureHandler {
 	return &AllureHandler{
 		cfg:             cfg,
 		runner:          r,
+		jobManager:      jobManager,
 		projectStore:    projectStore,
 		buildStore:      buildStore,
 		knownIssueStore: knownIssueStore,
@@ -293,21 +295,67 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		storeResults = storeResultsStr == "1" || strings.EqualFold(storeResultsStr, "true")
 	}
 
-	out, err := h.runner.GenerateReport(r.Context(), projectID, execName, execFrom, execType, storeResults, ciBranch, ciCommitSHA)
+	params := runner.JobParams{
+		ExecName:     execName,
+		ExecFrom:     execFrom,
+		ExecType:     execType,
+		StoreResults: storeResults,
+		CIBranch:     ciBranch,
+		CICommitSHA:  ciCommitSHA,
+	}
+	job := h.jobManager.Submit(projectID, params)
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data":     map[string]string{"job_id": job.ID},
+		"metadata": map[string]string{"message": "Report generation queued"},
+	})
+}
+
+// GetJobStatus godoc
+// @Summary      Get async report generation job status
+// @Description  Returns the current status of an async report generation job.
+// @Tags         reports
+// @Produce      json
+// @Param        project_id  path  string  true  "Project ID"
+// @Param        job_id      path  string  true  "Job ID"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Router       /projects/{project_id}/jobs/{job_id} [get]
+func (h *AllureHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	raw := r.PathValue("project_id")
+	unescaped, err := url.PathUnescape(raw)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error generating report: %v", err)},
+			"metadata": map[string]string{"message": "invalid project_id encoding"},
+		})
+		return
+	}
+	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
+
+	jobID := r.PathValue("job_id")
+	job := h.jobManager.Get(jobID)
+	if job == nil || job.ProjectID != projectID {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": "job not found"},
 		})
 		return
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"data": map[string]string{
-			"project_id": projectID,
-			"output":     out,
-		},
-		"metadata": map[string]string{"message": "Report successfully generated"},
+		"data":     job,
+		"metadata": map[string]string{"message": "Job status retrieved"},
 	})
 }
 

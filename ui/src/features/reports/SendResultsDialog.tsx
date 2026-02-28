@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRef, useState, useEffect } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { Loader2, Upload, X, FileText } from 'lucide-react'
 import { sendResultsMultipart, generateReport } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
+import { useJobPolling } from '@/hooks/useJobPolling'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -26,11 +27,31 @@ interface SendResultsDialogProps {
 export function SendResultsDialog({ projectId, open, onOpenChange }: SendResultsDialogProps) {
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
-  const [error, setError] = useState('')
+  const [mutationError, setMutationError] = useState('')
   const [generateAfterUpload, setGenerateAfterUpload] = useState(true)
-  const [uploadPhase, setUploadPhase] = useState<'uploading' | 'generating' | null>(null)
+  const [uploadPhase, setUploadPhase] = useState<'uploading' | 'generating' | 'polling' | null>(
+    null,
+  )
+  const [jobId, setJobId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const queryClient = useQueryClient()
+
+  const { isPolling, isCompleted, isFailed, error: jobError } = useJobPolling(projectId, jobId)
+
+  // Ref guard: only handle each job's completion once (no setState inside effect)
+  const handledJobRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (isCompleted && jobId && handledJobRef.current !== jobId) {
+      handledJobRef.current = jobId
+      toast({
+        title: 'Report generated',
+        description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded and report generated for "${projectId}".`,
+      })
+      onOpenChange(false)
+    }
+  }, [isCompleted, jobId, files.length, projectId, onOpenChange])
+
+  // Derive display error: job failure error takes priority over mutation error
+  const displayError = isFailed && jobError ? jobError : mutationError
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -38,24 +59,29 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
       await sendResultsMultipart(projectId, files)
       if (generateAfterUpload) {
         setUploadPhase('generating')
-        await generateReport({ project_id: projectId })
+        const result = await generateReport({ project_id: projectId })
+        return result.data.job_id
       }
+      return null
     },
-    onSuccess: () => {
-      toast({
-        title: generateAfterUpload ? 'Report generated' : 'Results sent',
-        description: generateAfterUpload
-          ? `${files.length} file${files.length !== 1 ? 's' : ''} uploaded and report generated for "${projectId}".`
-          : `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${projectId}".`,
-      })
-      void queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
-      setFiles([])
-      setUploadPhase(null)
-      onOpenChange(false)
+    onSuccess: (jobIdResult) => {
+      if (jobIdResult) {
+        setJobId(jobIdResult)
+        setUploadPhase('polling')
+      } else {
+        // Upload only — no generate
+        toast({
+          title: 'Results sent',
+          description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${projectId}".`,
+        })
+        setFiles([])
+        setUploadPhase(null)
+        onOpenChange(false)
+      }
     },
     onError: (err) => {
       setUploadPhase(null)
-      setError(extractErrorMessage(err))
+      setMutationError(extractErrorMessage(err))
     },
   })
 
@@ -69,14 +95,17 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
 
   const removeFile = (name: string) => setFiles((prev) => prev.filter((f) => f.name !== name))
 
+  const isBusy = mutation.isPending || isPolling
+
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
         if (!v) {
           setFiles([])
-          setError('')
+          setMutationError('')
           setUploadPhase(null)
+          setJobId(null)
         }
         onOpenChange(v)
       }}
@@ -129,7 +158,10 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
         {files.length > 0 && (
           <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
             {files.map((f) => (
-              <div key={f.name} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted">
+              <div
+                key={f.name}
+                className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+              >
                 <FileText size={12} className="shrink-0 text-muted-foreground" />
                 <span className="flex-1 truncate font-mono">{f.name}</span>
                 <button
@@ -150,32 +182,34 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
             id="generate-after-upload"
             checked={generateAfterUpload}
             onCheckedChange={(v: boolean | 'indeterminate') => setGenerateAfterUpload(v === true)}
-            disabled={mutation.isPending}
+            disabled={isBusy}
           />
-          <Label htmlFor="generate-after-upload" className="text-sm font-normal cursor-pointer">
+          <Label htmlFor="generate-after-upload" className="cursor-pointer text-sm font-normal">
             Generate report after upload
           </Label>
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {displayError && <p className="text-sm text-destructive">{displayError}</p>}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isBusy}>
             Cancel
           </Button>
           <Button
-            disabled={files.length === 0 || mutation.isPending}
+            disabled={files.length === 0 || isBusy}
             onClick={() => {
-              setError('')
+              setMutationError('')
               mutation.mutate()
             }}
           >
-            {mutation.isPending && <Loader2 className="animate-spin" />}
-            {uploadPhase === 'generating'
-              ? 'Generating…'
-              : uploadPhase === 'uploading'
-                ? 'Uploading…'
-                : `Upload${files.length > 0 ? ` (${files.length})` : ''}`}
+            {isBusy && <Loader2 className="animate-spin" />}
+            {uploadPhase === 'polling'
+              ? 'Generating...'
+              : uploadPhase === 'generating'
+                ? 'Queuing...'
+                : uploadPhase === 'uploading'
+                  ? 'Uploading...'
+                  : `Upload${files.length > 0 ? ` (${files.length})` : ''}`}
           </Button>
         </DialogFooter>
       </DialogContent>

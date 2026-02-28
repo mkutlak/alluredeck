@@ -75,7 +75,8 @@ func main() {
 	testResultStore := store.NewTestResultStore(db, logger)
 	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, testResultStore, logger)
 	knownIssueStore := store.NewKnownIssueStore(db)
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, knownIssueStore, testResultStore, dataStore)
+	jobManager := runner.NewJobManager(allureCore, 2, logger)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, dataStore)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -155,6 +156,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	jobManager.Start(ctx)
+
 	// Start JWT blacklist cleanup goroutine — prunes expired JTIs every 15 min (AUDIT 2.1).
 	jwtManager.StartCleanup(ctx, 15*time.Minute)
 
@@ -171,12 +174,12 @@ func main() {
 		}
 	}()
 
-	awaitShutdown(ctx, srv, backgroundWatcher, cfg, limiterDone, logger)
+	awaitShutdown(ctx, srv, backgroundWatcher, jobManager, cfg, limiterDone, logger)
 }
 
 // awaitShutdown waits for the context to be cancelled then drains the HTTP
-// server and stops the background watcher before returning.
-func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, cfg *config.Config, limiterDone chan struct{}, logger *zap.Logger) {
+// server, stops the background watcher, and waits for in-flight jobs before returning.
+func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, jobManager *runner.JobManager, cfg *config.Config, limiterDone chan struct{}, logger *zap.Logger) {
 	<-ctx.Done()
 	logger.Info("shutdown signal received, draining connections")
 
@@ -185,6 +188,8 @@ func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watche
 	if cfg.StorageType != "s3" {
 		watcher.Stop()
 	}
+
+	jobManager.Shutdown()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -259,6 +264,7 @@ func registerRoutes(
 	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(allure.CreateProject)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(allure.DeleteProject)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", adminOnly(noStore(allure.GenerateReport)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(allure.GetJobStatus)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(allure.CleanHistory)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.CleanResults)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.SendResults)))

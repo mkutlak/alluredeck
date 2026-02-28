@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, useRef } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { generateReport } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
+import { useJobPolling } from '@/hooks/useJobPolling'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,8 +30,23 @@ export function GenerateReportDialog({
 }: GenerateReportDialogProps) {
   const [execName, setExecName] = useState('')
   const [execFrom, setExecFrom] = useState('')
-  const [error, setError] = useState('')
-  const queryClient = useQueryClient()
+  const [mutationError, setMutationError] = useState('')
+  const [jobId, setJobId] = useState<string | null>(null)
+
+  const { isPolling, isCompleted, isFailed, error: jobError } = useJobPolling(projectId, jobId)
+
+  // Ref guards so the effect only fires once per completed job (no setState inside effect)
+  const handledJobRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (isCompleted && jobId && handledJobRef.current !== jobId) {
+      handledJobRef.current = jobId
+      toast({ title: 'Report generated', description: `New report is ready for "${projectId}".` })
+      onOpenChange(false)
+    }
+  }, [isCompleted, jobId, projectId, onOpenChange])
+
+  // Derive display error: job failure error takes priority over mutation error
+  const displayError = isFailed && jobError ? jobError : mutationError
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -39,17 +55,16 @@ export function GenerateReportDialog({
         execution_name: execName || undefined,
         execution_from: execFrom || undefined,
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
-      toast({ title: 'Report generated', description: `New report is ready for "${projectId}".` })
-      setExecName('')
-      setExecFrom('')
-      onOpenChange(false)
+    onSuccess: (data) => {
+      setJobId(data.data.job_id)
     },
     onError: (err) => {
-      setError(extractErrorMessage(err))
+      setMutationError(extractErrorMessage(err))
     },
   })
+
+  const isActive = mutation.isPending || isPolling
+  const buttonLabel = mutation.isPending ? 'Queuing...' : isPolling ? 'Generating...' : 'Generate'
 
   return (
     <Dialog
@@ -58,7 +73,8 @@ export function GenerateReportDialog({
         if (!v) {
           setExecName('')
           setExecFrom('')
-          setError('')
+          setMutationError('')
+          setJobId(null)
         }
         onOpenChange(v)
       }}
@@ -79,7 +95,7 @@ export function GenerateReportDialog({
               placeholder="e.g. Release 1.2.3"
               value={execName}
               onChange={(e) => setExecName(e.target.value)}
-              disabled={mutation.isPending}
+              disabled={isActive}
             />
           </div>
           <div className="space-y-2">
@@ -89,10 +105,10 @@ export function GenerateReportDialog({
               placeholder="https://ci.example.com/job/123"
               value={execFrom}
               onChange={(e) => setExecFrom(e.target.value)}
-              disabled={mutation.isPending}
+              disabled={isActive}
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {displayError && <p className="text-sm text-destructive">{displayError}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -100,13 +116,13 @@ export function GenerateReportDialog({
           </Button>
           <Button
             onClick={() => {
-              setError('')
+              setMutationError('')
               mutation.mutate()
             }}
-            disabled={mutation.isPending}
+            disabled={isActive}
           >
-            {mutation.isPending && <Loader2 className="animate-spin" />}
-            Generate
+            {isActive && <Loader2 className="animate-spin" />}
+            {buttonLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

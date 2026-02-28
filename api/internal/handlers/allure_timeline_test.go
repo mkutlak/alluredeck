@@ -253,7 +253,7 @@ func TestGetReportTimeline_SQLiteFastPath(t *testing.T) {
 
 	lockManager := store.NewLockManager()
 	r := runner.NewAllure(cfg, st, bs, lockManager, ts, zap.NewNop())
-	h := NewAllureHandler(cfg, r, ps, bs, store.NewKnownIssueStore(db), ts, st)
+	h := NewAllureHandler(cfg, r, nil, ps, bs, store.NewKnownIssueStore(db), ts, st)
 
 	// Request with numeric report_id "5" — should hit SQLite fast path.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
