@@ -13,6 +13,7 @@ import { StatusTrendChart } from './StatusTrendChart'
 import { PassRateTrendChart } from './PassRateTrendChart'
 import { DurationTrendChart } from './DurationTrendChart'
 import { StatusPieChart } from './StatusPieChart'
+import { LowPerformingCard } from './LowPerformingCard'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -99,6 +100,8 @@ export function AnalyticsTab() {
           </CardContent>
         </Card>
       </div>
+
+      <LowPerformingCard projectId={projectId} />
     </div>
   )
 }

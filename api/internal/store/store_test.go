@@ -63,8 +63,8 @@ func TestOpen_IdempotentMigrations(t *testing.T) {
 	if err := s2.DB().QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("expected 2 schema_version rows, got %d", count)
+	if count != 4 {
+		t.Errorf("expected 4 schema_version rows, got %d", count)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestOpen_TablesExist(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	tables := []string{"projects", "builds", "jwt_blacklist", "schema_version"}
+	tables := []string{"projects", "builds", "jwt_blacklist", "schema_version", "test_results"}
 	for _, tbl := range tables {
 		var name string
 		err := s.DB().QueryRow(
@@ -84,6 +84,28 @@ func TestOpen_TablesExist(t *testing.T) {
 		).Scan(&name)
 		if err != nil {
 			t.Errorf("table %q not found: %v", tbl, err)
+		}
+	}
+}
+
+func TestOpen_BuildStabilityColumns(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(filepath.Join(dir, "cols.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	cols := []string{"flaky_count", "retried_count", "new_failed_count", "new_passed_count"}
+	for _, col := range cols {
+		var exists int
+		err := s.DB().QueryRow(
+			"SELECT COUNT(*) FROM pragma_table_info('builds') WHERE name=?", col,
+		).Scan(&exists)
+		if err != nil {
+			t.Errorf("checking column %q: %v", col, err)
+		} else if exists == 0 {
+			t.Errorf("column %q not found in builds table", col)
 		}
 	}
 }

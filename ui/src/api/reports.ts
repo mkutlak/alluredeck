@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ApiResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportData, GenerateReportParams, KnownFailuresData, ReportHistoryData, TimelineData } from '@/types/api'
+import type { ApiResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportData, GenerateReportParams, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
 import { env } from '@/lib/env'
 
 export async function generateReport(
@@ -117,6 +117,29 @@ export async function fetchReportTimeline(
 ): Promise<TimelineData> {
   const res = await apiClient.get<ApiResponse<TimelineData>>(
     `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/timeline`,
+  )
+  return res.data.data
+}
+
+export async function fetchReportStability(
+  projectId: string,
+  reportId = 'latest',
+): Promise<StabilityData> {
+  const res = await apiClient.get<ApiResponse<StabilityData>>(
+    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/stability`,
+  )
+  return res.data.data
+}
+
+export async function fetchLowPerformingTests(
+  projectId: string,
+  sort: 'duration' | 'failure_rate' = 'duration',
+  builds = 20,
+  limit = 20,
+): Promise<LowPerformingData> {
+  const res = await apiClient.get<ApiResponse<LowPerformingData>>(
+    `/projects/${encodeURIComponent(projectId)}/analytics/low-performing`,
+    { params: { sort, builds, limit } },
   )
   return res.data.data
 }

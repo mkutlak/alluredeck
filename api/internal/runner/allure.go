@@ -41,23 +41,43 @@ const (
 	statusSkipped = "skipped"
 )
 
+// stabilityEntry is used to parse test-result JSON files for stability data.
+type stabilityEntry struct {
+	Name          string `json:"name"`
+	FullName      string `json:"fullName"`
+	Status        string `json:"status"`
+	HistoryID     string `json:"historyId"`
+	NewFailed     bool   `json:"newFailed"`
+	NewPassed     bool   `json:"newPassed"`
+	RetriesCount  int    `json:"retriesCount"`
+	StatusDetails *struct {
+		Flaky bool `json:"flaky"`
+	} `json:"statusDetails"`
+	Time *struct {
+		Duration int64 `json:"duration"`
+	} `json:"time"`
+	Duration int64 `json:"duration"` // Allure 3 top-level fallback
+}
+
 // Allure represents the core Allure report generation process
 type Allure struct {
-	cfg         *config.Config
-	store       storage.Store
-	buildStore  *store.BuildStore
-	lockManager *store.LockManager
-	logger      *zap.Logger
+	cfg             *config.Config
+	store           storage.Store
+	buildStore      *store.BuildStore
+	lockManager     *store.LockManager
+	testResultStore *store.TestResultStore
+	logger          *zap.Logger
 }
 
 // NewAllure creates a new Allure runner
-func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore *store.BuildStore, lockManager *store.LockManager, logger *zap.Logger) *Allure {
+func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore *store.BuildStore, lockManager *store.LockManager, testResultStore *store.TestResultStore, logger *zap.Logger) *Allure {
 	return &Allure{
-		cfg:         cfg,
-		store:       dataStore,
-		buildStore:  buildStore,
-		lockManager: lockManager,
-		logger:      logger,
+		cfg:             cfg,
+		store:           dataStore,
+		buildStore:      buildStore,
+		lockManager:     lockManager,
+		testResultStore: testResultStore,
+		logger:          logger,
 	}
 }
 
@@ -246,6 +266,35 @@ func writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType strin
 	return nil
 }
 
+// parseStabilityEntries reads test-result JSON files from the generated report
+// and returns stability entries for processing.
+func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID string) ([]stabilityEntry, error) {
+	relBase := "reports/" + reportID + "/data/test-results"
+	entries, err := a.store.ReadDir(ctx, projectID, relBase)
+	if err != nil {
+		return nil, fmt.Errorf("read test-results dir: %w", err)
+	}
+
+	var results []stabilityEntry
+	for _, entry := range entries {
+		if entry.IsDir || !strings.HasSuffix(entry.Name, ".json") {
+			continue
+		}
+		data, err := a.store.ReadFile(ctx, projectID, relBase+"/"+entry.Name)
+		if err != nil {
+			a.logger.Warn("skipping test-result file for stability",
+				zap.String("file", entry.Name), zap.Error(err))
+			continue
+		}
+		var se stabilityEntry
+		if json.Unmarshal(data, &se) != nil {
+			continue
+		}
+		results = append(results, se)
+	}
+	return results, nil
+}
+
 // storeAndPruneBuild stores a report snapshot and records it in the database.
 func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildOrder int) error {
 	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
@@ -255,7 +304,6 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 		return fmt.Errorf("insert build: %w", err)
 	}
 	if stats, err := a.store.ReadBuildStats(ctx, projectID, buildOrder); err == nil {
-		// Convert storage.BuildStats → store.BuildStats for the DB layer
 		storeStats := store.BuildStats{
 			Passed:     stats.Passed,
 			Failed:     stats.Failed,
@@ -265,6 +313,63 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 			Total:      stats.Total,
 			DurationMs: stats.DurationMs,
 		}
+
+		// Parse stability data from generated report JSON files.
+		if stabilityEntries, err := a.parseStabilityEntries(ctx, projectID, "latest"); err == nil {
+			for _, se := range stabilityEntries {
+				if se.StatusDetails != nil && se.StatusDetails.Flaky {
+					storeStats.FlakyCount++
+				}
+				if se.RetriesCount > 0 {
+					storeStats.RetriedCount++
+				}
+				if se.NewFailed {
+					storeStats.NewFailedCount++
+				}
+				if se.NewPassed {
+					storeStats.NewPassedCount++
+				}
+			}
+
+			// Insert per-test results if testResultStore is available.
+			if a.testResultStore != nil {
+				buildID, err := a.testResultStore.GetBuildID(ctx, projectID, buildOrder)
+				if err == nil {
+					testResults := make([]store.TestResult, 0, len(stabilityEntries))
+					for _, se := range stabilityEntries {
+						dur := se.Duration
+						if se.Time != nil {
+							dur = se.Time.Duration
+						}
+						flaky := se.StatusDetails != nil && se.StatusDetails.Flaky
+						testResults = append(testResults, store.TestResult{
+							BuildID:    buildID,
+							ProjectID:  projectID,
+							TestName:   se.Name,
+							FullName:   se.FullName,
+							Status:     se.Status,
+							HistoryID:  se.HistoryID,
+							DurationMs: dur,
+							Flaky:      flaky,
+							Retries:    se.RetriesCount,
+							NewFailed:  se.NewFailed,
+							NewPassed:  se.NewPassed,
+						})
+					}
+					if err := a.testResultStore.InsertBatch(ctx, testResults); err != nil {
+						a.logger.Warn("failed to insert test results",
+							zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+					}
+				} else {
+					a.logger.Warn("failed to get build id for test results",
+						zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				}
+			}
+		} else {
+			a.logger.Warn("failed to parse stability entries",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+		}
+
 		if err := a.buildStore.UpdateBuildStats(ctx, projectID, buildOrder, storeStats); err != nil {
 			a.logger.Error("failed to cache build stats",
 				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))

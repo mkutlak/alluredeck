@@ -22,7 +22,7 @@ func newTestAllure(t *testing.T) *Allure {
 	t.Cleanup(func() { _ = s.Close() })
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm, zap.NewNop())
+	return NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
 }
 
 // TestRunAllureCmdHonoursCancelledContext verifies that runAllureCmd returns a

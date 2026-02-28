@@ -72,9 +72,10 @@ func main() {
 	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 
-	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, logger)
+	testResultStore := store.NewTestResultStore(db, logger)
+	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, testResultStore, logger)
 	knownIssueStore := store.NewKnownIssueStore(db)
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, knownIssueStore, dataStore)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, knownIssueStore, testResultStore, dataStore)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -264,4 +265,6 @@ func registerRoutes(
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(allure.DeleteKnownIssue))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(allure.GetReportKnownFailures))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(allure.GetReportTimeline))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(allure.GetReportStability))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(allure.GetLowPerformingTests))
 }

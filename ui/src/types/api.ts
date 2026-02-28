@@ -136,11 +136,60 @@ export interface ReportHistoryEntry {
   generated_at: string | null
   duration_ms: number | null
   statistic: AllureStatistic | null
+  flaky_count?: number
+  retried_count?: number
+  new_failed_count?: number
+  new_passed_count?: number
 }
 
 export interface ReportHistoryData {
   project_id: string
   reports: ReportHistoryEntry[]
+}
+
+// ---------------------------------------------------------------------------
+// Stability (A1)
+// ---------------------------------------------------------------------------
+export interface StabilityTestEntry {
+  name: string
+  full_name: string
+  status: string
+  retries_count: number
+  retries_status_change: boolean
+}
+
+export interface StabilitySummary {
+  flaky_count: number
+  retried_count: number
+  new_failed_count: number
+  new_passed_count: number
+  total: number
+}
+
+export interface StabilityData {
+  flaky_tests: StabilityTestEntry[]
+  new_failed: StabilityTestEntry[]
+  new_passed: StabilityTestEntry[]
+  summary: StabilitySummary
+}
+
+// ---------------------------------------------------------------------------
+// Low Performing Tests (A2)
+// ---------------------------------------------------------------------------
+export interface LowPerformingTest {
+  test_name: string
+  full_name: string
+  history_id: string
+  metric: number
+  build_count: number
+  trend: number[]
+}
+
+export interface LowPerformingData {
+  tests: LowPerformingTest[]
+  sort: 'duration' | 'failure_rate'
+  builds: number
+  total: number
 }
 
 // ---------------------------------------------------------------------------

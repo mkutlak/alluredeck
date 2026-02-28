@@ -45,17 +45,19 @@ type AllureHandler struct {
 	projectStore    *store.ProjectStore
 	buildStore      *store.BuildStore
 	knownIssueStore *store.KnownIssueStore
+	testResultStore *store.TestResultStore
 	store           storage.Store
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
-func NewAllureHandler(cfg *config.Config, r *runner.Allure, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, st storage.Store) *AllureHandler {
+func NewAllureHandler(cfg *config.Config, r *runner.Allure, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, testResultStore *store.TestResultStore, st storage.Store) *AllureHandler {
 	return &AllureHandler{
 		cfg:             cfg,
 		runner:          r,
 		projectStore:    projectStore,
 		buildStore:      buildStore,
 		knownIssueStore: knownIssueStore,
+		testResultStore: testResultStore,
 		store:           st,
 	}
 }
@@ -646,11 +648,15 @@ func secureFilename(name string) string {
 
 // ReportHistoryEntry holds metadata for a single generated report.
 type ReportHistoryEntry struct {
-	ReportID    string           `json:"report_id"`
-	IsLatest    bool             `json:"is_latest"`
-	GeneratedAt *string          `json:"generated_at"`
-	DurationMs  *int64           `json:"duration_ms"`
-	Statistic   *AllureStatistic `json:"statistic"`
+	ReportID       string           `json:"report_id"`
+	IsLatest       bool             `json:"is_latest"`
+	GeneratedAt    *string          `json:"generated_at"`
+	DurationMs     *int64           `json:"duration_ms"`
+	Statistic      *AllureStatistic `json:"statistic"`
+	FlakyCount     *int             `json:"flaky_count,omitempty"`
+	RetriedCount   *int             `json:"retried_count,omitempty"`
+	NewFailedCount *int             `json:"new_failed_count,omitempty"`
+	NewPassedCount *int             `json:"new_passed_count,omitempty"`
 }
 
 // AllureStatistic mirrors the statistic block in Allure's widgets/summary.json.
@@ -756,6 +762,10 @@ func buildEntryFromDB(b *store.Build) ReportHistoryEntry {
 	t := b.CreatedAt.UTC().Format(time.RFC3339)
 	entry.GeneratedAt = &t
 	entry.DurationMs = b.DurationMs
+	entry.FlakyCount = b.FlakyCount
+	entry.RetriedCount = b.RetriedCount
+	entry.NewFailedCount = b.NewFailedCount
+	entry.NewPassedCount = b.NewPassedCount
 
 	if b.StatTotal != nil && *b.StatTotal > 0 {
 		entry.Statistic = &AllureStatistic{

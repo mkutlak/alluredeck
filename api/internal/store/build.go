@@ -15,29 +15,37 @@ var ErrBuildNotFound = errors.New("build not found")
 
 // Build holds build metadata from the database.
 type Build struct {
-	ID          int64
-	ProjectID   string
-	BuildOrder  int
-	CreatedAt   time.Time
-	StatPassed  *int
-	StatFailed  *int
-	StatBroken  *int
-	StatSkipped *int
-	StatUnknown *int
-	StatTotal   *int
-	DurationMs  *int64
-	IsLatest    bool
+	ID             int64
+	ProjectID      string
+	BuildOrder     int
+	CreatedAt      time.Time
+	StatPassed     *int
+	StatFailed     *int
+	StatBroken     *int
+	StatSkipped    *int
+	StatUnknown    *int
+	StatTotal      *int
+	DurationMs     *int64
+	FlakyCount     *int
+	RetriedCount   *int
+	NewFailedCount *int
+	NewPassedCount *int
+	IsLatest       bool
 }
 
 // BuildStats holds the statistics for a completed build.
 type BuildStats struct {
-	Passed     int
-	Failed     int
-	Broken     int
-	Skipped    int
-	Unknown    int
-	Total      int
-	DurationMs int64
+	Passed         int
+	Failed         int
+	Broken         int
+	Skipped        int
+	Unknown        int
+	Total          int
+	DurationMs     int64
+	FlakyCount     int
+	RetriedCount   int
+	NewFailedCount int
+	NewPassedCount int
 }
 
 // BuildStore provides operations on the builds table.
@@ -83,11 +91,13 @@ func (bs *BuildStore) UpdateBuildStats(ctx context.Context, projectID string, bu
 		UPDATE builds
 		SET stat_passed=?, stat_failed=?, stat_broken=?,
 		    stat_skipped=?, stat_unknown=?, stat_total=?,
-		    duration_ms=?
+		    duration_ms=?,
+		    flaky_count=?, retried_count=?, new_failed_count=?, new_passed_count=?
 		WHERE project_id=? AND build_order=?`,
 		stats.Passed, stats.Failed, stats.Broken,
 		stats.Skipped, stats.Unknown, stats.Total,
 		stats.DurationMs,
+		stats.FlakyCount, stats.RetriedCount, stats.NewFailedCount, stats.NewPassedCount,
 		projectID, buildOrder)
 	if err != nil {
 		return fmt.Errorf("update build stats: %w", err)
@@ -104,7 +114,8 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 	rows, err := bs.db.QueryContext(ctx, `
 		SELECT id, project_id, build_order, created_at,
 		       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
-		       duration_ms, is_latest
+		       duration_ms, is_latest,
+		       flaky_count, retried_count, new_failed_count, new_passed_count
 		FROM builds
 		WHERE project_id = ?
 		ORDER BY build_order DESC`, projectID)
@@ -120,10 +131,12 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 		var passed, failed, broken, skipped, unknown, total sql.NullInt64
 		var durationMs sql.NullInt64
 		var isLatest int
+		var flakyCount, retriedCount, newFailedCount, newPassedCount int
 		if err := rows.Scan(
 			&b.ID, &b.ProjectID, &b.BuildOrder, &createdAt,
 			&passed, &failed, &broken, &skipped, &unknown, &total,
 			&durationMs, &isLatest,
+			&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan build: %w", err)
 		}
@@ -164,6 +177,10 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 		if durationMs.Valid {
 			b.DurationMs = &durationMs.Int64
 		}
+		b.FlakyCount = &flakyCount
+		b.RetriedCount = &retriedCount
+		b.NewFailedCount = &newFailedCount
+		b.NewPassedCount = &newPassedCount
 		builds = append(builds, b)
 	}
 	if err := rows.Err(); err != nil {

@@ -46,6 +46,7 @@ import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
+import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
 
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -239,10 +240,11 @@ export function OverviewTab() {
         </div>
       )}
 
-      {/* Environment & Categories — G1/G2 */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Environment & Categories & Flaky Tests — G1/G2/A1 */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <EnvironmentCard projectId={projectId} />
         <CategoriesCard projectId={projectId} />
+        <FlakyTestsCard projectId={projectId} />
       </div>
 
       {/* Report history table */}
@@ -277,6 +279,7 @@ export function OverviewTab() {
                 <TableHead className="text-center text-amber-600">Broken</TableHead>
                 <TableHead className="text-center text-gray-500">Skipped</TableHead>
                 <TableHead className="text-center">Pass rate</TableHead>
+                <TableHead className="text-center">Stability</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -337,6 +340,25 @@ export function OverviewTab() {
                       ) : (
                         '—'
                       )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex justify-center gap-1">
+                        {r.flaky_count != null && r.flaky_count > 0 && (
+                          <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+                            Flaky: {r.flaky_count}
+                          </Badge>
+                        )}
+                        {r.new_failed_count != null && r.new_failed_count > 0 && (
+                          <Badge variant="destructive" className="text-xs">
+                            Regressed: {r.new_failed_count}
+                          </Badge>
+                        )}
+                        {r.new_passed_count != null && r.new_passed_count > 0 && (
+                          <Badge className="bg-green-500 text-xs text-white hover:bg-green-600">
+                            Fixed: {r.new_passed_count}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

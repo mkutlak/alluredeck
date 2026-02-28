@@ -72,7 +72,7 @@ func newTestAllureDir(t *testing.T, projectsDir string) *Allure {
 	t.Cleanup(func() { _ = s.Close() })
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm, zap.NewNop())
+	return NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
 }
 
 // TestStoreReport_CopiesOnlyVariableDirs verifies that StoreReport copies
@@ -176,7 +176,7 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	}
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm, zap.NewNop())
+	a := NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
 
 	// Close the DB so InsertBuild will fail.
 	_ = s.Close()
@@ -212,7 +212,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm, zap.NewNop())
+	a := NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
 
 	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
 		t.Fatalf("recordBuild: %v", err)
