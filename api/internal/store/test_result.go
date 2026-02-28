@@ -22,6 +22,10 @@ type TestResult struct {
 	Retries    int
 	NewFailed  bool
 	NewPassed  bool
+	StartMs    *int64 // nullable — nil for pre-migration rows
+	StopMs     *int64 // nullable — nil for pre-migration rows
+	Thread     string
+	Host       string
 }
 
 // LowPerformingTest holds aggregated performance data for one test across builds.
@@ -59,8 +63,9 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []TestResult
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO test_results
 			(build_id, project_id, test_name, full_name, status, duration_ms,
-			 history_id, flaky, retries, new_failed, new_passed)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			 history_id, flaky, retries, new_failed, new_passed,
+			 start_ms, stop_ms, thread, host)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare insert: %w", err)
 	}
@@ -77,6 +82,7 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []TestResult
 		if _, err := stmt.ExecContext(ctx,
 			r.BuildID, r.ProjectID, r.TestName, r.FullName, r.Status, r.DurationMs,
 			r.HistoryID, boolToInt(r.Flaky), r.Retries, boolToInt(r.NewFailed), boolToInt(r.NewPassed),
+			r.StartMs, r.StopMs, r.Thread, r.Host,
 		); err != nil {
 			return fmt.Errorf("insert test result: %w", err)
 		}
@@ -305,6 +311,49 @@ func (ts *TestResultStore) batchTrendFailureRate(ctx context.Context, projectID 
 		result[hid] = append(result[hid], v)
 	}
 	return result, rows.Err()
+}
+
+// TimelineRow holds one test case for timeline rendering from SQLite.
+type TimelineRow struct {
+	TestName string
+	FullName string
+	Status   string
+	StartMs  int64
+	StopMs   int64
+	Thread   string
+	Host     string
+}
+
+// ListTimeline returns timeline data for a specific build, ordered by start time.
+// Rows without start_ms (pre-migration data) are excluded via IS NOT NULL filter.
+// Returns an empty slice (not error) when no rows match.
+func (ts *TestResultStore) ListTimeline(ctx context.Context, projectID string, buildID int64, limit int) ([]TimelineRow, error) {
+	rows, err := ts.db.QueryContext(ctx, `
+		SELECT test_name, full_name, status, start_ms, stop_ms, thread, host
+		FROM test_results
+		WHERE build_id = ? AND project_id = ? AND start_ms IS NOT NULL
+		ORDER BY start_ms ASC
+		LIMIT ?`, buildID, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list timeline: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []TimelineRow
+	for rows.Next() {
+		var r TimelineRow
+		if err := rows.Scan(&r.TestName, &r.FullName, &r.Status, &r.StartMs, &r.StopMs, &r.Thread, &r.Host); err != nil {
+			return nil, fmt.Errorf("scan timeline row: %w", err)
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate timeline: %w", err)
+	}
+	if result == nil {
+		result = []TimelineRow{}
+	}
+	return result, nil
 }
 
 // DeleteByProject removes all test results for the given project.

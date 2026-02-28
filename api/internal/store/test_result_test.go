@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"go.uber.org/zap"
@@ -268,6 +269,201 @@ func TestTestResultStore_AnalyticsIndexExists(t *testing.T) {
 	).Scan(&name)
 	if err != nil {
 		t.Fatalf("analytics covering index not found: %v", err)
+	}
+}
+
+func TestTestResultStore_InsertBatch_TimelineFields(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "tl-proj")
+	_ = bs.InsertBuild(ctx, "tl-proj", 1)
+	buildID, _ := ts.GetBuildID(ctx, "tl-proj", 1)
+
+	startMs := int64(1700000000000)
+	stopMs := int64(1700000001000)
+	results := []store.TestResult{
+		{
+			BuildID: buildID, ProjectID: "tl-proj",
+			TestName: "TestTimeline", FullName: "pkg.TestTimeline",
+			Status: "passed", DurationMs: 1000, HistoryID: "h-tl",
+			StartMs: &startMs, StopMs: &stopMs,
+			Thread: "pool-1-thread-3", Host: "worker-01",
+		},
+	}
+
+	if err := ts.InsertBatch(ctx, results); err != nil {
+		t.Fatalf("InsertBatch with timeline fields: %v", err)
+	}
+
+	// Verify timeline fields were stored.
+	rows, err := ts.ListTimeline(ctx, "tl-proj", buildID, 100)
+	if err != nil {
+		t.Fatalf("ListTimeline: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 timeline row, got %d", len(rows))
+	}
+	r := rows[0]
+	if r.TestName != "TestTimeline" {
+		t.Errorf("TestName = %q, want %q", r.TestName, "TestTimeline")
+	}
+	if r.FullName != "pkg.TestTimeline" {
+		t.Errorf("FullName = %q, want %q", r.FullName, "pkg.TestTimeline")
+	}
+	if r.Status != "passed" {
+		t.Errorf("Status = %q, want %q", r.Status, "passed")
+	}
+	if r.StartMs != startMs {
+		t.Errorf("StartMs = %d, want %d", r.StartMs, startMs)
+	}
+	if r.StopMs != stopMs {
+		t.Errorf("StopMs = %d, want %d", r.StopMs, stopMs)
+	}
+	if r.Thread != "pool-1-thread-3" {
+		t.Errorf("Thread = %q, want %q", r.Thread, "pool-1-thread-3")
+	}
+	if r.Host != "worker-01" {
+		t.Errorf("Host = %q, want %q", r.Host, "worker-01")
+	}
+}
+
+func TestTestResultStore_ListTimeline_Ordering(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "tl-order")
+	_ = bs.InsertBuild(ctx, "tl-order", 1)
+	buildID, _ := ts.GetBuildID(ctx, "tl-order", 1)
+
+	start1, stop1 := int64(1000), int64(2000)
+	start2, stop2 := int64(500), int64(1500)
+	start3, stop3 := int64(1500), int64(3000)
+	results := []store.TestResult{
+		{BuildID: buildID, ProjectID: "tl-order", TestName: "B", FullName: "pkg.B", Status: "passed", DurationMs: 1000, HistoryID: "h1", StartMs: &start1, StopMs: &stop1},
+		{BuildID: buildID, ProjectID: "tl-order", TestName: "A", FullName: "pkg.A", Status: "failed", DurationMs: 1000, HistoryID: "h2", StartMs: &start2, StopMs: &stop2},
+		{BuildID: buildID, ProjectID: "tl-order", TestName: "C", FullName: "pkg.C", Status: "broken", DurationMs: 1500, HistoryID: "h3", StartMs: &start3, StopMs: &stop3},
+	}
+	_ = ts.InsertBatch(ctx, results)
+
+	rows, err := ts.ListTimeline(ctx, "tl-order", buildID, 100)
+	if err != nil {
+		t.Fatalf("ListTimeline: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(rows))
+	}
+	// Should be ordered by start_ms ASC: A(500), B(1000), C(1500)
+	if rows[0].TestName != "A" {
+		t.Errorf("first row should be A (start=500), got %s", rows[0].TestName)
+	}
+	if rows[1].TestName != "B" {
+		t.Errorf("second row should be B (start=1000), got %s", rows[1].TestName)
+	}
+	if rows[2].TestName != "C" {
+		t.Errorf("third row should be C (start=1500), got %s", rows[2].TestName)
+	}
+}
+
+func TestTestResultStore_ListTimeline_SkipsPreMigrationRows(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "tl-legacy")
+	_ = bs.InsertBuild(ctx, "tl-legacy", 1)
+	buildID, _ := ts.GetBuildID(ctx, "tl-legacy", 1)
+
+	startMs := int64(1000)
+	stopMs := int64(2000)
+	results := []store.TestResult{
+		// Pre-migration row: no start_ms/stop_ms (nil pointers)
+		{BuildID: buildID, ProjectID: "tl-legacy", TestName: "OldTest", FullName: "pkg.OldTest", Status: "passed", DurationMs: 100, HistoryID: "h-old"},
+		// Post-migration row: has start_ms
+		{BuildID: buildID, ProjectID: "tl-legacy", TestName: "NewTest", FullName: "pkg.NewTest", Status: "passed", DurationMs: 200, HistoryID: "h-new", StartMs: &startMs, StopMs: &stopMs, Thread: "main", Host: "host1"},
+	}
+	_ = ts.InsertBatch(ctx, results)
+
+	rows, err := ts.ListTimeline(ctx, "tl-legacy", buildID, 100)
+	if err != nil {
+		t.Fatalf("ListTimeline: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row (pre-migration excluded), got %d", len(rows))
+	}
+	if rows[0].TestName != "NewTest" {
+		t.Errorf("expected NewTest, got %s", rows[0].TestName)
+	}
+}
+
+func TestTestResultStore_ListTimeline_Empty(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	rows, err := ts.ListTimeline(ctx, "nonexistent", 999, 100)
+	if err != nil {
+		t.Fatalf("ListTimeline on empty: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected empty slice, got %d", len(rows))
+	}
+}
+
+func TestTestResultStore_ListTimeline_RespectsLimit(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "tl-limit")
+	_ = bs.InsertBuild(ctx, "tl-limit", 1)
+	buildID, _ := ts.GetBuildID(ctx, "tl-limit", 1)
+
+	var batch []store.TestResult
+	for i := 0; i < 10; i++ {
+		start := int64(i * 1000)
+		stop := start + 500
+		batch = append(batch, store.TestResult{
+			BuildID: buildID, ProjectID: "tl-limit",
+			TestName: fmt.Sprintf("Test%d", i), FullName: fmt.Sprintf("pkg.Test%d", i),
+			Status: "passed", DurationMs: 500, HistoryID: fmt.Sprintf("h-%d", i),
+			StartMs: &start, StopMs: &stop,
+		})
+	}
+	_ = ts.InsertBatch(ctx, batch)
+
+	rows, err := ts.ListTimeline(ctx, "tl-limit", buildID, 3)
+	if err != nil {
+		t.Fatalf("ListTimeline: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Errorf("expected 3 rows (limit), got %d", len(rows))
+	}
+}
+
+func TestTestResultStore_TimelineColumnsExist(t *testing.T) {
+	s := openTestStore(t)
+	cols := []string{"start_ms", "stop_ms", "thread", "host"}
+	for _, col := range cols {
+		var exists int
+		err := s.DB().QueryRow(
+			"SELECT COUNT(*) FROM pragma_table_info('test_results') WHERE name=?", col,
+		).Scan(&exists)
+		if err != nil {
+			t.Errorf("checking column %q: %v", col, err)
+		} else if exists == 0 {
+			t.Errorf("column %q not found in test_results table", col)
+		}
 	}
 }
 

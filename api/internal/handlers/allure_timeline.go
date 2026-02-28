@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 )
 
 const timelineMaxItems = 5000
@@ -65,6 +66,58 @@ func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
 		reportID = "latest"
+	}
+
+	// SQLite fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
+	if buildOrder, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {
+		if buildID, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrder); err == nil {
+			if rows, err := h.testResultStore.ListTimeline(ctx, projectID, buildID, timelineMaxItems+1); err == nil && len(rows) > 0 {
+				total := len(rows)
+				truncated := false
+				if total > timelineMaxItems {
+					rows = rows[:timelineMaxItems]
+					truncated = true
+				}
+
+				testCases := make([]timelineTestCase, len(rows))
+				var minStart, maxStop, totalDuration int64
+				for i, row := range rows {
+					dur := row.StopMs - row.StartMs
+					testCases[i] = timelineTestCase{
+						Name:     row.TestName,
+						FullName: row.FullName,
+						Status:   row.Status,
+						Start:    row.StartMs,
+						Stop:     row.StopMs,
+						Duration: dur,
+						Thread:   row.Thread,
+						Host:     row.Host,
+					}
+					if i == 0 || row.StartMs < minStart {
+						minStart = row.StartMs
+					}
+					if row.StopMs > maxStop {
+						maxStop = row.StopMs
+					}
+					totalDuration += dur
+				}
+
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{
+						"test_cases": testCases,
+						"summary": timelineSummary{
+							Total:         total,
+							MinStart:      minStart,
+							MaxStop:       maxStop,
+							TotalDuration: totalDuration,
+							Truncated:     truncated,
+						},
+					},
+					"metadata": map[string]string{"message": "Timeline successfully obtained"},
+				})
+				return
+			}
+		}
 	}
 
 	relBase := "reports/" + reportID + "/data/test-results"

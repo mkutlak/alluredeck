@@ -54,9 +54,17 @@ type stabilityEntry struct {
 		Flaky bool `json:"flaky"`
 	} `json:"statusDetails"`
 	Time *struct {
+		Start    int64 `json:"start"`
+		Stop     int64 `json:"stop"`
 		Duration int64 `json:"duration"`
 	} `json:"time"`
+	Start    int64 `json:"start"`    // Allure 3 top-level fallback
+	Stop     int64 `json:"stop"`     // Allure 3 top-level fallback
 	Duration int64 `json:"duration"` // Allure 3 top-level fallback
+	Labels   []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"labels"`
 }
 
 // Allure represents the core Allure report generation process
@@ -342,6 +350,28 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 							dur = se.Time.Duration
 						}
 						flaky := se.StatusDetails != nil && se.StatusDetails.Flaky
+
+						// Extract start/stop: nested Time takes priority, top-level as fallback.
+						var startMs, stopMs *int64
+						if se.Time != nil && se.Time.Start != 0 {
+							s, e := se.Time.Start, se.Time.Stop
+							startMs, stopMs = &s, &e
+						} else if se.Start != 0 {
+							s, e := se.Start, se.Stop
+							startMs, stopMs = &s, &e
+						}
+
+						// Extract thread/host from labels.
+						var thread, host string
+						for _, lbl := range se.Labels {
+							switch lbl.Name {
+							case "thread":
+								thread = lbl.Value
+							case "host":
+								host = lbl.Value
+							}
+						}
+
 						testResults = append(testResults, store.TestResult{
 							BuildID:    buildID,
 							ProjectID:  projectID,
@@ -354,6 +384,10 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 							Retries:    se.RetriesCount,
 							NewFailed:  se.NewFailed,
 							NewPassed:  se.NewPassed,
+							StartMs:    startMs,
+							StopMs:     stopMs,
+							Thread:     thread,
+							Host:       host,
 						})
 					}
 					if err := a.testResultStore.InsertBatch(ctx, testResults); err != nil {
