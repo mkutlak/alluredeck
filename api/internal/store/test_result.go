@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -140,9 +141,14 @@ func (ts *TestResultStore) ListSlowest(ctx context.Context, projectID string, bu
 	}
 	_ = rows.Close()
 
-	// Compute trends after closing main cursor (SQLite can't nest queries on same conn).
+	// Batch-fetch all trends in a single query instead of N individual queries.
+	historyIDs := make([]string, len(tests))
 	for i := range tests {
-		tests[i].Trend, _ = ts.trendDuration(ctx, projectID, tests[i].HistoryID, builds)
+		historyIDs[i] = tests[i].HistoryID
+	}
+	trends, _ := ts.batchTrendDuration(ctx, projectID, historyIDs, builds)
+	for i := range tests {
+		tests[i].Trend = trends[tests[i].HistoryID]
 	}
 	return tests, nil
 }
@@ -191,74 +197,114 @@ func (ts *TestResultStore) ListLeastReliable(ctx context.Context, projectID stri
 	}
 	_ = rows.Close()
 
-	// Compute trends after closing main cursor (SQLite can't nest queries on same conn).
+	// Batch-fetch all trends in a single query instead of N individual queries.
+	historyIDs := make([]string, len(tests))
 	for i := range tests {
-		tests[i].Trend, _ = ts.trendFailureRate(ctx, projectID, tests[i].HistoryID, builds)
+		historyIDs[i] = tests[i].HistoryID
+	}
+	trends, _ := ts.batchTrendFailureRate(ctx, projectID, historyIDs, builds)
+	for i := range tests {
+		tests[i].Trend = trends[tests[i].HistoryID]
 	}
 	return tests, nil
 }
 
-// trendDuration returns per-build average duration for a test, oldest→newest.
-func (ts *TestResultStore) trendDuration(ctx context.Context, projectID, historyID string, builds int) ([]float64, error) {
-	rows, err := ts.db.QueryContext(ctx, `
+// batchTrendDuration returns per-build average duration for multiple tests in a
+// single query, keyed by history_id. Values are ordered oldest→newest.
+func (ts *TestResultStore) batchTrendDuration(ctx context.Context, projectID string, historyIDs []string, builds int) (map[string][]float64, error) {
+	if len(historyIDs) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(historyIDs))
+	args := make([]any, 0, 3+len(historyIDs))
+	args = append(args, projectID, builds, projectID)
+	for i, hid := range historyIDs {
+		placeholders[i] = "?"
+		args = append(args, hid)
+	}
+
+	query := fmt.Sprintf(`
 		WITH recent_builds AS (
 			SELECT id FROM builds
 			WHERE project_id = ?
 			ORDER BY build_order DESC
 			LIMIT ?
 		)
-		SELECT AVG(CAST(duration_ms AS REAL))
+		SELECT history_id, AVG(CAST(duration_ms AS REAL))
 		FROM test_results
-		WHERE project_id=? AND history_id=?
+		WHERE project_id = ?
+		  AND history_id IN (%s)
 		  AND build_id IN (SELECT id FROM recent_builds)
-		GROUP BY build_id
-		ORDER BY build_id ASC`,
-		projectID, builds, projectID, historyID)
+		GROUP BY history_id, build_id
+		ORDER BY history_id, build_id ASC`, strings.Join(placeholders, ","))
+
+	rows, err := ts.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var trend []float64
+
+	result := make(map[string][]float64, len(historyIDs))
 	for rows.Next() {
+		var hid string
 		var v float64
-		if err := rows.Scan(&v); err != nil {
+		if err := rows.Scan(&hid, &v); err != nil {
 			return nil, err
 		}
-		trend = append(trend, v)
+		result[hid] = append(result[hid], v)
 	}
-	return trend, rows.Err()
+	return result, rows.Err()
 }
 
-// trendFailureRate returns per-build failure rate for a test, oldest→newest.
-func (ts *TestResultStore) trendFailureRate(ctx context.Context, projectID, historyID string, builds int) ([]float64, error) {
-	rows, err := ts.db.QueryContext(ctx, `
+// batchTrendFailureRate returns per-build failure rate for multiple tests in a
+// single query, keyed by history_id. Values are ordered oldest→newest.
+func (ts *TestResultStore) batchTrendFailureRate(ctx context.Context, projectID string, historyIDs []string, builds int) (map[string][]float64, error) {
+	if len(historyIDs) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(historyIDs))
+	args := make([]any, 0, 3+len(historyIDs))
+	args = append(args, projectID, builds, projectID)
+	for i, hid := range historyIDs {
+		placeholders[i] = "?"
+		args = append(args, hid)
+	}
+
+	query := fmt.Sprintf(`
 		WITH recent_builds AS (
 			SELECT id FROM builds
 			WHERE project_id = ?
 			ORDER BY build_order DESC
 			LIMIT ?
 		)
-		SELECT CAST(SUM(CASE WHEN status IN ('failed','broken') THEN 1 ELSE 0 END) AS REAL)
+		SELECT history_id,
+		       CAST(SUM(CASE WHEN status IN ('failed','broken') THEN 1 ELSE 0 END) AS REAL)
 		       / CAST(COUNT(*) AS REAL)
 		FROM test_results
-		WHERE project_id=? AND history_id=?
+		WHERE project_id = ?
+		  AND history_id IN (%s)
 		  AND build_id IN (SELECT id FROM recent_builds)
-		GROUP BY build_id
-		ORDER BY build_id ASC`,
-		projectID, builds, projectID, historyID)
+		GROUP BY history_id, build_id
+		ORDER BY history_id, build_id ASC`, strings.Join(placeholders, ","))
+
+	rows, err := ts.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var trend []float64
+
+	result := make(map[string][]float64, len(historyIDs))
 	for rows.Next() {
+		var hid string
 		var v float64
-		if err := rows.Scan(&v); err != nil {
+		if err := rows.Scan(&hid, &v); err != nil {
 			return nil, err
 		}
-		trend = append(trend, v)
+		result[hid] = append(result[hid], v)
 	}
-	return trend, rows.Err()
+	return result, rows.Err()
 }
 
 // DeleteByProject removes all test results for the given project.

@@ -153,6 +153,113 @@ func TestTestResultStore_BuildsLimit(t *testing.T) {
 	}
 }
 
+func TestTestResultStore_ListSlowest_BatchTrends(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "batch-proj")
+
+	// 3 builds, 3 tests with distinct duration patterns per build.
+	durations := map[string][3]int64{
+		"h-alpha": {100, 150, 200}, // Alpha: increasing
+		"h-beta":  {300, 250, 200}, // Beta:  decreasing
+		"h-gamma": {500, 600, 700}, // Gamma: increasing (slowest)
+	}
+	names := map[string]string{"h-alpha": "Alpha", "h-beta": "Beta", "h-gamma": "Gamma"}
+
+	for buildOrder := 1; buildOrder <= 3; buildOrder++ {
+		_ = bs.InsertBuild(ctx, "batch-proj", buildOrder)
+		buildID, _ := ts.GetBuildID(ctx, "batch-proj", buildOrder)
+		var batch []store.TestResult
+		for hid, durs := range durations {
+			batch = append(batch, store.TestResult{
+				BuildID: buildID, ProjectID: "batch-proj",
+				TestName: names[hid], FullName: "pkg." + names[hid],
+				Status: "passed", DurationMs: durs[buildOrder-1], HistoryID: hid,
+			})
+		}
+		_ = ts.InsertBatch(ctx, batch)
+	}
+
+	slowest, err := ts.ListSlowest(ctx, "batch-proj", 3, 10)
+	if err != nil {
+		t.Fatalf("ListSlowest: %v", err)
+	}
+	if len(slowest) != 3 {
+		t.Fatalf("expected 3 tests, got %d", len(slowest))
+	}
+
+	trendMap := make(map[string][]float64)
+	for _, s := range slowest {
+		trendMap[s.TestName] = s.Trend
+	}
+
+	// Each test must have exactly 3 trend points (oldest→newest) mapped correctly.
+	assertTrend(t, "Alpha", trendMap["Alpha"], []float64{100, 150, 200})
+	assertTrend(t, "Beta", trendMap["Beta"], []float64{300, 250, 200})
+	assertTrend(t, "Gamma", trendMap["Gamma"], []float64{500, 600, 700})
+}
+
+func TestTestResultStore_ListLeastReliable_BatchTrends(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "batch-rel-proj")
+
+	// Build 1: TestA fails, TestB passes
+	_ = bs.InsertBuild(ctx, "batch-rel-proj", 1)
+	bid1, _ := ts.GetBuildID(ctx, "batch-rel-proj", 1)
+	_ = ts.InsertBatch(ctx, []store.TestResult{
+		{BuildID: bid1, ProjectID: "batch-rel-proj", TestName: "TestA", Status: "failed", DurationMs: 100, HistoryID: "h-a"},
+		{BuildID: bid1, ProjectID: "batch-rel-proj", TestName: "TestB", Status: "passed", DurationMs: 100, HistoryID: "h-b"},
+	})
+
+	// Build 2: TestA passes, TestB fails
+	_ = bs.InsertBuild(ctx, "batch-rel-proj", 2)
+	bid2, _ := ts.GetBuildID(ctx, "batch-rel-proj", 2)
+	_ = ts.InsertBatch(ctx, []store.TestResult{
+		{BuildID: bid2, ProjectID: "batch-rel-proj", TestName: "TestA", Status: "passed", DurationMs: 100, HistoryID: "h-a"},
+		{BuildID: bid2, ProjectID: "batch-rel-proj", TestName: "TestB", Status: "failed", DurationMs: 100, HistoryID: "h-b"},
+	})
+
+	unreliable, err := ts.ListLeastReliable(ctx, "batch-rel-proj", 2, 10)
+	if err != nil {
+		t.Fatalf("ListLeastReliable: %v", err)
+	}
+	if len(unreliable) != 2 {
+		t.Fatalf("expected 2 unreliable tests, got %d", len(unreliable))
+	}
+
+	trendMap := make(map[string][]float64)
+	for _, u := range unreliable {
+		trendMap[u.TestName] = u.Trend
+	}
+
+	// TestA: build1=failed(1.0), build2=passed(0.0)
+	assertTrend(t, "TestA", trendMap["TestA"], []float64{1.0, 0.0})
+	// TestB: build1=passed(0.0), build2=failed(1.0)
+	assertTrend(t, "TestB", trendMap["TestB"], []float64{0.0, 1.0})
+}
+
+func assertTrend(t *testing.T, name string, got, want []float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("%s: trend len %d, want %d", name, len(got), len(want))
+		return
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("%s: trend[%d] = %.1f, want %.1f", name, i, got[i], want[i])
+		}
+	}
+}
+
 func TestTestResultStore_EmptyProject(t *testing.T) {
 	s := openTestStore(t)
 	ts := store.NewTestResultStore(s, zap.NewNop())
