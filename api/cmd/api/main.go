@@ -236,35 +236,47 @@ func registerRoutes(
 		return auth(middleware.RequireRole("viewer")(h))
 	}
 
-	// Public endpoints
-	mux.HandleFunc("GET "+prefix+"/version", system.Version)
-	mux.HandleFunc("GET "+prefix+"/config", system.ConfigEndpoint)
-	mux.HandleFunc("POST "+prefix+"/login", rateLimit(authHandler.Login))
+	// Cache-control wrappers (PERF: HTTP caching headers).
+	noStore := middleware.NoStore
+	mutableCache := middleware.CacheControl(middleware.CacheMutable)
+	shortCache := middleware.CacheControl(middleware.CacheShortLived)
+	reportCache := middleware.ReportCache
+
+	// Public endpoints — no-store for config/version, rate-limited login.
+	mux.HandleFunc("GET "+prefix+"/version", noStore(system.Version))
+	mux.HandleFunc("GET "+prefix+"/config", noStore(system.ConfigEndpoint))
+	mux.HandleFunc("POST "+prefix+"/login", noStore(rateLimit(authHandler.Login)))
 
 	// Auth only (no specific role required)
-	mux.HandleFunc("DELETE "+prefix+"/logout", auth(authHandler.Logout))
+	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(authHandler.Logout)))
 
-	// Viewer+ endpoints (public when MakeViewerEndptsPub=true)
-	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(allure.GetProjects))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/emailable", viewerUp(allure.GetEmailableReport))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(allure.GetReportHistory))
+	// Viewer+ endpoints (public when MakeViewerEndptsPub=true) — mutable cache.
+	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(mutableCache(allure.GetProjects)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/emailable", viewerUp(mutableCache(allure.GetEmailableReport)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))
 
-	// Admin only endpoints
-	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(allure.CreateProject))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(allure.DeleteProject))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", adminOnly(allure.GenerateReport))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(allure.CleanHistory))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(allure.CleanResults))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", adminOnly(allure.SendResults))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(allure.DeleteReport))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(allure.GetReportCategories))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(allure.GetReportEnvironment))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(allure.ListKnownIssues))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", adminOnly(allure.CreateKnownIssue))
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(allure.UpdateKnownIssue))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(allure.DeleteKnownIssue))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(allure.GetReportKnownFailures))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(allure.GetReportTimeline))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(allure.GetReportStability))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(allure.GetLowPerformingTests))
+	// Admin write endpoints — no-store.
+	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(allure.CreateProject)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(allure.DeleteProject)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", adminOnly(noStore(allure.GenerateReport)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(allure.CleanHistory)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.CleanResults)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.SendResults)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(allure.DeleteReport)))
+
+	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(allure.GetReportCategories)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(allure.GetReportEnvironment)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(allure.GetReportKnownFailures)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(allure.GetReportTimeline)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(allure.GetReportStability)))
+
+	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(allure.ListKnownIssues)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", adminOnly(noStore(allure.CreateKnownIssue)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(noStore(allure.UpdateKnownIssue)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(noStore(allure.DeleteKnownIssue)))
+
+	// Analytics — short-lived cache.
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(allure.GetLowPerformingTests)))
 }
