@@ -8,13 +8,16 @@ Rewrite of [ [fescobar/allure-docker-service](https://github.com/fescobar/allure
 
 ## Features
 
-- **Project management** — create, list, delete projects; grid and list view
-- **Tab-based navigation** — Overview, Analytics, History tabs per project
+- **Project management** — create, list, delete projects; grid and list view; paginated API
+- **Tab-based navigation** — Overview, Analytics, Timeline, Known Issues tabs per project
 - **Analytics charts** — Status Trend, Pass Rate Trend, Duration Trend, Status Distribution
+- **Test timeline** — Gantt-chart visualization of parallel test execution with swim lanes
+- **Known issues tracking** — tag flaky/known-failing tests; adjusted pass rate calculation
 - **Report history** — colour-coded table with pass rate, per-build stats, view/delete actions
 - **Embedded report viewer** — Allure 2 & 3 reports rendered in an iframe
 - **Admin actions** — send results (drag & drop), generate report, clean results/history
-- **Authentication** — JWT-based login; admin vs viewer RBAC
+- **Authentication** — JWT-based login; admin vs viewer RBAC; CSRF double-submit cookies; per-IP rate limiting
+- **Structured logging** — Uber Zap; JSON in production, console in dev; request-scoped correlation
 - **Dark / light mode** — system-aware theme toggle
 - **Storage backends** — local filesystem and S3/MinIO
 
@@ -69,7 +72,7 @@ Variables are injected at **runtime** via `window.__env__` (see `docker/docker-e
 alluredeck/
   api/              # Go HTTP API backend
     cmd/api/        # entry point
-    internal/       # config, handlers, middleware, runner, security, store, storage
+    internal/       # config, handlers, logging, middleware, runner, security, store, storage, version
     static/         # embedded static assets + swagger UI
     go.mod
   ui/               # React + TypeScript frontend
@@ -100,4 +103,6 @@ make check            full quality gate (API + UI)
 make docker-build     build both Docker images
 make docker-up        start full stack (UI + API)
 make docker-down      stop full stack
+make docker-up-s3     full stack with S3 (MinIO)
+make docker-up-dev    API-only dev stack
 ```

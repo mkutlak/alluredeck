@@ -7,9 +7,8 @@ Monorepo for Allure Reports Dashboard — Go API backend + React frontend.
 alluredeck/
   api/              # Go HTTP API backend
     cmd/api/        # entry point
-    internal/       # config, handlers, middleware, runner, security, store, storage
+    internal/       # config, handlers, logging, middleware, runner, security, store, storage, version
     static/         # embedded static assets + swagger UI
-    templates/      # HTML templates
     go.mod
   ui/               # React + TypeScript frontend
     src/
@@ -42,6 +41,7 @@ alluredeck/
 - **Auth**: JWT (`golang-jwt/jwt/v5`) + bcrypt passwords
 - **Config**: env vars + optional YAML file (`go.yaml.in/yaml/v3`)
 - **DB**: SQLite via `modernc.org/sqlite` (pure Go, CGO_ENABLED=0)
+- **Logging**: Uber Zap (`go.uber.org/zap`) — JSON in prod, console in dev
 - **Docs**: Swagger via `swaggo/swag` + `swaggo/http-swagger`
 - **Lint**: golangci-lint v2
 
