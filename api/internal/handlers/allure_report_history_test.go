@@ -238,6 +238,70 @@ func TestGetReportHistory_CancelledContext(t *testing.T) {
 	}
 }
 
+func TestGetReportHistory_WithCIMetadata(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "ci-metadata-proj"
+	reportsDir := filepath.Join(projectsDir, projectID, "reports")
+
+	// Create a numbered report dir for SyncMetadata to import.
+	dir := filepath.Join(reportsDir, "1")
+	summary := `{"statistic":{"passed":5,"failed":1,"broken":0,"skipped":0,"unknown":0,"total":6},"time":{"stop":1700000000000,"duration":3000}}`
+	writeSummaryJSON(t, dir, summary)
+
+	h := newTestAllureHandler(t, projectsDir)
+
+	// Set CI metadata on the imported build via the handler's buildStore.
+	ctx := context.Background()
+	ciMeta := store.CIMetadata{
+		Provider:  "GitHub Actions",
+		BuildURL:  "https://github.com/org/repo/actions/runs/123",
+		Branch:    "main",
+		CommitSHA: "abc1234",
+	}
+	if err := h.buildStore.UpdateBuildCIMetadata(ctx, projectID, 1, ciMeta); err != nil {
+		t.Fatalf("UpdateBuildCIMetadata: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected data map")
+	}
+	reports, ok := data["reports"].([]any)
+	if !ok {
+		t.Fatal("expected reports slice")
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(reports))
+	}
+	entry, ok := reports[0].(map[string]any)
+	if !ok {
+		t.Fatal("expected entry map")
+	}
+	if entry["ci_provider"] != "GitHub Actions" {
+		t.Errorf("ci_provider: got %v, want 'GitHub Actions'", entry["ci_provider"])
+	}
+	if entry["ci_build_url"] != "https://github.com/org/repo/actions/runs/123" {
+		t.Errorf("ci_build_url: got %v", entry["ci_build_url"])
+	}
+	if entry["ci_branch"] != "main" {
+		t.Errorf("ci_branch: got %v, want 'main'", entry["ci_branch"])
+	}
+	if entry["ci_commit_sha"] != "abc1234" {
+		t.Errorf("ci_commit_sha: got %v, want 'abc1234'", entry["ci_commit_sha"])
+	}
+}
+
 func TestGetReportHistory_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
 	h := newTestAllureHandler(t, projectsDir)

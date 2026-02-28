@@ -140,6 +140,10 @@ export interface ReportHistoryEntry {
   retried_count?: number
   new_failed_count?: number
   new_passed_count?: number
+  ci_provider?: string
+  ci_build_url?: string
+  ci_branch?: string
+  ci_commit_sha?: string
 }
 
 export interface ReportHistoryData {

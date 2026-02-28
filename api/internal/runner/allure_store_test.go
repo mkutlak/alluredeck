@@ -181,7 +181,7 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	// Close the DB so InsertBuild will fail.
 	_ = s.Close()
 
-	err = a.storeAndPruneBuild(context.Background(), projectID, dir, 1)
+	err = a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{})
 	if err == nil {
 		t.Fatal("expected error from storeAndPruneBuild when DB is closed, got nil")
 	}

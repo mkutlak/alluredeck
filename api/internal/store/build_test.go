@@ -164,6 +164,120 @@ func TestBuildStore_ListBuilds_InvalidCreatedAt(t *testing.T) {
 	}
 }
 
+func TestBuildStore_UpdateBuildCIMetadata(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "ci-proj")
+	_ = bs.InsertBuild(ctx, "ci-proj", 1)
+
+	ciMeta := store.CIMetadata{
+		Provider:  "GitHub Actions",
+		BuildURL:  "https://github.com/org/repo/actions/runs/123",
+		Branch:    "main",
+		CommitSHA: "abc1234",
+	}
+	if err := bs.UpdateBuildCIMetadata(ctx, "ci-proj", 1, ciMeta); err != nil {
+		t.Fatalf("UpdateBuildCIMetadata: %v", err)
+	}
+
+	builds, err := bs.ListBuilds(ctx, "ci-proj")
+	if err != nil {
+		t.Fatalf("ListBuilds: %v", err)
+	}
+	if len(builds) != 1 {
+		t.Fatalf("expected 1 build, got %d", len(builds))
+	}
+	b := builds[0]
+	if b.CIProvider == nil || *b.CIProvider != "GitHub Actions" {
+		t.Errorf("CIProvider: got %v", b.CIProvider)
+	}
+	if b.CIBuildURL == nil || *b.CIBuildURL != "https://github.com/org/repo/actions/runs/123" {
+		t.Errorf("CIBuildURL: got %v", b.CIBuildURL)
+	}
+	if b.CIBranch == nil || *b.CIBranch != "main" {
+		t.Errorf("CIBranch: got %v", b.CIBranch)
+	}
+	if b.CICommitSHA == nil || *b.CICommitSHA != "abc1234" {
+		t.Errorf("CICommitSHA: got %v", b.CICommitSHA)
+	}
+}
+
+func TestBuildStore_UpdateBuildCIMetadata_Partial(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "ci-partial")
+	_ = bs.InsertBuild(ctx, "ci-partial", 1)
+
+	// Only provider and branch, no BuildURL or CommitSHA.
+	ciMeta := store.CIMetadata{
+		Provider: "Jenkins",
+		Branch:   "feature/ci",
+	}
+	if err := bs.UpdateBuildCIMetadata(ctx, "ci-partial", 1, ciMeta); err != nil {
+		t.Fatalf("UpdateBuildCIMetadata: %v", err)
+	}
+
+	builds, err := bs.ListBuilds(ctx, "ci-partial")
+	if err != nil {
+		t.Fatalf("ListBuilds: %v", err)
+	}
+	b := builds[0]
+	if b.CIProvider == nil || *b.CIProvider != "Jenkins" {
+		t.Errorf("CIProvider: got %v", b.CIProvider)
+	}
+	if b.CIBranch == nil || *b.CIBranch != "feature/ci" {
+		t.Errorf("CIBranch: got %v", b.CIBranch)
+	}
+	// Empty string fields should result in nil (not stored).
+	if b.CIBuildURL != nil {
+		t.Errorf("CIBuildURL: expected nil for empty field, got %v", *b.CIBuildURL)
+	}
+	if b.CICommitSHA != nil {
+		t.Errorf("CICommitSHA: expected nil for empty field, got %v", *b.CICommitSHA)
+	}
+}
+
+func TestBuildStore_ListBuildsPaginated_IncludesCIMetadata(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "ci-paginated")
+	_ = bs.InsertBuild(ctx, "ci-paginated", 1)
+
+	ciMeta := store.CIMetadata{
+		Provider:  "GitLab CI",
+		BuildURL:  "https://gitlab.com/org/repo/-/pipelines/456",
+		Branch:    "develop",
+		CommitSHA: "def5678",
+	}
+	if err := bs.UpdateBuildCIMetadata(ctx, "ci-paginated", 1, ciMeta); err != nil {
+		t.Fatalf("UpdateBuildCIMetadata: %v", err)
+	}
+
+	builds, _, err := bs.ListBuildsPaginated(ctx, "ci-paginated", 1, 20)
+	if err != nil {
+		t.Fatalf("ListBuildsPaginated: %v", err)
+	}
+	if len(builds) != 1 {
+		t.Fatalf("expected 1 build, got %d", len(builds))
+	}
+	b := builds[0]
+	if b.CIProvider == nil || *b.CIProvider != "GitLab CI" {
+		t.Errorf("CIProvider: got %v", b.CIProvider)
+	}
+	if b.CIBranch == nil || *b.CIBranch != "develop" {
+		t.Errorf("CIBranch: got %v", b.CIBranch)
+	}
+}
+
 func TestBuildStore_SetLatest(t *testing.T) {
 	s := openTestStore(t)
 	bs := store.NewBuildStore(s, zap.NewNop())

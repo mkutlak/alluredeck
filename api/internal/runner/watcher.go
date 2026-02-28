@@ -114,7 +114,7 @@ func (w *Watcher) checkProject(ctx context.Context, projectID, previousHash stri
 		}
 
 		// Bug 4 fix: storeResults=true so numbered history dirs (reports/1/, reports/2/, …) are created.
-		if _, err := w.allureCore.GenerateReport(ctx, projectID, "", "", "", true); err != nil {
+		if _, err := w.allureCore.GenerateReport(ctx, projectID, "", "", "", true, "", ""); err != nil {
 			w.logger.Error("watcher failed to generate report",
 				zap.String("project_id", projectID), zap.Error(err))
 		}

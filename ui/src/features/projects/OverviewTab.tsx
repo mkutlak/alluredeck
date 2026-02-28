@@ -12,6 +12,7 @@ import {
   Clock,
   BarChart3,
   RefreshCw,
+  GitBranch,
 } from 'lucide-react'
 import { fetchReportHistory, deleteReport, getEmailableReportUrl, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
@@ -280,6 +281,7 @@ export function OverviewTab() {
                 <TableHead className="text-center text-gray-500">Skipped</TableHead>
                 <TableHead className="text-center">Pass rate</TableHead>
                 <TableHead className="text-center">Stability</TableHead>
+                <TableHead className="text-center">CI</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -359,6 +361,40 @@ export function OverviewTab() {
                           </Badge>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {r.ci_provider || r.ci_branch || r.ci_commit_sha ? (
+                        <div className="flex flex-col items-center gap-1">
+                          {r.ci_provider && (
+                            r.ci_build_url ? (
+                              <a
+                                href={r.ci_build_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-primary hover:underline"
+                              >
+                                <ExternalLink size={10} />
+                                {r.ci_provider}
+                              </a>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">{r.ci_provider}</span>
+                            )
+                          )}
+                          {r.ci_branch && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <GitBranch size={10} />
+                              {r.ci_branch}
+                            </span>
+                          )}
+                          {r.ci_commit_sha && (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {r.ci_commit_sha.slice(0, 7)}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

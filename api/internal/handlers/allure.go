@@ -227,10 +227,12 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 // @Tags         reports
 // @Produce      json
 // @Param        project_id      path   string  true   "Project ID"
-// @Param        execution_name  query  string  false  "Execution name"
-// @Param        execution_from  query  string  false  "Execution from"
+// @Param        execution_name  query  string  false  "Execution name (CI provider, e.g. 'GitHub Actions')"
+// @Param        execution_from  query  string  false  "Execution from (CI build URL)"
 // @Param        execution_type  query  string  false  "Execution type"
 // @Param        store_results   query  string  false  "Store results (true/1)"
+// @Param        ci_branch       query  string  false  "CI branch name"
+// @Param        ci_commit_sha   query  string  false  "CI commit SHA"
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Failure      500  {object}  map[string]any
@@ -259,6 +261,8 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 	execName := r.URL.Query().Get("execution_name")
 	execFrom := r.URL.Query().Get("execution_from")
 	execType := r.URL.Query().Get("execution_type")
+	ciBranch := r.URL.Query().Get("ci_branch")
+	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
 	storeResultsStr := r.URL.Query().Get("store_results")
 	var storeResults bool
 	if storeResultsStr == "" {
@@ -268,7 +272,7 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		storeResults = storeResultsStr == "1" || strings.EqualFold(storeResultsStr, "true")
 	}
 
-	out, err := h.runner.GenerateReport(r.Context(), projectID, execName, execFrom, execType, storeResults)
+	out, err := h.runner.GenerateReport(r.Context(), projectID, execName, execFrom, execType, storeResults, ciBranch, ciCommitSHA)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -657,6 +661,10 @@ type ReportHistoryEntry struct {
 	RetriedCount   *int             `json:"retried_count,omitempty"`
 	NewFailedCount *int             `json:"new_failed_count,omitempty"`
 	NewPassedCount *int             `json:"new_passed_count,omitempty"`
+	CIProvider     *string          `json:"ci_provider,omitempty"`
+	CIBuildURL     *string          `json:"ci_build_url,omitempty"`
+	CIBranch       *string          `json:"ci_branch,omitempty"`
+	CICommitSHA    *string          `json:"ci_commit_sha,omitempty"`
 }
 
 // AllureStatistic mirrors the statistic block in Allure's widgets/summary.json.
@@ -766,6 +774,10 @@ func buildEntryFromDB(b *store.Build) ReportHistoryEntry {
 	entry.RetriedCount = b.RetriedCount
 	entry.NewFailedCount = b.NewFailedCount
 	entry.NewPassedCount = b.NewPassedCount
+	entry.CIProvider = b.CIProvider
+	entry.CIBuildURL = b.CIBuildURL
+	entry.CIBranch = b.CIBranch
+	entry.CICommitSHA = b.CICommitSHA
 
 	if b.StatTotal != nil && *b.StatTotal > 0 {
 		entry.Statistic = &AllureStatistic{

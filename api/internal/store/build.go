@@ -31,6 +31,18 @@ type Build struct {
 	NewFailedCount *int
 	NewPassedCount *int
 	IsLatest       bool
+	CIProvider     *string
+	CIBuildURL     *string
+	CIBranch       *string
+	CICommitSHA    *string
+}
+
+// CIMetadata holds CI context captured at report generation time.
+type CIMetadata struct {
+	Provider  string
+	BuildURL  string
+	Branch    string
+	CommitSHA string
 }
 
 // BuildStats holds the statistics for a completed build.
@@ -109,13 +121,37 @@ func (bs *BuildStore) UpdateBuildStats(ctx context.Context, projectID string, bu
 	return nil
 }
 
+// UpdateBuildCIMetadata stores CI context for the given build.
+// Only non-empty fields in ciMeta are written; empty strings are stored as NULL.
+func (bs *BuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta CIMetadata) error {
+	nullStr := func(s string) sql.NullString {
+		return sql.NullString{String: s, Valid: s != ""}
+	}
+	res, err := bs.db.ExecContext(ctx, `
+		UPDATE builds
+		SET ci_provider=?, ci_build_url=?, ci_branch=?, ci_commit_sha=?
+		WHERE project_id=? AND build_order=?`,
+		nullStr(ciMeta.Provider), nullStr(ciMeta.BuildURL),
+		nullStr(ciMeta.Branch), nullStr(ciMeta.CommitSHA),
+		projectID, buildOrder)
+	if err != nil {
+		return fmt.Errorf("update build ci metadata: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("%w: project=%s build=%d", ErrBuildNotFound, projectID, buildOrder)
+	}
+	return nil
+}
+
 // ListBuilds returns all builds for a project in descending build_order.
 func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build, error) {
 	rows, err := bs.db.QueryContext(ctx, `
 		SELECT id, project_id, build_order, created_at,
 		       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
 		       duration_ms, is_latest,
-		       flaky_count, retried_count, new_failed_count, new_passed_count
+		       flaky_count, retried_count, new_failed_count, new_passed_count,
+		       ci_provider, ci_build_url, ci_branch, ci_commit_sha
 		FROM builds
 		WHERE project_id = ?
 		ORDER BY build_order DESC`, projectID)
@@ -132,11 +168,13 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 		var durationMs sql.NullInt64
 		var isLatest int
 		var flakyCount, retriedCount, newFailedCount, newPassedCount int
+		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA sql.NullString
 		if err := rows.Scan(
 			&b.ID, &b.ProjectID, &b.BuildOrder, &createdAt,
 			&passed, &failed, &broken, &skipped, &unknown, &total,
 			&durationMs, &isLatest,
 			&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
+			&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
 		); err != nil {
 			return nil, fmt.Errorf("scan build: %w", err)
 		}
@@ -181,6 +219,18 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 		b.RetriedCount = &retriedCount
 		b.NewFailedCount = &newFailedCount
 		b.NewPassedCount = &newPassedCount
+		if ciProvider.Valid {
+			b.CIProvider = &ciProvider.String
+		}
+		if ciBuildURL.Valid {
+			b.CIBuildURL = &ciBuildURL.String
+		}
+		if ciBranch.Valid {
+			b.CIBranch = &ciBranch.String
+		}
+		if ciCommitSHA.Valid {
+			b.CICommitSHA = &ciCommitSHA.String
+		}
 		builds = append(builds, b)
 	}
 	if err := rows.Err(); err != nil {
@@ -202,7 +252,9 @@ func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string,
 	rows, err := bs.db.QueryContext(ctx, `
 		SELECT id, project_id, build_order, created_at,
 		       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
-		       duration_ms, is_latest
+		       duration_ms, is_latest,
+		       flaky_count, retried_count, new_failed_count, new_passed_count,
+		       ci_provider, ci_build_url, ci_branch, ci_commit_sha
 		FROM builds
 		WHERE project_id = ?
 		ORDER BY build_order DESC
@@ -219,10 +271,14 @@ func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string,
 		var passed, failed, broken, skipped, unknown, total sql.NullInt64
 		var durationMs sql.NullInt64
 		var isLatest int
+		var flakyCount, retriedCount, newFailedCount, newPassedCount int
+		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA sql.NullString
 		if err := rows.Scan(
 			&b.ID, &b.ProjectID, &b.BuildOrder, &createdAt,
 			&passed, &failed, &broken, &skipped, &unknown, &total,
 			&durationMs, &isLatest,
+			&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
+			&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan build: %w", err)
 		}
@@ -262,6 +318,22 @@ func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string,
 		}
 		if durationMs.Valid {
 			b.DurationMs = &durationMs.Int64
+		}
+		b.FlakyCount = &flakyCount
+		b.RetriedCount = &retriedCount
+		b.NewFailedCount = &newFailedCount
+		b.NewPassedCount = &newPassedCount
+		if ciProvider.Valid {
+			b.CIProvider = &ciProvider.String
+		}
+		if ciBuildURL.Valid {
+			b.CIBuildURL = &ciBuildURL.String
+		}
+		if ciBranch.Valid {
+			b.CIBranch = &ciBranch.String
+		}
+		if ciCommitSHA.Valid {
+			b.CICommitSHA = &ciCommitSHA.String
 		}
 		builds = append(builds, b)
 	}

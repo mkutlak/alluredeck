@@ -296,7 +296,7 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID 
 }
 
 // storeAndPruneBuild stores a report snapshot and records it in the database.
-func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildOrder int) error {
+func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildOrder int, ciMeta store.CIMetadata) error {
 	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
@@ -375,6 +375,12 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 		}
 	}
+	if ciMeta.Provider != "" || ciMeta.BuildURL != "" || ciMeta.Branch != "" || ciMeta.CommitSHA != "" {
+		if err := a.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildOrder, ciMeta); err != nil {
+			a.logger.Warn("failed to store CI metadata",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+		}
+	}
 	if err := a.buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
 		a.logger.Error("failed to set latest build",
 			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
@@ -396,7 +402,7 @@ func (a *Allure) recordBuild(ctx context.Context, projectID string, buildOrder i
 }
 
 // GenerateReport implements generateAllureReport.sh
-func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFrom, execType string, storeResults bool) (string, error) {
+func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
 	if execName == "" {
 		execName = "Automatic Execution"
 	}
@@ -460,7 +466,13 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	// 7. Store Report and record in database
 	if a.cfg.KeepHistory {
 		if storeResults {
-			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder); err != nil {
+			ciMeta := store.CIMetadata{
+				Provider:  execName,
+				BuildURL:  execFrom,
+				Branch:    ciBranch,
+				CommitSHA: ciCommitSHA,
+			}
+			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder, ciMeta); err != nil {
 				return "", err
 			}
 		} else {
@@ -490,7 +502,7 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 			return fmt.Errorf("keep history for %q: %w", projectID, err)
 		}
 
-		if _, err := a.GenerateReport(ctx, projectID, "", "", "", false); err != nil {
+		if _, err := a.GenerateReport(ctx, projectID, "", "", "", false, "", ""); err != nil {
 			return err
 		}
 
