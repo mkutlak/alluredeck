@@ -260,6 +260,17 @@ func assertTrend(t *testing.T, name string, got, want []float64) {
 	}
 }
 
+func TestTestResultStore_AnalyticsIndexExists(t *testing.T) {
+	s := openTestStore(t)
+	var name string
+	err := s.DB().QueryRow(
+		"SELECT name FROM sqlite_master WHERE type='index' AND name='idx_test_results_analytics'",
+	).Scan(&name)
+	if err != nil {
+		t.Fatalf("analytics covering index not found: %v", err)
+	}
+}
+
 func TestTestResultStore_EmptyProject(t *testing.T) {
 	s := openTestStore(t)
 	ts := store.NewTestResultStore(s, zap.NewNop())
