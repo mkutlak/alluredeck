@@ -23,6 +23,7 @@ type mockS3Client struct {
 	DeleteObjectsFn func(ctx context.Context, params *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
 	ListObjectsV2Fn func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 	HeadObjectFn    func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+	CopyObjectFn    func(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 }
 
 func (m *mockS3Client) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
@@ -58,6 +59,13 @@ func (m *mockS3Client) HeadObject(ctx context.Context, params *s3.HeadObjectInpu
 		return m.HeadObjectFn(ctx, params, optFns...)
 	}
 	return &s3.HeadObjectOutput{}, nil
+}
+
+func (m *mockS3Client) CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+	if m.CopyObjectFn != nil {
+		return m.CopyObjectFn(ctx, params, optFns...)
+	}
+	return &s3.CopyObjectOutput{}, nil
 }
 
 // Ensure mockS3Client satisfies s3API.
@@ -317,5 +325,175 @@ func TestS3Store_ListReportBuilds(t *testing.T) {
 	}
 	if builds[0] != 1 || builds[1] != 2 {
 		t.Errorf("unexpected builds: %v", builds)
+	}
+}
+
+func TestS3Store_KeepHistory_UsesCopyObject(t *testing.T) {
+	historyFiles := []string{
+		"projects/myproject/reports/latest/history/history.json",
+		"projects/myproject/reports/latest/history/retry-trend.json",
+	}
+
+	type copyCall struct {
+		bucket     string
+		copySource string
+		key        string
+	}
+	var copies []copyCall
+	var getObjectCalled bool
+
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			prefix := ""
+			if params.Prefix != nil {
+				prefix = *params.Prefix
+			}
+			// Return history files for the source listing
+			if strings.HasPrefix(prefix, "projects/myproject/reports/latest/history/") {
+				var contents []s3types.Object
+				for _, k := range historyFiles {
+					contents = append(contents, s3types.Object{Key: aws.String(k)})
+				}
+				return &s3.ListObjectsV2Output{
+					Contents:    contents,
+					IsTruncated: aws.Bool(false),
+				}, nil
+			}
+			// deletePrefix listing for clearing destination
+			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+		},
+		CopyObjectFn: func(_ context.Context, params *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+			copies = append(copies, copyCall{
+				bucket:     aws.ToString(params.Bucket),
+				copySource: aws.ToString(params.CopySource),
+				key:        aws.ToString(params.Key),
+			})
+			return &s3.CopyObjectOutput{}, nil
+		},
+		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			getObjectCalled = true
+			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("data"))}, nil
+		},
+	}
+
+	cfg := testCfg()
+	cfg.KeepHistory = true
+	store := newS3StoreWithClient(cfg, mock, zap.NewNop())
+
+	if err := store.KeepHistory(context.Background(), "myproject"); err != nil {
+		t.Fatalf("KeepHistory returned error: %v", err)
+	}
+
+	// Must NOT download+upload — should use CopyObject instead
+	if getObjectCalled {
+		t.Error("KeepHistory should use CopyObject, not GetObject+PutObject")
+	}
+
+	// Verify correct number of copy calls
+	if len(copies) != len(historyFiles) {
+		t.Fatalf("expected %d CopyObject calls, got %d", len(historyFiles), len(copies))
+	}
+
+	// Verify copy parameters
+	for i, c := range copies {
+		if c.bucket != "test-bucket" {
+			t.Errorf("copy[%d]: bucket = %q, want %q", i, c.bucket, "test-bucket")
+		}
+		wantSource := "test-bucket/" + historyFiles[i]
+		if c.copySource != wantSource {
+			t.Errorf("copy[%d]: copySource = %q, want %q", i, c.copySource, wantSource)
+		}
+	}
+
+	// Verify destination keys
+	wantDstKeys := []string{
+		"projects/myproject/results/history/history.json",
+		"projects/myproject/results/history/retry-trend.json",
+	}
+	for i, c := range copies {
+		if c.key != wantDstKeys[i] {
+			t.Errorf("copy[%d]: key = %q, want %q", i, c.key, wantDstKeys[i])
+		}
+	}
+}
+
+func TestS3Store_KeepHistory_CopyObjectError(t *testing.T) {
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			prefix := ""
+			if params.Prefix != nil {
+				prefix = *params.Prefix
+			}
+			if strings.HasPrefix(prefix, "projects/myproject/reports/latest/history/") {
+				return &s3.ListObjectsV2Output{
+					Contents:    []s3types.Object{{Key: aws.String("projects/myproject/reports/latest/history/h.json")}},
+					IsTruncated: aws.Bool(false),
+				}, nil
+			}
+			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+		},
+		CopyObjectFn: func(_ context.Context, _ *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+			return nil, errors.New("copy failed")
+		},
+	}
+
+	cfg := testCfg()
+	cfg.KeepHistory = true
+	store := newS3StoreWithClient(cfg, mock, zap.NewNop())
+
+	err := store.KeepHistory(context.Background(), "myproject")
+	if err == nil {
+		t.Fatal("expected error when CopyObject fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "copy history object") {
+		t.Errorf("error message should mention copy: %v", err)
+	}
+}
+
+func TestS3Store_KeepHistory_NoHistory(t *testing.T) {
+	var copyObjectCalled bool
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+		},
+		CopyObjectFn: func(_ context.Context, _ *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+			copyObjectCalled = true
+			return &s3.CopyObjectOutput{}, nil
+		},
+	}
+
+	cfg := testCfg()
+	cfg.KeepHistory = true
+	store := newS3StoreWithClient(cfg, mock, zap.NewNop())
+
+	if err := store.KeepHistory(context.Background(), "myproject"); err != nil {
+		t.Fatalf("KeepHistory returned error: %v", err)
+	}
+	if copyObjectCalled {
+		t.Error("CopyObject should not be called when no history exists")
+	}
+}
+
+func TestS3Store_KeepHistory_Disabled(t *testing.T) {
+	var deletedPrefix string
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			if params.Prefix != nil {
+				deletedPrefix = *params.Prefix
+			}
+			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+		},
+	}
+
+	cfg := testCfg()
+	cfg.KeepHistory = false
+	store := newS3StoreWithClient(cfg, mock, zap.NewNop())
+
+	if err := store.KeepHistory(context.Background(), "myproject"); err != nil {
+		t.Fatalf("KeepHistory returned error: %v", err)
+	}
+	wantPrefix := "projects/myproject/results/history/"
+	if deletedPrefix != wantPrefix {
+		t.Errorf("expected delete prefix %q, got %q", wantPrefix, deletedPrefix)
 	}
 }

@@ -345,26 +345,13 @@ func (s *S3Store) KeepHistory(ctx context.Context, projectID string) error {
 	for _, srcKey := range srcKeys {
 		relPath := strings.TrimPrefix(srcKey, srcPrefix)
 		dstKey := dstPrefix + relPath
-		// Download then upload (S3 copy-object requires same-region same-bucket or complex setup)
-		out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-			Bucket: aws.String(s.bucket),
-			Key:    aws.String(srcKey),
-		})
-		if err != nil {
-			return fmt.Errorf("get history object %q: %w", srcKey, err)
-		}
-		data, err := io.ReadAll(out.Body)
-		_ = out.Body.Close()
-		if err != nil {
-			return fmt.Errorf("read history object %q: %w", srcKey, err)
-		}
-		if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{
-			Bucket:        aws.String(s.bucket),
-			Key:           aws.String(dstKey),
-			Body:          bytes.NewReader(data),
-			ContentLength: aws.Int64(int64(len(data))),
+		// Same-bucket copy — S3 handles the data transfer server-side.
+		if _, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
+			Bucket:     aws.String(s.bucket),
+			CopySource: aws.String(s.bucket + "/" + srcKey),
+			Key:        aws.String(dstKey),
 		}); err != nil {
-			return fmt.Errorf("put history object %q: %w", dstKey, err)
+			return fmt.Errorf("copy history object %q → %q: %w", srcKey, dstKey, err)
 		}
 	}
 	return nil
