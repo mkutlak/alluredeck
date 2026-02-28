@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"go.uber.org/zap"
 	"path/filepath"
 	"testing"
 )
@@ -13,7 +14,7 @@ func openKnownIssueTestStore(t *testing.T) (*SQLiteStore, *KnownIssueStore, *Pro
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return db, NewKnownIssueStore(db), NewProjectStore(db)
+	return db, NewKnownIssueStore(db), NewProjectStore(db, zap.NewNop())
 }
 
 func mustCreateProject(t *testing.T, ctx context.Context, ps *ProjectStore, id string) {

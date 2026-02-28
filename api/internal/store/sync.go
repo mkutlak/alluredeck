@@ -3,7 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
-	"log"
+
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
@@ -11,26 +12,26 @@ import (
 // SyncMetadata scans projects via the storage store and imports any projects
 // and builds not yet recorded in the database.
 // Safe to call on every startup — INSERT OR IGNORE ensures already-imported rows are skipped.
-func SyncMetadata(ctx context.Context, st storage.Store, s *SQLiteStore) error {
+func SyncMetadata(ctx context.Context, st storage.Store, s *SQLiteStore, logger *zap.Logger) error {
 	projects, err := st.ListProjects(ctx)
 	if err != nil {
 		// Non-fatal if projects directory doesn't exist yet
-		log.Printf("SyncMetadata: could not list projects (non-fatal): %v", err)
+		logger.Info("SyncMetadata: could not list projects (non-fatal)", zap.Error(err))
 		return nil
 	}
 
 	for _, projectID := range projects {
-		if err := syncProject(ctx, st, s, projectID); err != nil {
-			log.Printf("SyncMetadata: skipping project %q: %v", projectID, err)
+		if err := syncProject(ctx, st, s, projectID, logger); err != nil {
+			logger.Error("SyncMetadata: skipping project", zap.String("project_id", projectID), zap.Error(err))
 		}
 	}
 	return nil
 }
 
 // syncProject inserts or updates a single project and all its builds in the database.
-func syncProject(ctx context.Context, st storage.Store, s *SQLiteStore, projectID string) error {
-	ps := NewProjectStore(s)
-	bs := NewBuildStore(s)
+func syncProject(ctx context.Context, st storage.Store, s *SQLiteStore, projectID string, logger *zap.Logger) error {
+	ps := NewProjectStore(s, logger)
+	bs := NewBuildStore(s, logger)
 
 	if err := ps.insertOrIgnore(ctx, projectID); err != nil {
 		return err
@@ -44,12 +45,14 @@ func syncProject(ctx context.Context, st storage.Store, s *SQLiteStore, projectI
 
 	for _, buildOrder := range buildOrders {
 		if err := bs.insertOrIgnore(ctx, projectID, buildOrder); err != nil {
-			log.Printf("SyncMetadata: skipping build %s/%d: %v", projectID, buildOrder, err)
+			logger.Error("SyncMetadata: skipping build",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 			continue
 		}
 
 		if err := bs.syncStatsIfMissing(ctx, projectID, buildOrder, st); err != nil {
-			log.Printf("SyncMetadata: stats sync failed for %s/%d: %v", projectID, buildOrder, err)
+			logger.Warn("SyncMetadata: stats sync failed",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 		}
 	}
 	return nil
@@ -94,7 +97,8 @@ func (bs *BuildStore) syncStatsIfMissing(ctx context.Context, projectID string, 
 	// and the row is retried on next startup.
 	storageStats, err := st.ReadBuildStats(ctx, projectID, buildOrder)
 	if err != nil {
-		log.Printf("SyncMetadata: stats unavailable for %s/%d (will retry next startup): %v", projectID, buildOrder, err)
+		bs.logger.Info("SyncMetadata: stats unavailable (will retry next startup)",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 		return nil
 	}
 

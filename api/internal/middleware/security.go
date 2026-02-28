@@ -2,8 +2,11 @@ package middleware
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
+
+	"go.uber.org/zap"
+
+	"github.com/mkutlak/alluredeck/api/internal/logging"
 )
 
 // SecurityHeaders adds security-related HTTP response headers to every response.
@@ -22,7 +25,7 @@ func Recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("panic recovered: %v", err)
+				logging.FromContext(r.Context()).Error("panic recovered", zap.Any("error", err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]any{

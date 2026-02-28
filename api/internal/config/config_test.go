@@ -12,7 +12,10 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("DEV_MODE", "1")
 	t.Setenv("SECURITY_ENABLED", "1")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if cfg.Port != "8080" {
 		t.Errorf("Expected Port 8080, got %s", cfg.Port)
@@ -68,7 +71,10 @@ func TestGetEnvAsBool(t *testing.T) {
 }
 
 func TestCORSOriginsEmpty(t *testing.T) {
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	if len(cfg.CORSAllowedOrigins) != 0 {
 		t.Errorf("Expected no CORS origins by default, got %v", cfg.CORSAllowedOrigins)
 	}
@@ -76,7 +82,10 @@ func TestCORSOriginsEmpty(t *testing.T) {
 
 func TestCORSOriginsParsed(t *testing.T) {
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://a.example.com, https://b.example.com")
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	if len(cfg.CORSAllowedOrigins) != 2 {
 		t.Errorf("Expected 2 CORS origins, got %d: %v", len(cfg.CORSAllowedOrigins), cfg.CORSAllowedOrigins)
 	}
@@ -87,7 +96,10 @@ func TestCORSOriginsParsed(t *testing.T) {
 func TestLoadConfigFromYAMLFile(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/full.yaml")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	checks := []struct {
 		name string
@@ -131,7 +143,10 @@ func TestEnvVarOverridesYAML(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/full.yaml")
 	t.Setenv("PORT", "1111")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if cfg.Port != "1111" {
 		t.Errorf("env PORT should override YAML: want 1111, got %s", cfg.Port)
@@ -145,7 +160,10 @@ func TestEnvVarOverridesYAML(t *testing.T) {
 func TestPartialYAMLWithDefaults(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/partial.yaml")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if cfg.Port != "7777" {
 		t.Errorf("partial YAML port: want 7777, got %s", cfg.Port)
@@ -165,7 +183,10 @@ func TestPartialYAMLWithDefaults(t *testing.T) {
 func TestMissingConfigFileNotError(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/does-not-exist.yaml")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	// Must not panic/fatal; defaults apply
 	if cfg.Port != "8080" {
@@ -183,7 +204,10 @@ func TestDefaultConfigPathMissing(t *testing.T) {
 		t.Cleanup(func() { _ = os.Unsetenv("CONFIG_FILE") })
 	}
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if cfg.Port != "8080" {
 		t.Errorf("default port: want 8080, got %s", cfg.Port)
@@ -200,7 +224,10 @@ func TestMalformedYAML(t *testing.T) {
 func TestEmptyYAMLFile(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/empty.yaml")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if cfg.Port != "8080" {
 		t.Errorf("empty YAML should use default port 8080, got %s", cfg.Port)
@@ -213,7 +240,10 @@ func TestEmptyYAMLFile(t *testing.T) {
 func TestYAMLCORSOrigins(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/full.yaml")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if len(cfg.CORSAllowedOrigins) != 2 {
 		t.Fatalf("expected 2 CORS origins from YAML, got %d: %v", len(cfg.CORSAllowedOrigins), cfg.CORSAllowedOrigins)
@@ -229,7 +259,10 @@ func TestYAMLCORSOrigins(t *testing.T) {
 func TestYAMLTokenExpiry(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/full.yaml")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	if cfg.AccessTokenExpiry != 1800*time.Second {
 		t.Errorf("AccessTokenExpiry: want 1800s, got %v", cfg.AccessTokenExpiry)
@@ -240,7 +273,10 @@ func TestYAMLTokenExpiry(t *testing.T) {
 }
 
 func TestStorageTypeDefault(t *testing.T) {
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	if cfg.StorageType != "local" {
 		t.Errorf("default StorageType: want %q, got %q", "local", cfg.StorageType)
 	}
@@ -248,7 +284,10 @@ func TestStorageTypeDefault(t *testing.T) {
 
 func TestStorageTypeFromEnv(t *testing.T) {
 	t.Setenv("STORAGE_TYPE", "s3")
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	if cfg.StorageType != "s3" {
 		t.Errorf("StorageType from env: want %q, got %q", "s3", cfg.StorageType)
 	}
@@ -264,7 +303,10 @@ func TestS3ConfigFromEnv(t *testing.T) {
 	t.Setenv("S3_USE_SSL", "true")
 	t.Setenv("S3_PATH_STYLE", "true")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	checks := []struct {
 		name string
@@ -338,7 +380,10 @@ func TestValidateLocalStorageNoS3Required(t *testing.T) {
 }
 
 func TestS3RegionDefault(t *testing.T) {
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 	if cfg.S3.Region != "us-east-1" {
 		t.Errorf("default S3 region: want %q, got %q", "us-east-1", cfg.S3.Region)
 	}
@@ -346,7 +391,10 @@ func TestS3RegionDefault(t *testing.T) {
 
 func TestLoadConfigS3FromYAMLFile(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "testdata/full.yaml")
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
 
 	checks := []struct {
 		name string

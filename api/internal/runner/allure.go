@@ -8,13 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
@@ -46,15 +47,17 @@ type Allure struct {
 	store       storage.Store
 	buildStore  *store.BuildStore
 	lockManager *store.LockManager
+	logger      *zap.Logger
 }
 
 // NewAllure creates a new Allure runner
-func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore *store.BuildStore, lockManager *store.LockManager) *Allure {
+func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore *store.BuildStore, lockManager *store.LockManager, logger *zap.Logger) *Allure {
 	return &Allure{
 		cfg:         cfg,
 		store:       dataStore,
 		buildStore:  buildStore,
 		lockManager: lockManager,
+		logger:      logger,
 	}
 }
 
@@ -263,11 +266,13 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 			DurationMs: stats.DurationMs,
 		}
 		if err := a.buildStore.UpdateBuildStats(ctx, projectID, buildOrder, storeStats); err != nil {
-			log.Printf("GenerateReport: failed to cache stats for '%s' build %d: %v", projectID, buildOrder, err)
+			a.logger.Error("failed to cache build stats",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 		}
 	}
 	if err := a.buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
-		log.Printf("GenerateReport: failed to set latest for '%s' build %d: %v", projectID, buildOrder, err)
+		a.logger.Error("failed to set latest build",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 	}
 	return nil
 }
@@ -279,7 +284,8 @@ func (a *Allure) recordBuild(ctx context.Context, projectID string, buildOrder i
 		return fmt.Errorf("insert build: %w", err)
 	}
 	if err := a.buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
-		log.Printf("GenerateReport: failed to set latest for '%s' build %d: %v", projectID, buildOrder, err)
+		a.logger.Error("failed to set latest build (recordBuild)",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 	}
 	return nil
 }
@@ -384,7 +390,8 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 		}
 
 		if _, err := a.RenderEmailableReport(ctx, projectID); err != nil {
-			log.Printf("CleanHistory: emailable report render failed for '%s': %v", projectID, err)
+			a.logger.Error("emailable report render failed",
+				zap.String("project_id", projectID), zap.Error(err))
 		}
 	}
 
@@ -430,12 +437,12 @@ func (a *Allure) loadTestCases(ctx context.Context, projectID, relPath string) (
 		filePath := relPath + "/" + e.Name
 		raw, err := a.store.ReadFile(ctx, projectID, filePath)
 		if err != nil {
-			log.Printf("RenderEmailableReport: skipping %s: %v", e.Name, err)
+			a.logger.Warn("skipping test-case file", zap.String("file", e.Name), zap.Error(err))
 			continue
 		}
 		var tc TestCase
 		if err := json.Unmarshal(raw, &tc); err != nil {
-			log.Printf("RenderEmailableReport: invalid JSON in %s: %v", e.Name, err)
+			a.logger.Warn("invalid JSON in test-case file", zap.String("file", e.Name), zap.Error(err))
 			continue
 		}
 		testCases = append(testCases, tc)
@@ -578,7 +585,7 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID string) error 
 // directory, and runs `allure generate` to produce a fresh report.
 func (a *Allure) runAllureGenerate(ctx context.Context, projectID, latestReportDir, localProjectDir string) error {
 	if err := a.store.KeepHistory(ctx, projectID); err != nil {
-		log.Printf("GenerateReport: KeepHistory failed for '%s': %v", projectID, err)
+		a.logger.Error("KeepHistory failed", zap.String("project_id", projectID), zap.Error(err))
 	}
 	if err := os.RemoveAll(latestReportDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("clearing latest report dir: %w", err)
@@ -598,8 +605,8 @@ func (a *Allure) runAllureCmd(ctx context.Context, args ...string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%w: subprocess: %w, stderr: %s", ErrAllureCmdFailed, err, errBuff.String())
 	}
-	if a.cfg.DevMode && outBuff.Len() > 0 {
-		log.Printf("allure output: %s", outBuff.String())
+	if outBuff.Len() > 0 {
+		a.logger.Debug("allure command output", zap.String("stdout", outBuff.String()))
 	}
 	return nil
 }

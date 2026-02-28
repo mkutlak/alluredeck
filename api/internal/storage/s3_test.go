@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go.uber.org/zap"
 	"io"
 	"strings"
 	"testing"
@@ -78,7 +79,7 @@ func TestS3Store_CreateProject_WritesKeepMarker(t *testing.T) {
 			return &s3.PutObjectOutput{}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	if err := store.CreateProject(context.Background(), "myproject"); err != nil {
 		t.Fatalf("CreateProject returned error: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestS3Store_CreateProject_PropagatesError(t *testing.T) {
 			return nil, errors.New("s3 unavailable")
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	err := store.CreateProject(context.Background(), "myproject")
 	if err == nil {
 		t.Fatal("expected error when PutObject fails, got nil")
@@ -102,7 +103,7 @@ func TestS3Store_CreateProject_PropagatesError(t *testing.T) {
 }
 
 func TestS3Store_ResultsDirHash_Noop(t *testing.T) {
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{})
+	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, zap.NewNop())
 	hash, err := store.ResultsDirHash(context.Background(), "myproject")
 	if err != nil {
 		t.Fatalf("ResultsDirHash returned error: %v", err)
@@ -124,7 +125,7 @@ func TestS3Store_ListProjects(t *testing.T) {
 			}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	projects, err := store.ListProjects(context.Background())
 	if err != nil {
 		t.Fatalf("ListProjects returned error: %v", err)
@@ -147,7 +148,7 @@ func TestS3Store_WriteResultFile(t *testing.T) {
 			return &s3.PutObjectOutput{}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	err := store.WriteResultFile(context.Background(), "myproject", "result.xml", strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("WriteResultFile returned error: %v", err)
@@ -183,7 +184,7 @@ func TestS3Store_CleanResults(t *testing.T) {
 			return &s3.DeleteObjectsOutput{}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	if err := store.CleanResults(context.Background(), "myproject"); err != nil {
 		t.Fatalf("CleanResults returned error: %v", err)
 	}
@@ -197,7 +198,7 @@ func TestS3Store_CleanResults(t *testing.T) {
 }
 
 func TestS3Store_DeleteReport_EmptyID(t *testing.T) {
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{})
+	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, zap.NewNop())
 	err := store.DeleteReport(context.Background(), "myproject", "")
 	if !errors.Is(err, ErrReportIDEmpty) {
 		t.Errorf("expected ErrReportIDEmpty, got %v", err)
@@ -205,7 +206,7 @@ func TestS3Store_DeleteReport_EmptyID(t *testing.T) {
 }
 
 func TestS3Store_DeleteReport_InvalidID(t *testing.T) {
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{})
+	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, zap.NewNop())
 	err := store.DeleteReport(context.Background(), "myproject", "latest")
 	if !errors.Is(err, ErrReportIDInvalid) {
 		t.Errorf("expected ErrReportIDInvalid, got %v", err)
@@ -221,7 +222,7 @@ func TestS3Store_LatestReportExists_True(t *testing.T) {
 			}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	exists, err := store.LatestReportExists(context.Background(), "myproject")
 	if err != nil {
 		t.Fatalf("LatestReportExists returned error: %v", err)
@@ -240,7 +241,7 @@ func TestS3Store_LatestReportExists_False(t *testing.T) {
 			}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	exists, err := store.LatestReportExists(context.Background(), "myproject")
 	if err != nil {
 		t.Fatalf("LatestReportExists returned error: %v", err)
@@ -274,7 +275,7 @@ func TestS3Store_ReadBuildStats_Summary(t *testing.T) {
 			return nil, errors.New("not found")
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	stats, err := store.ReadBuildStats(context.Background(), "myproject", 5)
 	if err != nil {
 		t.Fatalf("ReadBuildStats returned error: %v", err)
@@ -306,7 +307,7 @@ func TestS3Store_ListReportBuilds(t *testing.T) {
 			}, nil
 		},
 	}
-	store := newS3StoreWithClient(testCfg(), mock)
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
 	builds, err := store.ListReportBuilds(context.Background(), "myproject")
 	if err != nil {
 		t.Fatalf("ListReportBuilds returned error: %v", err)

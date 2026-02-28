@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // ErrBuildNotFound is returned when a build does not exist.
@@ -41,12 +42,13 @@ type BuildStats struct {
 
 // BuildStore provides operations on the builds table.
 type BuildStore struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *zap.Logger
 }
 
 // NewBuildStore creates a BuildStore backed by the given SQLiteStore.
-func NewBuildStore(s *SQLiteStore) *BuildStore {
-	return &BuildStore{db: s.db}
+func NewBuildStore(s *SQLiteStore, logger *zap.Logger) *BuildStore {
+	return &BuildStore{db: s.db, logger: logger}
 }
 
 // NextBuildOrder atomically determines the next build order for a project (MAX+1, min 1).
@@ -126,7 +128,11 @@ func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build
 			return nil, fmt.Errorf("scan build: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
-			log.Printf("warning: invalid created_at %q for build %s/%d: %v", createdAt, projectID, b.BuildOrder, err)
+			bs.logger.Warn("invalid created_at for build",
+				zap.String("created_at", createdAt),
+				zap.String("project_id", projectID),
+				zap.Int("build_order", b.BuildOrder),
+				zap.Error(err))
 		} else {
 			b.CreatedAt = t
 		}
@@ -204,7 +210,11 @@ func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string,
 			return nil, 0, fmt.Errorf("scan build: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
-			log.Printf("warning: invalid created_at %q for build %s/%d: %v", createdAt, projectID, b.BuildOrder, err)
+			bs.logger.Warn("invalid created_at for build",
+				zap.String("created_at", createdAt),
+				zap.String("project_id", projectID),
+				zap.Int("build_order", b.BuildOrder),
+				zap.Error(err))
 		} else {
 			b.CreatedAt = t
 		}

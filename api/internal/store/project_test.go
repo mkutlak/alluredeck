@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"go.uber.org/zap"
 	"path/filepath"
 	"testing"
 
@@ -21,7 +22,7 @@ func openTestStore(t *testing.T) *store.SQLiteStore {
 
 func TestProjectStore_CreateAndGet(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	if err := ps.CreateProject(ctx, "proj1"); err != nil {
@@ -39,7 +40,7 @@ func TestProjectStore_CreateAndGet(t *testing.T) {
 
 func TestProjectStore_DuplicateError(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "dup")
@@ -51,7 +52,7 @@ func TestProjectStore_DuplicateError(t *testing.T) {
 
 func TestProjectStore_GetNotFound(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_, err := ps.GetProject(ctx, "nonexistent")
@@ -62,7 +63,7 @@ func TestProjectStore_GetNotFound(t *testing.T) {
 
 func TestProjectStore_ListEmpty(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 
 	projects, err := ps.ListProjects(context.Background())
 	if err != nil {
@@ -75,7 +76,7 @@ func TestProjectStore_ListEmpty(t *testing.T) {
 
 func TestProjectStore_ListMultiple(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	for _, id := range []string{"alpha", "beta", "gamma"} {
@@ -93,8 +94,8 @@ func TestProjectStore_ListMultiple(t *testing.T) {
 
 func TestProjectStore_DeleteCascades(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
-	bs := store.NewBuildStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "cascade-proj")
@@ -115,7 +116,7 @@ func TestProjectStore_DeleteCascades(t *testing.T) {
 // corrupt created_at value is still returned with zero-value CreatedAt.
 func TestProjectStore_GetProject_InvalidCreatedAt(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "bad-ts")
@@ -138,7 +139,7 @@ func TestProjectStore_GetProject_InvalidCreatedAt(t *testing.T) {
 
 func TestProjectStore_Exists(t *testing.T) {
 	s := openTestStore(t)
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	exists, _ := ps.ProjectExists(ctx, "ghost")

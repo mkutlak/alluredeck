@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"go.uber.org/zap"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,14 +32,14 @@ func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 	st := storage.NewLocalStore(cfg)
 
 	// Sync filesystem fixtures → DB so numbered reports are visible.
-	if err := store.SyncMetadata(context.Background(), st, db); err != nil {
+	if err := store.SyncMetadata(context.Background(), st, db, zap.NewNop()); err != nil {
 		t.Fatalf("SyncMetadata: %v", err)
 	}
 
-	buildStore := store.NewBuildStore(db)
+	buildStore := store.NewBuildStore(db, zap.NewNop())
 	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager)
-	return NewAllureHandler(cfg, r, store.NewProjectStore(db), buildStore, store.NewKnownIssueStore(db), st)
+	r := runner.NewAllure(cfg, st, buildStore, lockManager, zap.NewNop())
+	return NewAllureHandler(cfg, r, store.NewProjectStore(db, zap.NewNop()), buildStore, store.NewKnownIssueStore(db), st)
 }
 
 func makeGetReportHistoryReq(t *testing.T, projectID string) *http.Request {

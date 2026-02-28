@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
@@ -26,10 +26,11 @@ type S3Store struct {
 	cfg    *config.Config
 	client s3API
 	bucket string
+	logger *zap.Logger
 }
 
 // NewS3Store creates an S3Store from configuration.
-func NewS3Store(cfg *config.Config) (*S3Store, error) {
+func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.S3.Region),
 	}
@@ -58,12 +59,13 @@ func NewS3Store(cfg *config.Config) (*S3Store, error) {
 		cfg:    cfg,
 		client: client,
 		bucket: cfg.S3.Bucket,
+		logger: logger,
 	}, nil
 }
 
 // newS3StoreWithClient creates an S3Store with a pre-built client (for testing).
-func newS3StoreWithClient(cfg *config.Config, client s3API) *S3Store {
-	return &S3Store{cfg: cfg, client: client, bucket: cfg.S3.Bucket}
+func newS3StoreWithClient(cfg *config.Config, client s3API, logger *zap.Logger) *S3Store {
+	return &S3Store{cfg: cfg, client: client, bucket: cfg.S3.Bucket, logger: logger}
 }
 
 // s3Key builds the S3 key from parts joined by "/".
@@ -223,7 +225,8 @@ func (s *S3Store) PrepareLocal(ctx context.Context, projectID string) (string, e
 	historyDir := filepath.Join(tmpDir, "results", "history")
 	if err := downloadPrefix(ctx, s.client, s.bucket, historyPrefix, historyDir); err != nil {
 		// History may not exist — non-fatal
-		log.Printf("S3Store.PrepareLocal: no history for %q (non-fatal): %v", projectID, err)
+		s.logger.Info("no history to restore (non-fatal)",
+			zap.String("project_id", projectID), zap.Error(err))
 	}
 
 	// Ensure reports dir exists for allure generate output

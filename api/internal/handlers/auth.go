@@ -3,14 +3,15 @@ package handlers
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 )
@@ -110,7 +111,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Generate CSRF token for double-submit cookie pattern (REVIEW #11).
 	csrfToken, err := middleware.GenerateCSRFToken()
 	if err != nil {
-		log.Printf("auth: failed to generate CSRF token: %v", err)
+		logging.FromContext(r.Context()).Error("auth: failed to generate CSRF token", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": "Failed to generate tokens"},

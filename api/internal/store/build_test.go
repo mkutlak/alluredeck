@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"go.uber.org/zap"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -9,10 +10,10 @@ import (
 
 func TestBuildStore_NextOrder_First(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
 	ctx := context.Background()
 
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	_ = ps.CreateProject(ctx, "p1")
 
 	order, err := bs.NextBuildOrder(ctx, "p1")
@@ -26,8 +27,8 @@ func TestBuildStore_NextOrder_First(t *testing.T) {
 
 func TestBuildStore_NextOrder_Increments(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
-	ps := store.NewProjectStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "p2")
@@ -45,8 +46,8 @@ func TestBuildStore_NextOrder_Increments(t *testing.T) {
 
 func TestBuildStore_UpdateStats(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
-	ps := store.NewProjectStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "stats-proj")
@@ -75,8 +76,8 @@ func TestBuildStore_UpdateStats(t *testing.T) {
 
 func TestBuildStore_ListDescending(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
-	ps := store.NewProjectStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "order-proj")
@@ -102,8 +103,8 @@ func TestBuildStore_ListDescending(t *testing.T) {
 
 func TestBuildStore_PruneKeepsNewest(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
-	ps := store.NewProjectStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "prune-proj")
@@ -136,8 +137,8 @@ func TestBuildStore_PruneKeepsNewest(t *testing.T) {
 // corrupt created_at value is still returned with zero-value CreatedAt.
 func TestBuildStore_ListBuilds_InvalidCreatedAt(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
-	ps := store.NewProjectStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "bad-ts")
@@ -165,8 +166,8 @@ func TestBuildStore_ListBuilds_InvalidCreatedAt(t *testing.T) {
 
 func TestBuildStore_SetLatest(t *testing.T) {
 	s := openTestStore(t)
-	bs := store.NewBuildStore(s)
-	ps := store.NewProjectStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "latest-proj")

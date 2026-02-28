@@ -4,17 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
 	httpSwagger "github.com/swaggo/http-swagger/v2"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/handlers"
+	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/security"
@@ -29,44 +31,52 @@ import (
 // @host            localhost:8080
 // @BasePath        /api/v1
 func main() {
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		// Logger is not yet initialised; write to stderr and exit.
+		fmt.Fprintf(os.Stderr, "FATAL: configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	logger := logging.Setup(cfg.DevMode, cfg.LogLevel)
+	defer func() { _ = logger.Sync() }()
 
 	// Fail fast if security is enabled with an insecure default secret (AUDIT 1.3).
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("Configuration error: %v", err)
+		logger.Fatal("configuration error", zap.Error(err))
 	}
 
 	// Open SQLite metadata store.
 	db, err := store.Open(cfg.DatabasePath)
 	if err != nil {
-		log.Fatalf("Failed to open database at %s: %v", cfg.DatabasePath, err)
+		logger.Fatal("failed to open database", zap.String("path", cfg.DatabasePath), zap.Error(err))
 	}
 	defer func() { _ = db.Close() }()
 
-	projectStore := store.NewProjectStore(db)
-	buildStore := store.NewBuildStore(db)
+	projectStore := store.NewProjectStore(db, logger)
+	buildStore := store.NewBuildStore(db, logger)
 	blacklistStore := store.NewBlacklistStore(db)
 	lockManager := store.NewLockManager()
 
-	dataStore, err := createDataStore(cfg)
+	dataStore, err := createDataStore(cfg, logger)
 	if err != nil {
-		log.Fatalf("Failed to initialize storage: %v", err) //nolint:gocritic // exitAfterDefer: in-process SQLite; OS cleans up on exit
+		logger.Fatal("failed to initialize storage", zap.Error(err)) //nolint:gocritic // exitAfterDefer: in-process SQLite; OS cleans up on exit
 	}
 
 	// Import existing filesystem projects and builds into the database on startup.
-	if err := store.SyncMetadata(context.Background(), dataStore, db); err != nil {
-		log.Printf("WARNING: metadata sync failed (non-fatal): %v", err)
+	if err := store.SyncMetadata(context.Background(), dataStore, db, logger); err != nil {
+		logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
 	}
 
 	jwtManager := security.NewJWTManager(cfg, blacklistStore)
 	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 
-	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager)
+	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, logger)
 	knownIssueStore := store.NewKnownIssueStore(db)
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, knownIssueStore, dataStore)
 
-	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore)
+	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
 	mux := http.NewServeMux()
 
@@ -118,12 +128,14 @@ func main() {
 
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
 
-	// Chain middleware: Recovery → RequestID → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
+	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
 		middleware.RequestID(
-			middleware.SecurityHeaders(
-				middleware.CSRFMiddleware(cfg)(
-					middleware.CORSMiddleware(cfg, mux),
+			middleware.LoggingMiddleware(logger)(
+				middleware.SecurityHeaders(
+					middleware.CSRFMiddleware(cfg)(
+						middleware.CORSMiddleware(cfg, mux),
+					),
 				),
 			),
 		),
@@ -148,24 +160,24 @@ func main() {
 	if cfg.StorageType != "s3" {
 		backgroundWatcher.Start()
 	} else {
-		log.Println("Background file watcher is disabled (StorageType=s3)")
+		logger.Info("background file watcher is disabled", zap.String("reason", "StorageType=s3"))
 	}
 
 	go func() {
-		log.Printf("Starting Allure API server on %s (DevMode: %v)\n", addr, cfg.DevMode)
+		logger.Info("starting Allure API server", zap.String("addr", addr), zap.Bool("dev_mode", cfg.DevMode))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Server error: %v", err)
+			logger.Fatal("server error", zap.Error(err))
 		}
 	}()
 
-	awaitShutdown(ctx, srv, backgroundWatcher, cfg, limiterDone)
+	awaitShutdown(ctx, srv, backgroundWatcher, cfg, limiterDone, logger)
 }
 
 // awaitShutdown waits for the context to be cancelled then drains the HTTP
 // server and stops the background watcher before returning.
-func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, cfg *config.Config, limiterDone chan struct{}) {
+func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, cfg *config.Config, limiterDone chan struct{}, logger *zap.Logger) {
 	<-ctx.Done()
-	log.Println("Shutdown signal received, draining connections...")
+	logger.Info("shutdown signal received, draining connections")
 
 	close(limiterDone) // stop rate limiter cleanup goroutine
 
@@ -176,16 +188,16 @@ func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watche
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		logger.Error("server shutdown error", zap.Error(err))
 	}
-	log.Println("Server stopped cleanly")
+	logger.Info("server stopped cleanly")
 }
 
 // createDataStore initialises the storage backend based on StorageType config.
-func createDataStore(cfg *config.Config) (storage.Store, error) {
+func createDataStore(cfg *config.Config, logger *zap.Logger) (storage.Store, error) {
 	switch cfg.StorageType {
 	case "s3":
-		st, err := storage.NewS3Store(cfg)
+		st, err := storage.NewS3Store(cfg, logger)
 		if err != nil {
 			return nil, fmt.Errorf("init S3 store: %w", err)
 		}

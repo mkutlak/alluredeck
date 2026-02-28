@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"go.uber.org/zap"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,9 +70,9 @@ func newTestAllureDir(t *testing.T, projectsDir string) *Allure {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	bs := store.NewBuildStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm)
+	return NewAllure(cfg, st, bs, lm, zap.NewNop())
 }
 
 // TestStoreReport_CopiesOnlyVariableDirs verifies that StoreReport copies
@@ -173,9 +174,9 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	bs := store.NewBuildStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm)
+	a := NewAllure(cfg, st, bs, lm, zap.NewNop())
 
 	// Close the DB so InsertBuild will fail.
 	_ = s.Close()
@@ -204,14 +205,14 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 
 	// Create project in DB to satisfy FK constraint.
-	ps := store.NewProjectStore(s)
+	ps := store.NewProjectStore(s, zap.NewNop())
 	if err := ps.CreateProject(context.Background(), projectID); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	bs := store.NewBuildStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm)
+	a := NewAllure(cfg, st, bs, lm, zap.NewNop())
 
 	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
 		t.Fatalf("recordBuild: %v", err)

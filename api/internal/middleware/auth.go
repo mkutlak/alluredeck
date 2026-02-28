@@ -3,13 +3,14 @@ package middleware
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 )
 
@@ -49,7 +50,7 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 
 			_, claims, err := jwtManager.ValidateToken(tokenStr, expectedType)
 			if err != nil {
-				log.Printf("auth: token validation failed: %v", err)
+				logging.FromContext(r.Context()).Warn("auth: token validation failed", zap.Error(err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]any{

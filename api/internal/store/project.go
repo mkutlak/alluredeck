@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // ErrProjectNotFound is returned when a project does not exist.
@@ -23,12 +24,13 @@ type Project struct {
 
 // ProjectStore provides CRUD operations on the projects table.
 type ProjectStore struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *zap.Logger
 }
 
 // NewProjectStore creates a ProjectStore backed by the given SQLiteStore.
-func NewProjectStore(s *SQLiteStore) *ProjectStore {
-	return &ProjectStore{db: s.db}
+func NewProjectStore(s *SQLiteStore, logger *zap.Logger) *ProjectStore {
+	return &ProjectStore{db: s.db, logger: logger}
 }
 
 // CreateProject inserts a new project. Returns ErrProjectExists if the ID is taken.
@@ -58,7 +60,8 @@ func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*Project, er
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 	if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
-		log.Printf("warning: invalid created_at %q for project %s: %v", createdAt, id, err)
+		ps.logger.Warn("invalid created_at for project",
+			zap.String("created_at", createdAt), zap.String("project_id", id), zap.Error(err))
 	} else {
 		p.CreatedAt = t
 	}
@@ -82,7 +85,8 @@ func (ps *ProjectStore) ListProjects(ctx context.Context) ([]Project, error) {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
-			log.Printf("warning: invalid created_at %q for project %s: %v", createdAt, p.ID, err)
+			ps.logger.Warn("invalid created_at for project",
+				zap.String("created_at", createdAt), zap.String("project_id", p.ID), zap.Error(err))
 		} else {
 			p.CreatedAt = t
 		}
@@ -118,7 +122,8 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
-			log.Printf("warning: invalid created_at %q for project %s: %v", createdAt, p.ID, err)
+			ps.logger.Warn("invalid created_at for project",
+				zap.String("created_at", createdAt), zap.String("project_id", p.ID), zap.Error(err))
 		} else {
 			p.CreatedAt = t
 		}

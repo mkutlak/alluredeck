@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"go.uber.org/zap"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/storage"
@@ -29,7 +30,7 @@ func TestSyncStatsIfMissing_ReadBuildStatsError_SkipsUpdate(t *testing.T) {
 		},
 	}
 
-	if err := store.SyncMetadata(ctx, mock, s); err != nil {
+	if err := store.SyncMetadata(ctx, mock, s, zap.NewNop()); err != nil {
 		t.Fatalf("SyncMetadata: %v", err)
 	}
 

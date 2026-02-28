@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go.uber.org/zap"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -26,15 +27,15 @@ func TestRegisterRoutes(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	blacklistStore := store.NewBlacklistStore(db)
-	buildStore := store.NewBuildStore(db)
-	projectStore := store.NewProjectStore(db)
+	buildStore := store.NewBuildStore(db, zap.NewNop())
+	projectStore := store.NewProjectStore(db, zap.NewNop())
 	lockManager := store.NewLockManager()
 
 	jwtManager := security.NewJWTManager(cfg, blacklistStore)
 	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
+	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, store.NewKnownIssueStore(db), localStore)
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
@@ -82,15 +83,15 @@ func TestBareRoutes_Return404(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	blacklistStore := store.NewBlacklistStore(db)
-	buildStore := store.NewBuildStore(db)
-	projectStore := store.NewProjectStore(db)
+	buildStore := store.NewBuildStore(db, zap.NewNop())
+	projectStore := store.NewProjectStore(db, zap.NewNop())
 	lockManager := store.NewLockManager()
 
 	jwtManager := security.NewJWTManager(cfg, blacklistStore)
 	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager)
+	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, projectStore, buildStore, store.NewKnownIssueStore(db), localStore)
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)

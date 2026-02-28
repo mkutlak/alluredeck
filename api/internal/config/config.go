@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -52,6 +51,7 @@ type Config struct {
 	DatabasePath        string
 	StorageType         string // "local" (default) or "s3"
 	S3                  S3Config
+	LogLevel            string // "debug", "info", "warn", "error" (default: "info")
 }
 
 // yamlConfig is the intermediate representation for YAML parsing.
@@ -83,6 +83,7 @@ type yamlConfig struct {
 	RefreshTokenExpSecs *int     `yaml:"refresh_token_expiry_secs"`
 	DatabasePath        *string  `yaml:"database_path"`
 	StorageType         *string  `yaml:"storage_type"`
+	LogLevel            *string  `yaml:"log_level"`
 	S3Endpoint          *string  `yaml:"s3_endpoint"`
 	S3Bucket            *string  `yaml:"s3_bucket"`
 	S3Region            *string  `yaml:"s3_region"`
@@ -97,12 +98,12 @@ const defaultJWTSecret = "super-secret-key-for-dev"
 // LoadConfig parses environment variables (with optional YAML file fallback) and returns a populated Config struct.
 // Precedence (highest to lowest): env vars > YAML file > hardcoded defaults.
 // The YAML file path is read from CONFIG_FILE env var (default: /app/alluredeck/config.yaml).
-// A missing config file is silently ignored; a malformed file causes a fatal log.
-func LoadConfig() *Config {
+// A missing config file is silently ignored; a malformed file returns an error.
+func LoadConfig() (*Config, error) {
 	configFile := getEnv("CONFIG_FILE", "/app/alluredeck/config.yaml")
 	yc, err := loadFromYAML(configFile)
 	if err != nil {
-		log.Fatalf("ERROR: failed to parse config file %q: %v", configFile, err)
+		return nil, fmt.Errorf("failed to parse config file %q: %w", configFile, err)
 	}
 	if yc == nil {
 		yc = &yamlConfig{}
@@ -146,6 +147,7 @@ func LoadConfig() *Config {
 		RefreshTokenExpiry:  time.Duration(getEnvOrYAMLInt("JWT_REFRESH_TOKEN_EXPIRES", yc.RefreshTokenExpSecs, 2592000)) * time.Second,
 		DatabasePath:        getEnvOrYAML("DATABASE_PATH", yc.DatabasePath, "/app/allure.db"),
 		StorageType:         getEnvOrYAML("STORAGE_TYPE", yc.StorageType, "local"),
+		LogLevel:            getEnvOrYAML("LOG_LEVEL", yc.LogLevel, "info"),
 		S3: S3Config{
 			Endpoint:  getEnvOrYAML("S3_ENDPOINT", yc.S3Endpoint, ""),
 			Bucket:    getEnvOrYAML("S3_BUCKET", yc.S3Bucket, ""),
@@ -155,7 +157,7 @@ func LoadConfig() *Config {
 			UseSSL:    getEnvOrYAMLBool("S3_USE_SSL", yc.S3UseSSL),
 			PathStyle: getEnvOrYAMLBool("S3_PATH_STYLE", yc.S3PathStyle),
 		},
-	}
+	}, nil
 }
 
 // ErrInsecureJWTSecret is returned when security is enabled with the default secret.
@@ -234,7 +236,7 @@ func getEnvOrYAMLBool(envKey string, yamlVal *bool) bool {
 		case "0", "FALSE", "NO":
 			return false
 		default:
-			log.Printf("WARNING: invalid boolean value for %s: %q, using default false", envKey, valStr)
+			fmt.Fprintf(os.Stderr, "WARNING: invalid boolean value for %s: %q, using default false\n", envKey, valStr)
 		}
 	}
 	if yamlVal != nil {
@@ -249,7 +251,7 @@ func getEnvOrYAMLInt(envKey string, yamlVal *int, defaultValue int) int {
 		if i, err := strconv.Atoi(valStr); err == nil {
 			return i
 		}
-		log.Printf("WARNING: invalid integer value for %s: %q, using default %d", envKey, valStr, defaultValue)
+		fmt.Fprintf(os.Stderr, "WARNING: invalid integer value for %s: %q, using default %d\n", envKey, valStr, defaultValue)
 	}
 	if yamlVal != nil {
 		return *yamlVal
@@ -270,7 +272,7 @@ func getEnvAsInt(key string, defaultValue int) int {
 		if i, err := strconv.Atoi(valStr); err == nil {
 			return i
 		}
-		log.Printf("WARNING: invalid integer value for %s: %q, using default %d", key, valStr, defaultValue)
+		fmt.Fprintf(os.Stderr, "WARNING: invalid integer value for %s: %q, using default %d\n", key, valStr, defaultValue)
 	}
 	return defaultValue
 }
@@ -284,7 +286,7 @@ func getEnvAsBool(key string, defaultValue bool) bool {
 		case "0", "FALSE", "NO":
 			return false
 		default:
-			log.Printf("WARNING: invalid boolean value for %s: %q, using default %v", key, valStr, defaultValue)
+			fmt.Fprintf(os.Stderr, "WARNING: invalid boolean value for %s: %q, using default %v\n", key, valStr, defaultValue)
 		}
 	}
 	return defaultValue

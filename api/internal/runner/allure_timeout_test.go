@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"go.uber.org/zap"
 	"testing"
 	"time"
 
@@ -19,9 +20,9 @@ func newTestAllure(t *testing.T) *Allure {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	bs := store.NewBuildStore(s)
+	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm)
+	return NewAllure(cfg, st, bs, lm, zap.NewNop())
 }
 
 // TestRunAllureCmdHonoursCancelledContext verifies that runAllureCmd returns a
