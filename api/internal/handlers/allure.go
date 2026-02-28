@@ -1,14 +1,19 @@
 package handlers
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,9 +38,25 @@ var (
 	ErrContentBase64Required = errors.New("'content_base64' attribute is required")
 	ErrNoFilesProvided       = errors.New("no files provided in 'files[]' field")
 
+	// tar.gz archive validation errors.
+	ErrArchiveEmpty         = errors.New("archive contains no files")
+	ErrArchiveTooManyFiles  = errors.New("archive exceeds maximum file count")
+	ErrArchiveDecompBomb    = errors.New("decompressed archive exceeds size limit")
+	ErrArchiveNestedPath    = errors.New("archive entry contains nested path")
+	ErrArchiveInvalidEntry  = errors.New("archive entry is not a regular file")
+	ErrArchiveDuplicateFile = errors.New("archive contains duplicate file names")
+
 	// errUnsupportedContentType is returned by parseResultsBody when the
-	// Content-Type header is neither application/json nor multipart/form-data.
+	// Content-Type header is not application/json, multipart/form-data, or application/gzip.
 	errUnsupportedContentType = errors.New("unsupported Content-Type")
+)
+
+// Package-level limits for tar.gz extraction (vars for testability).
+//
+//nolint:gochecknoglobals // overridden in tests to avoid creating huge archives
+var (
+	maxDecompressedBytes int64 = 1 << 30 // 1 GB
+	maxArchiveFileCount        = 5000
 )
 
 // AllureHandler handles HTTP requests for Allure report management.
@@ -425,9 +446,9 @@ func (h *AllureHandler) GetEmailableReport(w http.ResponseWriter, r *http.Reques
 
 // SendResults godoc
 // @Summary      Upload test results
-// @Description  Uploads allure result files to a project. Supports JSON and multipart/form-data.
+// @Description  Uploads allure result files to a project. Supports JSON (deprecated), multipart/form-data, and application/gzip (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz or multipart uploads.
 // @Tags         results
-// @Accept       json,mpfd
+// @Accept       json,mpfd,application/gzip
 // @Produce      json
 // @Param        project_id              path   string  true   "Project ID"
 // @Param        force_project_creation  query  string  false  "Auto-create project if missing"
@@ -484,8 +505,9 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Limit request body to 100 MB to prevent memory exhaustion (AUDIT 2.2).
-	const maxBodyBytes = 100 << 20 // 100 MB
+	// Limit request body to 200 MB to prevent memory exhaustion (AUDIT 2.2).
+	// Raised from 100 MB to accommodate compressed tar.gz archives.
+	const maxBodyBytes = 200 << 20 // 200 MB
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 	processedFiles, failedFiles, err := h.parseResultsBody(r, projectID)
@@ -493,7 +515,7 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{
-				"message": "Content-Type must be application/json or multipart/form-data",
+				"message": "Content-Type must be application/json, multipart/form-data, or application/gzip",
 			},
 		})
 		return
@@ -554,6 +576,10 @@ func (h *AllureHandler) parseResultsBody(r *http.Request, projectID string) (pro
 		return h.sendJSONResults(r, projectID)
 	case strings.HasPrefix(contentType, "multipart/form-data"):
 		return h.sendMultipartResults(r, projectID)
+	case contentType == "application/gzip",
+		contentType == "application/x-gzip",
+		contentType == "application/x-tar+gzip":
+		return h.sendTarGzResults(r, projectID)
 	default:
 		return nil, nil, errUnsupportedContentType
 	}
@@ -643,6 +669,135 @@ func (h *AllureHandler) sendMultipartResults(r *http.Request, projectID string) 
 	}
 
 	return processed, failed, nil
+}
+
+// countingReader wraps an io.Reader and tracks cumulative bytes read.
+// When the limit is exceeded it returns an explicit error instead of silently
+// truncating (which io.LimitReader would do).
+type countingReader struct {
+	r        io.Reader
+	n        int64
+	limit    int64
+	exceeded bool
+}
+
+func (cr *countingReader) Read(p []byte) (int, error) {
+	n, err := cr.r.Read(p)
+	cr.n += int64(n)
+	if cr.n > cr.limit {
+		cr.exceeded = true
+		return n, fmt.Errorf("decompressed size exceeds %d bytes: %w", cr.limit, ErrArchiveDecompBomb)
+	}
+	return n, err
+}
+
+// sendTarGzResults extracts a tar.gz archive to a temp directory, validates
+// all entries, then writes them to storage. Atomic: rejects all on any error.
+func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (processed []string, failed []map[string]string, _ error) {
+	gz, err := gzip.NewReader(r.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid gzip stream: %w", err)
+	}
+	defer func() { _ = gz.Close() }()
+
+	cr := &countingReader{r: gz, limit: maxDecompressedBytes}
+	tr := tar.NewReader(cr)
+
+	tmpDir, err := os.MkdirTemp("", "alluredeck-targz-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir) //nolint:errcheck // best-effort cleanup
+
+	seen := make(map[string]bool)
+	var fileNames []string
+	fileCount := 0
+
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			if cr.exceeded {
+				return nil, nil, ErrArchiveDecompBomb
+			}
+			return nil, nil, fmt.Errorf("read tar entry: %w", err)
+		}
+
+		// Skip non-regular files (directories, symlinks, etc.).
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+
+		// Sanitize filename.
+		safeName := secureFilename(hdr.Name)
+		if safeName == "." || safeName == "" {
+			return nil, nil, fmt.Errorf("entry %q: %w", hdr.Name, ErrArchiveInvalidEntry)
+		}
+
+		// Reject nested paths: if the original name differs from the base name,
+		// it contained directory components.
+		cleanName := filepath.Clean(hdr.Name)
+		if cleanName != safeName {
+			return nil, nil, fmt.Errorf("entry %q resolves to nested path: %w", hdr.Name, ErrArchiveNestedPath)
+		}
+
+		// Reject duplicates.
+		if seen[safeName] {
+			return nil, nil, fmt.Errorf("entry %q: %w", safeName, ErrArchiveDuplicateFile)
+		}
+		seen[safeName] = true
+
+		// Enforce file count limit.
+		fileCount++
+		if fileCount > maxArchiveFileCount {
+			return nil, nil, fmt.Errorf("archive has more than %d files: %w", maxArchiveFileCount, ErrArchiveTooManyFiles)
+		}
+
+		// Write to temp dir.
+		tmpPath := filepath.Join(tmpDir, safeName)
+		f, err := os.Create(tmpPath) //nolint:gosec // G305: safeName is sanitized via secureFilename (filepath.Base)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create temp file %q: %w", safeName, err)
+		}
+		if _, err := io.Copy(f, tr); err != nil {
+			_ = f.Close()
+			if cr.exceeded {
+				return nil, nil, ErrArchiveDecompBomb
+			}
+			return nil, nil, fmt.Errorf("extract %q: %w", safeName, err)
+		}
+		if err := f.Close(); err != nil {
+			return nil, nil, fmt.Errorf("close temp file %q: %w", safeName, err)
+		}
+
+		fileNames = append(fileNames, safeName)
+	}
+
+	if len(fileNames) == 0 {
+		return nil, nil, ErrArchiveEmpty
+	}
+
+	// Sort for deterministic output.
+	sort.Strings(fileNames)
+
+	// Write validated files to storage.
+	for _, name := range fileNames {
+		tmpPath := filepath.Join(tmpDir, name)
+		f, err := os.Open(tmpPath) //nolint:gosec // G304: tmpPath constructed from sanitized safeName in controlled tmpDir
+		if err != nil {
+			return nil, nil, fmt.Errorf("reopen temp file %q: %w", name, err)
+		}
+		err = h.store.WriteResultFile(r.Context(), projectID, name, f)
+		_ = f.Close()
+		if err != nil {
+			return nil, nil, fmt.Errorf("write result file %q: %w", name, err)
+		}
+		processed = append(processed, name)
+	}
+
+	return processed, nil, nil
 }
 
 // secureFilename strips path components so only the base filename remains

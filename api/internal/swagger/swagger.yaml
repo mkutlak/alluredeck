@@ -1,9 +1,887 @@
-basePath: /
+basePath: /api/v1
+definitions:
+  internal_handlers.ConfigData:
+    properties:
+      api_response_less_verbose:
+        type: boolean
+      app_build_date:
+        type: string
+      app_build_ref:
+        type: string
+      app_version:
+        type: string
+      check_results_every_seconds:
+        type: string
+      dev_mode:
+        type: boolean
+      keep_history:
+        type: boolean
+      keep_history_latest:
+        type: integer
+      make_viewer_endpoints_public:
+        type: boolean
+      optimize_storage:
+        type: boolean
+      security_enabled:
+        type: boolean
+      tls:
+        type: boolean
+      url_prefix:
+        type: string
+      version:
+        type: string
+    type: object
+  internal_handlers.ConfigMetaData:
+    properties:
+      message:
+        type: string
+    type: object
+  internal_handlers.ConfigResponse:
+    properties:
+      data:
+        $ref: '#/definitions/internal_handlers.ConfigData'
+      metadata:
+        $ref: '#/definitions/internal_handlers.ConfigMetaData'
+    type: object
+  internal_handlers.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_handlers.VersionData:
+    properties:
+      version:
+        type: string
+    type: object
+  internal_handlers.VersionMetaData:
+    properties:
+      message:
+        type: string
+    type: object
+  internal_handlers.VersionResponse:
+    properties:
+      data:
+        $ref: '#/definitions/internal_handlers.VersionData'
+      metadata:
+        $ref: '#/definitions/internal_handlers.VersionMetaData'
+    type: object
 host: localhost:8080
 info:
   contact: {}
-  description: This is an API service for managing Allure reports.
+  description: API for managing Allure test reports.
   title: AllureDeck API
-  version: "2.0"
-paths: {}
+  version: 2.0.0
+paths:
+  /config:
+    get:
+      description: Returns the current AllureDeck service configuration.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ConfigResponse'
+      summary: Get service configuration
+      tags:
+      - system
+  /health:
+    get:
+      description: Returns 200 OK with no dependency checks.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Liveness probe
+      tags:
+      - infrastructure
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Validates credentials and issues JWT access and refresh tokens.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Authenticate user
+      tags:
+      - auth
+  /logout:
+    delete:
+      description: Revokes the current access and refresh tokens and expires auth
+        cookies.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Log out
+      tags:
+      - auth
+  /projects:
+    get:
+      description: Returns a paginated list of all existing projects.
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List projects
+      tags:
+      - projects
+    post:
+      consumes:
+      - application/json
+      description: Creates a new project directory and registers it in the database.
+      parameters:
+      - description: Project ID
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create a project
+      tags:
+      - projects
+  /projects/{project_id}:
+    delete:
+      description: Removes an entire project and all its reports.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete a project
+      tags:
+      - projects
+  /projects/{project_id}/analytics/low-performing:
+    get:
+      description: Returns tests ranked by average duration or failure rate across
+        recent builds.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - default: duration
+        description: 'Sort by: duration or failure_rate'
+        in: query
+        name: sort
+        type: string
+      - default: 20
+        description: Number of recent builds to consider
+        in: query
+        name: builds
+        type: integer
+      - default: 20
+        description: Maximum results to return
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get low-performing tests
+      tags:
+      - analytics
+  /projects/{project_id}/known-issues:
+    get:
+      description: Returns all known issues for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Filter to active only
+        in: query
+        name: active_only
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List known issues
+      tags:
+      - known-issues
+    post:
+      consumes:
+      - application/json
+      description: Records a new known issue for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create a known issue
+      tags:
+      - known-issues
+  /projects/{project_id}/known-issues/{issue_id}:
+    delete:
+      description: Permanently removes a known issue record.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Known Issue ID
+        in: path
+        name: issue_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete a known issue
+      tags:
+      - known-issues
+    put:
+      consumes:
+      - application/json
+      description: Updates ticket_url, description, and/or active status.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Known Issue ID
+        in: path
+        name: issue_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Update a known issue
+      tags:
+      - known-issues
+  /projects/{project_id}/reports:
+    get:
+      description: Returns paginated metadata for all generated reports of a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get report history
+      tags:
+      - reports
+    post:
+      description: Triggers Allure report generation for the specified project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Execution name (CI provider, e.g. 'GitHub Actions')
+        in: query
+        name: execution_name
+        type: string
+      - description: Execution from (CI build URL)
+        in: query
+        name: execution_from
+        type: string
+      - description: Execution type
+        in: query
+        name: execution_type
+        type: string
+      - description: Store results (true/1)
+        in: query
+        name: store_results
+        type: string
+      - description: CI branch name
+        in: query
+        name: ci_branch
+        type: string
+      - description: CI commit SHA
+        in: query
+        name: ci_commit_sha
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Generate a report
+      tags:
+      - reports
+  /projects/{project_id}/reports/{report_id}:
+    delete:
+      description: Removes a single numbered report directory for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Report ID
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete a report
+      tags:
+      - reports
+  /projects/{project_id}/reports/{report_id}/categories:
+    get:
+      description: Returns the failure categories from the categories widget JSON
+        for a given report.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Report ID or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get report defect categories
+      tags:
+      - reports
+  /projects/{project_id}/reports/{report_id}/environment:
+    get:
+      description: Returns the environment properties from the environment widget
+        JSON for a given report.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Report ID or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get report environment info
+      tags:
+      - reports
+  /projects/{project_id}/reports/{report_id}/known-failures:
+    get:
+      description: Cross-references failed/broken test cases against the known issues
+        list.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Report ID or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get known failures for a report
+      tags:
+      - known-issues
+  /projects/{project_id}/reports/{report_id}/stability:
+    get:
+      description: Returns flaky tests, regressions, and fixes for a given report.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Report ID or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get stability data for a report
+      tags:
+      - reports
+  /projects/{project_id}/reports/{report_id}/timeline:
+    get:
+      description: Returns all test cases with start/stop timestamps for Gantt-chart
+        rendering.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Report ID or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get test execution timeline for a report
+      tags:
+      - reports
+  /projects/{project_id}/reports/emailable:
+    get:
+      description: Renders the emailable HTML report for a project and returns it.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML report
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get emailable report
+      tags:
+      - reports
+  /projects/{project_id}/reports/history:
+    delete:
+      description: Removes all historical report snapshots for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Clean report history
+      tags:
+      - reports
+  /projects/{project_id}/results:
+    delete:
+      description: Removes all test result files for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Clean test results
+      tags:
+      - results
+    post:
+      consumes:
+      - application/json
+      - multipart/form-data
+      - application/gzip
+      description: Uploads allure result files to a project. Supports JSON (deprecated),
+        multipart/form-data, and application/gzip (tar.gz archive). The JSON mode
+        (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz
+        or multipart uploads.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Auto-create project if missing
+        in: query
+        name: force_project_creation
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "413":
+          description: Request Entity Too Large
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Upload test results
+      tags:
+      - results
+  /ready:
+    get:
+      description: Returns 200 when the database is reachable, 503 otherwise.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Readiness probe
+      tags:
+      - infrastructure
+  /version:
+    get:
+      description: Returns the installed Allure CLI version.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.VersionResponse'
+      summary: Get Allure version
+      tags:
+      - system
 swagger: "2.0"
