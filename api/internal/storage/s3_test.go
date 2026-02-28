@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"go.uber.org/zap"
 	"io"
 	"strings"
+	"sync"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -73,7 +75,7 @@ var _ s3API = (*mockS3Client)(nil)
 
 func testCfg() *config.Config {
 	return &config.Config{
-		S3: config.S3Config{Bucket: "test-bucket"},
+		S3: config.S3Config{Bucket: "test-bucket", Concurrency: 10},
 	}
 }
 
@@ -496,4 +498,96 @@ func TestS3Store_KeepHistory_Disabled(t *testing.T) {
 	if deletedPrefix != wantPrefix {
 		t.Errorf("expected delete prefix %q, got %q", wantPrefix, deletedPrefix)
 	}
+}
+
+func TestPrepareLocal_ParallelDownloads(t *testing.T) {
+	resultsKey := "projects/myproject/results/result.json"
+	historyKey := "projects/myproject/reports/latest/history/history.json"
+
+	var mu sync.Mutex
+	var listedPrefixes []string
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			prefix := ""
+			if params.Prefix != nil {
+				prefix = *params.Prefix
+			}
+			mu.Lock()
+			listedPrefixes = append(listedPrefixes, prefix)
+			mu.Unlock()
+
+			switch {
+			case strings.HasSuffix(prefix, "/results/"):
+				return &s3.ListObjectsV2Output{
+					Contents:    []s3types.Object{{Key: aws.String(resultsKey)}},
+					IsTruncated: aws.Bool(false),
+				}, nil
+			case strings.HasSuffix(prefix, "/history/"):
+				return &s3.ListObjectsV2Output{
+					Contents:    []s3types.Object{{Key: aws.String(historyKey)}},
+					IsTruncated: aws.Bool(false),
+				}, nil
+			default:
+				return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+			}
+		},
+		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("data"))}, nil
+		},
+	}
+
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
+	tmpDir, err := store.PrepareLocal(context.Background(), "myproject")
+	if err != nil {
+		t.Fatalf("PrepareLocal: %v", err)
+	}
+	defer func() { _ = store.CleanupLocal(tmpDir) }()
+
+	// Both results and history prefixes must have been listed.
+	var sawResults, sawHistory bool
+	for _, p := range listedPrefixes {
+		if strings.HasSuffix(p, "/results/") {
+			sawResults = true
+		}
+		if strings.HasSuffix(p, "/history/") {
+			sawHistory = true
+		}
+	}
+	if !sawResults {
+		t.Error("PrepareLocal did not download results prefix")
+	}
+	if !sawHistory {
+		t.Error("PrepareLocal did not download history prefix")
+	}
+}
+
+func TestPrepareLocal_HistoryFailureNonFatal(t *testing.T) {
+	resultsKey := "projects/myproject/results/result.json"
+
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			prefix := ""
+			if params.Prefix != nil {
+				prefix = *params.Prefix
+			}
+			if strings.HasSuffix(prefix, "/results/") {
+				return &s3.ListObjectsV2Output{
+					Contents:    []s3types.Object{{Key: aws.String(resultsKey)}},
+					IsTruncated: aws.Bool(false),
+				}, nil
+			}
+			// Simulate history listing failure.
+			return nil, errors.New("history unavailable")
+		},
+		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("result-data"))}, nil
+		},
+	}
+
+	store := newS3StoreWithClient(testCfg(), mock, zap.NewNop())
+	tmpDir, err := store.PrepareLocal(context.Background(), "myproject")
+	if err != nil {
+		t.Fatalf("PrepareLocal should succeed even when history fails, got: %v", err)
+	}
+	defer func() { _ = store.CleanupLocal(tmpDir) }()
 }

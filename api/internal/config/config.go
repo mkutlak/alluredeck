@@ -13,13 +13,14 @@ import (
 
 // S3Config holds S3/MinIO connection settings.
 type S3Config struct {
-	Endpoint  string // e.g. "http://minio:9000" or "https://s3.amazonaws.com"
-	Bucket    string
-	Region    string
-	AccessKey string //nolint:gosec // G117: field name matches secret pattern; this is intentional
-	SecretKey string
-	UseSSL    bool
-	PathStyle bool // true for MinIO (path-style URLs)
+	Endpoint    string // e.g. "http://minio:9000" or "https://s3.amazonaws.com"
+	Bucket      string
+	Region      string
+	AccessKey   string //nolint:gosec // G117: field name matches secret pattern; this is intentional
+	SecretKey   string
+	UseSSL      bool
+	PathStyle   bool // true for MinIO (path-style URLs)
+	Concurrency int  // max parallel S3 operations (downloads/uploads); default 10
 }
 
 // Config holds the application configuration loaded from environment variables
@@ -91,6 +92,7 @@ type yamlConfig struct {
 	S3SecretKey         *string  `yaml:"s3_secret_key"`
 	S3UseSSL            *bool    `yaml:"s3_use_ssl"`
 	S3PathStyle         *bool    `yaml:"s3_path_style"`
+	S3Concurrency       *int     `yaml:"s3_concurrency"`
 }
 
 const defaultJWTSecret = "super-secret-key-for-dev"
@@ -149,13 +151,14 @@ func LoadConfig() (*Config, error) {
 		StorageType:         getEnvOrYAML("STORAGE_TYPE", yc.StorageType, "local"),
 		LogLevel:            getEnvOrYAML("LOG_LEVEL", yc.LogLevel, "info"),
 		S3: S3Config{
-			Endpoint:  getEnvOrYAML("S3_ENDPOINT", yc.S3Endpoint, ""),
-			Bucket:    getEnvOrYAML("S3_BUCKET", yc.S3Bucket, ""),
-			Region:    getEnvOrYAML("S3_REGION", yc.S3Region, "us-east-1"),
-			AccessKey: getEnvOrYAML("S3_ACCESS_KEY", yc.S3AccessKey, ""),
-			SecretKey: getEnvOrYAML("S3_SECRET_KEY", yc.S3SecretKey, ""),
-			UseSSL:    getEnvOrYAMLBool("S3_USE_SSL", yc.S3UseSSL),
-			PathStyle: getEnvOrYAMLBool("S3_PATH_STYLE", yc.S3PathStyle),
+			Endpoint:    getEnvOrYAML("S3_ENDPOINT", yc.S3Endpoint, ""),
+			Bucket:      getEnvOrYAML("S3_BUCKET", yc.S3Bucket, ""),
+			Region:      getEnvOrYAML("S3_REGION", yc.S3Region, "us-east-1"),
+			AccessKey:   getEnvOrYAML("S3_ACCESS_KEY", yc.S3AccessKey, ""),
+			SecretKey:   getEnvOrYAML("S3_SECRET_KEY", yc.S3SecretKey, ""),
+			UseSSL:      getEnvOrYAMLBool("S3_USE_SSL", yc.S3UseSSL),
+			PathStyle:   getEnvOrYAMLBool("S3_PATH_STYLE", yc.S3PathStyle),
+			Concurrency: getEnvOrYAMLInt("S3_CONCURRENCY", yc.S3Concurrency, 10),
 		},
 	}, nil
 }

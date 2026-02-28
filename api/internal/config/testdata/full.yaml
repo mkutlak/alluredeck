@@ -32,3 +32,4 @@ s3_access_key: "test-access-key"
 s3_secret_key: "test-secret-key"
 s3_use_ssl: true
 s3_path_style: true
+s3_concurrency: 5

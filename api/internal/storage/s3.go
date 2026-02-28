@@ -17,9 +17,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
+
+// defaultSizeWarnBytes is the cumulative download threshold above which PrepareLocal
+// emits a warning log. 1 GiB is large enough to be unusual for Allure result sets.
+const defaultSizeWarnBytes int64 = 1 << 30
 
 // S3Store implements Store backed by S3/MinIO.
 type S3Store struct {
@@ -205,31 +210,45 @@ func (s *S3Store) CleanResults(ctx context.Context, projectID string) error {
 	return deletePrefix(ctx, s.client, s.bucket, prefix)
 }
 
-// PrepareLocal creates a temp dir and downloads results + history from S3.
+// PrepareLocal creates a temp dir and downloads results + history from S3 in parallel.
+// Results are fatal; history is non-fatal (may not exist on first run).
 func (s *S3Store) PrepareLocal(ctx context.Context, projectID string) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "allure-s3-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}
 
-	// Download results
 	resultsPrefix := s.s3Key("projects", projectID, "results") + "/"
 	resultsDir := filepath.Join(tmpDir, "results")
-	if err := downloadPrefix(ctx, s.client, s.bucket, resultsPrefix, resultsDir); err != nil {
+	historyPrefix := s.s3Key("projects", projectID, "reports", "latest", "history") + "/"
+	historyDir := filepath.Join(tmpDir, "results", "history")
+
+	// Download results and history concurrently.
+	// historyErr is written by one goroutine and read after g.Wait() — happens-before is guaranteed.
+	var historyErr error
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		return downloadPrefix(gctx, s.client, s.bucket, resultsPrefix, resultsDir,
+			s.cfg.S3.Concurrency, defaultSizeWarnBytes, s.logger)
+	})
+	g.Go(func() error {
+		// History may not exist — non-fatal; capture but don't propagate.
+		historyErr = downloadPrefix(gctx, s.client, s.bucket, historyPrefix, historyDir,
+			s.cfg.S3.Concurrency, 0, s.logger)
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("download results: %w", err)
 	}
-
-	// Download history from latest report (for KeepHistory flow)
-	historyPrefix := s.s3Key("projects", projectID, "reports", "latest", "history") + "/"
-	historyDir := filepath.Join(tmpDir, "results", "history")
-	if err := downloadPrefix(ctx, s.client, s.bucket, historyPrefix, historyDir); err != nil {
-		// History may not exist — non-fatal
+	if historyErr != nil {
 		s.logger.Info("no history to restore (non-fatal)",
-			zap.String("project_id", projectID), zap.Error(err))
+			zap.String("project_id", projectID), zap.Error(historyErr))
 	}
 
-	// Ensure reports dir exists for allure generate output
+	// Ensure reports dir exists for allure generate output.
 	if err := os.MkdirAll(filepath.Join(tmpDir, "reports"), 0o755); err != nil { //nolint:gosec // G301: needed for allure web server
 		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("create reports dir: %w", err)
@@ -257,7 +276,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 	if err := deletePrefix(ctx, s.client, s.bucket, latestPrefix); err != nil {
 		return fmt.Errorf("clear latest: %w", err)
 	}
-	if err := uploadDir(ctx, s.client, s.bucket, latestDir, latestPrefix); err != nil {
+	if err := uploadDir(ctx, s.client, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency); err != nil {
 		return fmt.Errorf("upload to latest: %w", err)
 	}
 
@@ -269,7 +288,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 			continue
 		}
 		dirPrefix := buildPrefix + dir + "/"
-		if err := uploadDir(ctx, s.client, s.bucket, srcDir, dirPrefix); err != nil {
+		if err := uploadDir(ctx, s.client, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
 			return fmt.Errorf("upload %s to build %d: %w", dir, buildOrder, err)
 		}
 	}

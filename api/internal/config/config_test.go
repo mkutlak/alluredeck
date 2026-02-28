@@ -409,6 +409,7 @@ func TestLoadConfigS3FromYAMLFile(t *testing.T) {
 		{"S3.SecretKey", cfg.S3.SecretKey, "test-secret-key"},
 		{"S3.UseSSL", cfg.S3.UseSSL, true},
 		{"S3.PathStyle", cfg.S3.PathStyle, true},
+		{"S3.Concurrency", cfg.S3.Concurrency, 5},
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
@@ -416,5 +417,26 @@ func TestLoadConfigS3FromYAMLFile(t *testing.T) {
 				t.Errorf("want %v, got %v", c.want, c.got)
 			}
 		})
+	}
+}
+
+func TestS3ConcurrencyDefault(t *testing.T) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.S3.Concurrency != 10 {
+		t.Errorf("default S3 concurrency: want 10, got %d", cfg.S3.Concurrency)
+	}
+}
+
+func TestS3ConcurrencyFromEnv(t *testing.T) {
+	t.Setenv("S3_CONCURRENCY", "20")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.S3.Concurrency != 20 {
+		t.Errorf("S3 concurrency from env: want 20, got %d", cfg.S3.Concurrency)
 	}
 }
