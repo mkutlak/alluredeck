@@ -26,6 +26,7 @@ services:
       OPTIMIZE_STORAGE: 0
       API_RESPONSE_LESS_VERBOSE: 0
       TLS: 0
+      GOMEMLIMIT: "1GiB"
     ports:
       - "${ALLUREDECK_API_PORT:-5050}:8080"
     volumes:

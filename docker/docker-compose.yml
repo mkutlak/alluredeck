@@ -29,6 +29,7 @@ services:
       KEEP_HISTORY: "1"
       KEEP_HISTORY_LATEST: "20"
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
+      GOMEMLIMIT: "1GiB"
     ports:
       - "5050:8080"
     volumes:
