@@ -13,51 +13,27 @@ import { search } from './search'
 
 const mockGet = vi.mocked(apiClient.get)
 
+const mockResponse: ApiResponse<SearchData> = {
+  data: { projects: [], tests: [] },
+  metadata: { message: 'Search results' },
+}
+
 describe('search', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: mockResponse })
   })
 
-  it('calls GET /search with q param', async () => {
-    const response: ApiResponse<SearchData> = {
-      data: { projects: [], tests: [] },
-      metadata: { message: 'Search results' },
-    }
-    mockGet.mockResolvedValue({ data: response })
-
+  it('calls GET /search with q param and returns response', async () => {
     const result = await search({ q: 'login' })
 
-    expect(mockGet).toHaveBeenCalledWith('/search', {
-      params: { q: 'login' },
-    })
-    expect(result).toEqual(response)
+    expect(mockGet).toHaveBeenCalledWith('/search', { params: { q: 'login' } })
+    expect(result).toEqual(mockResponse)
   })
 
   it('passes limit param when provided', async () => {
-    const response: ApiResponse<SearchData> = {
-      data: { projects: [], tests: [] },
-      metadata: { message: 'Search results' },
-    }
-    mockGet.mockResolvedValue({ data: response })
-
     await search({ q: 'test', limit: 5 })
 
-    expect(mockGet).toHaveBeenCalledWith('/search', {
-      params: { q: 'test', limit: 5 },
-    })
-  })
-
-  it('does not include limit when not provided', async () => {
-    const response: ApiResponse<SearchData> = {
-      data: { projects: [], tests: [] },
-      metadata: { message: 'Search results' },
-    }
-    mockGet.mockResolvedValue({ data: response })
-
-    await search({ q: 'hello' })
-
-    expect(mockGet).toHaveBeenCalledWith('/search', {
-      params: { q: 'hello' },
-    })
+    expect(mockGet).toHaveBeenCalledWith('/search', { params: { q: 'test', limit: 5 } })
   })
 })

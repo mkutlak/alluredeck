@@ -16,6 +16,21 @@ vi.mock('@/api/client', () => ({
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
 
+function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
+  return {
+    id: 1,
+    project_id: 'myproject',
+    test_name: 'Login should succeed',
+    pattern: '',
+    ticket_url: 'https://jira.com/PROJ-1',
+    description: 'Flaky in CI',
+    is_active: true,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
 function renderTab(projectId = 'myproject', isAdminUser = true) {
   useAuthStore.setState({
     isAuthenticated: true,
@@ -91,21 +106,6 @@ describe('KnownIssuesTab', () => {
     })
   })
 })
-
-function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
-  return {
-    id: 1,
-    project_id: 'myproject',
-    test_name: 'Login should succeed',
-    pattern: '',
-    ticket_url: 'https://jira.com/PROJ-1',
-    description: 'Flaky in CI',
-    is_active: true,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-    ...overrides,
-  }
-}
 
 describe('KnownIssuesTab – inline toggle', () => {
   beforeEach(() => {

@@ -21,10 +21,6 @@ const sampleData: DurationTrendPoint[] = [
 ]
 
 describe('DurationTrendChart', () => {
-  it('renders without crashing', () => {
-    render(<DurationTrendChart data={sampleData} />)
-  })
-
   it('uses ChartContainer (renders data-chart attribute)', () => {
     render(<DurationTrendChart data={sampleData} />)
     expect(document.querySelector('[data-chart]')).not.toBeNull()

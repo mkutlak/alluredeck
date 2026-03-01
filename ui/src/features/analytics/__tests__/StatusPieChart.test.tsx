@@ -21,10 +21,6 @@ const sampleData: StatusPiePoint[] = [
 ]
 
 describe('StatusPieChart', () => {
-  it('renders without crashing', () => {
-    render(<StatusPieChart data={sampleData} total={13} />)
-  })
-
   it('uses ChartContainer (renders data-chart attribute)', () => {
     render(<StatusPieChart data={sampleData} total={13} />)
     expect(document.querySelector('[data-chart]')).not.toBeNull()

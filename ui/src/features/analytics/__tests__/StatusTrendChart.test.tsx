@@ -20,10 +20,6 @@ const sampleData: StatusTrendPoint[] = [
 ]
 
 describe('StatusTrendChart', () => {
-  it('renders without crashing', () => {
-    render(<StatusTrendChart data={sampleData} />)
-  })
-
   it('uses ChartContainer (renders data-chart attribute)', () => {
     render(<StatusTrendChart data={sampleData} />)
     expect(document.querySelector('[data-chart]')).not.toBeNull()
@@ -31,10 +27,5 @@ describe('StatusTrendChart', () => {
 
   it('renders with empty data without crashing', () => {
     render(<StatusTrendChart data={[]} />)
-  })
-
-  it('renders multiple data points without crashing', () => {
-    render(<StatusTrendChart data={sampleData} />)
-    expect(document.querySelector('[data-chart]')).not.toBeNull()
   })
 })

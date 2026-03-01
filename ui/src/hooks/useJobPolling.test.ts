@@ -53,43 +53,27 @@ describe('useJobPolling', () => {
     expect(reportsApi.getJobStatus).not.toHaveBeenCalled()
   })
 
-  it('isPolling is true when status is pending', async () => {
-    vi.mocked(reportsApi.getJobStatus).mockResolvedValue({
-      data: makeJobData({ status: 'pending' }),
-      metadata: { message: 'ok' },
-    })
+  it.each(['pending', 'running'] as const)(
+    'isPolling is true when status is %s',
+    async (status) => {
+      vi.mocked(reportsApi.getJobStatus).mockResolvedValue({
+        data: makeJobData({ status }),
+        metadata: { message: 'ok' },
+      })
 
-    const { result } = renderHook(() => useJobPolling('my-project', 'job-123'), {
-      wrapper: makeWrapper(),
-    })
+      const { result } = renderHook(() => useJobPolling('my-project', 'job-123'), {
+        wrapper: makeWrapper(),
+      })
 
-    await waitFor(() => {
-      expect(result.current.status).toBe('pending')
-    })
+      await waitFor(() => {
+        expect(result.current.status).toBe(status)
+      })
 
-    expect(result.current.isPolling).toBe(true)
-    expect(result.current.isCompleted).toBe(false)
-    expect(result.current.isFailed).toBe(false)
-  })
-
-  it('isPolling is true when status is running', async () => {
-    vi.mocked(reportsApi.getJobStatus).mockResolvedValue({
-      data: makeJobData({ status: 'running' }),
-      metadata: { message: 'ok' },
-    })
-
-    const { result } = renderHook(() => useJobPolling('my-project', 'job-123'), {
-      wrapper: makeWrapper(),
-    })
-
-    await waitFor(() => {
-      expect(result.current.status).toBe('running')
-    })
-
-    expect(result.current.isPolling).toBe(true)
-    expect(result.current.isCompleted).toBe(false)
-    expect(result.current.isFailed).toBe(false)
-  })
+      expect(result.current.isPolling).toBe(true)
+      expect(result.current.isCompleted).toBe(false)
+      expect(result.current.isFailed).toBe(false)
+    },
+  )
 
   it('isPolling is false and isCompleted is true when status is completed', async () => {
     vi.mocked(reportsApi.getJobStatus).mockResolvedValue({

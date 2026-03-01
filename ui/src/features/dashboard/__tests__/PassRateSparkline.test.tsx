@@ -21,10 +21,6 @@ const sampleData: DashboardSparklinePoint[] = [
 ]
 
 describe('PassRateSparkline', () => {
-  it('renders without crashing', () => {
-    render(<PassRateSparkline data={sampleData} />)
-  })
-
   it('uses ChartContainer (renders data-chart attribute)', () => {
     render(<PassRateSparkline data={sampleData} />)
     expect(document.querySelector('[data-chart]')).not.toBeNull()

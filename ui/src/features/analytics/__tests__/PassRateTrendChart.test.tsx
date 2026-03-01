@@ -21,10 +21,6 @@ const sampleData: PassRateTrendPoint[] = [
 ]
 
 describe('PassRateTrendChart', () => {
-  it('renders without crashing', () => {
-    render(<PassRateTrendChart data={sampleData} />)
-  })
-
   it('uses ChartContainer (renders data-chart attribute)', () => {
     render(<PassRateTrendChart data={sampleData} />)
     expect(document.querySelector('[data-chart]')).not.toBeNull()

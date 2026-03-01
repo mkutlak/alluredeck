@@ -33,27 +33,16 @@ describe('sendResultsMultipart', () => {
     expect(config?.headers?.['Content-Type']).toBe('multipart/form-data')
   })
 
-  it('sends a single .tar.gz file as application/gzip body', async () => {
-    const blob = new File([new Uint8Array([0x1f, 0x8b])], 'results.tar.gz', {
-      type: 'application/gzip',
-    })
+  it.each([
+    ['results.tar.gz', 'application/gzip'],
+    ['results.tgz', 'application/x-compressed-tar'],
+  ])('sends a single %s file as application/gzip body', async (filename, mimeType) => {
+    const blob = new File([new Uint8Array([0x1f, 0x8b])], filename, { type: mimeType })
     await sendResultsMultipart('my-project', [blob])
 
     expect(mockedPost).toHaveBeenCalledOnce()
     const [url, body, config] = mockedPost.mock.calls[0]
     expect(url).toBe('/projects/my-project/results')
-    expect(body).toBeInstanceOf(File)
-    expect(config?.headers?.['Content-Type']).toBe('application/gzip')
-  })
-
-  it('sends a single .tgz file as application/gzip body', async () => {
-    const blob = new File([new Uint8Array([0x1f, 0x8b])], 'results.tgz', {
-      type: 'application/x-compressed-tar',
-    })
-    await sendResultsMultipart('my-project', [blob])
-
-    expect(mockedPost).toHaveBeenCalledOnce()
-    const [, body, config] = mockedPost.mock.calls[0]
     expect(body).toBeInstanceOf(File)
     expect(config?.headers?.['Content-Type']).toBe('application/gzip')
   })
