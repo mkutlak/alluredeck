@@ -50,6 +50,10 @@ coverage/
 *.swo
 *~
 
+# Helm
+*.tgz
+Chart.lock
+
 # OS
 .DS_Store
 Thumbs.db

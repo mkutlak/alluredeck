@@ -183,6 +183,36 @@ docker-down-s3: ## Stop S3 stack
 docker-logs-s3: ## Follow S3 stack logs
 	docker compose -f $(COMPOSE_S3_FILE) logs -f
 
+# ── Helm ──────────────────────────────────────────────────────
+
+.PHONY: helm-lint helm-template helm-package helm-release
+
+helm-lint: ## Lint Helm chart
+	helm lint charts/alluredeck
+
+helm-template: ## Render Helm chart templates (validate rendering)
+	helm template alluredeck charts/alluredeck --debug
+
+helm-package: ## Package Helm chart into .tgz archive
+	helm package charts/alluredeck
+
+BUMP ?= patch  # patch (default), minor, or major
+CHART_FILE := charts/alluredeck/Chart.yaml
+helm-release: helm-lint ## Bump chart version (BUMP=patch|minor|major) and commit
+	@CURRENT=$$(yq '.version' $(CHART_FILE)); \
+	IFS='.' read -r MAJOR MINOR PATCH <<< "$$CURRENT"; \
+	case "$(BUMP)" in \
+		major) MAJOR=$$((MAJOR+1)); MINOR=0; PATCH=0 ;; \
+		minor) MINOR=$$((MINOR+1)); PATCH=0 ;; \
+		patch) PATCH=$$((PATCH+1)) ;; \
+		*) echo "Invalid BUMP=$(BUMP). Use patch, minor, or major."; exit 1 ;; \
+	esac; \
+	NEW="$$MAJOR.$$MINOR.$$PATCH"; \
+	yq -i ".version = \"$$NEW\"" $(CHART_FILE); \
+	echo "Chart version: $$CURRENT → $$NEW"; \
+	git add $(CHART_FILE); \
+	git commit -m "chore(helm): bump chart version to $$NEW"
+
 docker-clean: ## Remove all built Docker images
 	docker rmi $(IMAGE_API):$(IMAGE_TAG) 2>/dev/null || true
 	docker rmi $(IMAGE_UI):$(IMAGE_TAG) 2>/dev/null || true

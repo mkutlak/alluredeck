@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   packages: write
+  pages: write
   id-token: write
   attestations: write
 
@@ -20,9 +21,9 @@ jobs:
     name: Run tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: api/go.mod
           cache-dependency-path: api/go.sum
@@ -31,7 +32,7 @@ jobs:
         working-directory: api
         run: go test -race ./...
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: ui/package.json
           cache: npm
@@ -54,14 +55,14 @@ jobs:
       new-release-version: ${{ steps.semantic.outputs.new-release-version }}
       new-release-git-tag: ${{ steps.semantic.outputs.new-release-git-tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Semantic Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           extra_plugins: |
             @semantic-release/changelog
@@ -83,7 +84,7 @@ jobs:
           - image: alluredeck-ui
             dockerfile: docker/Dockerfile.ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.release.outputs.new-release-git-tag }}
 
@@ -132,8 +133,47 @@ jobs:
           sbom: true
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/mkutlak/${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  release-chart:
+    name: Release Helm chart
+    needs: [release, build-images]
+    if: needs.release.outputs.new-release-published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Update Chart.yaml with release version
+        env:
+          VERSION: ${{ needs.release.outputs.new-release-version }}
+        run: |
+          yq -i ".version = \"${VERSION}\"" charts/alluredeck/Chart.yaml
+          yq -i ".appVersion = \"${VERSION}\"" charts/alluredeck/Chart.yaml
+          echo "Chart.yaml updated:"
+          head -10 charts/alluredeck/Chart.yaml
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Release chart to GitHub Pages
+        uses: helm/chart-releaser-action@v1.7.0
+        with:
+          charts_dir: charts
+          skip_existing: true
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
