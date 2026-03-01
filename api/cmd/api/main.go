@@ -75,8 +75,9 @@ func main() {
 	testResultStore := store.NewTestResultStore(db, logger)
 	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, testResultStore, logger)
 	knownIssueStore := store.NewKnownIssueStore(db)
+	searchStore := store.NewSearchStore(db, logger)
 	jobManager := runner.NewJobManager(allureCore, 2, logger)
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, dataStore)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -256,6 +257,7 @@ func registerRoutes(
 	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(authHandler.Logout)))
 
 	// Viewer+ endpoints (public when MakeViewerEndptsPub=true) — mutable cache.
+	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(mutableCache(allure.GetProjects)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/emailable", viewerUp(mutableCache(allure.GetEmailableReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))

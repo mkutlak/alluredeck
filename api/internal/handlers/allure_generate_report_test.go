@@ -46,7 +46,7 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 	jm.Start(context.Background())
 	t.Cleanup(func() { jm.Shutdown() })
 
-	return NewAllureHandler(cfg, r, jm, store.NewProjectStore(db, zap.NewNop()), buildStore, store.NewKnownIssueStore(db), nil, st)
+	return NewAllureHandler(cfg, r, jm, store.NewProjectStore(db, zap.NewNop()), buildStore, store.NewKnownIssueStore(db), nil, nil, st)
 }
 
 func makeGenerateReportReq(t *testing.T, projectID string) *http.Request {

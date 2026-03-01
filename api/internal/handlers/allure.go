@@ -68,11 +68,12 @@ type AllureHandler struct {
 	buildStore      *store.BuildStore
 	knownIssueStore *store.KnownIssueStore
 	testResultStore *store.TestResultStore
+	searchStore     *store.SearchStore
 	store           storage.Store
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
-func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.JobManager, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, testResultStore *store.TestResultStore, st storage.Store) *AllureHandler {
+func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.JobManager, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, testResultStore *store.TestResultStore, searchStore *store.SearchStore, st storage.Store) *AllureHandler {
 	return &AllureHandler{
 		cfg:             cfg,
 		runner:          r,
@@ -81,6 +82,7 @@ func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.J
 		buildStore:      buildStore,
 		knownIssueStore: knownIssueStore,
 		testResultStore: testResultStore,
+		searchStore:     searchStore,
 		store:           st,
 	}
 }

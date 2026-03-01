@@ -286,6 +286,26 @@ export interface KnownIssue {
 }
 
 // ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+export interface SearchProjectMatch {
+  project_id: string
+  created_at: string
+}
+
+export interface SearchTestMatch {
+  project_id: string
+  test_name: string
+  full_name: string
+  status: string
+}
+
+export interface SearchData {
+  projects: SearchProjectMatch[]
+  tests: SearchTestMatch[]
+}
+
+// ---------------------------------------------------------------------------
 // Timeline (G3)
 // ---------------------------------------------------------------------------
 export interface TimelineTestCase {

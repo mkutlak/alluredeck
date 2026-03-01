@@ -15,6 +15,7 @@ import { useAuthStore } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
 import { env } from '@/lib/env'
+import { GlobalSearch } from '@/features/search'
 import { ProjectSelector } from './ProjectSelector'
 
 export function TopBar() {
@@ -53,6 +54,8 @@ export function TopBar() {
       <ProjectSelector />
 
       <div className="flex-1" />
+
+      <GlobalSearch />
 
       {/* Theme toggle */}
       <Button
