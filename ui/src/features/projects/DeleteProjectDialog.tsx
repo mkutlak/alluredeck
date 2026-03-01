@@ -36,6 +36,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       toast({ title: 'Project deleted', description: `"${projectId}" has been removed.` })
       onOpenChange(false)
       navigate('/', { replace: true })

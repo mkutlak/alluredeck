@@ -62,9 +62,9 @@ function renderSidebar(path: string) {
 describe('AppSidebar', () => {
   it('renders dashboard link', () => {
     renderSidebar('/')
-    const link = screen.getByRole('link', { name: /dashboard/i })
+    const link = screen.getByRole('link', { name: /projects dashboard/i })
     expect(link).toBeInTheDocument()
-    expect(link).toHaveAttribute('href', '/dashboard')
+    expect(link).toHaveAttribute('href', '/')
   })
 
   it('renders search trigger', () => {
@@ -101,7 +101,10 @@ describe('AppSidebar', () => {
   it('highlights active project with data-active', async () => {
     renderSidebar('/projects/my-project')
     await waitFor(() => {
-      const activeEl = screen.getByText('my-project').closest('[data-active="true"]')
+      // "my-project" appears in both the project list link and the section label;
+      // only the project list link carries data-active="true"
+      const allMatches = screen.getAllByText('my-project')
+      const activeEl = allMatches.find((el) => el.closest('[data-active="true"]'))
       expect(activeEl).toBeInTheDocument()
     })
   })
@@ -145,5 +148,16 @@ describe('AppSidebar', () => {
         '/projects/my-project/analytics',
       )
     })
+  })
+
+  it('shows project sub-nav as separate section when project is selected', async () => {
+    renderSidebar('/projects/my-project')
+    await waitFor(() => {
+      expect(screen.getByText('Overview')).toBeInTheDocument()
+    })
+    const overviewLink = screen.getByRole('link', { name: /overview/i })
+    // Nav items must NOT be nested inside the collapsible project list (menu-sub)
+    // They live in their own separate SidebarGroup (Section 4)
+    expect(overviewLink.closest('[data-sidebar="menu-sub"]')).toBeNull()
   })
 })

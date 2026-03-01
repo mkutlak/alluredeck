@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from 'react-router'
 import { AuthGuard } from '@/features/auth/AuthGuard'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { Layout } from '@/components/app/Layout'
-import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { OverviewTab } from '@/features/projects/OverviewTab'
 import { AnalyticsTab } from '@/features/analytics/AnalyticsTab'
 import { KnownIssuesTab } from '@/features/known-issues/KnownIssuesTab'
@@ -32,13 +31,13 @@ export function AppRoutes() {
           </AuthGuard>
         }
       >
-        <Route index element={<ProjectsPage />} />
+        <Route index element={<DashboardPage />} />
         <Route path="projects/:id" element={<OverviewTab />} />
         <Route path="projects/:id/analytics" element={<AnalyticsTab />} />
         <Route path="projects/:id/known-issues" element={<KnownIssuesTab />} />
         <Route path="projects/:id/timeline" element={<TimelineTab />} />
         <Route path="projects/:id/reports/:reportId" element={<ReportViewerPage />} />
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="dashboard" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

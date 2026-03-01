@@ -1,11 +1,19 @@
+import { useState } from 'react'
+import { Plus, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchDashboard } from '@/api/dashboard'
 import { ProjectStatusCard } from './ProjectStatusCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/store/auth'
+import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
 
 export function DashboardPage() {
-  const { data, isLoading } = useQuery({
+  const [createOpen, setCreateOpen] = useState(false)
+  const isAdmin = useAuthStore((s) => s.isAdmin)
+
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: fetchDashboard,
     staleTime: 30_000,
@@ -14,6 +22,9 @@ export function DashboardPage() {
   if (isLoading) {
     return (
       <div className="p-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold">Projects Dashboard</h1>
+        </div>
         <div className="mb-6 grid grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-20 animate-pulse rounded-lg" />
@@ -32,7 +43,16 @@ export function DashboardPage() {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
         <p className="text-lg font-medium">No projects yet</p>
-        <p className="text-sm text-muted-foreground">Create a project to see it here.</p>
+        <p className="text-sm text-muted-foreground">
+          {isAdmin() ? 'Create a project to get started.' : 'Ask an admin to create a project.'}
+        </p>
+        {isAdmin() && (
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus />
+            Create first project
+          </Button>
+        )}
+        <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
       </div>
     )
   }
@@ -41,9 +61,22 @@ export function DashboardPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Overview of all projects</p>
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Projects Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Overview of all projects</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh">
+            <RefreshCw className={isFetching ? 'animate-spin' : ''} />
+          </Button>
+          {isAdmin() && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus />
+              New project
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -60,6 +93,8 @@ export function DashboardPage() {
           <ProjectStatusCard key={project.project_id} project={project} />
         ))}
       </div>
+
+      <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   )
 }

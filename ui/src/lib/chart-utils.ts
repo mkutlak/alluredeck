@@ -4,27 +4,27 @@ import { calcPassRate } from './utils'
 
 // ChartConfig objects for each chart type — use CSS variables for theming
 export const statusChartConfig = {
-  passed: { label: 'Passed', color: 'var(--chart-1)' },
-  failed: { label: 'Failed', color: 'var(--chart-2)' },
-  broken: { label: 'Broken', color: 'var(--chart-3)' },
-  skipped: { label: 'Skipped', color: 'var(--chart-4)' },
+  passed: { label: 'Passed', color: 'hsl(var(--chart-1))' },
+  failed: { label: 'Failed', color: 'hsl(var(--chart-2))' },
+  broken: { label: 'Broken', color: 'hsl(var(--chart-3))' },
+  skipped: { label: 'Skipped', color: 'hsl(var(--chart-4))' },
 } satisfies ChartConfig
 
 export const passRateChartConfig = {
-  passRate: { label: 'Pass Rate', color: 'var(--chart-5)' },
+  passRate: { label: 'Pass Rate', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig
 
 export const durationChartConfig = {
-  durationSec: { label: 'Duration', color: 'var(--chart-5)' },
+  durationSec: { label: 'Duration', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig
 
 export const categoryChartConfig = {
-  failed: { label: 'Failed', color: 'var(--chart-2)' },
-  broken: { label: 'Broken', color: 'var(--chart-3)' },
+  failed: { label: 'Failed', color: 'hsl(var(--chart-2))' },
+  broken: { label: 'Broken', color: 'hsl(var(--chart-3))' },
 } satisfies ChartConfig
 
 export const sparklineChartConfig = {
-  passRate: { label: 'Pass Rate', color: 'var(--chart-5)' },
+  passRate: { label: 'Pass Rate', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig
 
 // Keep STATUS_COLORS for non-chart usage (TimelineChart, CategoryBreakdown summary dots)

@@ -15,6 +15,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -53,9 +54,9 @@ export function AppSidebar() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <NavLink to="/dashboard" end>
+                <NavLink to="/" end>
                   <Gauge />
-                  <span>Dashboard</span>
+                  <span>Projects Dashboard</span>
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -98,20 +99,6 @@ export function AppSidebar() {
                               <span>{p.project_id}</span>
                             </NavLink>
                           </SidebarMenuSubButton>
-                          {projectId === p.project_id && (
-                            <SidebarMenuSub>
-                              {navItems.map(({ label, path, icon: Icon, end }) => (
-                                <SidebarMenuSubItem key={label}>
-                                  <SidebarMenuSubButton asChild>
-                                    <NavLink to={`/projects/${projectId}${path}`} end={end}>
-                                      <Icon />
-                                      <span>{label}</span>
-                                    </NavLink>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              ))}
-                            </SidebarMenuSub>
-                          )}
                         </SidebarMenuSubItem>
                       ))
                     )}
@@ -121,6 +108,24 @@ export function AppSidebar() {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
+
+        {projectId && (
+          <SidebarGroup>
+            <SidebarGroupLabel>{projectId}</SidebarGroupLabel>
+            <SidebarMenu>
+              {navItems.map(({ label, path, icon: Icon, end }) => (
+                <SidebarMenuItem key={label}>
+                  <SidebarMenuButton asChild>
+                    <NavLink to={`/projects/${projectId}${path}`} end={end}>
+                      <Icon />
+                      <span>{label}</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   )

@@ -18,6 +18,11 @@ vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
+vi.mock('@/store/auth', () => ({ useAuthStore: vi.fn() }))
+vi.mock('@/features/projects/CreateProjectDialog', () => ({
+  CreateProjectDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="create-dialog" /> : null,
+}))
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -32,6 +37,7 @@ function renderPage() {
 
 // Import AFTER mocks
 import { DashboardPage } from '../DashboardPage'
+import { useAuthStore } from '@/store/auth'
 import type { DashboardData } from '@/types/api'
 
 const mockData: DashboardData = {
@@ -65,8 +71,16 @@ const mockData: DashboardData = {
   summary: { total_projects: 2, healthy: 1, degraded: 0, failing: 1 },
 }
 
+type AuthSelector = (s: { isAdmin: () => boolean }) => unknown
+
 describe('DashboardPage', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default: non-admin user
+    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
+      (selector as AuthSelector)({ isAdmin: () => false }),
+    )
+  })
 
   it('renders loading state initially', () => {
     vi.mocked(dashboardApi.fetchDashboard).mockReturnValue(new Promise(() => {}))
@@ -102,5 +116,33 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/no projects/i)).toBeInTheDocument()
     })
+  })
+
+  it("shows 'Projects Dashboard' heading", async () => {
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /projects dashboard/i })).toBeInTheDocument()
+    })
+  })
+
+  it('shows New project button for admin users', async () => {
+    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
+      (selector as AuthSelector)({ isAdmin: () => true }),
+    )
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument()
+    })
+  })
+
+  it('hides New project button for non-admin users', async () => {
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('proj-alpha')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /new project/i })).not.toBeInTheDocument()
   })
 })

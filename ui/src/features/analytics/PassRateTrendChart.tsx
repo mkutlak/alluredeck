@@ -19,15 +19,15 @@ export function PassRateTrendChart({ data }: Props) {
         />
         <ReferenceLine
           y={90}
-          stroke="var(--chart-1)"
+          stroke="hsl(var(--chart-1))"
           strokeDasharray="4 2"
-          label={{ value: '90%', fontSize: 10, fill: 'var(--chart-1)' }}
+          label={{ value: '90%', fontSize: 10, fill: 'hsl(var(--chart-1))' }}
         />
         <ReferenceLine
           y={70}
-          stroke="var(--chart-3)"
+          stroke="hsl(var(--chart-3))"
           strokeDasharray="4 2"
-          label={{ value: '70%', fontSize: 10, fill: 'var(--chart-3)' }}
+          label={{ value: '70%', fontSize: 10, fill: 'hsl(var(--chart-3))' }}
         />
         <Line
           type="monotone"

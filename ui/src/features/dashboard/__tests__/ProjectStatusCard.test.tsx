@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import type { DashboardProjectEntry } from '@/types/api'
@@ -9,7 +9,22 @@ vi.mock('recharts', () => ({
   Line: () => null,
 }))
 
+vi.mock('@/store/auth', () => ({ useAuthStore: vi.fn() }))
+vi.mock('@/features/projects/DeleteProjectDialog', () => ({
+  DeleteProjectDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="delete-dialog" /> : null,
+}))
+vi.mock('@/api/client', () => ({
+  setAccessToken: vi.fn(),
+  getAccessToken: vi.fn(),
+  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+}))
+
 import { ProjectStatusCard } from '../ProjectStatusCard'
+import { useAuthStore } from '@/store/auth'
+
+type AuthSelector = (s: { isAdmin: () => boolean }) => unknown
 
 function renderCard(project: DashboardProjectEntry) {
   return render(
@@ -44,6 +59,14 @@ const noBuildsProject: DashboardProjectEntry = {
 }
 
 describe('ProjectStatusCard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default: non-admin user
+    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
+      (selector as AuthSelector)({ isAdmin: () => false }),
+    )
+  })
+
   it('displays project name', () => {
     renderCard(healthyProject)
     expect(screen.getByText('my-project')).toBeInTheDocument()
@@ -69,5 +92,18 @@ describe('ProjectStatusCard', () => {
     const link = screen.getByRole('link', { name: /view project/i })
     expect(link).toBeInTheDocument()
     expect(link.getAttribute('href')).toBe('/projects/my-project')
+  })
+
+  it('shows delete dropdown trigger for admin users', () => {
+    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
+      (selector as AuthSelector)({ isAdmin: () => true }),
+    )
+    renderCard(healthyProject)
+    expect(screen.getByRole('button', { name: /project actions/i })).toBeInTheDocument()
+  })
+
+  it('hides delete dropdown for non-admin users', () => {
+    renderCard(healthyProject)
+    expect(screen.queryByRole('button', { name: /project actions/i })).not.toBeInTheDocument()
   })
 })
