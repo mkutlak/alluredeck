@@ -1,5 +1,5 @@
 import { NavLink, useParams } from 'react-router'
-import { LayoutDashboard, AlertCircle, Clock, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, AlertCircle, Clock, BarChart3, Gauge } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +30,19 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <NavLink to="/dashboard" end>
+                  <Gauge />
+                  <span>Dashboard</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+
         <SidebarGroup>
           <SidebarMenu>
             <SidebarMenuItem>

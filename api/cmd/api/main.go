@@ -286,4 +286,7 @@ func registerRoutes(
 
 	// Analytics — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(allure.GetLowPerformingTests)))
+
+	// Dashboard — short-lived cache.
+	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(shortCache(allure.GetDashboard)))
 }

@@ -9,6 +9,7 @@ api/static/swagger/swagger_security.json
 
 # Node dependencies
 ui/node_modules/
+node_modules/
 
 # Frontend build output
 ui/dist/

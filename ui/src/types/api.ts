@@ -331,3 +331,42 @@ export interface TimelineData {
   test_cases: TimelineTestCase[]
   summary: TimelineSummary
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard (cross-project overview)
+// ---------------------------------------------------------------------------
+export interface DashboardLatestBuild {
+  build_order: number
+  created_at: string
+  statistics: AllureStatistic
+  pass_rate: number
+  duration_ms: number
+  flaky_count: number
+  new_failed_count: number
+  new_passed_count: number
+  ci_branch?: string
+}
+
+export interface DashboardSparklinePoint {
+  build_order: number
+  pass_rate: number
+}
+
+export interface DashboardProjectEntry {
+  project_id: string
+  created_at: string
+  latest_build: DashboardLatestBuild | null
+  sparkline: DashboardSparklinePoint[]
+}
+
+export interface DashboardSummary {
+  total_projects: number
+  healthy: number
+  degraded: number
+  failing: number
+}
+
+export interface DashboardData {
+  projects: DashboardProjectEntry[]
+  summary: DashboardSummary
+}

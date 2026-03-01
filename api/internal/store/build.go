@@ -45,6 +45,21 @@ type CIMetadata struct {
 	CommitSHA string
 }
 
+// DashboardProject holds a project's latest build + sparkline data.
+type DashboardProject struct {
+	ProjectID string
+	CreatedAt time.Time
+	Latest    *Build
+	Sparkline []SparklinePoint
+}
+
+// SparklinePoint is a single pass-rate data point for the sparkline.
+type SparklinePoint struct {
+	BuildOrder int
+	PassRate   float64 // 0–100
+	CreatedAt  time.Time
+}
+
 // BuildStats holds the statistics for a completed build.
 type BuildStats struct {
 	Passed         int
@@ -535,6 +550,187 @@ func (bs *BuildStore) DeleteAllBuilds(ctx context.Context, projectID string) err
 		return fmt.Errorf("delete all builds for project %q: %w", projectID, err)
 	}
 	return nil
+}
+
+// GetDashboardData returns all projects with their latest build and sparkline data.
+// sparklineDepth controls how many recent builds to include per project (e.g. 10).
+func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]DashboardProject, error) {
+	// Query 1: all projects LEFT JOIN their latest build.
+	rows, err := bs.db.QueryContext(ctx, `
+		SELECT p.id, p.created_at,
+		       b.id, b.project_id, b.build_order, b.created_at,
+		       b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
+		       b.duration_ms, b.is_latest,
+		       b.flaky_count, b.retried_count, b.new_failed_count, b.new_passed_count,
+		       b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
+		FROM projects p
+		LEFT JOIN builds b ON b.project_id = p.id AND b.is_latest = 1
+		ORDER BY p.id`)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard projects query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	projectMap := make(map[string]*DashboardProject)
+	var orderedIDs []string
+
+	for rows.Next() {
+		var projID, projCreatedAt string
+		// Build fields — all nullable since LEFT JOIN may produce NULLs.
+		var buildID, buildOrder sql.NullInt64
+		var buildProjID, buildCreatedAt sql.NullString
+		var passed, failed, broken, skipped, unknown, total sql.NullInt64
+		var durationMs sql.NullInt64
+		var isLatest sql.NullInt64
+		var flakyCount, retriedCount, newFailedCount, newPassedCount sql.NullInt64
+		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA sql.NullString
+
+		if err := rows.Scan(
+			&projID, &projCreatedAt,
+			&buildID, &buildProjID, &buildOrder, &buildCreatedAt,
+			&passed, &failed, &broken, &skipped, &unknown, &total,
+			&durationMs, &isLatest,
+			&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
+			&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
+		); err != nil {
+			return nil, fmt.Errorf("scan dashboard row: %w", err)
+		}
+
+		dp := &DashboardProject{ProjectID: projID}
+		if t, err := time.Parse("2006-01-02T15:04:05Z", projCreatedAt); err == nil {
+			dp.CreatedAt = t
+		}
+
+		if buildID.Valid {
+			b := &Build{
+				ID:         buildID.Int64,
+				ProjectID:  buildProjID.String,
+				BuildOrder: int(buildOrder.Int64),
+				IsLatest:   isLatest.Int64 == 1,
+			}
+			if buildCreatedAt.Valid {
+				if t, err := time.Parse("2006-01-02T15:04:05Z", buildCreatedAt.String); err == nil {
+					b.CreatedAt = t
+				}
+			}
+			if passed.Valid {
+				v := int(passed.Int64)
+				b.StatPassed = &v
+			}
+			if failed.Valid {
+				v := int(failed.Int64)
+				b.StatFailed = &v
+			}
+			if broken.Valid {
+				v := int(broken.Int64)
+				b.StatBroken = &v
+			}
+			if skipped.Valid {
+				v := int(skipped.Int64)
+				b.StatSkipped = &v
+			}
+			if unknown.Valid {
+				v := int(unknown.Int64)
+				b.StatUnknown = &v
+			}
+			if total.Valid {
+				v := int(total.Int64)
+				b.StatTotal = &v
+			}
+			if durationMs.Valid {
+				b.DurationMs = &durationMs.Int64
+			}
+			if flakyCount.Valid {
+				v := int(flakyCount.Int64)
+				b.FlakyCount = &v
+			}
+			if retriedCount.Valid {
+				v := int(retriedCount.Int64)
+				b.RetriedCount = &v
+			}
+			if newFailedCount.Valid {
+				v := int(newFailedCount.Int64)
+				b.NewFailedCount = &v
+			}
+			if newPassedCount.Valid {
+				v := int(newPassedCount.Int64)
+				b.NewPassedCount = &v
+			}
+			if ciProvider.Valid {
+				b.CIProvider = &ciProvider.String
+			}
+			if ciBuildURL.Valid {
+				b.CIBuildURL = &ciBuildURL.String
+			}
+			if ciBranch.Valid {
+				b.CIBranch = &ciBranch.String
+			}
+			if ciCommitSHA.Valid {
+				b.CICommitSHA = &ciCommitSHA.String
+			}
+			dp.Latest = b
+		}
+
+		projectMap[projID] = dp
+		orderedIDs = append(orderedIDs, projID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate dashboard rows: %w", err)
+	}
+
+	if len(orderedIDs) == 0 {
+		return []DashboardProject{}, nil
+	}
+
+	// Query 2: recent N builds per project for sparklines (window function).
+	spRows, err := bs.db.QueryContext(ctx, `
+		SELECT project_id, build_order, created_at, stat_passed, stat_total
+		FROM (
+		    SELECT project_id, build_order, created_at, stat_passed, stat_total,
+		           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY build_order DESC) AS rn
+		    FROM builds
+		    WHERE stat_total IS NOT NULL AND stat_total > 0
+		)
+		WHERE rn <= ?
+		ORDER BY project_id, build_order ASC`, sparklineDepth)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard sparkline query: %w", err)
+	}
+	defer func() { _ = spRows.Close() }()
+
+	for spRows.Next() {
+		var spProjID, spCreatedAt string
+		var spBuildOrder int
+		var spPassed, spTotal sql.NullInt64
+		if err := spRows.Scan(&spProjID, &spBuildOrder, &spCreatedAt, &spPassed, &spTotal); err != nil {
+			return nil, fmt.Errorf("scan sparkline row: %w", err)
+		}
+
+		dp, ok := projectMap[spProjID]
+		if !ok {
+			continue
+		}
+
+		var passRate float64
+		if spTotal.Valid && spTotal.Int64 > 0 && spPassed.Valid {
+			passRate = float64(spPassed.Int64) / float64(spTotal.Int64) * 100
+		}
+
+		pt := SparklinePoint{BuildOrder: spBuildOrder, PassRate: passRate}
+		if t, err := time.Parse("2006-01-02T15:04:05Z", spCreatedAt); err == nil {
+			pt.CreatedAt = t
+		}
+		dp.Sparkline = append(dp.Sparkline, pt)
+	}
+	if err := spRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sparkline rows: %w", err)
+	}
+
+	result := make([]DashboardProject, 0, len(orderedIDs))
+	for _, id := range orderedIDs {
+		result = append(result, *projectMap[id])
+	}
+	return result, nil
 }
 
 // DeleteBuild removes a single build by build_order from the database.
