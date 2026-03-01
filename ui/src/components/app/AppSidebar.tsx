@@ -1,16 +1,29 @@
+import { useState } from 'react'
 import { NavLink, useParams } from 'react-router'
-import { LayoutDashboard, AlertCircle, Clock, BarChart3, Gauge } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import {
+  AlertCircle,
+  BarChart3,
+  ChevronRight,
+  Clock,
+  FolderOpen,
+  Gauge,
+  LayoutDashboard,
+} from 'lucide-react'
+import { getProjects } from '@/api/projects'
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
-  SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from '@/components/ui/sidebar'
-import { ProjectSwitcher } from './ProjectSwitcher'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SearchTrigger } from '@/features/search'
 
 const navItems = [
@@ -22,13 +35,19 @@ const navItems = [
 
 export function AppSidebar() {
   const { id: projectId } = useParams<{ id: string }>()
+  const [userClosed, setUserClosed] = useState(false)
+  const open = !userClosed || !!projectId
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => getProjects(),
+    staleTime: 30_000,
+  })
+
+  const projects = data?.data ?? []
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader>
-        <ProjectSwitcher />
-      </SidebarHeader>
-
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
@@ -51,26 +70,57 @@ export function AppSidebar() {
           </SidebarMenu>
         </SidebarGroup>
 
-        {projectId && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-            <SidebarMenu>
-              {navItems.map(({ label, path, icon: Icon, end }) => {
-                const to = `/projects/${projectId}${path}`
-                return (
-                  <SidebarMenuItem key={label}>
-                    <SidebarMenuButton asChild>
-                      <NavLink to={to} end={end}>
-                        <Icon />
-                        <span>{label}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
+        <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <Collapsible open={open} onOpenChange={(next) => setUserClosed(!next)} className="group/collapsible">
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton>
+                    <FolderOpen />
+                    <span>Projects</span>
+                    <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {isLoading ? (
+                      <>
+                        <SidebarMenuSkeleton />
+                        <SidebarMenuSkeleton />
+                      </>
+                    ) : projects.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">No projects</p>
+                    ) : (
+                      projects.map((p) => (
+                        <SidebarMenuSubItem key={p.project_id}>
+                          <SidebarMenuSubButton asChild isActive={projectId === p.project_id}>
+                            <NavLink to={`/projects/${p.project_id}`} end>
+                              <span>{p.project_id}</span>
+                            </NavLink>
+                          </SidebarMenuSubButton>
+                          {projectId === p.project_id && (
+                            <SidebarMenuSub>
+                              {navItems.map(({ label, path, icon: Icon, end }) => (
+                                <SidebarMenuSubItem key={label}>
+                                  <SidebarMenuSubButton asChild>
+                                    <NavLink to={`/projects/${projectId}${path}`} end={end}>
+                                      <Icon />
+                                      <span>{label}</span>
+                                    </NavLink>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))}
+                            </SidebarMenuSub>
+                          )}
+                        </SidebarMenuSubItem>
+                      ))
+                    )}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </Collapsible>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   )

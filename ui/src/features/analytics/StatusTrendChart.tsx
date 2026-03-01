@@ -1,15 +1,7 @@
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
 import type { StatusTrendPoint } from '@/lib/chart-utils'
-import { STATUS_COLORS } from '@/lib/chart-utils'
+import { statusChartConfig } from '@/lib/chart-utils'
+import { ChartContainer, ChartTooltipContent, ChartLegendContent } from '@/components/ui/chart'
 
 interface Props {
   data: StatusTrendPoint[]
@@ -17,18 +9,18 @@ interface Props {
 
 export function StatusTrendChart({ data }: Props) {
   return (
-    <ResponsiveContainer width="100%" height={240}>
-      <BarChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+    <ChartContainer config={statusChartConfig} className="h-[240px] w-full">
+      <BarChart accessibilityLayer data={data} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
         <XAxis dataKey="name" tick={{ fontSize: 11 }} />
         <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-        <Tooltip />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="passed" name="Passed" stackId="a" fill={STATUS_COLORS.passed} />
-        <Bar dataKey="failed" name="Failed" stackId="a" fill={STATUS_COLORS.failed} />
-        <Bar dataKey="broken" name="Broken" stackId="a" fill={STATUS_COLORS.broken} />
-        <Bar dataKey="skipped" name="Skipped" stackId="a" fill={STATUS_COLORS.skipped} />
+        <Tooltip content={<ChartTooltipContent />} />
+        <Legend content={<ChartLegendContent />} />
+        <Bar dataKey="passed" name="Passed" stackId="a" fill="var(--color-passed)" />
+        <Bar dataKey="failed" name="Failed" stackId="a" fill="var(--color-failed)" />
+        <Bar dataKey="broken" name="Broken" stackId="a" fill="var(--color-broken)" />
+        <Bar dataKey="skipped" name="Skipped" stackId="a" fill="var(--color-skipped)" />
       </BarChart>
-    </ResponsiveContainer>
+    </ChartContainer>
   )
 }

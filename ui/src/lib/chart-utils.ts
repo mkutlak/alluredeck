@@ -1,6 +1,33 @@
 import type { CategoryEntry, ReportHistoryEntry, TimelineTestCase } from '@/types/api'
+import type { ChartConfig } from '@/components/ui/chart'
 import { calcPassRate } from './utils'
 
+// ChartConfig objects for each chart type — use CSS variables for theming
+export const statusChartConfig = {
+  passed: { label: 'Passed', color: 'var(--chart-1)' },
+  failed: { label: 'Failed', color: 'var(--chart-2)' },
+  broken: { label: 'Broken', color: 'var(--chart-3)' },
+  skipped: { label: 'Skipped', color: 'var(--chart-4)' },
+} satisfies ChartConfig
+
+export const passRateChartConfig = {
+  passRate: { label: 'Pass Rate', color: 'var(--chart-5)' },
+} satisfies ChartConfig
+
+export const durationChartConfig = {
+  durationSec: { label: 'Duration', color: 'var(--chart-5)' },
+} satisfies ChartConfig
+
+export const categoryChartConfig = {
+  failed: { label: 'Failed', color: 'var(--chart-2)' },
+  broken: { label: 'Broken', color: 'var(--chart-3)' },
+} satisfies ChartConfig
+
+export const sparklineChartConfig = {
+  passRate: { label: 'Pass Rate', color: 'var(--chart-5)' },
+} satisfies ChartConfig
+
+// Keep STATUS_COLORS for non-chart usage (TimelineChart, CategoryBreakdown summary dots)
 export const STATUS_COLORS = {
   passed: '#16a34a',  // green-600
   failed: '#dc2626',  // red-600

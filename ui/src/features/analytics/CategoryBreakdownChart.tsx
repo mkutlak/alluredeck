@@ -1,12 +1,6 @@
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
-import { type CategoryBreakdownPoint, STATUS_COLORS } from '@/lib/chart-utils'
+import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts'
+import { type CategoryBreakdownPoint, categoryChartConfig } from '@/lib/chart-utils'
+import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart'
 
 interface Props {
   data: CategoryBreakdownPoint[]
@@ -23,28 +17,30 @@ export function CategoryBreakdownChart({ data }: Props) {
 
   return (
     <div className="space-y-3">
-      <ResponsiveContainer width="100%" height={height}>
+      <ChartContainer
+        config={categoryChartConfig}
+        className="w-full"
+        style={{ height: `${height}px` }}
+      >
         <BarChart
+          accessibilityLayer
           data={data}
           layout="vertical"
           margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
         >
           <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
           <XAxis type="number" hide />
-          <Tooltip
-            formatter={(value, name) => [value, name === 'failed' ? 'Failed' : 'Broken']}
-            labelFormatter={(label) => String(label)}
-          />
-          <Bar dataKey="failed" stackId="a" fill={STATUS_COLORS.failed} name="Failed" />
+          <Tooltip content={<ChartTooltipContent />} />
+          <Bar dataKey="failed" stackId="a" fill="var(--color-failed)" name="Failed" />
           <Bar
             dataKey="broken"
             stackId="a"
-            fill={STATUS_COLORS.broken}
+            fill="var(--color-broken)"
             name="Broken"
             radius={[2, 2, 2, 2]}
           />
         </BarChart>
-      </ResponsiveContainer>
+      </ChartContainer>
 
       {/* Accessible summary — also serves as test anchor for category names */}
       <ul className="space-y-0.5">

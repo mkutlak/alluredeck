@@ -1,5 +1,7 @@
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
+import { PieChart, Pie, Tooltip } from 'recharts'
 import type { StatusPiePoint } from '@/lib/chart-utils'
+import { statusChartConfig } from '@/lib/chart-utils'
+import { ChartContainer, ChartTooltipContent } from '@/components/ui/chart'
 
 interface Props {
   data: StatusPiePoint[]
@@ -7,26 +9,28 @@ interface Props {
 }
 
 export function StatusPieChart({ data, total }: Props) {
+  // In recharts v3, Cell is deprecated; pass fill directly in each data entry
+  const coloredData = data.map((entry) => ({
+    ...entry,
+    fill: `var(--color-${entry.name.toLowerCase()})`,
+  }))
+
   return (
     <div className="relative">
-      <ResponsiveContainer width="100%" height={240}>
-        <PieChart>
+      <ChartContainer config={statusChartConfig} className="h-[240px] w-full">
+        <PieChart accessibilityLayer>
           <Pie
-            data={data}
+            data={coloredData}
             cx="50%"
             cy="50%"
             innerRadius={60}
             outerRadius={90}
             paddingAngle={2}
             dataKey="value"
-          >
-            {data.map((entry) => (
-              <Cell key={entry.name} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip formatter={(v, name) => [v, name]} />
+          />
+          <Tooltip content={<ChartTooltipContent hideLabel />} />
         </PieChart>
-      </ResponsiveContainer>
+      </ChartContainer>
       {/* Center label */}
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-2xl font-bold tabular-nums">{total}</span>

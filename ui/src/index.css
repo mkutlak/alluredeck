@@ -35,6 +35,13 @@
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
+  /* Charts */
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -75,6 +82,13 @@
     --sidebar-accent-foreground: 222.2 47.4% 11.2%;
     --sidebar-border: 214.3 31.8% 91.4%;
     --sidebar-ring: 221.2 83.2% 53.3%;
+
+    /* Chart colors — mapped to AllureDeck status palette */
+    --chart-1: 142 76% 36%;   /* green-600 — passed */
+    --chart-2: 0 72% 51%;     /* red-600 — failed */
+    --chart-3: 38 92% 50%;    /* amber-600 — broken */
+    --chart-4: 220 9% 46%;    /* gray-500 — skipped */
+    --chart-5: 217 91% 60%;   /* blue-500 — primary/accent */
   }
 
   .dark {
@@ -107,6 +121,13 @@
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 217.2 32.6% 17.5%;
     --sidebar-ring: 224.3 76.3% 48%;
+
+    /* Chart colors — dark mode overrides */
+    --chart-1: 142 71% 45%;   /* green — passed, brighter in dark */
+    --chart-2: 0 84% 60%;     /* red — failed, brighter in dark */
+    --chart-3: 38 95% 56%;    /* amber — broken, brighter in dark */
+    --chart-4: 220 9% 55%;    /* gray — skipped, lighter in dark */
+    --chart-5: 217 91% 65%;   /* blue — primary/accent, lighter in dark */
   }
 }
 
