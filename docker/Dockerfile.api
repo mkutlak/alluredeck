@@ -37,6 +37,7 @@ ARG GID=1000
 RUN apk update && \
     apk add --no-cache \
     ca-certificates \
+    tini \
     tzdata && \
     mkdir -p /app
 
@@ -106,4 +107,5 @@ EXPOSE $PORT
 
 USER allure
 
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["/app/alluredeck-api"]

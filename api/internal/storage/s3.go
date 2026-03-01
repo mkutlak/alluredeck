@@ -248,7 +248,11 @@ func (s *S3Store) PrepareLocal(ctx context.Context, projectID string) (string, e
 			zap.String("project_id", projectID), zap.Error(historyErr))
 	}
 
-	// Ensure reports dir exists for allure generate output.
+	// Ensure results and reports dirs exist — downloadPrefix skips dir creation when S3 prefix is empty.
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: needed for allure web server
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("create results dir: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Join(tmpDir, "reports"), 0o755); err != nil { //nolint:gosec // G301: needed for allure web server
 		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("create reports dir: %w", err)

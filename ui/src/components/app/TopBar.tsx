@@ -11,12 +11,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
+import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useAuthStore } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
 import { env } from '@/lib/env'
-import { GlobalSearch } from '@/features/search'
-import { ProjectSelector } from './ProjectSelector'
 
 export function TopBar() {
   const { theme, setTheme } = useTheme()
@@ -44,18 +44,17 @@ export function TopBar() {
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b bg-background px-4">
+    <header className="z-50 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
+      <SidebarTrigger className="-ml-1" />
+      <Separator orientation="vertical" className="h-4" />
+
       {/* Logo / brand */}
       <Link to="/" className="flex items-center gap-2 font-semibold">
         <img src="/favicon.svg" alt="Allure" className="h-5 w-5" />
         <span className="text-sm">{env.appTitle}</span>
       </Link>
 
-      <ProjectSelector />
-
       <div className="flex-1" />
-
-      <GlobalSearch />
 
       {/* Theme toggle */}
       <Button

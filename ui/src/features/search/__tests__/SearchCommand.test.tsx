@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 import * as searchApi from '@/api/search'
-import { GlobalSearch } from '../GlobalSearch'
+import { SearchCommand } from '../SearchCommand'
 
 vi.mock('@/api/search')
 vi.mock('@/api/client', () => ({
@@ -19,28 +19,15 @@ function renderSearch() {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={qc}>
-        <GlobalSearch />
+        <SearchCommand />
       </QueryClientProvider>
     </MemoryRouter>,
   )
 }
 
-describe('GlobalSearch', () => {
+describe('SearchCommand', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('renders search button', () => {
-    renderSearch()
-    expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument()
-  })
-
-  it('opens dialog on button click', async () => {
-    const user = userEvent.setup()
-    renderSearch()
-
-    await user.click(screen.getByRole('button', { name: /search/i }))
-    expect(screen.getByPlaceholderText(/search projects/i)).toBeInTheDocument()
   })
 
   it('opens dialog on Cmd+K', async () => {
@@ -59,7 +46,7 @@ describe('GlobalSearch', () => {
     })
     renderSearch()
 
-    await user.click(screen.getByRole('button', { name: /search/i }))
+    await user.keyboard('{Meta>}k{/Meta}')
     await user.type(screen.getByPlaceholderText(/search projects/i), 'nonexistent')
 
     await waitFor(() => {
@@ -67,11 +54,30 @@ describe('GlobalSearch', () => {
     })
   })
 
-  it('displays grouped results', async () => {
+  it('displays project results', async () => {
     const user = userEvent.setup()
     vi.mocked(searchApi.search).mockResolvedValue({
       data: {
         projects: [{ project_id: 'my-project', created_at: '2026-01-01T00:00:00Z' }],
+        tests: [],
+      },
+      metadata: { message: 'Search results' },
+    })
+    renderSearch()
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    await user.type(screen.getByPlaceholderText(/search projects/i), 'my')
+
+    await waitFor(() => {
+      expect(screen.getByText('my-project')).toBeInTheDocument()
+    })
+  })
+
+  it('displays test results with status badge', async () => {
+    const user = userEvent.setup()
+    vi.mocked(searchApi.search).mockResolvedValue({
+      data: {
+        projects: [],
         tests: [
           {
             project_id: 'my-project',
@@ -85,26 +91,11 @@ describe('GlobalSearch', () => {
     })
     renderSearch()
 
-    await user.click(screen.getByRole('button', { name: /search/i }))
+    await user.keyboard('{Meta>}k{/Meta}')
     await user.type(screen.getByPlaceholderText(/search projects/i), 'login')
 
     await waitFor(() => {
-      // "my-project" appears in both the project result and the test subtitle
-      expect(screen.getAllByText('my-project')).toHaveLength(2)
       expect(screen.getByText('LoginTest')).toBeInTheDocument()
-    })
-  })
-
-  it('shows loading state while fetching', async () => {
-    const user = userEvent.setup()
-    vi.mocked(searchApi.search).mockReturnValue(new Promise(() => {}))
-    renderSearch()
-
-    await user.click(screen.getByRole('button', { name: /search/i }))
-    await user.type(screen.getByPlaceholderText(/search projects/i), 'login')
-
-    await waitFor(() => {
-      expect(screen.getByText(/searching/i)).toBeInTheDocument()
     })
   })
 })

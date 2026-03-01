@@ -70,9 +70,10 @@ services:
       - "5050:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 15s
-      timeout: 5s
+      interval: 5s
+      timeout: 3s
       retries: 5
+      start_period: 5s
 
   alluredeck-ui:
     image: alluredeck-ui:dev-s3
