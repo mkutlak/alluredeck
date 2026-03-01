@@ -5,43 +5,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"go.uber.org/zap"
 
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-func newDashboardTestHandler(t *testing.T, db *store.SQLiteStore) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: t.TempDir()}
-	st := storage.NewLocalStore(cfg)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	lockManager := store.NewLockManager()
-	ts := store.NewTestResultStore(db, zap.NewNop())
-	r := runner.NewAllure(cfg, st, bs, lockManager, ts, zap.NewNop())
-	return NewAllureHandler(cfg, r, nil, store.NewProjectStore(db, zap.NewNop()), bs, store.NewKnownIssueStore(db), ts, nil, st)
-}
-
-func openDashboardDB(t *testing.T) *store.SQLiteStore {
-	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
-}
-
 func TestGetDashboard_Empty(t *testing.T) {
-	db := openDashboardDB(t)
+	db := openTestStore(t)
 	ctx := context.Background()
 
-	h := newDashboardTestHandler(t, db)
+	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
@@ -69,7 +44,7 @@ func TestGetDashboard_Empty(t *testing.T) {
 }
 
 func TestGetDashboard_SingleProject(t *testing.T) {
-	db := openDashboardDB(t)
+	db := openTestStore(t)
 	bs := store.NewBuildStore(db, zap.NewNop())
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ctx := context.Background()
@@ -86,7 +61,7 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 	_ = bs.UpdateBuildStats(ctx, projID, 3, store.BuildStats{Passed: 90, Total: 100})
 	_ = bs.SetLatest(ctx, projID, 3)
 
-	h := newDashboardTestHandler(t, db)
+	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
@@ -130,7 +105,7 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 }
 
 func TestGetDashboard_HealthSummary(t *testing.T) {
-	db := openDashboardDB(t)
+	db := openTestStore(t)
 	bs := store.NewBuildStore(db, zap.NewNop())
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ctx := context.Background()
@@ -153,7 +128,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 	_ = bs.UpdateBuildStats(ctx, "proj-failing", 1, store.BuildStats{Passed: 50, Total: 100})
 	_ = bs.SetLatest(ctx, "proj-failing", 1)
 
-	h := newDashboardTestHandler(t, db)
+	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
@@ -182,13 +157,13 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 }
 
 func TestGetDashboard_ProjectWithNoBuilds(t *testing.T) {
-	db := openDashboardDB(t)
+	db := openTestStore(t)
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ctx := context.Background()
 
 	_ = ps.CreateProject(ctx, "no-builds-proj")
 
-	h := newDashboardTestHandler(t, db)
+	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)

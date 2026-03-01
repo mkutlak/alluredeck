@@ -6,42 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
-
-// memBlacklist is an in-memory security.BlacklistStore for tests.
-type memBlacklist struct {
-	mu      sync.RWMutex
-	entries map[string]time.Time
-}
-
-func newMemBlacklist() *memBlacklist {
-	return &memBlacklist{entries: make(map[string]time.Time)}
-}
-
-func (m *memBlacklist) AddToBlacklist(_ context.Context, jti string, expiresAt time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.entries[jti] = expiresAt
-	return nil
-}
-
-func (m *memBlacklist) IsBlacklisted(_ context.Context, jti string) (bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	exp, ok := m.entries[jti]
-	if !ok {
-		return false, nil
-	}
-	return time.Now().Before(exp), nil
-}
-
-func (m *memBlacklist) PruneExpired(_ context.Context) (int64, error) { return 0, nil }
 
 func testAuthConfig() *config.Config {
 	return &config.Config{
@@ -56,7 +27,7 @@ func testAuthConfig() *config.Config {
 
 func TestAuthHandler_Login(t *testing.T) {
 	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, newMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 	handler := NewAuthHandler(cfg, jwtManager)
 
 	reqBody := LoginRequest{
@@ -107,7 +78,7 @@ func TestAuthHandler_Login(t *testing.T) {
 
 func TestAuthHandler_Login_Unauthorized(t *testing.T) {
 	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, newMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 	handler := NewAuthHandler(cfg, jwtManager)
 
 	reqBody := LoginRequest{

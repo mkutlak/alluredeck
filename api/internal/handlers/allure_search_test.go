@@ -4,36 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
-
-	"go.uber.org/zap"
-
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
-	"github.com/mkutlak/alluredeck/api/internal/store"
 )
-
-func newSearchHandler(t *testing.T) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: t.TempDir()}
-
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	logger := zap.NewNop()
-	buildStore := store.NewBuildStore(db, logger)
-	lockManager := store.NewLockManager()
-	st := storage.NewLocalStore(cfg)
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, logger)
-	searchStore := store.NewSearchStore(db, logger)
-
-	return NewAllureHandler(cfg, r, nil, store.NewProjectStore(db, logger), buildStore, store.NewKnownIssueStore(db), nil, searchStore, st)
-}
 
 func makeSearchReq(t *testing.T, query string) *http.Request {
 	t.Helper()
@@ -45,7 +17,7 @@ func makeSearchReq(t *testing.T, query string) *http.Request {
 }
 
 func TestSearch_MissingQuery(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	h.Search(rr, makeSearchReq(t, ""))
 
@@ -62,7 +34,7 @@ func TestSearch_MissingQuery(t *testing.T) {
 }
 
 func TestSearch_QueryTooShort(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	h.Search(rr, makeSearchReq(t, "?q=a"))
 
@@ -72,7 +44,7 @@ func TestSearch_QueryTooShort(t *testing.T) {
 }
 
 func TestSearch_QueryTooLong(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	longQ := ""
 	for range 101 {
@@ -86,7 +58,7 @@ func TestSearch_QueryTooLong(t *testing.T) {
 }
 
 func TestSearch_ValidQuery_EmptyResults(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	h.Search(rr, makeSearchReq(t, "?q=nonexistent"))
 
@@ -115,7 +87,7 @@ func TestSearch_ValidQuery_EmptyResults(t *testing.T) {
 }
 
 func TestSearch_LimitClampedToMax(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	// limit=999 should be clamped to 50 — handler should not error.
 	h.Search(rr, makeSearchReq(t, "?q=test&limit=999"))
@@ -126,7 +98,7 @@ func TestSearch_LimitClampedToMax(t *testing.T) {
 }
 
 func TestSearch_LimitDefault(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	// No limit param — should default to 10.
 	h.Search(rr, makeSearchReq(t, "?q=test"))
@@ -137,7 +109,7 @@ func TestSearch_LimitDefault(t *testing.T) {
 }
 
 func TestSearch_InvalidLimit(t *testing.T) {
-	h := newSearchHandler(t)
+	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
 	// Non-numeric limit — should default to 10, not error.
 	h.Search(rr, makeSearchReq(t, "?q=test&limit=abc"))

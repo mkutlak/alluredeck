@@ -3,44 +3,14 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"go.uber.org/zap"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
-
-// newTestAllureHandler creates an AllureHandler backed by a real SQLite store
-// (in-memory via t.TempDir) and syncs the given projectsDir into it so that
-// filesystem fixtures created before calling this function are reflected in the DB.
-func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
-
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	st := storage.NewLocalStore(cfg)
-
-	// Sync filesystem fixtures → DB so numbered reports are visible.
-	if err := store.SyncMetadata(context.Background(), st, db, zap.NewNop()); err != nil {
-		t.Fatalf("SyncMetadata: %v", err)
-	}
-
-	buildStore := store.NewBuildStore(db, zap.NewNop())
-	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, zap.NewNop())
-	return NewAllureHandler(cfg, r, nil, store.NewProjectStore(db, zap.NewNop()), buildStore, store.NewKnownIssueStore(db), nil, nil, st)
-}
 
 func makeGetReportHistoryReq(t *testing.T, projectID string) *http.Request {
 	t.Helper()
@@ -55,18 +25,6 @@ func makeGetReportHistoryReq(t *testing.T, projectID string) *http.Request {
 	}
 	req.SetPathValue("project_id", projectID)
 	return req
-}
-
-// writeSummaryJSON creates widgets/summary.json under the given report dir.
-func writeSummaryJSON(t *testing.T, reportDir string, content string) {
-	t.Helper()
-	widgetsDir := filepath.Join(reportDir, "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(widgetsDir, "summary.json"), []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper uses standard file permissions
-		t.Fatal(err)
-	}
 }
 
 // ---- tests ------------------------------------------------------------------

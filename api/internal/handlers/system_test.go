@@ -2,15 +2,12 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 func TestSystemHandler_ConfigEndpoint(t *testing.T) {
@@ -120,13 +117,3 @@ func TestSystemHandler_Ready_DBDown(t *testing.T) {
 	}
 }
 
-// openTestDB creates a temporary SQLite database for testing.
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	s, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open test db: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s.DB()
-}

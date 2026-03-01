@@ -2,34 +2,15 @@ package runner
 
 import (
 	"context"
-	"go.uber.org/zap"
 	"testing"
 	"time"
-
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
-	"github.com/mkutlak/alluredeck/api/internal/store"
 )
-
-func newTestAllure(t *testing.T) *Allure {
-	t.Helper()
-	cfg := &config.Config{}
-	st := storage.NewLocalStore(cfg)
-	s, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	bs := store.NewBuildStore(s, zap.NewNop())
-	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
-}
 
 // TestRunAllureCmdHonoursCancelledContext verifies that runAllureCmd returns a
 // non-nil error immediately when the provided context is already cancelled,
 // regardless of whether the allure binary is present on the system.
 func TestRunAllureCmdHonoursCancelledContext(t *testing.T) {
-	a := newTestAllure(t)
+	a := newTestAllure(t, t.TempDir())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel before calling
@@ -50,7 +31,7 @@ func TestRunAllureCmdHonoursCancelledContext(t *testing.T) {
 // context deadline and returns an error within a reasonable time even if the
 // allure binary would otherwise run for longer.
 func TestRunAllureCmdHonoursDeadline(t *testing.T) {
-	a := newTestAllure(t)
+	a := newTestAllure(t, t.TempDir())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()

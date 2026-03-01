@@ -11,23 +11,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
-
-// newSummaryTestHandler creates an AllureHandler wired to a real SQLite store.
-func newSummaryTestHandler(t *testing.T, projectsDir string, db *store.SQLiteStore) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
-	st := storage.NewLocalStore(cfg)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	lockManager := store.NewLockManager()
-	ts := store.NewTestResultStore(db, zap.NewNop())
-	r := runner.NewAllure(cfg, st, bs, lockManager, ts, zap.NewNop())
-	return NewAllureHandler(cfg, r, nil, store.NewProjectStore(db, zap.NewNop()), bs, store.NewKnownIssueStore(db), ts, nil, st)
-}
 
 func TestGetReportSummary_NumericReportID(t *testing.T) {
 	projectsDir := t.TempDir()
@@ -36,12 +21,7 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := openTestStore(t)
 	bs := store.NewBuildStore(db, zap.NewNop())
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ts := store.NewTestResultStore(db, zap.NewNop())
@@ -65,7 +45,7 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 		{BuildID: buildID, ProjectID: projectID, TestName: "Passing test", FullName: "com.example.PassTest#test", Status: "passed", DurationMs: 100, HistoryID: "h3"},
 	})
 
-	h := newSummaryTestHandler(t, projectsDir, db)
+	h := newTestAllureHandlerWithDB(t, projectsDir, db)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"/api/v1/projects/summary-proj/reports/3/summary", nil)
 	if err != nil {
@@ -154,12 +134,7 @@ func TestGetReportSummary_Latest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := openTestStore(t)
 	bs := store.NewBuildStore(db, zap.NewNop())
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ctx := context.Background()
@@ -170,7 +145,7 @@ func TestGetReportSummary_Latest(t *testing.T) {
 	_ = bs.UpdateBuildStats(ctx, projectID, 2, store.BuildStats{Passed: 50, Total: 50})
 	_ = bs.SetLatest(ctx, projectID, 2)
 
-	h := newSummaryTestHandler(t, projectsDir, db)
+	h := newTestAllureHandlerWithDB(t, projectsDir, db)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"/api/v1/projects/latest-proj/reports/latest/summary", nil)
 	if err != nil {
@@ -204,12 +179,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := openTestStore(t)
 	bs := store.NewBuildStore(db, zap.NewNop())
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ctx := context.Background()
@@ -225,7 +195,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 	})
 	_ = bs.SetLatest(ctx, projectID, 2)
 
-	h := newSummaryTestHandler(t, projectsDir, db)
+	h := newTestAllureHandlerWithDB(t, projectsDir, db)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"/api/v1/projects/trend-proj/reports/2/summary", nil)
 	if err != nil {
@@ -271,17 +241,12 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := openTestStore(t)
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ctx := context.Background()
 	_ = ps.CreateProject(ctx, projectID)
 
-	h := newSummaryTestHandler(t, projectsDir, db)
+	h := newTestAllureHandlerWithDB(t, projectsDir, db)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"/api/v1/projects/notfound-proj/reports/99/summary", nil)
 	if err != nil {
@@ -300,14 +265,9 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 
 func TestGetReportSummary_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
+	db := openTestStore(t)
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	h := newSummaryTestHandler(t, projectsDir, db)
+	h := newTestAllureHandlerWithDB(t, projectsDir, db)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/reports/1/summary", nil)
 	if err != nil {
@@ -331,12 +291,7 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
+	db := openTestStore(t)
 	bs := store.NewBuildStore(db, zap.NewNop())
 	ps := store.NewProjectStore(db, zap.NewNop())
 	ts := store.NewTestResultStore(db, zap.NewNop())
@@ -360,7 +315,7 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 	}
 	_ = ts.InsertBatch(ctx, batch)
 
-	h := newSummaryTestHandler(t, projectsDir, db)
+	h := newTestAllureHandlerWithDB(t, projectsDir, db)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"/api/v1/projects/limit-proj/reports/1/summary", nil)
 	if err != nil {

@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"go.uber.org/zap"
 	"os"
 	"path/filepath"
@@ -13,36 +12,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
-
-// mustWriteFile creates parent dirs and writes content to path.
-func mustWriteFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // G301: test helper needs 0o755 to create temp directories
-		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper uses standard file permissions
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-// summaryJSON returns a minimal widgets/summary.json payload.
-func summaryJSON(total, passed, failed, broken, skipped, unknown int) string {
-	type statistic struct {
-		Total   int `json:"total"`
-		Passed  int `json:"passed"`
-		Failed  int `json:"failed"`
-		Broken  int `json:"broken"`
-		Skipped int `json:"skipped"`
-		Unknown int `json:"unknown"`
-	}
-	data, _ := json.Marshal(map[string]any{
-		"statistic": statistic{
-			Total: total, Passed: passed, Failed: failed,
-			Broken: broken, Skipped: skipped, Unknown: unknown,
-		},
-	})
-	return string(data)
-}
 
 // makeFullLatestReport populates latest/ with both static and variable content.
 func makeFullLatestReport(t *testing.T, latestDir string) {
@@ -60,21 +29,6 @@ func makeFullLatestReport(t *testing.T, latestDir string) {
 	mustWriteFile(t, filepath.Join(latestDir, "history", "history.json"), `[]`)
 }
 
-// newTestAllureDir constructs an Allure instance pointed at projectsDir.
-func newTestAllureDir(t *testing.T, projectsDir string) *Allure {
-	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
-	st := storage.NewLocalStore(cfg)
-	s, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	bs := store.NewBuildStore(s, zap.NewNop())
-	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
-}
-
 // TestStoreReport_CopiesOnlyVariableDirs verifies that StoreReport copies
 // only data/, widgets/, and history/ — not static assets like index.html or plugins/.
 func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
@@ -85,7 +39,7 @@ func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
 	latestDir := filepath.Join(dir, projectID, "reports", "latest")
 	makeFullLatestReport(t, latestDir)
 
-	a := newTestAllureDir(t, dir)
+	a := newTestAllure(t, dir)
 	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
 		t.Fatalf("StoreReport: %v", err)
 	}
@@ -119,7 +73,7 @@ func TestStoreReport_EmptyLatest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := newTestAllureDir(t, dir)
+	a := newTestAllure(t, dir)
 	if err := a.StoreReport(context.Background(), "myproject", 1); err != nil {
 		t.Fatalf("StoreReport on empty latest: %v", err)
 	}
@@ -129,7 +83,7 @@ func TestStoreReport_EmptyLatest(t *testing.T) {
 // the latest/ directory does not exist at all.
 func TestStoreReport_LatestNotExist(t *testing.T) {
 	dir := t.TempDir()
-	a := newTestAllureDir(t, dir)
+	a := newTestAllure(t, dir)
 	if err := a.StoreReport(context.Background(), "nonexistent", 1); err != nil {
 		t.Fatalf("StoreReport when latest/ missing: %v", err)
 	}
@@ -146,7 +100,7 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 	latestDir := filepath.Join(dir, projectID, "reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "data", "results.json"), `{}`)
 
-	a := newTestAllureDir(t, dir)
+	a := newTestAllure(t, dir)
 	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
 		t.Fatalf("StoreReport with partial dirs: %v", err)
 	}
@@ -241,7 +195,7 @@ func TestStoreReport_WidgetsReadable(t *testing.T) {
 	mustWriteFile(t, filepath.Join(latestDir, "widgets", "summary.json"),
 		summaryJSON(10, 8, 1, 0, 1, 0))
 
-	a := newTestAllureDir(t, dir)
+	a := newTestAllure(t, dir)
 	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
 		t.Fatalf("StoreReport: %v", err)
 	}

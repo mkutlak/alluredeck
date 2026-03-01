@@ -1,46 +1,16 @@
 package middleware
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
-
-// memBlacklist is an in-memory security.BlacklistStore for tests.
-type memBlacklist struct {
-	mu      sync.RWMutex
-	entries map[string]time.Time
-}
-
-func newMemBlacklist() *memBlacklist {
-	return &memBlacklist{entries: make(map[string]time.Time)}
-}
-
-func (m *memBlacklist) AddToBlacklist(_ context.Context, jti string, expiresAt time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.entries[jti] = expiresAt
-	return nil
-}
-
-func (m *memBlacklist) IsBlacklisted(_ context.Context, jti string) (bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	exp, ok := m.entries[jti]
-	if !ok {
-		return false, nil
-	}
-	return time.Now().Before(exp), nil
-}
-
-func (m *memBlacklist) PruneExpired(_ context.Context) (int64, error) { return 0, nil }
 
 func TestAuthMiddleware(t *testing.T) {
 	cfg := &config.Config{
@@ -49,7 +19,7 @@ func TestAuthMiddleware(t *testing.T) {
 		AccessTokenExpiry:  15 * time.Minute,
 		RefreshTokenExpiry: 30 * 24 * time.Hour,
 	}
-	jwtManager := security.NewJWTManager(cfg, newMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 
 	handler := AuthMiddleware(cfg, jwtManager, false)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -131,7 +101,7 @@ func TestAuthMiddleware(t *testing.T) {
 			AccessTokenExpiry:  1 * time.Millisecond,
 			RefreshTokenExpiry: 30 * 24 * time.Hour,
 		}
-		shortMgr := security.NewJWTManager(shortCfg, newMemBlacklist())
+		shortMgr := security.NewJWTManager(shortCfg, testutil.NewMemBlacklist())
 		expiredToken, _, _ := shortMgr.GenerateTokens("testuser", "admin")
 
 		// Wait for the token to expire
@@ -172,7 +142,7 @@ func TestRequireRole(t *testing.T) {
 		AccessTokenExpiry:  15 * time.Minute,
 		RefreshTokenExpiry: 30 * 24 * time.Hour,
 	}
-	jwtMgr := security.NewJWTManager(cfg, newMemBlacklist())
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 
 	// Helper: build a handler chain with auth + role requirement
 	makeHandler := func(requiredRole string) http.HandlerFunc {

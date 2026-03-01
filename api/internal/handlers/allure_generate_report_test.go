@@ -6,16 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"go.uber.org/zap"
-
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
-	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// mockReportGenerator is a test double for runner.ReportGenerator.
+// mockReportGenerator is a test double for the ReportGenerator interface.
 type mockReportGenerator struct {
 	out string
 	err error
@@ -23,30 +16,6 @@ type mockReportGenerator struct {
 
 func (m *mockReportGenerator) GenerateReport(_ context.Context, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	return m.out, m.err
-}
-
-// newTestAllureHandlerWithJobManager builds an AllureHandler with a real JobManager
-// backed by the provided generator, for handler-level tests.
-func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir, KeepHistory: false}
-
-	db, err := store.Open(t.TempDir() + "/test.db")
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	st := storage.NewLocalStore(cfg)
-	buildStore := store.NewBuildStore(db, zap.NewNop())
-	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, zap.NewNop())
-
-	jm := runner.NewJobManager(gen, 2, zap.NewNop())
-	jm.Start(context.Background())
-	t.Cleanup(func() { jm.Shutdown() })
-
-	return NewAllureHandler(cfg, r, jm, store.NewProjectStore(db, zap.NewNop()), buildStore, store.NewKnownIssueStore(db), nil, nil, st)
 }
 
 func makeGenerateReportReq(t *testing.T, projectID string) *http.Request {
