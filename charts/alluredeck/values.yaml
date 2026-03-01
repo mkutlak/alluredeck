@@ -1,0 +1,245 @@
+# AllureDeck Helm Chart — default values
+# Override these in your own values file or via --set flags.
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  imagePullSecrets: []
+  storageClass: ""
+
+# ---------------------------------------------------------------------------
+# API (Go backend)
+# ---------------------------------------------------------------------------
+api:
+  image:
+    repository: ghcr.io/mkutlak/alluredeck-api
+    tag: ""  # defaults to Chart.appVersion
+    pullPolicy: IfNotPresent
+
+  # Non-sensitive configuration (mapped to ConfigMap env vars)
+  config:
+    port: "8080"
+    devMode: "false"
+    logLevel: "info"
+    storageType: "local"  # "local" or "s3"
+    checkResultsEverySeconds: "NONE"
+    keepHistory: "true"
+    keepHistoryLatest: "20"
+    apiResponseLessVerbose: "false"
+    trustXForwardedFor: "true"
+    makeViewerEndpointsPublic: "false"
+    corsAllowedOrigins: ""  # auto-computed from ingress if empty
+    goMemLimit: "512MiB"
+    staticContentProjects: "/app/projects"
+    databasePath: "/app/allure.db"
+
+  # S3/MinIO connection settings (used when storageType=s3)
+  s3:
+    endpoint: ""          # e.g. "http://minio.minio.svc:9000"
+    bucket: ""            # e.g. "allure-reports"
+    region: "us-east-1"
+    accessKey: ""         # leave empty for IAM roles
+    secretKey: ""         # leave empty for IAM roles
+    useSSL: "false"
+    pathStyle: "false"    # "true" for MinIO
+    concurrency: "10"
+    existingSecret: ""    # pre-created K8s Secret with S3_ACCESS_KEY + S3_SECRET_KEY
+
+  # Security / auth credentials (mapped to Secret)
+  security:
+    enabled: "true"
+    user: "admin"
+    password: ""          # generate a strong password; empty = random on install
+    viewerUser: "viewer"
+    viewerPassword: ""    # generate a strong password; empty = random on install
+    jwtSecretKey: ""      # REQUIRED in production; empty = random on install
+    jwtAccessTokenExpires: "900"
+    jwtRefreshTokenExpires: "2592000"
+
+  # Reference an existing Secret instead of creating one
+  existingSecret: ""
+
+  # Persistence
+  persistence:
+    projects:
+      enabled: true       # only used when storageType=local
+      existingClaim: ""
+      storageClass: ""    # uses global.storageClass if empty
+      accessMode: ReadWriteOnce
+      size: 10Gi
+    database:
+      enabled: true
+      existingClaim: ""
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 1Gi
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  podSecurityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    runAsNonRoot: true
+
+  securityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  startupProbe:
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 5
+    failureThreshold: 12  # 12 * 5s = 60s max startup
+
+  terminationGracePeriodSeconds: 35
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: ""
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# ---------------------------------------------------------------------------
+# UI (React frontend served by Nginx)
+# ---------------------------------------------------------------------------
+ui:
+  image:
+    repository: ghcr.io/mkutlak/alluredeck-ui
+    tag: ""  # defaults to Chart.appVersion
+    pullPolicy: IfNotPresent
+
+  config:
+    apiUrl: ""         # auto-computed from ingress if empty
+    appTitle: "AllureDeck"
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+  podSecurityContext:
+    runAsNonRoot: false  # nginx needs root for envsubst at startup
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - NET_BIND_SERVICE  # nginx may need this
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  ui:
+    host: ""            # e.g. alluredeck.example.com
+    path: /
+    pathType: Prefix
+    tls: []
+    # - secretName: alluredeck-ui-tls
+    #   hosts:
+    #     - alluredeck.example.com
+
+  api:
+    host: ""            # e.g. api.alluredeck.example.com
+    path: /
+    pathType: Prefix
+    tls: []
+    # - secretName: alluredeck-api-tls
+    #   hosts:
+    #     - api.alluredeck.example.com
+
+# ---------------------------------------------------------------------------
+# Service Account
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck
+
+# ---------------------------------------------------------------------------
+# Network Policy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false

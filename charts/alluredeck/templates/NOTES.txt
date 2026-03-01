@@ -1,0 +1,51 @@
+
+AllureDeck has been deployed successfully!
+
+Components:
+  - API:  {{ include "alluredeck.api.fullname" . }}
+  - UI:   {{ include "alluredeck.ui.fullname" . }}
+
+Storage mode: {{ .Values.api.config.storageType }}
+{{- if eq .Values.api.config.storageType "s3" }}
+  S3 endpoint: {{ .Values.api.s3.endpoint }}
+  S3 bucket:   {{ .Values.api.s3.bucket }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Access the application:
+{{- if .Values.ingress.ui.host }}
+  UI:  {{ if .Values.ingress.ui.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.ui.host }}
+{{- end }}
+{{- if .Values.ingress.api.host }}
+  API: {{ if .Values.ingress.api.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.api.host }}
+{{- end }}
+{{- else }}
+
+Access via port-forward:
+
+  # UI
+  kubectl port-forward svc/{{ include "alluredeck.ui.fullname" . }} 7474:{{ .Values.ui.service.port }}
+  open http://localhost:7474
+
+  # API
+  kubectl port-forward svc/{{ include "alluredeck.api.fullname" . }} 5050:{{ .Values.api.service.port }}
+  open http://localhost:5050/health
+{{- end }}
+
+Run Helm tests:
+  helm test {{ .Release.Name }}
+
+{{- if and .Values.api.autoscaling.enabled (eq .Values.api.config.storageType "local") }}
+
+WARNING: HPA is enabled with local storage. Scaling beyond 1 replica requires
+ReadWriteMany PVCs or switching to S3 storage (storageType=s3).
+{{- end }}
+
+{{- if not .Values.api.security.jwtSecretKey }}
+{{- if not .Values.api.existingSecret }}
+
+NOTE: JWT secret was auto-generated. To persist it across upgrades, set
+api.security.jwtSecretKey or use api.existingSecret.
+{{- end }}
+{{- end }}

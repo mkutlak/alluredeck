@@ -1,0 +1,58 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "alluredeck.fullname" . }}
+  labels:
+    {{- include "alluredeck.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- $tlsBlocks := list }}
+  {{- if .Values.ingress.ui.tls }}
+  {{- $tlsBlocks = concat $tlsBlocks .Values.ingress.ui.tls }}
+  {{- end }}
+  {{- if .Values.ingress.api.tls }}
+  {{- $tlsBlocks = concat $tlsBlocks .Values.ingress.api.tls }}
+  {{- end }}
+  {{- if $tlsBlocks }}
+  tls:
+    {{- range $tlsBlocks }}
+    - secretName: {{ .secretName }}
+      hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.ui.host }}
+    - host: {{ .Values.ingress.ui.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.ui.path }}
+            pathType: {{ .Values.ingress.ui.pathType }}
+            backend:
+              service:
+                name: {{ include "alluredeck.ui.fullname" . }}
+                port:
+                  name: http
+    {{- end }}
+    {{- if .Values.ingress.api.host }}
+    - host: {{ .Values.ingress.api.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.api.path }}
+            pathType: {{ .Values.ingress.api.pathType }}
+            backend:
+              service:
+                name: {{ include "alluredeck.api.fullname" . }}
+                port:
+                  name: http
+    {{- end }}
+{{- end }}

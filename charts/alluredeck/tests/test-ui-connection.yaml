@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "alluredeck.ui.fullname" . }}-test"
+  labels:
+    {{- include "alluredeck.ui.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: busybox:1.37
+      command:
+        - wget
+        - --spider
+        - --timeout=5
+        - "http://{{ include "alluredeck.ui.fullname" . }}:{{ .Values.ui.service.port }}/"

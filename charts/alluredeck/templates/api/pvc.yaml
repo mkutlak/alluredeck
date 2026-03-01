@@ -1,0 +1,37 @@
+{{- if and .Values.api.persistence.projects.enabled (eq .Values.api.config.storageType "local") (not .Values.api.persistence.projects.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}-projects
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.api.persistence.projects.accessMode }}
+  {{- $sc := default .Values.global.storageClass .Values.api.persistence.projects.storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.api.persistence.projects.size }}
+{{- end }}
+---
+{{- if and .Values.api.persistence.database.enabled (not .Values.api.persistence.database.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}-database
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.api.persistence.database.accessMode }}
+  {{- $sc := default .Values.global.storageClass .Values.api.persistence.database.storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.api.persistence.database.size }}
+{{- end }}

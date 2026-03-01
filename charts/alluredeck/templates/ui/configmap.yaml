@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alluredeck.ui.fullname" . }}
+  labels:
+    {{- include "alluredeck.ui.labels" . | nindent 4 }}
+data:
+  VITE_API_URL: {{ include "alluredeck.ui.apiUrl" . | quote }}
+  VITE_APP_TITLE: {{ .Values.ui.config.appTitle | quote }}

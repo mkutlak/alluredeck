@@ -1,0 +1,53 @@
+{{- if .Values.networkPolicy.enabled }}
+# Allow UI to reach API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "alluredeck.api.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from UI pods
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "alluredeck.ui.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.api.config.port | int }}
+          protocol: TCP
+    # Allow traffic from ingress controller (if ingress is enabled)
+    {{- if .Values.ingress.enabled }}
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: {{ .Values.api.config.port | int }}
+          protocol: TCP
+    {{- end }}
+---
+# Allow ingress to UI
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "alluredeck.ui.fullname" . }}
+  labels:
+    {{- include "alluredeck.ui.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "alluredeck.ui.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+{{- end }}

@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "alluredeck.api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/api/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/api/secret.yaml") . | sha256sum }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "alluredeck.api.labels" . | nindent 8 }}
+        {{- with .Values.api.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "alluredeck.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "alluredeck.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command: ["/sbin/tini", "--"]
+          args: ["/app/alluredeck-api"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.config.port | int }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "alluredeck.api.fullname" . }}
+            - secretRef:
+                name: {{ include "alluredeck.api.secretName" . }}
+            {{- if and (eq .Values.api.config.storageType "s3") .Values.api.s3.existingSecret }}
+            - secretRef:
+                name: {{ .Values.api.s3.existingSecret }}
+            {{- end }}
+          {{- with .Values.api.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.api.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.api.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.api.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.api.persistence.database.enabled }}
+            - name: database
+              mountPath: {{ .Values.api.config.databasePath }}
+              subPath: {{ base .Values.api.config.databasePath }}
+            {{- end }}
+            {{- if and .Values.api.persistence.projects.enabled (eq .Values.api.config.storageType "local") }}
+            - name: projects
+              mountPath: {{ .Values.api.config.staticContentProjects }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.api.persistence.database.enabled }}
+        - name: database
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-database" (include "alluredeck.api.fullname" .)) .Values.api.persistence.database.existingClaim }}
+        {{- end }}
+        {{- if and .Values.api.persistence.projects.enabled (eq .Values.api.config.storageType "local") }}
+        - name: projects
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-projects" (include "alluredeck.api.fullname" .)) .Values.api.persistence.projects.existingClaim }}
+        {{- end }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
