@@ -53,11 +53,6 @@ export async function sendResultsMultipart(projectId: string, files: File[]): Pr
   })
 }
 
-/** Build the URL for the emailable report page (GET, rendered as HTML). */
-export function getEmailableReportUrl(projectId: string): string {
-  return `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/emailable`
-}
-
 export async function deleteReport(
   projectId: string,
   reportId: string,

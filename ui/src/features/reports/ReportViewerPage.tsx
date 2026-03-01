@@ -1,13 +1,10 @@
 import { Link, useParams } from 'react-router'
-import { ChevronLeft, ExternalLink, FileText } from 'lucide-react'
+import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { env } from '@/lib/env'
-import { getEmailableReportUrl } from '@/api/reports'
 import { Button } from '@/components/ui/button'
-import { useAuthStore } from '@/store/auth'
 
 export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
-  const isAdmin = useAuthStore((s) => s.isAdmin)
 
   if (!projectId || !reportId) return null
 
@@ -34,23 +31,6 @@ export function ReportViewerPage() {
             Open in new tab
           </a>
         </Button>
-        <Button asChild variant="ghost" size="sm">
-          <a
-            href={getEmailableReportUrl(projectId)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FileText size={14} />
-            Emailable report
-          </a>
-        </Button>
-        {isAdmin() && (
-          <Button asChild variant="ghost" size="sm">
-            <a href={getEmailableReportUrl(projectId)} download>
-              Download
-            </a>
-          </Button>
-        )}
       </div>
 
       {/* Iframe — full remaining height */}

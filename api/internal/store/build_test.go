@@ -2,8 +2,10 @@ package store_test
 
 import (
 	"context"
-	"go.uber.org/zap"
+	"errors"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -301,6 +303,121 @@ func TestBuildStore_SetLatest(t *testing.T) {
 		if b.BuildOrder != 3 && b.IsLatest {
 			t.Errorf("build %d should not be latest", b.BuildOrder)
 		}
+	}
+}
+
+func TestBuildStore_GetBuildByOrder(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "gbo-proj")
+	_ = bs.InsertBuild(ctx, "gbo-proj", 1)
+	_ = bs.UpdateBuildStats(ctx, "gbo-proj", 1, store.BuildStats{
+		Passed: 10, Failed: 2, Broken: 1, Skipped: 3, Unknown: 0, Total: 16,
+		DurationMs: 45000,
+	})
+
+	// Found case.
+	b, err := bs.GetBuildByOrder(ctx, "gbo-proj", 1)
+	if err != nil {
+		t.Fatalf("GetBuildByOrder: %v", err)
+	}
+	if b.BuildOrder != 1 {
+		t.Errorf("BuildOrder = %d, want 1", b.BuildOrder)
+	}
+	if b.ProjectID != "gbo-proj" {
+		t.Errorf("ProjectID = %q, want %q", b.ProjectID, "gbo-proj")
+	}
+	if b.StatPassed == nil || *b.StatPassed != 10 {
+		t.Errorf("StatPassed = %v, want 10", b.StatPassed)
+	}
+	if b.StatTotal == nil || *b.StatTotal != 16 {
+		t.Errorf("StatTotal = %v, want 16", b.StatTotal)
+	}
+
+	// Not-found case.
+	_, err = bs.GetBuildByOrder(ctx, "gbo-proj", 99)
+	if err == nil {
+		t.Fatal("expected error for non-existent build")
+	}
+	if !errors.Is(err, store.ErrBuildNotFound) {
+		t.Errorf("expected ErrBuildNotFound, got %v", err)
+	}
+}
+
+func TestBuildStore_GetPreviousBuild(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "gpb-proj")
+	_ = bs.InsertBuild(ctx, "gpb-proj", 1)
+	_ = bs.InsertBuild(ctx, "gpb-proj", 2)
+	_ = bs.InsertBuild(ctx, "gpb-proj", 5) // non-contiguous gap
+
+	// Previous of build 2 is build 1.
+	prev, err := bs.GetPreviousBuild(ctx, "gpb-proj", 2)
+	if err != nil {
+		t.Fatalf("GetPreviousBuild(2): %v", err)
+	}
+	if prev.BuildOrder != 1 {
+		t.Errorf("previous of 2: got BuildOrder %d, want 1", prev.BuildOrder)
+	}
+
+	// Previous of build 5 is build 2 (non-contiguous gap).
+	prev, err = bs.GetPreviousBuild(ctx, "gpb-proj", 5)
+	if err != nil {
+		t.Fatalf("GetPreviousBuild(5): %v", err)
+	}
+	if prev.BuildOrder != 2 {
+		t.Errorf("previous of 5: got BuildOrder %d, want 2", prev.BuildOrder)
+	}
+
+	// No previous for the first build.
+	_, err = bs.GetPreviousBuild(ctx, "gpb-proj", 1)
+	if err == nil {
+		t.Fatal("expected error for no previous build")
+	}
+	if !errors.Is(err, store.ErrBuildNotFound) {
+		t.Errorf("expected ErrBuildNotFound, got %v", err)
+	}
+}
+
+func TestBuildStore_GetLatestBuild(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "glb-proj")
+	_ = bs.InsertBuild(ctx, "glb-proj", 1)
+	_ = bs.InsertBuild(ctx, "glb-proj", 2)
+	_ = bs.SetLatest(ctx, "glb-proj", 2)
+
+	// Found case.
+	b, err := bs.GetLatestBuild(ctx, "glb-proj")
+	if err != nil {
+		t.Fatalf("GetLatestBuild: %v", err)
+	}
+	if b.BuildOrder != 2 {
+		t.Errorf("BuildOrder = %d, want 2", b.BuildOrder)
+	}
+	if !b.IsLatest {
+		t.Error("expected IsLatest=true")
+	}
+
+	// Not-found case: no latest flag set.
+	_ = ps.CreateProject(ctx, "glb-empty")
+	_ = bs.InsertBuild(ctx, "glb-empty", 1)
+	_, err = bs.GetLatestBuild(ctx, "glb-empty")
+	if err == nil {
+		t.Fatal("expected error when no build is marked latest")
+	}
+	if !errors.Is(err, store.ErrBuildNotFound) {
+		t.Errorf("expected ErrBuildNotFound, got %v", err)
 	}
 }
 

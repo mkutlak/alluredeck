@@ -467,6 +467,77 @@ func TestTestResultStore_TimelineColumnsExist(t *testing.T) {
 	}
 }
 
+func TestTestResultStore_ListFailedByBuild(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "fail-proj")
+	_ = bs.InsertBuild(ctx, "fail-proj", 1)
+	buildID, _ := ts.GetBuildID(ctx, "fail-proj", 1)
+
+	results := []store.TestResult{
+		{BuildID: buildID, ProjectID: "fail-proj", TestName: "PassingTest", FullName: "pkg.PassingTest", Status: "passed", DurationMs: 100, HistoryID: "h1"},
+		{BuildID: buildID, ProjectID: "fail-proj", TestName: "FailedSlow", FullName: "pkg.FailedSlow", Status: "failed", DurationMs: 5000, HistoryID: "h2", NewFailed: true},
+		{BuildID: buildID, ProjectID: "fail-proj", TestName: "BrokenTest", FullName: "pkg.BrokenTest", Status: "broken", DurationMs: 3000, HistoryID: "h3", Flaky: true},
+		{BuildID: buildID, ProjectID: "fail-proj", TestName: "SkippedTest", FullName: "pkg.SkippedTest", Status: "skipped", DurationMs: 0, HistoryID: "h4"},
+		{BuildID: buildID, ProjectID: "fail-proj", TestName: "FailedFast", FullName: "pkg.FailedFast", Status: "failed", DurationMs: 200, HistoryID: "h5"},
+	}
+	_ = ts.InsertBatch(ctx, results)
+
+	// Should return only failed+broken, ordered by duration DESC.
+	failures, err := ts.ListFailedByBuild(ctx, "fail-proj", buildID, 10)
+	if err != nil {
+		t.Fatalf("ListFailedByBuild: %v", err)
+	}
+	if len(failures) != 3 {
+		t.Fatalf("expected 3 failed/broken results, got %d", len(failures))
+	}
+	// Ordered by duration DESC: FailedSlow(5000), BrokenTest(3000), FailedFast(200)
+	if failures[0].TestName != "FailedSlow" {
+		t.Errorf("first failure should be FailedSlow, got %s", failures[0].TestName)
+	}
+	if failures[1].TestName != "BrokenTest" {
+		t.Errorf("second failure should be BrokenTest, got %s", failures[1].TestName)
+	}
+	if failures[2].TestName != "FailedFast" {
+		t.Errorf("third failure should be FailedFast, got %s", failures[2].TestName)
+	}
+	// Verify NewFailed and Flaky flags.
+	if !failures[0].NewFailed {
+		t.Error("FailedSlow should have NewFailed=true")
+	}
+	if !failures[1].Flaky {
+		t.Error("BrokenTest should have Flaky=true")
+	}
+
+	// Limit respected.
+	limited, err := ts.ListFailedByBuild(ctx, "fail-proj", buildID, 2)
+	if err != nil {
+		t.Fatalf("ListFailedByBuild limit: %v", err)
+	}
+	if len(limited) != 2 {
+		t.Errorf("expected 2 results with limit=2, got %d", len(limited))
+	}
+
+	// Empty result for project with no failures.
+	_ = ps.CreateProject(ctx, "no-fail")
+	_ = bs.InsertBuild(ctx, "no-fail", 1)
+	noFailBID, _ := ts.GetBuildID(ctx, "no-fail", 1)
+	_ = ts.InsertBatch(ctx, []store.TestResult{
+		{BuildID: noFailBID, ProjectID: "no-fail", TestName: "AllGood", FullName: "pkg.AllGood", Status: "passed", DurationMs: 50, HistoryID: "h-ok"},
+	})
+	empty, err := ts.ListFailedByBuild(ctx, "no-fail", noFailBID, 10)
+	if err != nil {
+		t.Fatalf("ListFailedByBuild empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("expected 0 failures, got %d", len(empty))
+	}
+}
+
 func TestTestResultStore_EmptyProject(t *testing.T) {
 	s := openTestStore(t)
 	ts := store.NewTestResultStore(s, zap.NewNop())

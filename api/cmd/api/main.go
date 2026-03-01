@@ -259,7 +259,6 @@ func registerRoutes(
 	// Viewer+ endpoints (public when MakeViewerEndptsPub=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(mutableCache(allure.GetProjects)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/emailable", viewerUp(mutableCache(allure.GetEmailableReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))
 
 	// Admin write endpoints — no-store.
@@ -278,6 +277,7 @@ func registerRoutes(
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(allure.GetReportKnownFailures)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(allure.GetReportTimeline)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(allure.GetReportStability)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(allure.GetReportSummary)))
 
 	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(allure.ListKnownIssues)))

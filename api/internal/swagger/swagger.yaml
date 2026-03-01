@@ -288,6 +288,41 @@ paths:
       summary: Get low-performing tests
       tags:
       - analytics
+  /projects/{project_id}/jobs/{job_id}:
+    get:
+      description: Returns the current status of an async report generation job.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Job ID
+        in: path
+        name: job_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get async report generation job status
+      tags:
+      - reports
   /projects/{project_id}/known-issues:
     get:
       description: Returns all known issues for a project.
@@ -685,6 +720,43 @@ paths:
       summary: Get stability data for a report
       tags:
       - reports
+  /projects/{project_id}/reports/{report_id}/summary:
+    get:
+      description: |-
+        Returns a JSON summary of a build including statistics, quality metrics,
+        top failures, and trend deltas compared to the previous build.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Build order number or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get report summary with statistics, top failures, and trend
+      tags:
+      - reports
   /projects/{project_id}/reports/{report_id}/timeline:
     get:
       description: Returns all test cases with start/stop timestamps for Gantt-chart
@@ -714,35 +786,6 @@ paths:
             additionalProperties: true
             type: object
       summary: Get test execution timeline for a report
-      tags:
-      - reports
-  /projects/{project_id}/reports/emailable:
-    get:
-      description: Renders the emailable HTML report for a project and returns it.
-      parameters:
-      - description: Project ID
-        in: path
-        name: project_id
-        required: true
-        type: string
-      produces:
-      - text/html
-      responses:
-        "200":
-          description: HTML report
-          schema:
-            type: string
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      summary: Get emailable report
       tags:
       - reports
   /projects/{project_id}/reports/history:

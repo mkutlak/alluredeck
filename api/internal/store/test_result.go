@@ -356,6 +356,44 @@ func (ts *TestResultStore) ListTimeline(ctx context.Context, projectID string, b
 	return result, nil
 }
 
+// ListFailedByBuild returns failed+broken tests for a build, ordered by duration DESC.
+func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID string, buildID int64, limit int) ([]TestResult, error) {
+	rows, err := ts.db.QueryContext(ctx, `
+		SELECT build_id, project_id, test_name, full_name, status, duration_ms,
+		       history_id, flaky, retries, new_failed, new_passed
+		FROM test_results
+		WHERE build_id = ? AND project_id = ? AND status IN ('failed', 'broken')
+		ORDER BY duration_ms DESC
+		LIMIT ?`, buildID, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list failed by build: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []TestResult
+	for rows.Next() {
+		var r TestResult
+		var flaky, newFailed, newPassed int
+		if err := rows.Scan(
+			&r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status, &r.DurationMs,
+			&r.HistoryID, &flaky, &r.Retries, &newFailed, &newPassed,
+		); err != nil {
+			return nil, fmt.Errorf("scan failed test result: %w", err)
+		}
+		r.Flaky = flaky == 1
+		r.NewFailed = newFailed == 1
+		r.NewPassed = newPassed == 1
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate failed results: %w", err)
+	}
+	if results == nil {
+		results = []TestResult{}
+	}
+	return results, nil
+}
+
 // DeleteByProject removes all test results for the given project.
 func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID string) error {
 	_, err := ts.db.ExecContext(ctx,

@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ExternalLink,
-  FileText,
   Upload,
   Play,
   Trash2,
@@ -14,7 +13,7 @@ import {
   RefreshCw,
   GitBranch,
 } from 'lucide-react'
-import { fetchReportHistory, deleteReport, getEmailableReportUrl, fetchReportKnownFailures } from '@/api/reports'
+import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { env } from '@/lib/env'
@@ -152,12 +151,6 @@ export function OverviewTab() {
           <a href={latestReportUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink size={14} />
             Open latest report
-          </a>
-        </Button>
-        <Button asChild variant="ghost" size="sm">
-          <a href={getEmailableReportUrl(projectId)} target="_blank" rel="noopener noreferrer">
-            <FileText size={14} />
-            Emailable report
           </a>
         </Button>
       </div>

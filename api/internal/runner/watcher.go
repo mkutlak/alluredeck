@@ -119,10 +119,6 @@ func (w *Watcher) checkProject(ctx context.Context, projectID, previousHash stri
 				zap.String("project_id", projectID), zap.Error(err))
 		}
 
-		if _, err := w.allureCore.RenderEmailableReport(ctx, projectID); err != nil {
-			w.logger.Error("watcher failed to render emailable report",
-				zap.String("project_id", projectID), zap.Error(err))
-		}
 	}
 
 	return currentHash, false

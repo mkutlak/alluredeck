@@ -3,11 +3,9 @@ package runner
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,9 +20,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-//go:embed templates/emailable.gohtml
-var emailableTemplateContent string
-
 // ErrProjectExists is returned when creating a project that already exists
 var ErrProjectExists = errors.New("project already exists")
 
@@ -32,13 +27,6 @@ var ErrProjectExists = errors.New("project already exists")
 var (
 	ErrStatsNotFound   = errors.New("build stats not found")
 	ErrAllureCmdFailed = errors.New("allure command failed")
-)
-
-const (
-	statusPassed  = "passed"
-	statusFailed  = "failed"
-	statusBroken  = "broken"
-	statusSkipped = "skipped"
 )
 
 // stabilityEntry is used to parse test-result JSON files for stability data.
@@ -98,149 +86,6 @@ type ExecutorJSON struct {
 	ReportURL  string `json:"reportUrl"`
 	BuildURL   string `json:"buildUrl"`
 	Type       string `json:"type"`
-}
-
-// --- Emailable report types ---
-
-// TestCaseTime holds timing information for a test case or step
-type TestCaseTime struct {
-	Start    int64 `json:"start,omitempty"`
-	Stop     int64 `json:"stop,omitempty"`
-	Duration int64 `json:"duration"`
-}
-
-// TestCaseExtra holds extra metadata attached to a test case
-type TestCaseExtra struct {
-	Severity string `json:"severity,omitempty"`
-}
-
-// TestCaseLabel represents a label attached to a test case
-type TestCaseLabel struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-// TestCaseStep represents a single step within a stage
-type TestCaseStep struct {
-	Name          string        `json:"name"`
-	Status        string        `json:"status"`
-	StatusMessage string        `json:"statusMessage,omitempty"`
-	StatusTrace   string        `json:"statusTrace,omitempty"`
-	Time          *TestCaseTime `json:"time,omitempty"`
-}
-
-// TestCaseStage holds before/test/after stage data
-type TestCaseStage struct {
-	Status        string         `json:"status,omitempty"`
-	StatusMessage string         `json:"statusMessage,omitempty"`
-	StatusTrace   string         `json:"statusTrace,omitempty"`
-	StepsCount    int            `json:"stepsCount,omitempty"`
-	Steps         []TestCaseStep `json:"steps,omitempty"`
-}
-
-// TestCase represents one Allure test case parsed from the report
-type TestCase struct {
-	Name         string          `json:"name"`
-	Status       string          `json:"status"`
-	Description  string          `json:"description,omitempty"`
-	Time         *TestCaseTime   `json:"time,omitempty"`
-	Extra        *TestCaseExtra  `json:"extra,omitempty"`
-	Labels       []TestCaseLabel `json:"labels,omitempty"`
-	TestStage    *TestCaseStage  `json:"testStage,omitempty"`
-	BeforeStages []TestCaseStage `json:"beforeStages,omitempty"`
-	AfterStages  []TestCaseStage `json:"afterStages,omitempty"`
-}
-
-// testStats holds pre-computed summary counts and percentages
-type testStats struct {
-	Total      int
-	Passed     int
-	Failed     int
-	Broken     int
-	Skipped    int
-	Unknown    int
-	PassedPct  float64
-	FailedPct  float64
-	BrokenPct  float64
-	SkippedPct float64
-	UnknownPct float64
-}
-
-// emailableData is the data passed to the emailable report template
-type emailableData struct {
-	Title     string
-	ProjectID string
-	ServerURL string
-	Stats     testStats
-	TestCases []TestCase
-}
-
-// statusBorderClasses maps a test status to its Bootstrap border CSS class.
-//
-//nolint:gochecknoglobals // read-only lookup table, initialized once at package level
-var statusBorderClasses = map[string]string{
-	statusPassed:  "border-success",
-	statusFailed:  "border-danger",
-	statusBroken:  "border-warning",
-	statusSkipped: "border-light",
-}
-
-// statusBadgeClasses maps a test status to its Bootstrap badge CSS class.
-//
-//nolint:gochecknoglobals // read-only lookup table, initialized once at package level
-var statusBadgeClasses = map[string]string{
-	statusPassed:  "badge-success",
-	statusFailed:  "badge-danger",
-	statusBroken:  "badge-warning",
-	statusSkipped: "badge-light",
-}
-
-// statusTableClasses maps a test status to its Bootstrap table-row CSS class.
-//
-//nolint:gochecknoglobals // read-only lookup table, initialized once at package level
-var statusTableClasses = map[string]string{
-	statusPassed:  "table-success",
-	statusFailed:  "table-danger",
-	statusBroken:  "table-warning",
-	statusSkipped: "table-light",
-}
-
-// relevantLabels is the set of Allure label names shown in the emailable report.
-//
-//nolint:gochecknoglobals // read-only lookup table, initialized once at package level
-var relevantLabels = map[string]bool{
-	"feature": true, "tag": true, "package": true,
-	"suite": true, "testClass": true, "testMethod": true,
-}
-
-// emailableTemplateFuncs defines the template helper functions
-//
-//nolint:gochecknoglobals // read-only template function map, initialized once at package level
-var emailableTemplateFuncs = template.FuncMap{
-	"statusBorderClass": func(status string) string {
-		if cls, ok := statusBorderClasses[status]; ok {
-			return cls
-		}
-		return "border-dark"
-	},
-	"statusBadgeClass": func(status string) string {
-		if cls, ok := statusBadgeClasses[status]; ok {
-			return cls
-		}
-		return "badge-dark"
-	},
-	"statusTableClass": func(status string) string {
-		if cls, ok := statusTableClasses[status]; ok {
-			return cls
-		}
-		return "table-dark"
-	},
-	"isRelevantLabel": func(name string) bool {
-		return relevantLabels[name]
-	},
-	"formatDurationMs": func(ms int64) string {
-		return fmt.Sprintf("%.3f", float64(ms)/1000.0)
-	},
 }
 
 // writeExecutorJSON writes executor metadata to the results directory.
@@ -540,10 +385,6 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 			return err
 		}
 
-		if _, err := a.RenderEmailableReport(ctx, projectID); err != nil {
-			a.logger.Error("emailable report render failed",
-				zap.String("project_id", projectID), zap.Error(err))
-		}
 	}
 
 	return nil
@@ -571,114 +412,6 @@ func (a *Allure) DeleteReport(ctx context.Context, projectID, reportID string) e
 		return fmt.Errorf("delete report %q for %q: %w", reportID, projectID, err)
 	}
 	return nil
-}
-
-// loadTestCases reads all JSON test-case files from the relative path within the project.
-func (a *Allure) loadTestCases(ctx context.Context, projectID, relPath string) ([]TestCase, error) {
-	entries, err := a.store.ReadDir(ctx, projectID, relPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading test-results dir: %w", err)
-	}
-
-	var testCases []TestCase
-	for _, e := range entries {
-		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
-			continue
-		}
-		filePath := relPath + "/" + e.Name
-		raw, err := a.store.ReadFile(ctx, projectID, filePath)
-		if err != nil {
-			a.logger.Warn("skipping test-case file", zap.String("file", e.Name), zap.Error(err))
-			continue
-		}
-		var tc TestCase
-		if err := json.Unmarshal(raw, &tc); err != nil {
-			a.logger.Warn("invalid JSON in test-case file", zap.String("file", e.Name), zap.Error(err))
-			continue
-		}
-		testCases = append(testCases, tc)
-	}
-
-	return testCases, nil
-}
-
-// renderEmailableToDir parses the embedded template, executes it with data,
-// and writes the result to outputDir/index.html. Returns the rendered bytes.
-func renderEmailableToDir(outputDir string, data *emailableData) ([]byte, error) {
-	tmpl, err := template.New("emailable").Funcs(emailableTemplateFuncs).Parse(emailableTemplateContent)
-	if err != nil {
-		return nil, fmt.Errorf("parsing emailable template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("executing emailable template: %w", err)
-	}
-
-	//nolint:gosec // G301: 0o755 required for allure web server
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating emailable report dir: %w", err)
-	}
-	//nolint:gosec // G306: 0o644 required for web server to serve emailable report
-	if err := os.WriteFile(filepath.Join(outputDir, "index.html"), buf.Bytes(), 0o644); err != nil {
-		return nil, fmt.Errorf("writing emailable report: %w", err)
-	}
-
-	return buf.Bytes(), nil
-}
-
-// RenderEmailableReport reads test cases from the latest report, renders the
-// emailable HTML report from the embedded template, saves it to
-// reports/emailable-report-render/index.html, and returns the rendered bytes.
-func (a *Allure) RenderEmailableReport(ctx context.Context, projectID string) ([]byte, error) {
-	relPath := "reports/latest/data/test-results"
-
-	testCases, err := a.loadTestCases(ctx, projectID, relPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Pre-compute statistics (Jinja2 namespace vars handled in Go)
-	stats := computeTestStats(testCases)
-
-	data := emailableData{
-		Title:     projectID,
-		ProjectID: projectID,
-		Stats:     stats,
-		TestCases: testCases,
-	}
-
-	// Output dir is always local — emailable report is served from local filesystem
-	outputDir := filepath.Join(a.cfg.ProjectsDirectory, projectID, "reports", "emailable-report-render")
-	return renderEmailableToDir(outputDir, &data)
-}
-
-// computeTestStats counts test results by status and computes percentages.
-func computeTestStats(testCases []TestCase) testStats {
-	stats := testStats{Total: len(testCases)}
-	for i := range testCases {
-		switch testCases[i].Status {
-		case statusPassed:
-			stats.Passed++
-		case statusFailed:
-			stats.Failed++
-		case statusBroken:
-			stats.Broken++
-		case statusSkipped:
-			stats.Skipped++
-		default:
-			stats.Unknown++
-		}
-	}
-	if stats.Total > 0 {
-		f := float64(stats.Total)
-		stats.PassedPct = float64(stats.Passed) * 100 / f
-		stats.FailedPct = float64(stats.Failed) * 100 / f
-		stats.BrokenPct = float64(stats.Broken) * 100 / f
-		stats.SkippedPct = float64(stats.Skipped) * 100 / f
-		stats.UnknownPct = float64(stats.Unknown) * 100 / f
-	}
-	return stats
 }
 
 // CleanResults delegates to the store module

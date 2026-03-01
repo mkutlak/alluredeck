@@ -449,51 +449,6 @@ func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetEmailableReport godoc
-// @Summary      Get emailable report
-// @Description  Renders the emailable HTML report for a project and returns it.
-// @Tags         reports
-// @Produce      html
-// @Param        project_id  path  string  true  "Project ID"
-// @Success      200  {string}  string  "HTML report"
-// @Failure      400  {object}  map[string]any
-// @Failure      500  {object}  map[string]any
-// @Router       /projects/{project_id}/reports/emailable [get]
-func (h *AllureHandler) GetEmailableReport(w http.ResponseWriter, r *http.Request) {
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
-		return
-	}
-
-	htmlBytes, err := h.runner.RenderEmailableReport(r.Context(), projectID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error rendering emailable report: %v", err)},
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(htmlBytes) //nolint:gosec // G705: htmlBytes is rendered from a trusted template, not from user input
-}
-
 // SendResults godoc
 // @Summary      Upload test results
 // @Description  Uploads allure result files to a project. Supports JSON (deprecated), multipart/form-data, and application/gzip (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz or multipart uploads.

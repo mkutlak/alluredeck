@@ -144,6 +144,128 @@ func (bs *BuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID strin
 	return nil
 }
 
+// scanBuild scans a single build row from the standard column set.
+func (bs *BuildStore) scanBuild(row *sql.Row) (Build, error) {
+	var b Build
+	var createdAt string
+	var passed, failed, broken, skipped, unknown, total sql.NullInt64
+	var durationMs sql.NullInt64
+	var isLatest int
+	var flakyCount, retriedCount, newFailedCount, newPassedCount int
+	var ciProvider, ciBuildURL, ciBranch, ciCommitSHA sql.NullString
+
+	if err := row.Scan(
+		&b.ID, &b.ProjectID, &b.BuildOrder, &createdAt,
+		&passed, &failed, &broken, &skipped, &unknown, &total,
+		&durationMs, &isLatest,
+		&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
+		&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
+	); err != nil {
+		return Build{}, err
+	}
+
+	if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err == nil {
+		b.CreatedAt = t
+	}
+	b.IsLatest = isLatest == 1
+	if passed.Valid {
+		v := int(passed.Int64)
+		b.StatPassed = &v
+	}
+	if failed.Valid {
+		v := int(failed.Int64)
+		b.StatFailed = &v
+	}
+	if broken.Valid {
+		v := int(broken.Int64)
+		b.StatBroken = &v
+	}
+	if skipped.Valid {
+		v := int(skipped.Int64)
+		b.StatSkipped = &v
+	}
+	if unknown.Valid {
+		v := int(unknown.Int64)
+		b.StatUnknown = &v
+	}
+	if total.Valid {
+		v := int(total.Int64)
+		b.StatTotal = &v
+	}
+	if durationMs.Valid {
+		b.DurationMs = &durationMs.Int64
+	}
+	b.FlakyCount = &flakyCount
+	b.RetriedCount = &retriedCount
+	b.NewFailedCount = &newFailedCount
+	b.NewPassedCount = &newPassedCount
+	if ciProvider.Valid {
+		b.CIProvider = &ciProvider.String
+	}
+	if ciBuildURL.Valid {
+		b.CIBuildURL = &ciBuildURL.String
+	}
+	if ciBranch.Valid {
+		b.CIBranch = &ciBranch.String
+	}
+	if ciCommitSHA.Valid {
+		b.CICommitSHA = &ciCommitSHA.String
+	}
+	return b, nil
+}
+
+const buildSelectColumns = `
+	SELECT id, project_id, build_order, created_at,
+	       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
+	       duration_ms, is_latest,
+	       flaky_count, retried_count, new_failed_count, new_passed_count,
+	       ci_provider, ci_build_url, ci_branch, ci_commit_sha
+	FROM builds`
+
+// GetBuildByOrder returns a single build for project_id + build_order.
+func (bs *BuildStore) GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (Build, error) {
+	row := bs.db.QueryRowContext(ctx, buildSelectColumns+`
+		WHERE project_id = ? AND build_order = ?`, projectID, buildOrder)
+	b, err := bs.scanBuild(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Build{}, fmt.Errorf("%w: project=%s build=%d", ErrBuildNotFound, projectID, buildOrder)
+		}
+		return Build{}, fmt.Errorf("get build by order: %w", err)
+	}
+	return b, nil
+}
+
+// GetPreviousBuild returns the build immediately before the given build_order.
+func (bs *BuildStore) GetPreviousBuild(ctx context.Context, projectID string, buildOrder int) (Build, error) {
+	row := bs.db.QueryRowContext(ctx, buildSelectColumns+`
+		WHERE project_id = ? AND build_order < ?
+		ORDER BY build_order DESC
+		LIMIT 1`, projectID, buildOrder)
+	b, err := bs.scanBuild(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Build{}, fmt.Errorf("%w: no previous build for project=%s build=%d", ErrBuildNotFound, projectID, buildOrder)
+		}
+		return Build{}, fmt.Errorf("get previous build: %w", err)
+	}
+	return b, nil
+}
+
+// GetLatestBuild returns the build marked is_latest=1 for a project.
+func (bs *BuildStore) GetLatestBuild(ctx context.Context, projectID string) (Build, error) {
+	row := bs.db.QueryRowContext(ctx, buildSelectColumns+`
+		WHERE project_id = ? AND is_latest = 1`, projectID)
+	b, err := bs.scanBuild(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Build{}, fmt.Errorf("%w: no latest build for project=%s", ErrBuildNotFound, projectID)
+		}
+		return Build{}, fmt.Errorf("get latest build: %w", err)
+	}
+	return b, nil
+}
+
 // ListBuilds returns all builds for a project in descending build_order.
 func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]Build, error) {
 	rows, err := bs.db.QueryContext(ctx, `
