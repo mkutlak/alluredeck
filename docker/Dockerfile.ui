@@ -17,8 +17,10 @@ COPY ui/ .
 # Pass dummy build-time values; real values are injected at runtime via env.js
 ARG VITE_API_URL=http://localhost:5050
 ARG VITE_APP_TITLE="AllureDeck"
+ARG VITE_APP_VERSION=dev
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_APP_TITLE=$VITE_APP_TITLE
+ENV VITE_APP_VERSION=$VITE_APP_VERSION
 
 RUN npm run build
 

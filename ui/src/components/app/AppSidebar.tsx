@@ -14,6 +14,7 @@ import { getProjects } from '@/api/projects'
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
@@ -24,6 +25,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar'
+import { env } from '@/lib/env'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SearchTrigger } from '@/features/search'
 
@@ -127,6 +129,9 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
+      <SidebarFooter>
+        <p className="px-2 py-1 text-xs text-muted-foreground">v{env.appVersion}</p>
+      </SidebarFooter>
     </Sidebar>
   )
 }

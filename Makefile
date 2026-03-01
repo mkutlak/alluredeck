@@ -93,7 +93,7 @@ ui-dev: ## Start UI dev server
 	cd $(UI_DIR) && npm run dev
 
 ui-build: ## Build UI for production
-	cd $(UI_DIR) && npm run build
+	cd $(UI_DIR) && VITE_APP_VERSION=$(BUILD_VERSION) npm run build
 
 ui-preview: ## Preview UI production build
 	cd $(UI_DIR) && npm run preview
@@ -149,6 +149,7 @@ docker-build-api: ## Build API Docker image
 
 docker-build-ui: ## Build UI Docker image
 	docker build \
+		--build-arg VITE_APP_VERSION=$(BUILD_VERSION) \
 		-f docker/Dockerfile.ui \
 		-t $(IMAGE_UI):$(IMAGE_TAG) \
 		.

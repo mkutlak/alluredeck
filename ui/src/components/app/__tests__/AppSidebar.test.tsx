@@ -160,4 +160,10 @@ describe('AppSidebar', () => {
     // They live in their own separate SidebarGroup (Section 4)
     expect(overviewLink.closest('[data-sidebar="menu-sub"]')).toBeNull()
   })
+
+  it('displays app version in sidebar footer', () => {
+    renderSidebar('/')
+    // In test env VITE_APP_VERSION is unset → falls back to 'dev'
+    expect(screen.getByText('vdev')).toBeInTheDocument()
+  })
 })

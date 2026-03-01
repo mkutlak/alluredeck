@@ -87,6 +87,7 @@ services:
     environment:
       VITE_API_URL: "http://localhost:5050/api/v1"
       VITE_APP_TITLE: "AllureDeck (S3)"
+      VITE_APP_VERSION: "${VITE_APP_VERSION:-dev}"
     ports:
       - "7474:8080"
     restart: unless-stopped

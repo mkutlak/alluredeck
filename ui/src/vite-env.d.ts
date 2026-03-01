@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_API_URL: string
   readonly VITE_APP_TITLE: string
+  readonly VITE_APP_VERSION: string
 }
 
 interface ImportMeta {
@@ -14,5 +15,6 @@ interface Window {
   __env__?: {
     VITE_API_URL?: string
     VITE_APP_TITLE?: string
+    VITE_APP_VERSION?: string
   }
 }

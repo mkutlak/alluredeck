@@ -9,4 +9,8 @@ export const env = {
     window.__env__?.VITE_APP_TITLE && !window.__env__.VITE_APP_TITLE.startsWith('$')
       ? window.__env__.VITE_APP_TITLE
       : (import.meta.env.VITE_APP_TITLE ?? 'AllureDeck'),
+  appVersion:
+    window.__env__?.VITE_APP_VERSION && !window.__env__.VITE_APP_VERSION.startsWith('$')
+      ? window.__env__.VITE_APP_VERSION
+      : (import.meta.env.VITE_APP_VERSION ?? 'dev'),
 } as const

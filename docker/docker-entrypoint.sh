@@ -5,11 +5,12 @@ set -eu
 
 VITE_API_URL="${VITE_API_URL:-http://localhost:5050}"
 VITE_APP_TITLE="${VITE_APP_TITLE:-AllureDeck}"
+VITE_APP_VERSION="${VITE_APP_VERSION:-dev}"
 
-export VITE_API_URL VITE_APP_TITLE
+export VITE_API_URL VITE_APP_TITLE VITE_APP_VERSION
 
 # Replace template placeholders; write to the final env.js
-envsubst '${VITE_API_URL} ${VITE_APP_TITLE}' \
+envsubst '${VITE_API_URL} ${VITE_APP_TITLE} ${VITE_APP_VERSION}' \
   < /usr/share/nginx/html/env.js \
   > /tmp/env.js.tmp && mv /tmp/env.js.tmp /usr/share/nginx/html/env.js
 
