@@ -21,8 +21,8 @@ export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
 
   const { data: historyData, isLoading } = useQuery({
-    queryKey: ['report-history', projectId],
-    queryFn: () => fetchReportHistory(projectId!),
+    queryKey: ['report-history-analytics', projectId],
+    queryFn: () => fetchReportHistory(projectId!, 1, 100),
     enabled: !!projectId,
     staleTime: 10_000,
   })
@@ -36,7 +36,7 @@ export function AnalyticsTab() {
 
   if (!projectId) return null
 
-  const reports = historyData?.reports ?? []
+  const reports = historyData?.data.reports ?? []
 
   if (isLoading) {
     return (

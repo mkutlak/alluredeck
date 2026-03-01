@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ApiResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportAccepted, GenerateReportParams, JobData, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
+import type { ApiResponse, PaginatedResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportAccepted, GenerateReportParams, JobData, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
 import { env } from '@/lib/env'
 
 export async function generateReport(
@@ -80,11 +80,16 @@ export async function deleteReport(
   return res.data
 }
 
-export async function fetchReportHistory(projectId: string): Promise<ReportHistoryData> {
-  const res = await apiClient.get<ApiResponse<ReportHistoryData>>(
+export async function fetchReportHistory(
+  projectId: string,
+  page = 1,
+  perPage = 20,
+): Promise<PaginatedResponse<ReportHistoryData>> {
+  const res = await apiClient.get<PaginatedResponse<ReportHistoryData>>(
     `/projects/${encodeURIComponent(projectId)}/reports`,
+    { params: { page, per_page: perPage } },
   )
-  return res.data.data
+  return res.data
 }
 
 /** Attempt to load Allure summary JSON from the static report files. */

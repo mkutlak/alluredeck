@@ -38,8 +38,8 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
   const mutation = useMutation({
     mutationFn: () =>
       updateKnownIssue(projectId, issue.id, {
-        ticket_url: ticketUrl || undefined,
-        description: description || undefined,
+        ticket_url: ticketUrl,
+        description: description,
         is_active: isActive,
       }),
     onSuccess: () => {

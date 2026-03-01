@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, ExternalLink } from 'lucide-react'
-import { listKnownIssues, deleteKnownIssue } from '@/api/known-issues'
+import { listKnownIssues, deleteKnownIssue, updateKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/button'
@@ -49,6 +49,22 @@ export function KnownIssuesTab() {
     queryFn: () => listKnownIssues(projectId!, false),
     enabled: !!projectId,
     staleTime: 15_000,
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: (issue: KnownIssue) =>
+      updateKnownIssue(projectId!, issue.id, {
+        ticket_url: issue.ticket_url,
+        description: issue.description,
+        is_active: !issue.is_active,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      toast({ title: 'Status updated' })
+    },
+    onError: (err) => {
+      toast({ title: 'Update failed', description: extractErrorMessage(err), variant: 'destructive' })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -145,9 +161,23 @@ export function KnownIssuesTab() {
                     {issue.description || '—'}
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant={issue.is_active ? 'default' : 'secondary'}>
-                      {issue.is_active ? 'active' : 'resolved'}
-                    </Badge>
+                    {isAdmin() ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Toggle issue status"
+                        onClick={() => toggleMutation.mutate(issue)}
+                        disabled={toggleMutation.isPending}
+                      >
+                        <Badge variant={issue.is_active ? 'default' : 'secondary'}>
+                          {issue.is_active ? 'active' : 'resolved'}
+                        </Badge>
+                      </Button>
+                    ) : (
+                      <Badge variant={issue.is_active ? 'default' : 'secondary'}>
+                        {issue.is_active ? 'active' : 'resolved'}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatDate(issue.created_at)}

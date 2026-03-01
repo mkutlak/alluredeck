@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { KnownIssuesTab } from '../KnownIssuesTab'
 import * as kiApi from '@/api/known-issues'
 import { useAuthStore } from '@/store/auth'
+import type { KnownIssue } from '@/types/api'
 
 vi.mock('@/api/known-issues')
 vi.mock('@/api/client', () => ({
@@ -86,6 +88,86 @@ describe('KnownIssuesTab', () => {
     renderTab('myproject', false)
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /Add Known Issue/i })).not.toBeInTheDocument()
+    })
+  })
+})
+
+function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
+  return {
+    id: 1,
+    project_id: 'myproject',
+    test_name: 'Login should succeed',
+    pattern: '',
+    ticket_url: 'https://jira.com/PROJ-1',
+    description: 'Flaky in CI',
+    is_active: true,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('KnownIssuesTab – inline toggle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders toggle status button for admin users', async () => {
+    vi.mocked(kiApi.listKnownIssues).mockResolvedValue([makeIssue()])
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /toggle issue status/i })).toBeInTheDocument()
+    })
+  })
+
+  it('hides toggle status button for viewer users', async () => {
+    vi.mocked(kiApi.listKnownIssues).mockResolvedValue([makeIssue()])
+    renderTab('myproject', false)
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /toggle issue status/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('clicking toggle calls updateKnownIssue with flipped is_active and preserved fields', async () => {
+    const user = userEvent.setup()
+    const issue = makeIssue({ ticket_url: 'https://jira.com/PROJ-1', description: 'Flaky in CI', is_active: true })
+    vi.mocked(kiApi.listKnownIssues).mockResolvedValue([issue])
+    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue({ ...issue, is_active: false })
+
+    renderTab()
+    await waitFor(() => screen.getByRole('button', { name: /toggle issue status/i }))
+
+    await user.click(screen.getByRole('button', { name: /toggle issue status/i }))
+
+    await waitFor(() => {
+      expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
+        ticket_url: 'https://jira.com/PROJ-1',
+        description: 'Flaky in CI',
+        is_active: false,
+      })
+    })
+  })
+
+  it('toggle sends is_active: true when issue is currently resolved', async () => {
+    const user = userEvent.setup()
+    const issue = makeIssue({ ticket_url: '', description: '', is_active: false })
+    vi.mocked(kiApi.listKnownIssues).mockResolvedValue([issue])
+    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue({ ...issue, is_active: true })
+
+    renderTab('myproject', true)
+    // Show resolved issues so the inactive one is visible
+    await waitFor(() => screen.getByLabelText(/show resolved/i))
+    await user.click(screen.getByLabelText(/show resolved/i))
+    await waitFor(() => screen.getByRole('button', { name: /toggle issue status/i }))
+
+    await user.click(screen.getByRole('button', { name: /toggle issue status/i }))
+
+    await waitFor(() => {
+      expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
+        ticket_url: '',
+        description: '',
+        is_active: true,
+      })
     })
   })
 })

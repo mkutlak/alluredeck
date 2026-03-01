@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   ExternalLink,
   Upload,
@@ -12,6 +12,8 @@ import {
   BarChart3,
   RefreshCw,
   GitBranch,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
@@ -42,12 +44,15 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/components/ui/use-toast'
+import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
 import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
+
+const PER_PAGE = 20
 
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -58,12 +63,19 @@ export function OverviewTab() {
   const [cleanResultsOpen, setCleanResultsOpen] = useState(false)
   const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [prevProjectId, setPrevProjectId] = useState(projectId)
+  if (prevProjectId !== projectId) {
+    setPrevProjectId(projectId)
+    setPage(1)
+  }
 
   const { data: historyData, isLoading } = useQuery({
-    queryKey: ['report-history', projectId],
-    queryFn: () => fetchReportHistory(projectId!),
+    queryKey: ['report-history', projectId, page],
+    queryFn: () => fetchReportHistory(projectId!, page, PER_PAGE),
     enabled: !!projectId,
     staleTime: 10_000,
+    placeholderData: keepPreviousData,
   })
 
   const { data: knownFailuresData } = useQuery({
@@ -92,8 +104,10 @@ export function OverviewTab() {
 
   if (!projectId) return null
 
-  const reports = historyData?.reports ?? []
-  const latest = reports[0]
+  const reports = historyData?.data.reports ?? []
+  const latest = reports.find((r) => r.is_latest)
+  const tableReports = reports.filter((r) => !r.is_latest)
+  const pagination = historyData?.pagination
   const stat = latest?.statistic
   const passRate = stat ? calcPassRate(stat.passed, stat.total) : null
   const knownCount = knownFailuresData?.known_failures?.length ?? 0
@@ -237,8 +251,8 @@ export function OverviewTab() {
                   {latest?.generated_at ? formatDate(latest.generated_at) : '—'}
                 </span>
               </div>
-              {reports.length > 0 && (
-                <p className="mt-1 text-xs text-muted-foreground">{reports.length} report{reports.length !== 1 ? 's' : ''} total</p>
+              {pagination && pagination.total > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">{pagination.total} report{pagination.total !== 1 ? 's' : ''} total</p>
               )}
             </CardContent>
           </Card>
@@ -259,7 +273,7 @@ export function OverviewTab() {
             <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
-      ) : reports.length === 0 ? (
+      ) : tableReports.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <RefreshCw size={36} className="text-muted-foreground/40" />
           <div>
@@ -290,7 +304,7 @@ export function OverviewTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {reports.map((r) => {
+              {tableReports.map((r) => {
                 const rStat = r.statistic
                 const rPassRate = rStat ? calcPassRate(rStat.passed, rStat.total) : null
                 const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
@@ -298,19 +312,12 @@ export function OverviewTab() {
                 return (
                   <TableRow key={r.report_id} className="cursor-pointer hover:bg-muted/50">
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Link
-                          to={reportUrl}
-                          className="font-mono text-sm font-medium text-primary hover:underline"
-                        >
-                          #{r.report_id}
-                        </Link>
-                        {r.is_latest && (
-                          <Badge variant="secondary" className="text-xs">
-                            latest
-                          </Badge>
-                        )}
-                      </div>
+                      <Link
+                        to={reportUrl}
+                        className="font-mono text-sm font-medium text-primary hover:underline"
+                      >
+                        #{r.report_id}
+                      </Link>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {r.generated_at ? formatDate(r.generated_at) : '—'}
@@ -434,6 +441,41 @@ export function OverviewTab() {
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {/* Pagination controls */}
+      {pagination && pagination.total_pages > 1 && (
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                <ChevronLeft size={14} />
+                Previous
+              </Button>
+            </PaginationItem>
+            <PaginationItem>
+              <span className="px-4 text-sm text-muted-foreground">
+                Page {page} of {pagination.total_pages}
+              </span>
+            </PaginationItem>
+            <PaginationItem>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))}
+                disabled={page >= pagination.total_pages}
+              >
+                Next
+                <ChevronRight size={14} />
+              </Button>
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
       )}
 
       {/* Duration summary */}
