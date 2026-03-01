@@ -17,7 +17,6 @@ import (
 )
 
 // Watcher manages the background polling of the results directories.
-// It replaces checkAllureResultsFiles.sh
 type Watcher struct {
 	cfg          *config.Config
 	allureCore   *Allure

@@ -94,9 +94,6 @@ func (h *SystemHandler) Version(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// ConfigResponse structures — int fields kept for JSON API compatibility with the
-// Python implementation. Booleans are serialised as 0/1 via btoi.
-
 // ConfigResponse wraps the config data and metadata for the /config endpoint.
 type ConfigResponse struct {
 	Data     ConfigData     `json:"data"`
@@ -112,9 +109,7 @@ type ConfigData struct {
 	KeepHistoryLatest        int    `json:"keep_history_latest"`
 	TLS                      bool   `json:"tls"`
 	SecurityEnabled          bool   `json:"security_enabled"`
-	URLPrefix                string `json:"url_prefix"`
 	APIRespLessVerbose       bool   `json:"api_response_less_verbose"`
-	OptimizeStorage          bool   `json:"optimize_storage"`
 	MakeViewerEndptsPub      bool   `json:"make_viewer_endpoints_public"`
 	AppVersion               string `json:"app_version"`
 	AppBuildDate             string `json:"app_build_date"`
@@ -150,9 +145,7 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 			KeepHistoryLatest:        h.cfg.KeepHistoryLatest,
 			TLS:                      h.cfg.TLS,
 			SecurityEnabled:          h.cfg.SecurityEnabled,
-			URLPrefix:                h.cfg.URLPrefix,
 			APIRespLessVerbose:       h.cfg.APIRespLessVerbose,
-			OptimizeStorage:          h.cfg.OptimizeStorage,
 			MakeViewerEndptsPub:      h.cfg.MakeViewerEndptsPub,
 			AppVersion:               version.Version,
 			AppBuildDate:             version.BuildDate,

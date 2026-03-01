@@ -29,9 +29,6 @@ import (
 //  2. N is a numeric build ID and file is absent from build dir
 //     → fall back to {projectsDir}/{projectID}/reports/latest/{rest}.
 //  3. Neither location has the file → 404.
-//
-// Backward compatible: old full-copy builds already contain index.html in their
-// numbered dir; they are served directly (step 1) without touching latest/.
 func newOverlayHandler(projectsDir string) http.Handler {
 	fs := http.FileServer(http.Dir(projectsDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

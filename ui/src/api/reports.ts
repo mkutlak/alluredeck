@@ -45,10 +45,27 @@ export async function cleanResults(projectId: string): Promise<ApiResponse<{ out
   return res.data
 }
 
+const TARGZ_EXTENSIONS = ['.tar.gz', '.tgz']
+
+function isTarGzFile(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return TARGZ_EXTENSIONS.some((ext) => name.endsWith(ext))
+}
+
 export async function sendResultsMultipart(projectId: string, files: File[]): Promise<void> {
+  const url = `/projects/${encodeURIComponent(projectId)}/results`
+
+  // Single tar.gz/tgz file → send as raw gzip body so the backend extracts it.
+  if (files.length === 1 && isTarGzFile(files[0])) {
+    await apiClient.post(url, files[0], {
+      headers: { 'Content-Type': 'application/gzip' },
+    })
+    return
+  }
+
   const formData = new FormData()
   files.forEach((file) => formData.append('files[]', file))
-  await apiClient.post(`/projects/${encodeURIComponent(projectId)}/results`, formData, {
+  await apiClient.post(url, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }

@@ -35,16 +35,12 @@ type Config struct {
 	JWTSecret           string //nolint:gosec // field name is intentional, not a leaked secret
 	MakeViewerEndptsPub bool
 	AllureVersionPath   string
-	StaticContentPath   string
 	ProjectsDirectory   string
 	CheckResultsSecs    string // "NONE" or positive integer string
 	KeepHistory         bool
 	KeepHistoryLatest   int
 	TLS                 bool
-	URLPrefix           string
 	APIRespLessVerbose  bool
-	OptimizeStorage     bool // dead in Go runtime; kept for /config response compatibility
-	LegacyUI            bool
 	CORSAllowedOrigins  []string
 	TrustForwardedFor   bool
 	AccessTokenExpiry   time.Duration
@@ -68,16 +64,12 @@ type yamlConfig struct {
 	JWTSecret           *string  `yaml:"jwt_secret"` //nolint:gosec // field name is intentional, not a leaked secret
 	MakeViewerEndptsPub *bool    `yaml:"make_viewer_endpoints_public"`
 	AllureVersionPath   *string  `yaml:"allure_version_path"`
-	StaticContentPath   *string  `yaml:"static_content_path"`
 	ProjectsDirectory   *string  `yaml:"projects_directory"`
 	CheckResultsSecs    *string  `yaml:"check_results_secs"`
 	KeepHistory         *bool    `yaml:"keep_history"`
 	KeepHistoryLatest   *int     `yaml:"keep_history_latest"`
 	TLS                 *bool    `yaml:"tls"`
-	URLPrefix           *string  `yaml:"url_prefix"`
 	APIRespLessVerbose  *bool    `yaml:"api_response_less_verbose"`
-	OptimizeStorage     *bool    `yaml:"optimize_storage"`
-	LegacyUI            *bool    `yaml:"legacy_ui"`
 	CORSAllowedOrigins  []string `yaml:"cors_allowed_origins"`
 	TrustForwardedFor   *bool    `yaml:"trust_forwarded_for"`
 	AccessTokenExpSecs  *int     `yaml:"access_token_expiry_secs"`
@@ -133,16 +125,12 @@ func LoadConfig() (*Config, error) {
 		JWTSecret:           jwtSecret,
 		MakeViewerEndptsPub: getEnvOrYAMLBool("MAKE_VIEWER_ENDPOINTS_PUBLIC", yc.MakeViewerEndptsPub),
 		AllureVersionPath:   getEnvOrYAML("ALLURE_VERSION_FILE", yc.AllureVersionPath, "/app/version"),
-		StaticContentPath:   getEnvOrYAML("STATIC_CONTENT", yc.StaticContentPath, "/app/static"),
 		ProjectsDirectory:   getEnvOrYAML("STATIC_CONTENT_PROJECTS", yc.ProjectsDirectory, "/app/projects"),
 		CheckResultsSecs:    getEnvOrYAML("CHECK_RESULTS_EVERY_SECONDS", yc.CheckResultsSecs, "1"),
 		KeepHistory:         getEnvOrYAMLBool("KEEP_HISTORY", yc.KeepHistory),
 		KeepHistoryLatest:   getEnvOrYAMLInt("KEEP_HISTORY_LATEST", yc.KeepHistoryLatest, 20),
 		TLS:                 getEnvOrYAMLBool("TLS", yc.TLS),
-		URLPrefix:           getEnvOrYAML("URL_PREFIX", yc.URLPrefix, ""),
 		APIRespLessVerbose:  getEnvOrYAMLBool("API_RESPONSE_LESS_VERBOSE", yc.APIRespLessVerbose),
-		OptimizeStorage:     getEnvOrYAMLBool("OPTIMIZE_STORAGE", yc.OptimizeStorage),
-		LegacyUI:            getEnvOrYAMLBool("LEGACY_UI", yc.LegacyUI),
 		CORSAllowedOrigins:  corsOrigins,
 		TrustForwardedFor:   getEnvOrYAMLBool("TRUST_X_FORWARDED_FOR", yc.TrustForwardedFor),
 		AccessTokenExpiry:   time.Duration(getEnvOrYAMLInt("JWT_ACCESS_TOKEN_EXPIRES", yc.AccessTokenExpSecs, 900)) * time.Second,
@@ -265,32 +253,6 @@ func getEnvOrYAMLInt(envKey string, yamlVal *int, defaultValue int) int {
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	valStr := getEnv(key, "")
-	if valStr != "" {
-		if i, err := strconv.Atoi(valStr); err == nil {
-			return i
-		}
-		fmt.Fprintf(os.Stderr, "WARNING: invalid integer value for %s: %q, using default %d\n", key, valStr, defaultValue)
-	}
-	return defaultValue
-}
-
-func getEnvAsBool(key string, defaultValue bool) bool {
-	valStr := getEnv(key, "")
-	if valStr != "" {
-		switch strings.ToUpper(valStr) {
-		case "1", "TRUE", "YES":
-			return true
-		case "0", "FALSE", "NO":
-			return false
-		default:
-			fmt.Fprintf(os.Stderr, "WARNING: invalid boolean value for %s: %q, using default %v\n", key, valStr, defaultValue)
-		}
 	}
 	return defaultValue
 }

@@ -89,17 +89,14 @@ RUN chown -R ${UID}:${GID} ${ROOT}
 ARG BUILD_DATE
 ARG BUILD_VERSION
 ARG BUILD_REF
-LABEL org.label-schema.build-date=${BUILD_DATE} \
-    org.label-schema.docker.dockerfile="docker/Dockerfile.api" \
-    org.label-schema.license="MIT" \
-    org.label-schema.name="AllureDeck" \
-    org.label-schema.version=${BUILD_VERSION} \
-    org.label-schema.description="Allure Framework is a flexible lightweight multi-language test report tool." \
-    org.label-schema.url="https://allurereport.org/docs/" \
-    org.label-schema.vcs-ref=${BUILD_REF} \
-    org.label-schema.vcs-type="Git" \
-    org.label-schema.vcs-url="https://github.com/mkutlak/alluredeck" \
-    org.label-schema.arch=${TARGETPLATFORM}
+LABEL org.opencontainers.image.created=${BUILD_DATE} \
+    org.opencontainers.image.title="AllureDeck API" \
+    org.opencontainers.image.description="Allure Framework is a flexible lightweight multi-language test report tool." \
+    org.opencontainers.image.licenses="MIT" \
+    org.opencontainers.image.version=${BUILD_VERSION} \
+    org.opencontainers.image.revision=${BUILD_REF} \
+    org.opencontainers.image.source="https://github.com/mkutlak/alluredeck" \
+    org.opencontainers.image.url="https://github.com/mkutlak/alluredeck"
 
 VOLUME ["/app/allure-results"]
 

@@ -318,12 +318,8 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 
 	// 5. Generate Allure 3 Config (written to results dir — allure reads it automatically)
 	configPath := filepath.Join(resultsDir, "allurereport.config.json")
-	plugin := "awesome"
-	if a.cfg.LegacyUI {
-		plugin = "classic"
-	}
 	configData := map[string]any{
-		"plugins": []string{plugin},
+		"plugins": []string{"awesome"},
 	}
 	cf, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
@@ -375,6 +371,16 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 		return fmt.Errorf("clean history for %q: %w", projectID, err)
 	}
 
+	// Clean build and test-result records from the database.
+	if err := a.buildStore.DeleteAllBuilds(ctx, projectID); err != nil {
+		return fmt.Errorf("clean history db builds for %q: %w", projectID, err)
+	}
+	if a.testResultStore != nil {
+		if err := a.testResultStore.DeleteByProject(ctx, projectID); err != nil {
+			return fmt.Errorf("clean history db test results for %q: %w", projectID, err)
+		}
+	}
+
 	checkSecs := strings.ToUpper(a.cfg.CheckResultsSecs)
 	if checkSecs != "NONE" {
 		if err := a.store.KeepHistory(ctx, projectID); err != nil {
@@ -384,7 +390,6 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 		if _, err := a.GenerateReport(ctx, projectID, "", "", "", false, "", ""); err != nil {
 			return err
 		}
-
 	}
 
 	return nil
@@ -411,6 +416,23 @@ func (a *Allure) DeleteReport(ctx context.Context, projectID, reportID string) e
 	if err := a.store.DeleteReport(ctx, projectID, reportID); err != nil {
 		return fmt.Errorf("delete report %q for %q: %w", reportID, projectID, err)
 	}
+
+	// Clean the corresponding build and test-result records from the database.
+	if buildOrder, err := strconv.Atoi(reportID); err == nil {
+		if dbErr := a.buildStore.DeleteBuild(ctx, projectID, buildOrder); dbErr != nil {
+			a.logger.Warn("failed to delete build from db",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(dbErr))
+		}
+		if a.testResultStore != nil {
+			if buildID, idErr := a.testResultStore.GetBuildID(ctx, projectID, buildOrder); idErr == nil {
+				if dbErr := a.testResultStore.DeleteByBuild(ctx, buildID); dbErr != nil {
+					a.logger.Warn("failed to delete test results from db",
+						zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(dbErr))
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

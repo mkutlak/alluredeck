@@ -527,6 +527,16 @@ func (bs *BuildStore) SetLatest(ctx context.Context, projectID string, buildOrde
 	return nil
 }
 
+// DeleteAllBuilds removes all builds for a project from the database.
+func (bs *BuildStore) DeleteAllBuilds(ctx context.Context, projectID string) error {
+	_, err := bs.db.ExecContext(ctx,
+		"DELETE FROM builds WHERE project_id=?", projectID)
+	if err != nil {
+		return fmt.Errorf("delete all builds for project %q: %w", projectID, err)
+	}
+	return nil
+}
+
 // DeleteBuild removes a single build by build_order from the database.
 func (bs *BuildStore) DeleteBuild(ctx context.Context, projectID string, buildOrder int) error {
 	res, err := bs.db.ExecContext(ctx,

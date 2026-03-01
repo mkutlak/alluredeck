@@ -394,6 +394,16 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID stri
 	return results, nil
 }
 
+// DeleteByBuild removes all test results for a specific build.
+func (ts *TestResultStore) DeleteByBuild(ctx context.Context, buildID int64) error {
+	_, err := ts.db.ExecContext(ctx,
+		"DELETE FROM test_results WHERE build_id=?", buildID)
+	if err != nil {
+		return fmt.Errorf("delete test results for build %d: %w", buildID, err)
+	}
+	return nil
+}
+
 // DeleteByProject removes all test results for the given project.
 func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID string) error {
 	_, err := ts.db.ExecContext(ctx,

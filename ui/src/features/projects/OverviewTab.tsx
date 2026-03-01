@@ -40,6 +40,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/components/ui/use-toast'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
@@ -100,8 +101,6 @@ export function OverviewTab() {
     stat && knownCount > 0
       ? calcPassRate(stat.passed + knownCount, stat.total)
       : null
-  const latestReportUrl = `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/latest/index.html`
-
   return (
     <div className="space-y-6">
       {/* Page title */}
@@ -114,46 +113,58 @@ export function OverviewTab() {
       {isAdmin() && (
         <div className="rounded-lg border p-4">
           <p className="mb-3 text-sm font-medium">Admin actions</p>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>
-              <Upload size={14} />
-              Send results
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
-              <Play size={14} />
-              Generate report
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-amber-600 hover:text-amber-700"
-              onClick={() => setCleanResultsOpen(true)}
-            >
-              <Trash2 size={14} />
-              Clean results
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setCleanHistoryOpen(true)}
-            >
-              <Trash2 size={14} />
-              Clean history
-            </Button>
-          </div>
+          <TooltipProvider>
+            <div className="flex flex-wrap gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>
+                    <Upload size={14} />
+                    Send results
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Upload Allure result files</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
+                    <Play size={14} />
+                    Generate report
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Generate report from current results</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-amber-600 hover:text-amber-700"
+                    onClick={() => setCleanResultsOpen(true)}
+                  >
+                    <Trash2 size={14} />
+                    Clean results
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete pending result files</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setCleanHistoryOpen(true)}
+                  >
+                    <Trash2 size={14} />
+                    Clean history
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete all report history</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
       )}
-
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-2">
-        <Button asChild variant="outline" size="sm">
-          <a href={latestReportUrl} target="_blank" rel="noopener noreferrer">
-            <ExternalLink size={14} />
-            Open latest report
-          </a>
-        </Button>
-      </div>
 
       {/* Stat cards */}
       {isLoading ? (

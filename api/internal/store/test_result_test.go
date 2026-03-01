@@ -538,6 +538,51 @@ func TestTestResultStore_ListFailedByBuild(t *testing.T) {
 	}
 }
 
+func TestTestResultStore_DeleteByBuild(t *testing.T) {
+	s := openTestStore(t)
+	ts := store.NewTestResultStore(s, zap.NewNop())
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "dbb-proj")
+	_ = bs.InsertBuild(ctx, "dbb-proj", 1)
+	_ = bs.InsertBuild(ctx, "dbb-proj", 2)
+	bid1, _ := ts.GetBuildID(ctx, "dbb-proj", 1)
+	bid2, _ := ts.GetBuildID(ctx, "dbb-proj", 2)
+
+	_ = ts.InsertBatch(ctx, []store.TestResult{
+		{BuildID: bid1, ProjectID: "dbb-proj", TestName: "TestA", FullName: "pkg.TestA", Status: "passed", DurationMs: 100, HistoryID: "h1"},
+		{BuildID: bid1, ProjectID: "dbb-proj", TestName: "TestB", FullName: "pkg.TestB", Status: "failed", DurationMs: 200, HistoryID: "h2"},
+	})
+	_ = ts.InsertBatch(ctx, []store.TestResult{
+		{BuildID: bid2, ProjectID: "dbb-proj", TestName: "TestA", FullName: "pkg.TestA", Status: "passed", DurationMs: 150, HistoryID: "h1"},
+	})
+
+	// Delete test results for build 1 only.
+	if err := ts.DeleteByBuild(ctx, bid1); err != nil {
+		t.Fatalf("DeleteByBuild: %v", err)
+	}
+
+	// Build 1 results should be gone.
+	var count1 int
+	_ = s.DB().QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM test_results WHERE build_id=?", bid1,
+	).Scan(&count1)
+	if count1 != 0 {
+		t.Errorf("expected 0 results for build 1, got %d", count1)
+	}
+
+	// Build 2 results should be untouched.
+	var count2 int
+	_ = s.DB().QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM test_results WHERE build_id=?", bid2,
+	).Scan(&count2)
+	if count2 != 1 {
+		t.Errorf("expected 1 result for build 2, got %d", count2)
+	}
+}
+
 func TestTestResultStore_EmptyProject(t *testing.T) {
 	s := openTestStore(t)
 	ts := store.NewTestResultStore(s, zap.NewNop())

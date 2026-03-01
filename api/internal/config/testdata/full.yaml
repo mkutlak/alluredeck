@@ -8,16 +8,12 @@ viewer_pass: "yaml-viewpass"
 jwt_secret: "yaml-jwt-secret-that-is-long-enough"
 make_viewer_endpoints_public: true
 allure_version_path: "/yaml-version"
-static_content_path: "/yaml/static"
 projects_directory: "/yaml/projects"
 check_results_secs: "5"
 keep_history: true
 keep_history_latest: 50
 tls: true
-url_prefix: "/allure"
 api_response_less_verbose: true
-optimize_storage: true
-legacy_ui: true
 cors_allowed_origins:
   - "https://a.example.com"
   - "https://b.example.com"

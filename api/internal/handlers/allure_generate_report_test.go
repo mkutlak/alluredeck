@@ -178,8 +178,19 @@ func TestGetJobStatus_Returns200ForValidJob(t *testing.T) {
 	if !ok {
 		t.Fatal("expected data object")
 	}
-	if data["ID"] == "" && data["id"] == "" {
-		t.Errorf("expected job ID in data, got %v", data)
+	// The JSON response must use snake_case field names to match the frontend's
+	// JobData type (job_id, project_id, status, created_at, etc.).
+	if id, _ := data["job_id"].(string); id == "" {
+		t.Errorf("expected non-empty 'job_id' (snake_case) in data, got %v", data)
+	}
+	if status, _ := data["status"].(string); status == "" {
+		t.Errorf("expected non-empty 'status' (snake_case) in data, got %v", data)
+	}
+	if _, ok := data["project_id"]; !ok {
+		t.Errorf("expected 'project_id' (snake_case) in data, got %v", data)
+	}
+	if _, ok := data["created_at"]; !ok {
+		t.Errorf("expected 'created_at' (snake_case) in data, got %v", data)
 	}
 }
 

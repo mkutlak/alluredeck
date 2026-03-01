@@ -30,46 +30,6 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
-func TestGetEnvAsInt(t *testing.T) {
-	t.Setenv("TEST_INT", "42")
-
-	val := getEnvAsInt("TEST_INT", 0)
-	if val != 42 {
-		t.Errorf("Expected 42, got %d", val)
-	}
-
-	valDefault := getEnvAsInt("NON_EXISTENT", 99)
-	if valDefault != 99 {
-		t.Errorf("Expected default 99, got %d", valDefault)
-	}
-}
-
-func TestGetEnvAsBool(t *testing.T) {
-	cases := []struct {
-		value    string
-		expected bool
-	}{
-		{"1", true},
-		{"TRUE", true},
-		{"true", true},
-		{"YES", true},
-		{"0", false},
-		{"FALSE", false},
-		{"false", false},
-		{"NO", false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.value, func(t *testing.T) {
-			t.Setenv("TEST_BOOL", tc.value)
-			got := getEnvAsBool("TEST_BOOL", !tc.expected)
-			if got != tc.expected {
-				t.Errorf("getEnvAsBool with %q: expected %v, got %v", tc.value, tc.expected, got)
-			}
-		})
-	}
-}
-
 func TestCORSOriginsEmpty(t *testing.T) {
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -116,16 +76,12 @@ func TestLoadConfigFromYAMLFile(t *testing.T) {
 		{"JWTSecret", cfg.JWTSecret, "yaml-jwt-secret-that-is-long-enough"},
 		{"MakeViewerEndptsPub", cfg.MakeViewerEndptsPub, true},
 		{"AllureVersionPath", cfg.AllureVersionPath, "/yaml-version"},
-		{"StaticContentPath", cfg.StaticContentPath, "/yaml/static"},
 		{"ProjectsDirectory", cfg.ProjectsDirectory, "/yaml/projects"},
 		{"CheckResultsSecs", cfg.CheckResultsSecs, "5"},
 		{"KeepHistory", cfg.KeepHistory, true},
 		{"KeepHistoryLatest", cfg.KeepHistoryLatest, 50},
 		{"TLS", cfg.TLS, true},
-		{"URLPrefix", cfg.URLPrefix, "/allure"},
 		{"APIRespLessVerbose", cfg.APIRespLessVerbose, true},
-		{"OptimizeStorage", cfg.OptimizeStorage, true},
-		{"LegacyUI", cfg.LegacyUI, true},
 		{"DatabasePath", cfg.DatabasePath, "/yaml/allure.db"},
 		{"AccessTokenExpiry", cfg.AccessTokenExpiry, 1800 * time.Second},
 		{"RefreshTokenExpiry", cfg.RefreshTokenExpiry, 86400 * time.Second},

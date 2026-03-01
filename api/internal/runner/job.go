@@ -24,13 +24,13 @@ type JobParams struct {
 
 // Job represents a single async report generation task.
 type Job struct {
-	ID          string
-	ProjectID   string
-	Status      JobStatus
-	CreatedAt   time.Time
-	StartedAt   *time.Time
-	CompletedAt *time.Time
-	Output      string
-	Error       string
-	Params      JobParams
+	ID          string     `json:"job_id"`
+	ProjectID   string     `json:"project_id"`
+	Status      JobStatus  `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Output      string     `json:"output,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	Params      JobParams  `json:"-"`
 }

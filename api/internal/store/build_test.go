@@ -421,6 +421,80 @@ func TestBuildStore_GetLatestBuild(t *testing.T) {
 	}
 }
 
+func TestBuildStore_DeleteAllBuilds(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "del-all-proj")
+	for i := 1; i <= 5; i++ {
+		_ = bs.InsertBuild(ctx, "del-all-proj", i)
+	}
+
+	// Verify builds exist before deletion.
+	builds, _ := bs.ListBuilds(ctx, "del-all-proj")
+	if len(builds) != 5 {
+		t.Fatalf("setup: expected 5 builds, got %d", len(builds))
+	}
+
+	if err := bs.DeleteAllBuilds(ctx, "del-all-proj"); err != nil {
+		t.Fatalf("DeleteAllBuilds: %v", err)
+	}
+
+	// All builds should be gone.
+	remaining, err := bs.ListBuilds(ctx, "del-all-proj")
+	if err != nil {
+		t.Fatalf("ListBuilds after delete: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("expected 0 builds after DeleteAllBuilds, got %d", len(remaining))
+	}
+}
+
+func TestBuildStore_DeleteAllBuilds_IsolatesProjects(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "del-iso-a")
+	_ = ps.CreateProject(ctx, "del-iso-b")
+	_ = bs.InsertBuild(ctx, "del-iso-a", 1)
+	_ = bs.InsertBuild(ctx, "del-iso-a", 2)
+	_ = bs.InsertBuild(ctx, "del-iso-b", 1)
+
+	if err := bs.DeleteAllBuilds(ctx, "del-iso-a"); err != nil {
+		t.Fatalf("DeleteAllBuilds: %v", err)
+	}
+
+	// Project A should have no builds.
+	aBuilds, _ := bs.ListBuilds(ctx, "del-iso-a")
+	if len(aBuilds) != 0 {
+		t.Errorf("project A: expected 0 builds, got %d", len(aBuilds))
+	}
+
+	// Project B should be untouched.
+	bBuilds, _ := bs.ListBuilds(ctx, "del-iso-b")
+	if len(bBuilds) != 1 {
+		t.Errorf("project B: expected 1 build, got %d", len(bBuilds))
+	}
+}
+
+func TestBuildStore_DeleteAllBuilds_EmptyProject(t *testing.T) {
+	s := openTestStore(t)
+	bs := store.NewBuildStore(s, zap.NewNop())
+	ps := store.NewProjectStore(s, zap.NewNop())
+	ctx := context.Background()
+
+	_ = ps.CreateProject(ctx, "del-empty")
+
+	// Should not error on project with no builds.
+	if err := bs.DeleteAllBuilds(ctx, "del-empty"); err != nil {
+		t.Fatalf("DeleteAllBuilds on empty project: %v", err)
+	}
+}
+
 func TestBuildStore_SetLatest_ClearsPreviousOnly(t *testing.T) {
 	s := openTestStore(t)
 	bs := store.NewBuildStore(s, zap.NewNop())

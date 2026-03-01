@@ -118,28 +118,3 @@ func TestOverlay_404_WhenNeitherExists(t *testing.T) {
 		t.Fatalf("expected 404, got %d", rr.Code)
 	}
 }
-
-// TestOverlay_BackwardCompat_FullCopyBuild verifies that old builds that
-// contain a full copy of the report (including index.html) are served directly
-// without touching latest/.
-func TestOverlay_BackwardCompat_FullCopyBuild(t *testing.T) {
-	dir := t.TempDir()
-	// Old build with full copy.
-	writeTestFile(t,
-		filepath.Join(dir, "myproject", "reports", "2", "index.html"),
-		"<html>build2</html>")
-	// latest/ also has index.html — must NOT be used.
-	writeTestFile(t,
-		filepath.Join(dir, "myproject", "reports", "latest", "index.html"),
-		"<html>latest</html>")
-
-	h := newOverlayHandler(dir)
-	rr := getOverlay(t, h, "/myproject/reports/2/index.html")
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if body := rr.Body.String(); body != "<html>build2</html>" {
-		t.Errorf("expected build2 content, got: %q", body)
-	}
-}

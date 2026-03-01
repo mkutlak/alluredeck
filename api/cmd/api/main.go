@@ -98,7 +98,6 @@ func main() {
 	// Numbered build dirs contain only variable content (data/, widgets/, history/).
 	// Static assets (index.html, JS, CSS, plugins/) are served from reports/latest/
 	// via a fallback overlay, achieving ~90% disk reduction per build.
-	// Backward compatible: old full-copy builds are served directly from their dir.
 	var overlayFS http.Handler
 	if cfg.StorageType == "s3" {
 		overlayFS = newS3ReportHandler(dataStore)
