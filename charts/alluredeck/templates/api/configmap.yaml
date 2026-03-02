@@ -5,7 +5,8 @@ metadata:
   labels:
     {{- include "alluredeck.api.labels" . | nindent 4 }}
 data:
-  PORT: {{ .Values.api.config.port | quote }}
+  SECURITY_ENABLED: {{ .Values.api.security.enabled | quote }}
+  PORT: {{ .Values.api.service.port | quote }}
   DEV_MODE: {{ .Values.api.config.devMode | quote }}
   LOG_LEVEL: {{ .Values.api.config.logLevel | quote }}
   STORAGE_TYPE: {{ .Values.api.config.storageType | quote }}

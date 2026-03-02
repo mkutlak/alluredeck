@@ -19,17 +19,17 @@ spec:
             matchLabels:
               {{- include "alluredeck.ui.selectorLabels" . | nindent 14 }}
       ports:
-        - port: {{ .Values.api.config.port | int }}
+        - port: {{ .Values.api.service.port | int }}
           protocol: TCP
     # Allow traffic from ingress controller (if ingress is enabled)
-    {{- if .Values.ingress.enabled }}
+    {{- if .Values.api.ingress.enabled }}
     - from:
         - namespaceSelector: {}
           podSelector:
             matchLabels:
               app.kubernetes.io/name: ingress-nginx
       ports:
-        - port: {{ .Values.api.config.port | int }}
+        - port: {{ .Values.api.service.port | int }}
           protocol: TCP
     {{- end }}
 ---

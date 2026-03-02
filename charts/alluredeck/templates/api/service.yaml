@@ -8,8 +8,8 @@ spec:
   type: {{ .Values.api.service.type }}
   ports:
     - port: {{ .Values.api.service.port }}
-      targetPort: http
+      targetPort: http-api
       protocol: TCP
-      name: http
+      name: http-api
   selector:
     {{- include "alluredeck.api.selectorLabels" . | nindent 4 }}

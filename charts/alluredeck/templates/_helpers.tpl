@@ -120,31 +120,25 @@ Otherwise, derive from ingress UI host.
 {{- define "alluredeck.api.corsOrigins" -}}
 {{- if .Values.api.config.corsAllowedOrigins }}
 {{- .Values.api.config.corsAllowedOrigins }}
-{{- else if and .Values.ingress.enabled .Values.ingress.ui.host }}
+{{- else if and .Values.ui.ingress.enabled .Values.ui.ingress.host }}
   {{- $scheme := "http" }}
-  {{- if .Values.ingress.ui.tls }}
+  {{- if .Values.ui.ingress.tls }}
     {{- $scheme = "https" }}
   {{- end }}
-  {{- printf "%s://%s" $scheme .Values.ingress.ui.host }}
+  {{- printf "%s://%s" $scheme .Values.ui.ingress.host }}
 {{- end }}
 {{- end }}
 
 {{/*
-Auto-compute VITE_API_URL from ingress config.
+Auto-compute VITE_API_URL.
 If ui.config.apiUrl is explicitly set, use that.
-Otherwise, derive from ingress API host.
+Otherwise, default to the internal API service name so traffic stays in-cluster.
 */}}
 {{- define "alluredeck.ui.apiUrl" -}}
 {{- if .Values.ui.config.apiUrl }}
 {{- .Values.ui.config.apiUrl }}
-{{- else if and .Values.ingress.enabled .Values.ingress.api.host }}
-  {{- $scheme := "http" }}
-  {{- if .Values.ingress.api.tls }}
-    {{- $scheme = "https" }}
-  {{- end }}
-  {{- printf "%s://%s/api/v1" $scheme .Values.ingress.api.host }}
 {{- else }}
-{{- printf "http://%s:%d/api/v1" (include "alluredeck.api.fullname" .) (.Values.api.service.port | int) }}
+{{- printf "http://%s.%s.svc.cluster.local:%d/api/v1" (include "alluredeck.api.fullname" .) .Release.Namespace (.Values.api.service.port | int) }}
 {{- end }}
 {{- end }}
 

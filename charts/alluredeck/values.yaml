@@ -6,7 +6,7 @@ fullnameOverride: ""
 
 global:
   imagePullSecrets: []
-  storageClass: ""
+  storageClassName: ""
 
 # ---------------------------------------------------------------------------
 # API (Go backend)
@@ -19,7 +19,6 @@ api:
 
   # Non-sensitive configuration (mapped to ConfigMap env vars)
   config:
-    port: "8080"
     devMode: "false"
     logLevel: "info"
     storageType: "local"  # "local" or "s3"
@@ -35,16 +34,16 @@ api:
     databasePath: "/app/allure.db"
 
   # S3/MinIO connection settings (used when storageType=s3)
+  # Authentication: use s3.existingSecret for static credentials (keys: S3_ACCESS_KEY, S3_SECRET_KEY),
+  # or use IRSA on EKS via serviceAccount.annotations (no secret needed).
   s3:
     endpoint: ""          # e.g. "http://minio.minio.svc:9000"
     bucket: ""            # e.g. "allure-reports"
     region: "us-east-1"
-    accessKey: ""         # leave empty for IAM roles
-    secretKey: ""         # leave empty for IAM roles
     useSSL: "false"
     pathStyle: "false"    # "true" for MinIO
     concurrency: "10"
-    existingSecret: ""    # pre-created K8s Secret with S3_ACCESS_KEY + S3_SECRET_KEY
+    existingSecret: ""    # pre-created K8s Secret with keys: S3_ACCESS_KEY, S3_SECRET_KEY
 
   # Security / auth credentials (mapped to Secret)
   security:
@@ -57,7 +56,15 @@ api:
     jwtAccessTokenExpires: "900"
     jwtRefreshTokenExpires: "2592000"
 
-  # Reference an existing Secret instead of creating one
+  # Reference an existing Secret instead of creating one.
+  # The Secret must contain the following keys:
+  #   adminUser              - admin username
+  #   adminPassword          - admin password
+  #   viewerUser             - viewer username
+  #   viewerPassword         - viewer password
+  #   jwtSecretKey           - HMAC signing key for JWTs
+  #   jwtAccessTokenExpires  - access token TTL in seconds
+  #   jwtRefreshTokenExpires - refresh token TTL in seconds
   existingSecret: ""
 
   # Persistence
@@ -65,13 +72,13 @@ api:
     projects:
       enabled: true       # only used when storageType=local
       existingClaim: ""
-      storageClass: ""    # uses global.storageClass if empty
+      storageClassName: ""    # uses global.storageClassName if empty
       accessMode: ReadWriteOnce
       size: 10Gi
     database:
       enabled: true
       existingClaim: ""
-      storageClass: ""
+      storageClassName: ""
       accessMode: ReadWriteOnce
       size: 1Gi
 
@@ -104,7 +111,7 @@ api:
   livenessProbe:
     httpGet:
       path: /health
-      port: http
+      port: http-api
     initialDelaySeconds: 10
     periodSeconds: 15
     timeoutSeconds: 3
@@ -113,7 +120,7 @@ api:
   readinessProbe:
     httpGet:
       path: /ready
-      port: http
+      port: http-api
     initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 3
@@ -122,7 +129,7 @@ api:
   startupProbe:
     httpGet:
       path: /health
-      port: http
+      port: http-api
     periodSeconds: 5
     failureThreshold: 12  # 12 * 5s = 60s max startup
 
@@ -134,6 +141,19 @@ api:
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
     targetMemoryUtilizationPercentage: ""
+
+  ingress:
+    enabled: false
+    ingressClassName: ""
+    annotations: {}
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
+    host: ""            # e.g. api.alluredeck.example.com
+    path: /
+    pathType: Prefix
+    tls: []
+    # - secretName: alluredeck-api-tls
+    #   hosts:
+    #     - api.alluredeck.example.com
 
   nodeSelector: {}
   tolerations: []
@@ -151,7 +171,7 @@ ui:
     pullPolicy: IfNotPresent
 
   config:
-    apiUrl: ""         # auto-computed from ingress if empty
+    apiUrl: ""         # defaults to internal API service name (in-cluster)
     appTitle: "AllureDeck"
 
   replicaCount: 1
@@ -181,7 +201,7 @@ ui:
   livenessProbe:
     httpGet:
       path: /
-      port: http
+      port: http-ui
     initialDelaySeconds: 5
     periodSeconds: 15
     timeoutSeconds: 3
@@ -190,28 +210,24 @@ ui:
   readinessProbe:
     httpGet:
       path: /
-      port: http
+      port: http-ui
     initialDelaySeconds: 3
     periodSeconds: 10
     timeoutSeconds: 3
     failureThreshold: 3
 
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-  podAnnotations: {}
-  podLabels: {}
+  startupProbe:
+    httpGet:
+      path: /
+      port: http-ui
+    periodSeconds: 5
+    failureThreshold: 6  # 6 * 5s = 30s max startup
 
-# ---------------------------------------------------------------------------
-# Ingress
-# ---------------------------------------------------------------------------
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
-
-  ui:
+  ingress:
+    enabled: false
+    ingressClassName: ""
+    annotations: {}
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
     host: ""            # e.g. alluredeck.example.com
     path: /
     pathType: Prefix
@@ -220,14 +236,11 @@ ingress:
     #   hosts:
     #     - alluredeck.example.com
 
-  api:
-    host: ""            # e.g. api.alluredeck.example.com
-    path: /
-    pathType: Prefix
-    tls: []
-    # - secretName: alluredeck-api-tls
-    #   hosts:
-    #     - api.alluredeck.example.com
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
 
 # ---------------------------------------------------------------------------
 # Service Account

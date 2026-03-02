@@ -8,7 +8,7 @@ metadata:
 spec:
   accessModes:
     - {{ .Values.api.persistence.projects.accessMode }}
-  {{- $sc := default .Values.global.storageClass .Values.api.persistence.projects.storageClass }}
+  {{- $sc := default .Values.global.storageClassName .Values.api.persistence.projects.storageClassName }}
   {{- if $sc }}
   storageClassName: {{ $sc | quote }}
   {{- end }}
@@ -27,7 +27,7 @@ metadata:
 spec:
   accessModes:
     - {{ .Values.api.persistence.database.accessMode }}
-  {{- $sc := default .Values.global.storageClass .Values.api.persistence.database.storageClass }}
+  {{- $sc := default .Values.global.storageClassName .Values.api.persistence.database.storageClassName }}
   {{- if $sc }}
   storageClassName: {{ $sc | quote }}
   {{- end }}

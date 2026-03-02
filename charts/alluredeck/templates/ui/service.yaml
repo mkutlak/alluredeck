@@ -8,8 +8,8 @@ spec:
   type: {{ .Values.ui.service.type }}
   ports:
     - port: {{ .Values.ui.service.port }}
-      targetPort: http
+      targetPort: http-ui
       protocol: TCP
-      name: http
+      name: http-ui
   selector:
     {{- include "alluredeck.ui.selectorLabels" . | nindent 4 }}

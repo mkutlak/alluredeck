@@ -126,7 +126,7 @@ func LoadConfig() (*Config, error) {
 		MakeViewerEndptsPub: getEnvOrYAMLBool("MAKE_VIEWER_ENDPOINTS_PUBLIC", yc.MakeViewerEndptsPub),
 		AllureVersionPath:   getEnvOrYAML("ALLURE_VERSION_FILE", yc.AllureVersionPath, "/app/version"),
 		ProjectsDirectory:   getEnvOrYAML("STATIC_CONTENT_PROJECTS", yc.ProjectsDirectory, "/app/projects"),
-		CheckResultsSecs:    getEnvOrYAML("CHECK_RESULTS_EVERY_SECONDS", yc.CheckResultsSecs, "1"),
+		CheckResultsSecs:    getEnvOrYAML("CHECK_RESULTS_EVERY_SECONDS", yc.CheckResultsSecs, "NONE"),
 		KeepHistory:         getEnvOrYAMLBool("KEEP_HISTORY", yc.KeepHistory),
 		KeepHistoryLatest:   getEnvOrYAMLInt("KEEP_HISTORY_LATEST", yc.KeepHistoryLatest, 20),
 		TLS:                 getEnvOrYAMLBool("TLS", yc.TLS),

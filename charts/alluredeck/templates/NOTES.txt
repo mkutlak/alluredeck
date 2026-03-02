@@ -11,14 +11,14 @@ Storage mode: {{ .Values.api.config.storageType }}
   S3 bucket:   {{ .Values.api.s3.bucket }}
 {{- end }}
 
-{{- if .Values.ingress.enabled }}
+{{- if or .Values.ui.ingress.enabled .Values.api.ingress.enabled }}
 
 Access the application:
-{{- if .Values.ingress.ui.host }}
-  UI:  {{ if .Values.ingress.ui.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.ui.host }}
+{{- if and .Values.ui.ingress.enabled .Values.ui.ingress.host }}
+  UI:  {{ if .Values.ui.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ui.ingress.host }}
 {{- end }}
-{{- if .Values.ingress.api.host }}
-  API: {{ if .Values.ingress.api.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.api.host }}
+{{- if and .Values.api.ingress.enabled .Values.api.ingress.host }}
+  API: {{ if .Values.api.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.api.ingress.host }}
 {{- end }}
 {{- else }}
 
