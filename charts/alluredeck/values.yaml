@@ -17,7 +17,7 @@ api:
     tag: ""  # defaults to Chart.appVersion
     pullPolicy: IfNotPresent
 
-  # Non-sensitive configuration (mapped to ConfigMap env vars)
+  # Non-sensitive configuration (mounted as /app/alluredeck/config.yaml via ConfigMap)
   config:
     devMode: "false"
     logLevel: "info"
@@ -28,10 +28,10 @@ api:
     apiResponseLessVerbose: "false"
     trustXForwardedFor: "true"
     makeViewerEndpointsPublic: "false"
-    corsAllowedOrigins: ""  # auto-computed from ingress if empty
-    goMemLimit: "512MiB"
-    staticContentProjects: "/app/projects"
-    databasePath: "/app/allure.db"
+    corsAllowedOrigins: []  # auto-computed from ui.ingress if empty; list of allowed origins
+    goMemLimit: "768MiB"  # Set to ~80% of resources.limits.memory to let GC reclaim before OOM kill
+    staticContentProjects: "/data/projects"
+    databasePath: "/data/db/alluredeck.db"
 
   # S3/MinIO connection settings (used when storageType=s3)
   # Authentication: use s3.existingSecret for static credentials (keys: S3_ACCESS_KEY, S3_SECRET_KEY),
@@ -135,13 +135,6 @@ api:
 
   terminationGracePeriodSeconds: 35
 
-  autoscaling:
-    enabled: false
-    minReplicas: 1
-    maxReplicas: 5
-    targetCPUUtilizationPercentage: 80
-    targetMemoryUtilizationPercentage: ""
-
   ingress:
     enabled: false
     ingressClassName: ""
@@ -243,16 +236,31 @@ ui:
   podLabels: {}
 
 # ---------------------------------------------------------------------------
-# Service Account
+# Service Accounts
 # ---------------------------------------------------------------------------
 serviceAccount:
-  create: true
-  name: ""
-  annotations: {}
-    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck
+  api:
+    create: true
+    name: ""
+    annotations: {}
+      # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-api
+  ui:
+    create: true
+    name: ""
+    annotations: {}
 
 # ---------------------------------------------------------------------------
 # Network Policy
 # ---------------------------------------------------------------------------
 networkPolicy:
   enabled: false
+  # Selectors for the ingress controller pods that should be allowed to reach
+  # the API and UI. Adjust for your ingress controller:
+  #   nginx:   podSelector: { app.kubernetes.io/name: ingress-nginx }
+  #   traefik: podSelector: { app.kubernetes.io/name: traefik }
+  #   AWS ALB: namespaceSelector: { kubernetes.io/metadata.name: kube-system }
+  # Leave both empty ({}) to allow from any namespace/pod (least restrictive).
+  ingressController:
+    podSelector:
+      app.kubernetes.io/name: ingress-nginx
+    namespaceSelector: {}

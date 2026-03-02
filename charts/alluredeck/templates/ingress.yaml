@@ -1,4 +1,5 @@
 {{- if .Values.ui.ingress.enabled }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -37,8 +38,8 @@ spec:
                   name: http-ui
     {{- end }}
 {{- end }}
----
 {{- if .Values.api.ingress.enabled }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -90,13 +90,24 @@ app.kubernetes.io/component: ui
 {{- end }}
 
 {{/*
-Create the name of the service account to use.
+Create the name of the API service account to use.
 */}}
-{{- define "alluredeck.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "alluredeck.fullname" .) .Values.serviceAccount.name }}
+{{- define "alluredeck.api.serviceAccountName" -}}
+{{- if .Values.serviceAccount.api.create }}
+{{- default (printf "%s-api" (include "alluredeck.fullname" .)) .Values.serviceAccount.api.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- default "default" .Values.serviceAccount.api.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the UI service account to use.
+*/}}
+{{- define "alluredeck.ui.serviceAccountName" -}}
+{{- if .Values.serviceAccount.ui.create }}
+{{- default (printf "%s-ui" (include "alluredeck.fullname" .)) .Values.serviceAccount.ui.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.ui.name }}
 {{- end }}
 {{- end }}
 
@@ -112,20 +123,43 @@ API Secret name — use existingSecret if set, otherwise generate name.
 {{- end }}
 
 {{/*
-Auto-compute CORS allowed origins from ingress config.
-Returns a comma-separated string of origins.
-If api.config.corsAllowedOrigins is explicitly set, use that.
-Otherwise, derive from ingress UI host.
+Render the full API config.yaml content for the ConfigMap.
+Non-secret settings only; secrets are injected as env vars from the Secret.
+CORS: uses api.config.corsAllowedOrigins list if set, otherwise auto-derives
+a single origin from ui.ingress.host.
 */}}
-{{- define "alluredeck.api.corsOrigins" -}}
-{{- if .Values.api.config.corsAllowedOrigins }}
-{{- .Values.api.config.corsAllowedOrigins }}
-{{- else if and .Values.ui.ingress.enabled .Values.ui.ingress.host }}
-  {{- $scheme := "http" }}
-  {{- if .Values.ui.ingress.tls }}
-    {{- $scheme = "https" }}
-  {{- end }}
-  {{- printf "%s://%s" $scheme .Values.ui.ingress.host }}
+{{- define "alluredeck.api.configYAML" -}}
+port: {{ .Values.api.service.port | quote }}
+dev_mode: {{ .Values.api.config.devMode }}
+security_enabled: {{ .Values.api.security.enabled }}
+log_level: {{ .Values.api.config.logLevel | quote }}
+storage_type: {{ .Values.api.config.storageType | quote }}
+check_results_secs: {{ .Values.api.config.checkResultsEverySeconds | quote }}
+keep_history: {{ .Values.api.config.keepHistory }}
+keep_history_latest: {{ .Values.api.config.keepHistoryLatest | int }}
+api_response_less_verbose: {{ .Values.api.config.apiResponseLessVerbose }}
+trust_forwarded_for: {{ .Values.api.config.trustXForwardedFor }}
+make_viewer_endpoints_public: {{ .Values.api.config.makeViewerEndpointsPublic }}
+projects_directory: {{ .Values.api.config.staticContentProjects | quote }}
+database_path: {{ .Values.api.config.databasePath | quote }}
+{{- $corsOrigins := .Values.api.config.corsAllowedOrigins }}
+{{- if and (empty $corsOrigins) .Values.ui.ingress.enabled .Values.ui.ingress.host }}
+{{- $scheme := ternary "https" "http" (not (empty .Values.ui.ingress.tls)) }}
+{{- $corsOrigins = list (printf "%s://%s" $scheme .Values.ui.ingress.host) }}
+{{- end }}
+{{- if $corsOrigins }}
+cors_allowed_origins:
+{{- range $corsOrigins }}
+  - {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- if eq .Values.api.config.storageType "s3" }}
+s3_endpoint: {{ .Values.api.s3.endpoint | quote }}
+s3_bucket: {{ .Values.api.s3.bucket | quote }}
+s3_region: {{ .Values.api.s3.region | quote }}
+s3_use_ssl: {{ .Values.api.s3.useSSL }}
+s3_path_style: {{ .Values.api.s3.pathStyle }}
+s3_concurrency: {{ .Values.api.s3.concurrency | int }}
 {{- end }}
 {{- end }}
 

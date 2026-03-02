@@ -5,29 +5,5 @@ metadata:
   labels:
     {{- include "alluredeck.api.labels" . | nindent 4 }}
 data:
-  SECURITY_ENABLED: {{ .Values.api.security.enabled | quote }}
-  PORT: {{ .Values.api.service.port | quote }}
-  DEV_MODE: {{ .Values.api.config.devMode | quote }}
-  LOG_LEVEL: {{ .Values.api.config.logLevel | quote }}
-  STORAGE_TYPE: {{ .Values.api.config.storageType | quote }}
-  CHECK_RESULTS_EVERY_SECONDS: {{ .Values.api.config.checkResultsEverySeconds | quote }}
-  KEEP_HISTORY: {{ .Values.api.config.keepHistory | quote }}
-  KEEP_HISTORY_LATEST: {{ .Values.api.config.keepHistoryLatest | quote }}
-  API_RESPONSE_LESS_VERBOSE: {{ .Values.api.config.apiResponseLessVerbose | quote }}
-  TRUST_X_FORWARDED_FOR: {{ .Values.api.config.trustXForwardedFor | quote }}
-  MAKE_VIEWER_ENDPOINTS_PUBLIC: {{ .Values.api.config.makeViewerEndpointsPublic | quote }}
-  GOMEMLIMIT: {{ .Values.api.config.goMemLimit | quote }}
-  STATIC_CONTENT_PROJECTS: {{ .Values.api.config.staticContentProjects | quote }}
-  DATABASE_PATH: {{ .Values.api.config.databasePath | quote }}
-  {{- $cors := include "alluredeck.api.corsOrigins" . }}
-  {{- if $cors }}
-  CORS_ALLOWED_ORIGINS: {{ $cors | quote }}
-  {{- end }}
-  {{- if eq .Values.api.config.storageType "s3" }}
-  S3_ENDPOINT: {{ .Values.api.s3.endpoint | quote }}
-  S3_BUCKET: {{ .Values.api.s3.bucket | quote }}
-  S3_REGION: {{ .Values.api.s3.region | quote }}
-  S3_USE_SSL: {{ .Values.api.s3.useSSL | quote }}
-  S3_PATH_STYLE: {{ .Values.api.s3.pathStyle | quote }}
-  S3_CONCURRENCY: {{ .Values.api.s3.concurrency | quote }}
-  {{- end }}
+  config.yaml: |
+{{ include "alluredeck.api.configYAML" . | indent 4 }}

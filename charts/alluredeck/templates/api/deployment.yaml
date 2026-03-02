@@ -24,7 +24,7 @@ spec:
         {{- end }}
     spec:
       {{- include "alluredeck.imagePullSecrets" . | nindent 6 }}
-      serviceAccountName: {{ include "alluredeck.serviceAccountName" . }}
+      serviceAccountName: {{ include "alluredeck.api.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
@@ -38,10 +38,9 @@ spec:
             - name: http-api
               containerPort: {{ .Values.api.service.port | int }}
               protocol: TCP
-          envFrom:
-            - configMapRef:
-                name: {{ include "alluredeck.api.fullname" . }}
           env:
+            - name: GOMEMLIMIT
+              value: {{ .Values.api.config.goMemLimit | quote }}
             {{- $secretName := include "alluredeck.api.secretName" . }}
             - name: SECURITY_USER
               valueFrom:
@@ -107,18 +106,24 @@ spec:
           securityContext:
             {{- toYaml .Values.api.securityContext | nindent 12 }}
           volumeMounts:
+            - name: api-config
+              mountPath: /app/alluredeck/config.yaml
+              subPath: config.yaml
+              readOnly: true
             - name: tmp
               mountPath: /tmp
             {{- if .Values.api.persistence.database.enabled }}
             - name: database
-              mountPath: {{ .Values.api.config.databasePath }}
-              subPath: {{ base .Values.api.config.databasePath }}
+              mountPath: {{ dir .Values.api.config.databasePath }}
             {{- end }}
             {{- if and .Values.api.persistence.projects.enabled (eq .Values.api.config.storageType "local") }}
             - name: projects
               mountPath: {{ .Values.api.config.staticContentProjects }}
             {{- end }}
       volumes:
+        - name: api-config
+          configMap:
+            name: {{ include "alluredeck.api.fullname" . }}
         - name: tmp
           emptyDir: {}
         {{- if .Values.api.persistence.database.enabled }}

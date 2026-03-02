@@ -36,16 +36,32 @@ Access via port-forward:
 Run Helm tests:
   helm test {{ .Release.Name }}
 
-{{- if and .Values.api.autoscaling.enabled (eq .Values.api.config.storageType "local") }}
-
-WARNING: HPA is enabled with local storage. Scaling beyond 1 replica requires
-ReadWriteMany PVCs or switching to S3 storage (storageType=s3).
-{{- end }}
-
-{{- if not .Values.api.security.jwtSecretKey }}
 {{- if not .Values.api.existingSecret }}
+{{- if not .Values.api.security.jwtSecretKey }}
 
-NOTE: JWT secret was auto-generated. To persist it across upgrades, set
-api.security.jwtSecretKey or use api.existingSecret.
+⚠  IMPORTANT — Secrets are auto-generated on first install.
+   They are preserved on upgrade using Helm lookup, but are NOT portable
+   across clusters or Helm releases. For production use, supply a pre-created
+   Secret and reference it with api.existingSecret:
+
+   kubectl create secret generic alluredeck-credentials \
+     --namespace {{ .Release.Namespace }} \
+     --from-literal=adminUser='admin' \
+     --from-literal=adminPassword='<strong-password>' \
+     --from-literal=viewerUser='viewer' \
+     --from-literal=viewerPassword='<strong-password>' \
+     --from-literal=jwtSecretKey='<64-char-random-string>' \
+     --from-literal=jwtAccessTokenExpires='900' \
+     --from-literal=jwtRefreshTokenExpires='2592000'
+
+   Then set in your values file:
+     api:
+       existingSecret: alluredeck-credentials
 {{- end }}
+{{- else }}
+
+NOTE: Using existingSecret={{ .Values.api.existingSecret | quote }}.
+   After rotating that Secret, force a pod restart by bumping:
+     api.secretRevision: "v2"   # increment on each rotation
+   Or run: kubectl rollout restart deployment/{{ include "alluredeck.api.fullname" . }} -n {{ .Release.Namespace }}
 {{- end }}

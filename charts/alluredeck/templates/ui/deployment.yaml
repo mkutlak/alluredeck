@@ -23,7 +23,7 @@ spec:
         {{- end }}
     spec:
       {{- include "alluredeck.imagePullSecrets" . | nindent 6 }}
-      serviceAccountName: {{ include "alluredeck.serviceAccountName" . }}
+      serviceAccountName: {{ include "alluredeck.ui.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.ui.podSecurityContext | nindent 8 }}
       containers:
@@ -32,7 +32,7 @@ spec:
           imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
           ports:
             - name: http-ui
-              containerPort: 8080
+              containerPort: {{ .Values.ui.service.port | int }}
               protocol: TCP
           envFrom:
             - configMapRef:

@@ -24,10 +24,20 @@ spec:
     # Allow traffic from ingress controller (if ingress is enabled)
     {{- if .Values.api.ingress.enabled }}
     - from:
-        - namespaceSelector: {}
-          podSelector:
+        - namespaceSelector:
+            {{- if .Values.networkPolicy.ingressController.namespaceSelector }}
             matchLabels:
-              app.kubernetes.io/name: ingress-nginx
+              {{- toYaml .Values.networkPolicy.ingressController.namespaceSelector | nindent 14 }}
+            {{- else }}
+            matchLabels: {}
+            {{- end }}
+          podSelector:
+            {{- if .Values.networkPolicy.ingressController.podSelector }}
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressController.podSelector | nindent 14 }}
+            {{- else }}
+            matchLabels: {}
+            {{- end }}
       ports:
         - port: {{ .Values.api.service.port | int }}
           protocol: TCP
@@ -48,6 +58,6 @@ spec:
     - Ingress
   ingress:
     - ports:
-        - port: 8080
+        - port: {{ .Values.ui.service.port | int }}
           protocol: TCP
 {{- end }}
