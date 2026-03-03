@@ -1,0 +1,50 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gosec
+    - bodyclose
+    - errname
+    - errorlint
+    - copyloopvar
+    - noctx
+    - unparam
+
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - hugeParam        # too noisy for value types used across the codebase
+        - rangeValCopy     # existing code, address incrementally
+        - unnecessaryDefer # minor stylistic issue
+    gosec:
+      excludes:
+        - G115 # integer overflow conversion (too noisy for uint/int conversions)
+        - G110 # decompression bomb (handled by max upload size middleware)
+        - G201 # SQL formatting (uses parameterized placeholders, not user input)
+        - G304 # file inclusion via variable (paths validated by config/routing)
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - unparam
+          - errorlint
+          - noctx
+    paths:
+      - static
+      - internal/swagger
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
