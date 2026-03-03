@@ -61,8 +61,9 @@ func (jm *JobManager) Submit(projectID string, params JobParams) *Job {
 	// Deduplicate: return existing active job for this project.
 	if existingID, ok := jm.projectJobs[projectID]; ok {
 		if existing, exists := jm.jobs[existingID]; exists {
+			cp := copyJob(existing) // copy while holding lock
 			jm.mu.Unlock()
-			return copyJob(existing)
+			return cp
 		}
 	}
 
@@ -76,11 +77,12 @@ func (jm *JobManager) Submit(projectID string, params JobParams) *Job {
 	jm.jobs[job.ID] = job
 	jm.projectJobs[projectID] = job.ID
 	jm.wg.Add(1)
+	cp := copyJob(job) // copy before worker can modify job
 	jm.mu.Unlock()
 
 	go jm.runWorker(job)
 
-	return copyJob(job)
+	return cp
 }
 
 // runWorker acquires a semaphore slot, runs the generator, and updates job state.
