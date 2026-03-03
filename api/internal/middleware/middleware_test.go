@@ -224,6 +224,9 @@ func TestCORSMiddleware(t *testing.T) {
 		if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
 			t.Errorf("Expected Access-Control-Allow-Origin: *")
 		}
+		if rr.Header().Get("Vary") != "Origin" {
+			t.Errorf("Expected Vary: Origin, got %q", rr.Header().Get("Vary"))
+		}
 	})
 
 	t.Run("AllowSpecific", func(t *testing.T) {
@@ -242,6 +245,9 @@ func TestCORSMiddleware(t *testing.T) {
 		if rr.Header().Get("Access-Control-Allow-Credentials") != "true" {
 			t.Errorf("Expected Access-Control-Allow-Credentials: true")
 		}
+		if rr.Header().Get("Vary") != "Origin" {
+			t.Errorf("Expected Vary: Origin for allowed origin, got %q", rr.Header().Get("Vary"))
+		}
 
 		// Disallowed origin
 		req = httptest.NewRequest(http.MethodGet, "/", nil)
@@ -250,6 +256,10 @@ func TestCORSMiddleware(t *testing.T) {
 		h.ServeHTTP(rr, req)
 		if rr.Header().Get("Access-Control-Allow-Origin") != "" {
 			t.Errorf("Expected no Access-Control-Allow-Origin header")
+		}
+		// Vary: Origin must still be set even for disallowed origins (cache keying)
+		if rr.Header().Get("Vary") != "Origin" {
+			t.Errorf("Expected Vary: Origin for disallowed origin, got %q", rr.Header().Get("Vary"))
 		}
 	})
 
@@ -268,6 +278,9 @@ func TestCORSMiddleware(t *testing.T) {
 		}
 		if rr.Header().Get("Access-Control-Allow-Methods") == "" {
 			t.Errorf("Expected Access-Control-Allow-Methods header")
+		}
+		if rr.Header().Get("Vary") != "Origin" {
+			t.Errorf("Expected Vary: Origin on preflight, got %q", rr.Header().Get("Vary"))
 		}
 	})
 }

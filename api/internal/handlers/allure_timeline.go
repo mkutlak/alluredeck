@@ -67,6 +67,13 @@ func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 	if reportID == "" {
 		reportID = "latest"
 	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
 
 	// SQLite fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
 	if buildOrder, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {

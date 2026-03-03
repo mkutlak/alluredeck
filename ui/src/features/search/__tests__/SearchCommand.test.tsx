@@ -8,8 +8,6 @@ import { SearchCommand } from '../SearchCommand'
 
 vi.mock('@/api/search')
 vi.mock('@/api/client', () => ({
-  setAccessToken: vi.fn(),
-  getAccessToken: vi.fn(),
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))

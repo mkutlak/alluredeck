@@ -10,8 +10,6 @@ import type { KnownIssue } from '@/types/api'
 
 vi.mock('@/api/known-issues')
 vi.mock('@/api/client', () => ({
-  setAccessToken: vi.fn(),
-  getAccessToken: vi.fn(),
   apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
@@ -104,6 +102,40 @@ describe('KnownIssuesTab', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /Add Known Issue/i })).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('KnownIssuesTab – XSS protection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('does not render javascript: ticket_url as a link', async () => {
+    vi.mocked(kiApi.listKnownIssues).mockResolvedValue([
+      makeIssue({ ticket_url: 'javascript:alert(1)' }),
+    ])
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByText('Login should succeed')).toBeInTheDocument()
+    })
+    // The ticket_url should NOT be rendered as an <a> link
+    const links = screen.queryAllByRole('link')
+    const dangerousLink = links.find(
+      (l) => l.getAttribute('href') === 'javascript:alert(1)',
+    )
+    expect(dangerousLink).toBeUndefined()
+  })
+
+  it('renders safe https ticket_url as a link', async () => {
+    vi.mocked(kiApi.listKnownIssues).mockResolvedValue([
+      makeIssue({ ticket_url: 'https://jira.com/PROJ-1' }),
+    ])
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByText('Login should succeed')).toBeInTheDocument()
+    })
+    const link = screen.getByRole('link', { name: /jira\.com/i })
+    expect(link).toHaveAttribute('href', 'https://jira.com/PROJ-1')
   })
 })
 

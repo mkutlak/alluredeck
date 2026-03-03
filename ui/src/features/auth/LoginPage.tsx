@@ -24,8 +24,8 @@ export function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: login,
     onSuccess: (res) => {
-      const { access_token, roles, expires_in } = res.data
-      setAuth(access_token, roles as Role[], username, expires_in)
+      const { roles, expires_in } = res.data
+      setAuth(roles as Role[], username, expires_in)
       navigate(from, { replace: true })
     },
     onError: (err) => {

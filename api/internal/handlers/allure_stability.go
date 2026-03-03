@@ -74,6 +74,13 @@ func (h *AllureHandler) GetReportStability(w http.ResponseWriter, r *http.Reques
 	if reportID == "" {
 		reportID = "latest"
 	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
 
 	relBase := "reports/" + reportID + "/data/test-results"
 	entries, err := h.store.ReadDir(ctx, projectID, relBase)

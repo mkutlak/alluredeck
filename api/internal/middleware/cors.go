@@ -31,6 +31,9 @@ func CORSMiddleware(cfg *config.Config, next http.Handler) http.Handler {
 	}
 
 	setCORSHeaders := func(w http.ResponseWriter, origin string, preflight bool) {
+		// Always set Vary: Origin so CDN caches correctly key by Origin (M5 fix).
+		w.Header().Set("Vary", "Origin")
+
 		switch {
 		case allowAll:
 			// Wildcard origin is incompatible with credentials

@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
-	"go.uber.org/zap"
+	"errors"
 	"path/filepath"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func openKnownIssueTestStore(t *testing.T) (*SQLiteStore, *KnownIssueStore, *ProjectStore) {
@@ -83,7 +85,7 @@ func TestKnownIssueStore_ListActiveOnly(t *testing.T) {
 	}
 
 	// Deactivate issue2
-	if err := kis.Update(ctx, issue2.ID, "", "", false); err != nil {
+	if err := kis.Update(ctx, issue2.ID, "proj3", "", "", false); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
@@ -113,7 +115,7 @@ func TestKnownIssueStore_ListAll(t *testing.T) {
 	all, _ := kis.List(ctx, "proj4", false)
 	for _, i := range all {
 		if i.TestName == "T1" {
-			_ = kis.Update(ctx, i.ID, "", "", false)
+			_ = kis.Update(ctx, i.ID, "proj4", "", "", false)
 		}
 	}
 
@@ -136,7 +138,7 @@ func TestKnownIssueStore_Update(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	if err := kis.Update(ctx, issue.ID, "http://new-ticket", "new desc", true); err != nil {
+	if err := kis.Update(ctx, issue.ID, "proj5", "http://new-ticket", "new desc", true); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
@@ -162,7 +164,7 @@ func TestKnownIssueStore_Delete(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	if err := kis.Delete(ctx, issue.ID); err != nil {
+	if err := kis.Delete(ctx, issue.ID, "proj6"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 
@@ -225,6 +227,62 @@ func TestKnownIssueStore_Pagination(t *testing.T) {
 	}
 	if len(page2) != 2 {
 		t.Errorf("page2 len = %d, want 2", len(page2))
+	}
+}
+
+func TestKnownIssueStore_UpdateRejectsWrongProject(t *testing.T) {
+	ctx := context.Background()
+	_, kis, ps := openKnownIssueTestStore(t)
+	mustCreateProject(t, ctx, ps, "projA")
+	mustCreateProject(t, ctx, ps, "projB")
+
+	issue, err := kis.Create(ctx, "projA", "Test in projA", "", "http://ticket/1", "desc")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Attempt to update via projB should fail.
+	err = kis.Update(ctx, issue.ID, "projB", "http://evil", "hacked", true)
+	if err == nil {
+		t.Fatal("expected error when updating issue from wrong project, got nil")
+	}
+	if !errors.Is(err, ErrKnownIssueNotFound) {
+		t.Errorf("expected ErrKnownIssueNotFound, got %v", err)
+	}
+
+	// Verify issue is unchanged.
+	got, err := kis.Get(ctx, issue.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.TicketURL != "http://ticket/1" {
+		t.Errorf("ticket_url should be unchanged, got %q", got.TicketURL)
+	}
+}
+
+func TestKnownIssueStore_DeleteRejectsWrongProject(t *testing.T) {
+	ctx := context.Background()
+	_, kis, ps := openKnownIssueTestStore(t)
+	mustCreateProject(t, ctx, ps, "projA")
+	mustCreateProject(t, ctx, ps, "projB")
+
+	issue, err := kis.Create(ctx, "projA", "Test in projA", "", "", "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Attempt to delete via projB should fail.
+	err = kis.Delete(ctx, issue.ID, "projB")
+	if err == nil {
+		t.Fatal("expected error when deleting issue from wrong project, got nil")
+	}
+	if !errors.Is(err, ErrKnownIssueNotFound) {
+		t.Errorf("expected ErrKnownIssueNotFound, got %v", err)
+	}
+
+	// Verify issue still exists.
+	if _, err := kis.Get(ctx, issue.ID); err != nil {
+		t.Fatalf("issue should still exist: %v", err)
 	}
 }
 

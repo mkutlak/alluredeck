@@ -129,6 +129,16 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 
 	// Resolve build: "latest" or numeric build_order.
 	reportID := r.PathValue("report_id")
+	if reportID == "" {
+		reportID = "latest"
+	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
 	var build store.Build
 
 	if reportID == "latest" {

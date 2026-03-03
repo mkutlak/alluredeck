@@ -46,6 +46,13 @@ func main() {
 		logger.Fatal("configuration error", zap.Error(err))
 	}
 
+	// Bcrypt-hash plaintext passwords and zero out the originals (C3 fix).
+	if cfg.SecurityEnabled {
+		if err := cfg.HashPasswords(); err != nil {
+			logger.Fatal("failed to hash passwords", zap.Error(err))
+		}
+	}
+
 	// Open SQLite metadata store.
 	db, err := store.Open(cfg.DatabasePath)
 	if err != nil {

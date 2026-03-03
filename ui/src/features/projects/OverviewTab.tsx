@@ -19,6 +19,7 @@ import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/ap
 import { extractErrorMessage } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { env } from '@/lib/env'
+import { isSafeUrl } from '@/lib/url'
 import { formatDate, formatDuration, calcPassRate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -377,7 +378,7 @@ export function OverviewTab() {
                       {r.ci_provider || r.ci_branch || r.ci_commit_sha ? (
                         <div className="flex flex-col items-center gap-1">
                           {r.ci_provider && (
-                            r.ci_build_url ? (
+                            r.ci_build_url && isSafeUrl(r.ci_build_url) ? (
                               <a
                                 href={r.ci_build_url}
                                 target="_blank"

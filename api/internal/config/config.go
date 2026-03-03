@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // S3Config holds S3/MinIO connection settings.
@@ -49,6 +50,8 @@ type Config struct {
 	StorageType         string // "local" (default) or "s3"
 	S3                  S3Config
 	LogLevel            string // "debug", "info", "warn", "error" (default: "info")
+	SecurityPassHash    []byte `yaml:"-" json:"-"` // bcrypt hash, populated by HashPasswords()
+	ViewerPassHash      []byte `yaml:"-" json:"-"` // bcrypt hash, populated by HashPasswords()
 }
 
 // yamlConfig is the intermediate representation for YAML parsing.
@@ -174,6 +177,28 @@ func (c *Config) Validate() error {
 		if c.S3.Bucket == "" {
 			return ErrS3BucketRequired
 		}
+	}
+	return nil
+}
+
+// HashPasswords bcrypt-hashes SecurityPass and ViewerPass into their Hash fields,
+// then zeros out the plaintext fields so they cannot leak via debug endpoints or logs.
+func (c *Config) HashPasswords() error {
+	if c.SecurityPass != "" {
+		h, err := bcrypt.GenerateFromPassword([]byte(c.SecurityPass), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash security password: %w", err)
+		}
+		c.SecurityPassHash = h
+		c.SecurityPass = ""
+	}
+	if c.ViewerPass != "" {
+		h, err := bcrypt.GenerateFromPassword([]byte(c.ViewerPass), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash viewer password: %w", err)
+		}
+		c.ViewerPassHash = h
+		c.ViewerPass = ""
 	}
 	return nil
 }

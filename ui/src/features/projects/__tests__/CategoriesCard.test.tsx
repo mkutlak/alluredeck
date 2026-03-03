@@ -6,8 +6,6 @@ import * as reportsApi from '@/api/reports'
 
 vi.mock('@/api/reports')
 vi.mock('@/api/client', () => ({
-  setAccessToken: vi.fn(),
-  getAccessToken: vi.fn(),
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))

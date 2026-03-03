@@ -143,6 +143,13 @@ func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
+	if err := validateTicketURL(req.TicketURL); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
 
 	issue, err := h.knownIssueStore.Create(ctx, projectID, req.TestName, req.Pattern, req.TicketURL, req.Description)
 	if err != nil {
@@ -192,7 +199,8 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	if _, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped); err != nil {
+	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": err.Error()},
@@ -222,13 +230,21 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if err := validateTicketURL(req.TicketURL); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
+
 	// Default is_active to true if not provided.
 	isActive := true
 	if req.IsActive != nil {
 		isActive = *req.IsActive
 	}
 
-	if err := h.knownIssueStore.Update(ctx, issueID, req.TicketURL, req.Description, isActive); err != nil {
+	if err := h.knownIssueStore.Update(ctx, issueID, projectID, req.TicketURL, req.Description, isActive); err != nil {
 		if errors.Is(err, store.ErrKnownIssueNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -282,7 +298,8 @@ func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	if _, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped); err != nil {
+	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": err.Error()},
@@ -299,7 +316,7 @@ func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.knownIssueStore.Delete(ctx, issueID); err != nil {
+	if err := h.knownIssueStore.Delete(ctx, issueID, projectID); err != nil {
 		if errors.Is(err, store.ErrKnownIssueNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -355,6 +372,13 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
 		reportID = "latest"
+	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
 	}
 
 	// List active known issues for this project.

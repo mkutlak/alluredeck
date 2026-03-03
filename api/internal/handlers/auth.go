@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/logging"
@@ -70,22 +71,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	username := req.Username
 	password := req.Password
 
-	// Use constant-time comparison to prevent timing attacks (AUDIT 1.5).
-	// Evaluate all comparisons with bitwise AND to avoid short-circuit leaks.
+	// Use constant-time comparison for usernames to prevent timing-based enumeration (AUDIT 1.5).
+	// Use bcrypt for password verification (C3 fix: no more plaintext passwords).
 	var roles []string
 	valid := false
 
-	adminUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.SecurityUser))
-	adminPassMatch := subtle.ConstantTimeCompare([]byte(password), []byte(h.cfg.SecurityPass))
-	if adminUserMatch&adminPassMatch == 1 {
+	adminUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.SecurityUser)) == 1
+	adminPassMatch := len(h.cfg.SecurityPassHash) > 0 &&
+		bcrypt.CompareHashAndPassword(h.cfg.SecurityPassHash, []byte(password)) == nil
+	if adminUserMatch && adminPassMatch {
 		roles = []string{"admin"}
 		valid = true
 	}
 
 	if !valid && h.cfg.ViewerUser != "" {
-		viewerUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.ViewerUser))
-		viewerPassMatch := subtle.ConstantTimeCompare([]byte(password), []byte(h.cfg.ViewerPass))
-		if viewerUserMatch&viewerPassMatch == 1 {
+		viewerUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.ViewerUser)) == 1
+		viewerPassMatch := len(h.cfg.ViewerPassHash) > 0 &&
+			bcrypt.CompareHashAndPassword(h.cfg.ViewerPassHash, []byte(password)) == nil
+		if viewerUserMatch && viewerPassMatch {
 			roles = []string{"viewer"}
 			valid = true
 		}
@@ -119,13 +122,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tokens delivered solely via httpOnly cookies — never in JSON body (M3 fix).
 	response := map[string]any{
 		"data": map[string]any{
-			"access_token":  accessToken,
-			"refresh_token": refreshToken,
-			"csrf_token":    csrfToken,
-			"expires_in":    int(h.cfg.AccessTokenExpiry.Seconds()),
-			"roles":         roles,
+			"csrf_token": csrfToken,
+			"expires_in": int(h.cfg.AccessTokenExpiry.Seconds()),
+			"roles":      roles,
 		},
 		"metadata": map[string]string{"message": "Successfully logged"},
 	}

@@ -17,8 +17,6 @@ export interface LoginRequest {
 }
 
 export interface LoginData {
-  access_token: string
-  refresh_token: string
   csrf_token?: string
   expires_in: number
   roles: string[]

@@ -46,6 +46,13 @@ var (
 	ErrArchiveInvalidEntry  = errors.New("archive entry is not a regular file")
 	ErrArchiveDuplicateFile = errors.New("archive contains duplicate file names")
 
+	// report_id validation errors.
+	ErrReportIDRequired = errors.New("report_id is required")
+	ErrReportIDInvalid  = errors.New("report_id must be 'latest' or a positive integer")
+
+	// ticket_url validation errors.
+	ErrTicketURLInvalidScheme = errors.New("ticket_url must use http or https scheme")
+
 	// errUnsupportedContentType is returned by parseResultsBody when the
 	// Content-Type header is not application/json, multipart/form-data, or application/gzip.
 	errUnsupportedContentType = errors.New("unsupported Content-Type")
@@ -139,6 +146,41 @@ func safeProjectID(projectsDir, raw string) (string, error) {
 		return "", err
 	}
 	return raw, nil
+}
+
+// validateReportID rejects report IDs that could cause path traversal.
+// Accepts "latest" or non-empty all-digit strings (positive integers).
+func validateReportID(reportID string) error {
+	if reportID == "" {
+		return ErrReportIDRequired
+	}
+	if reportID == "latest" {
+		return nil
+	}
+	for _, c := range reportID {
+		if c < '0' || c > '9' {
+			return ErrReportIDInvalid
+		}
+	}
+	return nil
+}
+
+// validateTicketURL rejects URLs with non-http(s) schemes (e.g. javascript:, data:).
+// An empty URL is allowed (optional field). Returns an error for dangerous schemes.
+func validateTicketURL(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ErrTicketURLInvalidScheme
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+		return nil
+	default:
+		return ErrTicketURLInvalidScheme
+	}
 }
 
 // GetProjects godoc
@@ -1012,6 +1054,13 @@ func (h *AllureHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Requ
 	if reportID == "" {
 		reportID = "latest"
 	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
+	}
 
 	relPath := "reports/" + reportID + "/widgets/environment.json"
 	entries := make([]EnvironmentEntry, 0)
@@ -1119,6 +1168,13 @@ func (h *AllureHandler) GetReportCategories(w http.ResponseWriter, r *http.Reque
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
 		reportID = "latest"
+	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
+		})
+		return
 	}
 
 	relPath := "reports/" + reportID + "/widgets/categories.json"
@@ -1235,6 +1291,13 @@ func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": "report_id is required"},
+		})
+		return
+	}
+	if err := validateReportID(reportID); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": err.Error()},
 		})
 		return
 	}

@@ -9,10 +9,8 @@ import { useAuthStore } from '@/store/auth'
 
 // Mock the auth API
 vi.mock('@/api/auth')
-// Mock the API client
+// Mock the API client — no more setAccessToken/getAccessToken
 vi.mock('@/api/client', () => ({
-  setAccessToken: vi.fn(),
-  getAccessToken: vi.fn(),
   apiClient: { post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
@@ -56,7 +54,7 @@ describe('LoginPage', () => {
   it('calls login API with credentials', async () => {
     const user = userEvent.setup()
     vi.mocked(authApi.login).mockResolvedValue({
-      data: { access_token: 'tok', refresh_token: 'ref', expires_in: 3600, roles: ['admin'] },
+      data: { csrf_token: 'csrf123', expires_in: 3600, roles: ['admin'] },
       metadata: { message: 'ok' },
     })
 
@@ -77,7 +75,7 @@ describe('LoginPage', () => {
   it('navigates to / on successful login', async () => {
     const user = userEvent.setup()
     vi.mocked(authApi.login).mockResolvedValue({
-      data: { access_token: 'tok', refresh_token: 'ref', expires_in: 3600, roles: ['admin'] },
+      data: { csrf_token: 'csrf123', expires_in: 3600, roles: ['admin'] },
       metadata: { message: 'ok' },
     })
 

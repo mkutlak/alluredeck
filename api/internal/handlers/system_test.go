@@ -116,4 +116,3 @@ func TestSystemHandler_Ready_DBDown(t *testing.T) {
 		t.Errorf("expected 503, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
-

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, ExternalLink } from 'lucide-react'
 import { listKnownIssues, deleteKnownIssue, updateKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
+import { isSafeUrl } from '@/lib/url'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -143,7 +144,7 @@ export function KnownIssuesTab() {
                 <TableRow key={issue.id}>
                   <TableCell className="font-mono text-sm">{issue.test_name}</TableCell>
                   <TableCell>
-                    {issue.ticket_url ? (
+                    {issue.ticket_url && isSafeUrl(issue.ticket_url) ? (
                       <a
                         href={issue.ticket_url}
                         target="_blank"

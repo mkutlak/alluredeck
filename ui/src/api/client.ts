@@ -2,19 +2,6 @@ import axios, { type AxiosError } from 'axios'
 import { env } from '@/lib/env'
 
 // ---------------------------------------------------------------------------
-// In-memory token storage — never written to localStorage
-// ---------------------------------------------------------------------------
-let _accessToken: string | null = null
-
-export function setAccessToken(token: string | null): void {
-  _accessToken = token
-}
-
-export function getAccessToken(): string | null {
-  return _accessToken
-}
-
-// ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
 export const apiClient = axios.create({
@@ -29,13 +16,8 @@ function getCSRFToken(): string | null {
   return match ? decodeURIComponent(match[1]) : null
 }
 
-// Attach Bearer token and CSRF header when available
+// Attach CSRF header for state-changing requests
 apiClient.interceptors.request.use((config) => {
-  if (_accessToken) {
-    config.headers.Authorization = `Bearer ${_accessToken}`
-  }
-
-  // Set CSRF header for state-changing methods
   const method = config.method?.toUpperCase()
   if (method && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
     const csrfToken = getCSRFToken()
@@ -52,7 +34,6 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      setAccessToken(null)
       window.dispatchEvent(new CustomEvent('allure:unauthorized'))
     }
     return Promise.reject(error)

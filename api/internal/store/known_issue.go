@@ -127,7 +127,9 @@ func (ks *KnownIssueStore) ListPaginated(ctx context.Context, projectID string, 
 }
 
 // Update modifies ticket_url, description, and is_active for the given issue.
-func (ks *KnownIssueStore) Update(ctx context.Context, id int64, ticketURL, description string, isActive bool) error {
+// The projectID parameter ensures updates are scoped to the correct project,
+// preventing cross-project IDOR attacks.
+func (ks *KnownIssueStore) Update(ctx context.Context, id int64, projectID, ticketURL, description string, isActive bool) error {
 	active := 0
 	if isActive {
 		active = 1
@@ -136,8 +138,8 @@ func (ks *KnownIssueStore) Update(ctx context.Context, id int64, ticketURL, desc
 		UPDATE known_issues
 		SET ticket_url=?, description=?, is_active=?,
 		    updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-		WHERE id=?`,
-		ticketURL, description, active, id)
+		WHERE id=? AND project_id=?`,
+		ticketURL, description, active, id, projectID)
 	if err != nil {
 		return fmt.Errorf("update known issue: %w", err)
 	}
@@ -148,9 +150,10 @@ func (ks *KnownIssueStore) Update(ctx context.Context, id int64, ticketURL, desc
 	return nil
 }
 
-// Delete removes a known issue by ID.
-func (ks *KnownIssueStore) Delete(ctx context.Context, id int64) error {
-	res, err := ks.db.ExecContext(ctx, "DELETE FROM known_issues WHERE id=?", id)
+// Delete removes a known issue by ID, scoped to the given project.
+// The projectID parameter prevents cross-project IDOR attacks.
+func (ks *KnownIssueStore) Delete(ctx context.Context, id int64, projectID string) error {
+	res, err := ks.db.ExecContext(ctx, "DELETE FROM known_issues WHERE id=? AND project_id=?", id, projectID)
 	if err != nil {
 		return fmt.Errorf("delete known issue: %w", err)
 	}

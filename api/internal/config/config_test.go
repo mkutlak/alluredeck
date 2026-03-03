@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -394,5 +396,68 @@ func TestS3ConcurrencyFromEnv(t *testing.T) {
 	}
 	if cfg.S3.Concurrency != 20 {
 		t.Errorf("S3 concurrency from env: want 20, got %d", cfg.S3.Concurrency)
+	}
+}
+
+func TestHashPasswords_ClearsPlaintext(t *testing.T) {
+	cfg := &Config{
+		SecurityPass: "admin-secret",
+		ViewerPass:   "viewer-secret",
+	}
+	if err := cfg.HashPasswords(); err != nil {
+		t.Fatalf("HashPasswords: %v", err)
+	}
+	if cfg.SecurityPass != "" {
+		t.Errorf("SecurityPass should be empty after hashing, got %q", cfg.SecurityPass)
+	}
+	if cfg.ViewerPass != "" {
+		t.Errorf("ViewerPass should be empty after hashing, got %q", cfg.ViewerPass)
+	}
+	if len(cfg.SecurityPassHash) == 0 {
+		t.Error("SecurityPassHash should be populated")
+	}
+	if len(cfg.ViewerPassHash) == 0 {
+		t.Error("ViewerPassHash should be populated")
+	}
+}
+
+func TestHashPasswords_CorrectPasswordVerifies(t *testing.T) {
+	cfg := &Config{
+		SecurityPass: "admin-secret",
+		ViewerPass:   "viewer-secret",
+	}
+	if err := cfg.HashPasswords(); err != nil {
+		t.Fatalf("HashPasswords: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword(cfg.SecurityPassHash, []byte("admin-secret")); err != nil {
+		t.Errorf("admin password should match: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword(cfg.ViewerPassHash, []byte("viewer-secret")); err != nil {
+		t.Errorf("viewer password should match: %v", err)
+	}
+}
+
+func TestHashPasswords_WrongPasswordRejected(t *testing.T) {
+	cfg := &Config{
+		SecurityPass: "admin-secret",
+	}
+	if err := cfg.HashPasswords(); err != nil {
+		t.Fatalf("HashPasswords: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword(cfg.SecurityPassHash, []byte("wrong-password")); err == nil {
+		t.Error("wrong password should not match")
+	}
+}
+
+func TestHashPasswords_EmptyPasswordsNoOp(t *testing.T) {
+	cfg := &Config{}
+	if err := cfg.HashPasswords(); err != nil {
+		t.Fatalf("HashPasswords: %v", err)
+	}
+	if len(cfg.SecurityPassHash) != 0 {
+		t.Error("SecurityPassHash should be empty when no password set")
+	}
+	if len(cfg.ViewerPassHash) != 0 {
+		t.Error("ViewerPassHash should be empty when no password set")
 	}
 }

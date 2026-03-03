@@ -241,6 +241,156 @@ func TestDeleteKnownIssue_Success(t *testing.T) {
 	}
 }
 
+func TestUpdateKnownIssue_CrossProjectRejected(t *testing.T) {
+	projectsDir := t.TempDir()
+	h := newTestAllureHandler(t, projectsDir)
+
+	ctx := context.Background()
+	if err := h.projectStore.CreateProject(ctx, "projA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.projectStore.CreateProject(ctx, "projB"); err != nil {
+		t.Fatal(err)
+	}
+	issue, err := h.knownIssueStore.Create(ctx, "projA", "Test in projA", "", "http://ticket/1", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := map[string]any{
+		"ticket_url":  "http://evil",
+		"description": "hacked",
+		"is_active":   true,
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	// Try updating projA's issue via projB's URL.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		"/api/v1/projects/projB/known-issues/1",
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("project_id", "projB")
+	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
+
+	rr := httptest.NewRecorder()
+	h.UpdateKnownIssue(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDeleteKnownIssue_CrossProjectRejected(t *testing.T) {
+	projectsDir := t.TempDir()
+	h := newTestAllureHandler(t, projectsDir)
+
+	ctx := context.Background()
+	if err := h.projectStore.CreateProject(ctx, "projA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.projectStore.CreateProject(ctx, "projB"); err != nil {
+		t.Fatal(err)
+	}
+	issue, err := h.knownIssueStore.Create(ctx, "projA", "Test in projA", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Try deleting projA's issue via projB's URL.
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		"/api/v1/projects/projB/known-issues/1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", "projB")
+	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
+
+	rr := httptest.NewRecorder()
+	h.DeleteKnownIssue(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify issue still exists in projA.
+	if _, err := h.knownIssueStore.Get(ctx, issue.ID); err != nil {
+		t.Fatalf("issue should still exist: %v", err)
+	}
+}
+
+func TestCreateKnownIssue_RejectsJavascriptURL(t *testing.T) {
+	projectsDir := t.TempDir()
+	h := newTestAllureHandler(t, projectsDir)
+
+	ctx := context.Background()
+	if err := h.projectStore.CreateProject(ctx, "xss"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := map[string]any{
+		"test_name":  "XSS test",
+		"ticket_url": "javascript:alert(1)",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"/api/v1/projects/xss/known-issues",
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("project_id", "xss")
+
+	rr := httptest.NewRecorder()
+	h.CreateKnownIssue(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUpdateKnownIssue_RejectsJavascriptURL(t *testing.T) {
+	projectsDir := t.TempDir()
+	h := newTestAllureHandler(t, projectsDir)
+
+	ctx := context.Background()
+	if err := h.projectStore.CreateProject(ctx, "xss2"); err != nil {
+		t.Fatal(err)
+	}
+	issue, err := h.knownIssueStore.Create(ctx, "xss2", "Some test", "", "http://valid", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := map[string]any{
+		"ticket_url":  "javascript:alert(document.cookie)",
+		"description": "hacked",
+		"is_active":   true,
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		"/api/v1/projects/xss2/known-issues/1",
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("project_id", "xss2")
+	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
+
+	rr := httptest.NewRecorder()
+	h.UpdateKnownIssue(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestGetReportKnownFailures_NoKnown(t *testing.T) {
 	projectsDir := t.TempDir()
 	h := newTestAllureHandler(t, projectsDir)

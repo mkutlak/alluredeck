@@ -15,7 +15,7 @@ import (
 )
 
 func testAuthConfig() *config.Config {
-	return &config.Config{
+	cfg := &config.Config{
 		SecurityEnabled:    true,
 		SecurityUser:       "admin",
 		SecurityPass:       "password",
@@ -23,6 +23,11 @@ func testAuthConfig() *config.Config {
 		AccessTokenExpiry:  15 * time.Minute,
 		RefreshTokenExpiry: 30 * 24 * time.Hour,
 	}
+	// Hash passwords so bcrypt comparison works in tests.
+	if err := cfg.HashPasswords(); err != nil {
+		panic("testAuthConfig: " + err.Error())
+	}
+	return cfg
 }
 
 func TestAuthHandler_Login(t *testing.T) {
@@ -58,8 +63,24 @@ func TestAuthHandler_Login(t *testing.T) {
 	if !ok {
 		t.Fatal("expected resp[\"data\"] to be map[string]any")
 	}
-	if data["access_token"] == "" {
-		t.Errorf("Expected an access token, got empty string")
+
+	// Tokens must NOT appear in the JSON body (M3 fix: dual-channel exposure)
+	if _, exists := data["access_token"]; exists {
+		t.Errorf("access_token must not be in JSON response body")
+	}
+	if _, exists := data["refresh_token"]; exists {
+		t.Errorf("refresh_token must not be in JSON response body")
+	}
+
+	// csrf_token, expires_in, and roles must still be present
+	if data["csrf_token"] == nil || data["csrf_token"] == "" {
+		t.Errorf("Expected csrf_token in response data")
+	}
+	if data["expires_in"] == nil {
+		t.Errorf("Expected expires_in in response data")
+	}
+	if data["roles"] == nil {
+		t.Errorf("Expected roles in response data")
 	}
 
 	// Check cookies are set

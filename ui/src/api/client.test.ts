@@ -1,27 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import {
-  setAccessToken,
-  getAccessToken,
-  extractErrorMessage,
-} from './client'
+import { describe, it, expect, vi } from 'vitest'
+import { extractErrorMessage } from './client'
 import axios from 'axios'
-
-describe('token management', () => {
-  beforeEach(() => {
-    setAccessToken(null)
-  })
-
-  it('stores and retrieves access token', () => {
-    setAccessToken('abc123')
-    expect(getAccessToken()).toBe('abc123')
-  })
-
-  it('clears access token when set to null', () => {
-    setAccessToken('abc123')
-    setAccessToken(null)
-    expect(getAccessToken()).toBeNull()
-  })
-})
 
 describe('extractErrorMessage', () => {
   it('extracts meta_data.message from Axios error', () => {
