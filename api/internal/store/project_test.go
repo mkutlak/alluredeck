@@ -3,8 +3,9 @@ package store_test
 import (
 	"context"
 	"errors"
-	"go.uber.org/zap"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )

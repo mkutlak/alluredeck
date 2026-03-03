@@ -92,7 +92,6 @@ func uploadDir(ctx context.Context, client s3API, bucket, localDir, s3Prefix str
 	g.SetLimit(concurrency)
 
 	for _, e := range entries {
-		e := e
 		g.Go(func() error {
 			data, err := os.ReadFile(e.path)
 			if err != nil {
@@ -183,7 +182,6 @@ func downloadPrefix(ctx context.Context, client s3API, bucket, s3Prefix, localDi
 	g.SetLimit(concurrency)
 
 	for _, key := range keys {
-		key := key
 		g.Go(func() error {
 			n, err := downloadObject(gctx, client, bucket, key, localDir, s3Prefix)
 			if err != nil {
