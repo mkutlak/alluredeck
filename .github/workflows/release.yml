@@ -71,7 +71,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-images:
-    name: Build and push ${{ matrix.image }}
+    name: Build and push image
     needs: release
     if: needs.release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
