@@ -1,108 +1,60 @@
-# AllureDeck
+<p align="center">
+  <img src="docs/screenshots/gopher_deck.png" alt="AllureDeck Gopher" width="180"/>
+</p>
 
-A modern dashboard for Allure test reports — Go API backend + React frontend.
+<h1 align="center">AllureDeck</h1>
+<p align="center">A modern dashboard for Allure test reports — Go API backend + React frontend.</p>
+<p align="center">Rewrite of <a href="https://github.com/fescobar/allure-docker-service">fescobar/allure-docker-service</a> + <a href="https://github.com/fescobar/allure-docker-service-ui">allure-docker-service-ui</a>.</p>
 
-Rewrite of [ [fescobar/allure-docker-service](https://github.com/fescobar/allure-docker-service) | [fescobar/allure-docker-service-ui](https://github.com/fescobar/allure-docker-service-ui) ].
-
-![Projects page](docs/screenshots/12-local-grid-light.png)
+<p align="center">
+  <img src="docs/screenshots/12-local-grid-light.png" alt="AllureDeck projects view" width="800"/>
+</p>
 
 ## Features
 
 - **Project management** — create, list, delete projects; grid and list view; paginated API
-- **Tab-based navigation** — Overview, Analytics, Timeline, Known Issues tabs per project
-- **Analytics charts** — Status Trend, Pass Rate Trend, Duration Trend, Status Distribution
+- **Analytics** — Status Trend, Pass Rate Trend, Duration Trend, Status Distribution charts
 - **Test timeline** — Gantt-chart visualization of parallel test execution with swim lanes
 - **Known issues tracking** — tag flaky/known-failing tests; adjusted pass rate calculation
-- **Report history** — colour-coded table with pass rate, per-build stats, view/delete actions
-- **Embedded report viewer** — Allure 2 & 3 reports rendered in an iframe
-- **Admin actions** — send results (drag & drop), generate report, clean results/history
-- **Authentication** — JWT-based login; admin vs viewer RBAC; CSRF double-submit cookies; per-IP rate limiting
-- **Structured logging** — Uber Zap; JSON in production, console in dev; request-scoped correlation
-- **Dark / light mode** — system-aware theme toggle
+- **Report history** — colour-coded table with per-build stats, view and delete actions
+- **Embedded report viewer** — Allure 2 & 3 reports rendered inline
+- **Admin actions** — drag & drop result upload, generate report, clean results/history
+- **Authentication** — JWT-based login, admin vs viewer RBAC, CSRF protection, per-IP rate limiting
 - **Storage backends** — local filesystem and S3/MinIO
+- **Dark / light mode** — system-aware theme toggle
+- **Multi-arch images** — `linux/amd64` and `linux/arm64`
 
 ## Quick Start
 
-### With Docker Compose (recommended)
+### Docker Compose
 
 ```bash
-# Full stack (UI + API)
-docker compose -f docker/docker-compose.yml up --build -d
-# Dashboard: http://localhost:7474  API: http://localhost:5050
-
-# Full stack with S3 / MinIO
-docker compose -f docker/docker-compose-s3.yml up -d
-# Dashboard: http://localhost:7474  API: http://localhost:5050  MinIO: http://localhost:9001
-
-# API-only (dev)
-docker compose -f docker/docker-compose-dev.yml up --build -d
+git clone https://github.com/mkutlak/alluredeck.git
+cd alluredeck/alluredeck
+docker compose -f docker/docker-compose.yml up -d
 ```
 
-Default credentials: `admin / admin`
+Dashboard: <http://localhost:7474> · API: <http://localhost:5050>
 
-### Development
+> **Default credentials:** `admin` / `admin` — change before exposing to any network.
+
+### Helm
 
 ```bash
-# API (Go)
-make api-test      # run tests
-make api-check     # fmt + vet + lint + test
-make api-run       # build and run locally
-
-# UI (React)
-make ui-install    # install dependencies
-make ui-dev        # Vite dev server at http://localhost:5173
-make ui-check      # typecheck + lint + test
-
-# Full quality gate
-make check         # API + UI checks
+helm repo add alluredeck https://mkutlak.github.io/alluredeck
+helm repo update
+helm install alluredeck alluredeck/alluredeck
 ```
 
-### Environment variables
+## Documentation
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_URL` | `http://localhost:5050` | AllureDeck API base URL |
-| `VITE_APP_TITLE` | `AllureDeck` | Browser title and top-bar brand |
+- [Deployment Guide](docs/deployment.md) — Docker Compose variants, Helm, local dev
+- [Configuration Reference](docs/configuration.md) — all environment variables and YAML config
+- [Storage](docs/storage.md) — local filesystem and S3/MinIO setup, IRSA on EKS
+- [Security](docs/security.md) — JWT auth, RBAC, CSRF, rate limiting, production checklist
+- [Helm Chart Reference](docs/helm-chart.md) — full `values.yaml` reference and examples
+- [Development Guide](docs/development.md) — local setup, make targets, testing, conventions
 
-Variables are injected at **runtime** via `window.__env__` (see `docker/docker-entrypoint.sh`), so a single Docker image works with any API endpoint.
+## License
 
-## Project Structure
-
-```
-alluredeck/
-  api/              # Go HTTP API backend
-    cmd/api/        # entry point
-    internal/       # config, handlers, logging, middleware, runner, security, store, storage, version
-    static/         # embedded static assets + swagger UI
-    go.mod
-  ui/               # React + TypeScript frontend
-    src/
-      api/          # axios clients & typed API functions
-      components/   # shared UI components (shadcn-style)
-      features/     # feature-scoped components and logic
-      routes/       # React Router route tree
-      store/        # Zustand stores
-    package.json
-  docker/           # Dockerfiles and compose configs
-    Dockerfile.api
-    Dockerfile.ui
-    docker-compose.yml
-    docker-compose-dev.yml
-    docker-compose-s3.yml
-  Makefile          # unified build orchestration
-```
-
-## Make targets
-
-Run `make help` for a full list. Key targets:
-
-```
-make api-check        API quality gate (fmt + vet + lint + test)
-make ui-check         UI quality gate (typecheck + lint + test)
-make check            full quality gate (API + UI)
-make docker-build     build both Docker images
-make docker-up        start full stack (UI + API)
-make docker-down      stop full stack
-make docker-up-s3     full stack with S3 (MinIO)
-make docker-up-dev    API-only dev stack
-```
+Apache 2.0

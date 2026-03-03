@@ -84,6 +84,11 @@ make docker-up        # start full stack (UI + API)
 make docker-down      # stop full stack
 make docker-up-dev    # API-only dev stack
 make docker-up-s3     # full stack with S3 (MinIO)
+
+# Helm
+make helm-lint        # lint Helm chart
+make helm-template    # render templates (validate rendering)
+make helm-package     # package chart into .tgz
 ```
 
 ## API Conventions
