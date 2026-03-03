@@ -3,7 +3,7 @@ ARG UID=1000
 ARG GID=1000
 
 ###### Go Build Stage
-FROM golang:1.25-alpine AS build_stage
+FROM golang:1.26-alpine AS build_stage
 ARG BUILD_DATE
 ARG BUILD_VERSION
 ARG BUILD_REF
