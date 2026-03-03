@@ -2,11 +2,12 @@ package runner
 
 import (
 	"context"
-	"go.uber.org/zap"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/storage"

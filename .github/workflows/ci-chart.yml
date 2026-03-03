@@ -1,0 +1,28 @@
+name: CI — Helm Chart
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/ci-chart.yml"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  chart-lint:
+    name: Helm chart lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint charts/alluredeck
+
+      - name: Template chart (validate rendering)
+        run: helm template alluredeck charts/alluredeck --debug
