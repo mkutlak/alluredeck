@@ -1,0 +1,84 @@
+version: 2
+updates:
+  # Go dependencies
+  - package-ecosystem: gomod
+    directory: "/api"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:15"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    allow:
+      - dependency-type: "production"
+      - dependency-type: "development"
+    assignees:
+      - mkutlak
+      
+  # NPM
+  - package-ecosystem: npm
+    directory: "/ui"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:15"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    allow:
+      - dependency-type: "production"
+      - dependency-type: "development"
+    assignees:
+      - mkutlak
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/.github"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:15"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    assignees:
+      - mkutlak
+
+
+  # Docker
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:15"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "chore(docker)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    assignees:
+      - mkutlak
