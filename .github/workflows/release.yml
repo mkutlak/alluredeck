@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: ui/package.json
+          node-version: 25
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
