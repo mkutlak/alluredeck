@@ -1,0 +1,40 @@
+name: CI — API
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "Makefile"
+      - ".github/workflows/ci-api.yml"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  api-check:
+    name: API quality gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: api
+
+      - name: go test
+        run: go test -race -coverprofile=coverage.out ./...
