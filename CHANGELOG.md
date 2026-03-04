@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/mkutlak/alluredeck/compare/v0.1.1...v0.1.2) (2026-03-04)
+
+### Bug Fixes
+
+* **ci:** correct semantic-release action output names in release workflow ([f3fe970](https://github.com/mkutlak/alluredeck/commit/f3fe970ef1e5909fc5d060c5289b553c3a127d6c))
+
 ## [0.1.1](https://github.com/mkutlak/alluredeck/compare/v0.1.0...v0.1.1) (2026-03-04)
 
 ### Bug Fixes
