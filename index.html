@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AllureDeck — Allure Reports Dashboard for Kubernetes</title>
+  <meta name="description" content="Deploy Allure test reports on Kubernetes with a single Helm command. Go API backend, React UI, built-in auth, S3 storage support.">
+  <meta name="theme-color" content="#eff1f5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⎈</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      /* Catppuccin Latte */
+      --bg-deep: #eff1f5;       /* Base */
+      --bg-primary: #e6e9ef;    /* Mantle */
+      --bg-elevated: #dce0e8;   /* Crust */
+      --bg-surface: #ccd0da;    /* Surface0 */
+      --border: #bcc0cc;        /* Surface1 */
+      --border-bright: #acb0be; /* Surface2 */
+      --text-primary: #4c4f69;  /* Text */
+      --text-secondary: #6c6f85;/* Subtext0 */
+      --text-muted: #8c8fa1;    /* Overlay1 */
+      --accent: #8839ef;        /* Mauve */
+      --accent-dim: #7332c7;
+      --accent-glow: rgba(136, 57, 239, 0.1);
+      --accent-glow-strong: rgba(136, 57, 239, 0.2);
+      --warning: #fe640b;       /* Peach */
+      --ctp-lavender: #7287fd;
+      --ctp-sapphire: #209fb5;
+      --ctp-teal: #179299;
+      --ctp-green: #40a02b;
+      --ctp-red: #d20f39;
+      --ctp-pink: #ea76cb;
+      --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sans: 'Space Grotesk', system-ui, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Subtle dot pattern */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(239, 241, 245, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    .nav-brand {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: var(--accent);
+      text-decoration: none;
+      letter-spacing: 0.05em;
+    }
+
+    .nav-brand::before {
+      content: '⎈ ';
+      opacity: 0.7;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 8px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 6px 12px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      transition: all 0.2s;
+      letter-spacing: 0.02em;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent);
+      border-color: var(--border-bright);
+      background: var(--accent-glow);
+    }
+
+    /* ── HERO ── */
+    .hero {
+      padding: 140px 0 80px;
+      text-align: center;
+      position: relative;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      pointer-events: none;
+      opacity: 0.4;
+    }
+
+    .hero-gopher {
+      display: block;
+      margin: 0 auto 24px;
+      filter: drop-shadow(0 4px 12px rgba(136, 57, 239, 0.15));
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--accent-glow);
+      border: 1px solid var(--border-bright);
+      border-radius: 100px;
+      padding: 5px 14px;
+      margin-bottom: 28px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--accent); }
+      50% { opacity: 0.6; box-shadow: 0 0 8px 2px var(--accent); }
+    }
+
+    h1 {
+      font-family: var(--mono);
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin-bottom: 16px;
+      color: var(--text-primary);
+    }
+
+    h1 .highlight {
+      color: var(--accent);
+    }
+
+    .hero-sub {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+      max-width: 520px;
+      margin: 0 auto 40px;
+      line-height: 1.5;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      border: 1px solid var(--border-bright);
+      transition: all 0.2s;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #eff1f5;
+      border-color: var(--accent);
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-dim);
+      box-shadow: 0 4px 16px var(--accent-glow-strong);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    /* ── SECTIONS ── */
+    section {
+      padding: 80px 0;
+    }
+
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--accent-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      font-family: var(--mono);
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+
+    .section-desc {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      max-width: 600px;
+      margin-bottom: 36px;
+    }
+
+    /* ── INSTALL ── */
+    .install-block {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .install-block + .install-block {
+      margin-top: 16px;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-title {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .copy-btn {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .copy-btn:hover {
+      color: var(--accent);
+      border-color: var(--border-bright);
+    }
+
+    .copy-btn.copied {
+      color: var(--accent);
+      border-color: var(--accent-dim);
+    }
+
+    .terminal-body {
+      padding: 16px 20px;
+      overflow-x: auto;
+    }
+
+    .terminal-body code {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text-primary);
+      white-space: pre;
+    }
+
+    .terminal-body .prompt {
+      color: var(--accent-dim);
+      user-select: none;
+    }
+
+    .terminal-body .comment {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .terminal-body .flag {
+      color: var(--warning);
+    }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .feature-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      transition: all 0.25s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-bright);
+      background: var(--bg-elevated);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      font-size: 1.5rem;
+      margin-bottom: 14px;
+      display: block;
+    }
+
+    .feature-card h3 {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+
+    .feature-card p {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ── ARCHITECTURE ── */
+    .arch-diagram {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 32px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.8;
+      overflow-x: auto;
+    }
+
+    .arch-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .arch-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .arch-box {
+      border: 1px solid var(--border-bright);
+      border-radius: 6px;
+      padding: 12px 20px;
+      background: var(--bg-elevated);
+      text-align: center;
+      min-width: 160px;
+    }
+
+    .arch-box-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 4px;
+    }
+
+    .arch-box-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 0.85rem;
+    }
+
+    .arch-box.accent {
+      border-color: var(--accent-dim);
+      background: var(--accent-glow);
+    }
+
+    .arch-box.accent .arch-box-name {
+      color: var(--accent);
+    }
+
+    .arch-arrow {
+      color: var(--text-muted);
+      font-size: 1.2rem;
+    }
+
+    .arch-note {
+      margin-top: 20px;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-family: var(--sans);
+    }
+
+    /* ── LINKS/FOOTER ── */
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .link-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      transition: all 0.2s;
+    }
+
+    .link-card:hover {
+      border-color: var(--accent-dim);
+      color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    .link-card span {
+      font-size: 1.2rem;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0;
+      text-align: center;
+    }
+
+    footer p {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      .container { padding: 0 16px; }
+      .hero { padding: 120px 0 60px; }
+      section { padding: 60px 0; }
+      .hero-actions { flex-direction: column; align-items: center; }
+      .btn { width: 100%; max-width: 280px; text-align: center; }
+      .features-grid { grid-template-columns: 1fr; }
+      .links-grid { grid-template-columns: 1fr; }
+      .arch-row { flex-direction: column; align-items: stretch; }
+      .arch-arrow { transform: rotate(90deg); align-self: center; }
+      .nav-links { gap: 4px; }
+      .nav-links a { padding: 6px 8px; font-size: 0.7rem; }
+    }
+
+    /* ── ANIMATIONS ── */
+    @media (prefers-reduced-motion: no-preference) {
+      .fade-in {
+        opacity: 0;
+        transform: translateY(16px);
+        animation: fadeIn 0.6s ease forwards;
+      }
+
+      .fade-in:nth-child(1) { animation-delay: 0.05s; }
+      .fade-in:nth-child(2) { animation-delay: 0.1s; }
+      .fade-in:nth-child(3) { animation-delay: 0.15s; }
+      .fade-in:nth-child(4) { animation-delay: 0.2s; }
+      .fade-in:nth-child(5) { animation-delay: 0.25s; }
+      .fade-in:nth-child(6) { animation-delay: 0.3s; }
+
+      @keyframes fadeIn {
+        to { opacity: 1; transform: none; }
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="container">
+      <a href="#" class="nav-brand">ALLUREDECK</a>
+      <ul class="nav-links">
+        <li><a href="#install">Install</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#architecture">Arch</a></li>
+        <li><a href="https://github.com/mkutlak/alluredeck" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="container">
+      <img src="gopher_deck.png" alt="AllureDeck Gopher mascot" class="hero-gopher fade-in" width="140" height="186">
+      <div class="badge fade-in">Helm Chart</div>
+      <h1 class="fade-in"><span class="highlight">Allure</span>Deck</h1>
+      <p class="hero-sub fade-in">Allure Reports Dashboard for Kubernetes.<br>Deploy with a single Helm command.</p>
+      <div class="hero-actions fade-in">
+        <a href="#install" class="btn btn-primary">Quick Install</a>
+        <a href="https://github.com/mkutlak/alluredeck" class="btn btn-secondary" target="_blank" rel="noopener">View Source</a>
+      </div>
+    </div>
+  </header>
+
+  <hr class="divider">
+
+  <!-- INSTALL -->
+  <section id="install">
+    <div class="container">
+      <p class="section-label">// Quick Start</p>
+      <h2>Install</h2>
+      <p class="section-desc">Pull and install from the OCI registry. No <code>helm repo add</code> needed.</p>
+
+      <div class="install-block">
+        <div class="terminal-bar">
+          <span class="terminal-title">Pull the chart</span>
+          <button class="copy-btn" data-copy="helm pull oci://ghcr.io/mkutlak/charts/alluredeck">Copy</button>
+        </div>
+        <div class="terminal-body">
+          <code><span class="prompt">$ </span>helm pull oci://ghcr.io/mkutlak/charts/alluredeck</code>
+        </div>
+      </div>
+
+      <div class="install-block">
+        <div class="terminal-bar">
+          <span class="terminal-title">Install to cluster</span>
+          <button class="copy-btn" data-copy="helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck">Copy</button>
+        </div>
+        <div class="terminal-body">
+          <code><span class="prompt">$ </span>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck</code>
+        </div>
+      </div>
+
+      <div class="install-block">
+        <div class="terminal-bar">
+          <span class="terminal-title">Install with custom values</span>
+          <button class="copy-btn" data-copy="helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck \
+  --set api.ingress.enabled=true \
+  --set api.ingress.host=allure.example.com \
+  --set ui.ingress.enabled=true \
+  --set ui.ingress.host=allure.example.com">Copy</button>
+        </div>
+        <div class="terminal-body">
+          <code><span class="prompt">$ </span>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck <span class="flag">\</span>
+    <span class="flag">--set</span> api.ingress.enabled=true <span class="flag">\</span>
+    <span class="flag">--set</span> api.ingress.host=allure.example.com <span class="flag">\</span>
+    <span class="flag">--set</span> ui.ingress.enabled=true <span class="flag">\</span>
+    <span class="flag">--set</span> ui.ingress.host=allure.example.com</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="container">
+      <p class="section-label">// Capabilities</p>
+      <h2>Key Features</h2>
+      <p class="section-desc">Production-ready defaults. Secure by design.</p>
+
+      <div class="features-grid">
+        <div class="feature-card fade-in">
+          <span class="feature-icon" aria-hidden="true">&#x1f4be;</span>
+          <h3>Flexible Storage</h3>
+          <p>Local persistent volumes for on-prem or S3-compatible storage (AWS, MinIO) for cloud deployments. IRSA support for EKS.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <span class="feature-icon" aria-hidden="true">&#x1f512;</span>
+          <h3>Built-in Auth</h3>
+          <p>Role-based access with admin and viewer roles. JWT authentication with auto-generated signing keys and credentials.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <span class="feature-icon" aria-hidden="true">&#x1f6e1;&#xfe0f;</span>
+          <h3>Network Policies</h3>
+          <p>Optional Kubernetes NetworkPolicies to restrict pod-to-pod communication and enforce least-privilege networking.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <span class="feature-icon" aria-hidden="true">&#x1f510;</span>
+          <h3>Auto-generated Secrets</h3>
+          <p>Secure credentials generated on first install and preserved across upgrades. Supports external secret managers.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <span class="feature-icon" aria-hidden="true">&#x1f9f1;</span>
+          <h3>Security Hardened</h3>
+          <p>Non-root containers, read-only root filesystems, dropped capabilities, and restricted security contexts by default.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <span class="feature-icon" aria-hidden="true">&#x1f4ca;</span>
+          <h3>Health Monitoring</h3>
+          <p>Liveness, readiness, and startup probes for both API and UI. Resource limits with Go-specific GOMEMLIMIT tuning.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ARCHITECTURE -->
+  <section id="architecture">
+    <div class="container">
+      <p class="section-label">// System Design</p>
+      <h2>Architecture</h2>
+      <p class="section-desc">Two-component deployment: API handles report processing, UI serves the dashboard.</p>
+
+      <div class="arch-diagram">
+        <div class="arch-row">
+          <div class="arch-box">
+            <div class="arch-box-label">Ingress</div>
+            <div class="arch-box-name">allure.example.com</div>
+          </div>
+          <span class="arch-arrow">&rarr;</span>
+          <div class="arch-box accent">
+            <div class="arch-box-label">Frontend</div>
+            <div class="arch-box-name">React UI</div>
+          </div>
+          <span class="arch-arrow">&rarr;</span>
+          <div class="arch-box accent">
+            <div class="arch-box-label">Backend</div>
+            <div class="arch-box-name">Go API</div>
+          </div>
+          <span class="arch-arrow">&rarr;</span>
+          <div class="arch-box">
+            <div class="arch-box-label">Storage</div>
+            <div class="arch-box-name">PVC / S3</div>
+          </div>
+        </div>
+        <p class="arch-note">Each component runs as a separate Deployment with dedicated Service, ServiceAccount, and optional NetworkPolicy. The UI proxies API requests, and CORS is auto-configured when ingress is enabled.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- LINKS -->
+  <section id="links">
+    <div class="container">
+      <p class="section-label">// Resources</p>
+      <h2>Links</h2>
+      <p class="section-desc">Source code, documentation, and support.</p>
+
+      <div class="links-grid">
+        <a href="https://github.com/mkutlak/alluredeck" class="link-card" target="_blank" rel="noopener">
+          <span aria-hidden="true">&#x1f4c1;</span> GitHub Repository
+        </a>
+        <a href="https://github.com/mkutlak/alluredeck/blob/main/docs/helm-chart.md" class="link-card" target="_blank" rel="noopener">
+          <span aria-hidden="true">&#x1f4d6;</span> Chart Documentation
+        </a>
+        <a href="https://github.com/mkutlak/alluredeck/issues" class="link-card" target="_blank" rel="noopener">
+          <span aria-hidden="true">&#x1f41b;</span> Report an Issue
+        </a>
+        <a href="https://github.com/mkutlak/alluredeck/releases" class="link-card" target="_blank" rel="noopener">
+          <span aria-hidden="true">&#x1f3f7;&#xfe0f;</span> Releases
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <p>
+        <a href="https://github.com/mkutlak/alluredeck">AllureDeck</a>
+        &nbsp;&middot;&nbsp; Licensed under
+        <a href="https://github.com/mkutlak/alluredeck/blob/main/LICENSE">MIT</a>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // Copy to clipboard
+    document.querySelectorAll('.copy-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var text = this.getAttribute('data-copy');
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(function() {
+          btn.textContent = 'Copied!';
+          btn.classList.add('copied');
+          setTimeout(function() {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+          }, 2000);
+        }).catch(function() {
+          // Fallback for older browsers
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } catch(e) {}
+          document.body.removeChild(ta);
+          btn.textContent = 'Copied!';
+          btn.classList.add('copied');
+          setTimeout(function() {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+          }, 2000);
+        });
+      });
+    });
+
+    // Intersection Observer for scroll animations
+    if ('IntersectionObserver' in window) {
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.style.animationPlayState = 'running';
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.1 });
+
+      document.querySelectorAll('section .fade-in').forEach(function(el) {
+        el.style.animationPlayState = 'paused';
+        observer.observe(el);
+      });
+    }
+  </script>
+
+</body>
+</html>
