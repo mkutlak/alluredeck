@@ -14,3 +14,7 @@ keywords:
   - testing
   - reports
   - dashboard
+annotations:
+  artifacthub.io/links: |
+    - name: Source
+      url: https://github.com/mkutlak/alluredeck
