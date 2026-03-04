@@ -1,3 +1,9 @@
+## [0.1.1](https://github.com/mkutlak/alluredeck/compare/v0.1.0...v0.1.1) (2026-03-04)
+
+### Bug Fixes
+
+* update branch protection docs and relax ruleset for semantic-release ([110f829](https://github.com/mkutlak/alluredeck/commit/110f829807e60b61dcdce69e79cb7b59a69799ed))
+
 ## [0.1.0](https://github.com/mkutlak/alluredeck/compare/v0.0.0...v0.1.0) (2026-03-04)
 
 ### ⚠ BREAKING CHANGES
