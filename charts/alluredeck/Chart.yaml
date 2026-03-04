@@ -3,7 +3,7 @@ name: alluredeck
 description: Allure Reports Dashboard
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
+appVersion: "0.1.2"
 home: https://github.com/mkutlak/alluredeck
 sources:
   - https://github.com/mkutlak/alluredeck
