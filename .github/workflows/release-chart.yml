@@ -7,7 +7,7 @@ on:
       - "charts/**"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -28,15 +28,37 @@ jobs:
           VERSION=$(yq '.version' charts/alluredeck/Chart.yaml)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Check if tag already exists
+        id: tag-check
+        env:
+          TAG: "helm-v${{ steps.version.outputs.version }}"
+        run: |
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists, skipping release"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Log in to GHCR
+        if: steps.tag-check.outputs.exists == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: echo "${GITHUB_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
 
       - name: Package and push Helm chart
+        if: steps.tag-check.outputs.exists == 'false'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           helm package charts/alluredeck
           helm push alluredeck-${VERSION}.tgz oci://ghcr.io/mkutlak/charts
+
+      - name: Create helm tag
+        if: steps.tag-check.outputs.exists == 'false'
+        env:
+          TAG: "helm-v${{ steps.version.outputs.version }}"
+        run: |
+          git tag "${TAG}"
+          git push origin "${TAG}"

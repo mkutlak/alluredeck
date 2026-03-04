@@ -67,6 +67,7 @@ jobs:
           extra_plugins: |
             @semantic-release/changelog
             @semantic-release/git
+            conventional-changelog-conventionalcommits
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -138,43 +139,3 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/mkutlak/${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-
-  release-chart:
-    name: Release Helm chart
-    needs: [release, build-images]
-    if: needs.release.outputs.new-release-published == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.release.outputs.new-release-git-tag }}
-
-      - uses: azure/setup-helm@v4
-
-      - name: Install yq
-        uses: mikefarah/yq@v4
-
-      - name: Update Chart.yaml with release version
-        env:
-          VERSION: ${{ needs.release.outputs.new-release-version }}
-        run: |
-          yq -i ".version = \"${VERSION}\"" charts/alluredeck/Chart.yaml
-          yq -i ".appVersion = \"${VERSION}\"" charts/alluredeck/Chart.yaml
-          echo "Chart.yaml updated:"
-          head -10 charts/alluredeck/Chart.yaml
-
-      - name: Log in to GHCR
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTOR: ${{ github.actor }}
-        run: echo "${GITHUB_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
-
-      - name: Package and push Helm chart
-        env:
-          VERSION: ${{ needs.release.outputs.new-release-version }}
-        run: |
-          helm package charts/alluredeck
-          helm push alluredeck-${VERSION}.tgz oci://ghcr.io/mkutlak/charts
