@@ -16,8 +16,8 @@ func TestFileSystem(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := &config.Config{
-		ProjectsDirectory: tmpDir,
-		KeepHistory:       true,
+		ProjectsPath: tmpDir,
+		KeepHistory:  true,
 	}
 	fs := NewFileSystem(cfg)
 

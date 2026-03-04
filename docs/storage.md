@@ -8,10 +8,10 @@ The filesystem stores Allure report data. SQLite is used only as a metadata and 
 
 `STORAGE_TYPE=local` (default)
 
-Allure project data is stored under `STATIC_CONTENT_PROJECTS` (default: `/app/projects`), with this structure:
+Allure project data is stored under `PROJECTS_PATH` (default: `/data/projects`), with this structure:
 
 ```
-/app/projects/
+/data/projects/
   {project-id}/
     results/      # uploaded Allure result files
     reports/
@@ -26,8 +26,8 @@ Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `STORAGE_TYPE` | `local` | Storage backend type |
-| `STATIC_CONTENT_PROJECTS` | `/app/projects` | Project data root directory |
-| `DATABASE_PATH` | `/app/allure.db` | SQLite metadata database |
+| `PROJECTS_PATH` | `/data/projects` | Project data root directory |
+| `DATABASE_PATH` | `/data/db/alluredeck.db` | SQLite metadata database |
 | `KEEP_HISTORY` | `false` | Retain previous report builds |
 | `KEEP_HISTORY_LATEST` | `20` | Max historical builds per project |
 
@@ -37,7 +37,7 @@ In `docker/docker-compose.yml`, a named Docker volume persists data across conta
 
 ```yaml
 volumes:
-  - allure-projects:/app/projects
+  - allure-projects:/data/projects
 ```
 
 ### Kubernetes / Helm

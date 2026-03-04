@@ -102,18 +102,18 @@ type ConfigResponse struct {
 
 // ConfigData holds the service configuration serialised for API consumers.
 type ConfigData struct {
-	Version                  string `json:"version"`
-	DevMode                  bool   `json:"dev_mode"`
-	CheckResultsEverySeconds string `json:"check_results_every_seconds"`
-	KeepHistory              bool   `json:"keep_history"`
-	KeepHistoryLatest        int    `json:"keep_history_latest"`
-	TLS                      bool   `json:"tls"`
-	SecurityEnabled          bool   `json:"security_enabled"`
-	APIRespLessVerbose       bool   `json:"api_response_less_verbose"`
-	MakeViewerEndptsPub      bool   `json:"make_viewer_endpoints_public"`
-	AppVersion               string `json:"app_version"`
-	AppBuildDate             string `json:"app_build_date"`
-	AppBuildRef              string `json:"app_build_ref"`
+	Version                   string `json:"version"`
+	DevMode                   bool   `json:"dev_mode"`
+	CheckResultsEverySeconds  string `json:"check_results_every_seconds"`
+	KeepHistory               bool   `json:"keep_history"`
+	KeepHistoryLatest         int    `json:"keep_history_latest"`
+	TLS                       bool   `json:"tls"`
+	SecurityEnabled           bool   `json:"security_enabled"`
+	APIResponseLessVerbose    bool   `json:"api_response_less_verbose"`
+	MakeViewerEndpointsPublic bool   `json:"make_viewer_endpoints_public"`
+	AppVersion                string `json:"app_version"`
+	AppBuildDate              string `json:"app_build_date"`
+	AppBuildRef               string `json:"app_build_ref"`
 }
 
 // ConfigMetaData holds the response message for config responses.
@@ -138,18 +138,18 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 
 	_ = json.NewEncoder(w).Encode(ConfigResponse{
 		Data: ConfigData{
-			Version:                  versionStr,
-			DevMode:                  h.cfg.DevMode,
-			CheckResultsEverySeconds: h.cfg.CheckResultsSecs,
-			KeepHistory:              h.cfg.KeepHistory,
-			KeepHistoryLatest:        h.cfg.KeepHistoryLatest,
-			TLS:                      h.cfg.TLS,
-			SecurityEnabled:          h.cfg.SecurityEnabled,
-			APIRespLessVerbose:       h.cfg.APIRespLessVerbose,
-			MakeViewerEndptsPub:      h.cfg.MakeViewerEndptsPub,
-			AppVersion:               version.Version,
-			AppBuildDate:             version.BuildDate,
-			AppBuildRef:              version.BuildRef,
+			Version:                   versionStr,
+			DevMode:                   h.cfg.DevMode,
+			CheckResultsEverySeconds:  h.cfg.CheckResultsEverySeconds,
+			KeepHistory:               h.cfg.KeepHistory,
+			KeepHistoryLatest:         h.cfg.KeepHistoryLatest,
+			TLS:                       h.cfg.TLS,
+			SecurityEnabled:           h.cfg.SecurityEnabled,
+			APIResponseLessVerbose:    h.cfg.APIResponseLessVerbose,
+			MakeViewerEndpointsPublic: h.cfg.MakeViewerEndpointsPublic,
+			AppVersion:                version.Version,
+			AppBuildDate:              version.BuildDate,
+			AppBuildRef:               version.BuildRef,
 		},
 		MetaData: ConfigMetaData{Message: "Config successfully obtained"},
 	})

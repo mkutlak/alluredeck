@@ -55,9 +55,9 @@ ARG ROOT=/app
 ARG RESULTS_DIRECTORY=${ROOT}/allure-results
 ARG REPORT_DIRECTORY=${ROOT}/allure-report
 ARG STATIC_CONTENT=${ROOT}/alluredeck/static
-ARG STATIC_CONTENT_PROJECTS=${STATIC_CONTENT}/projects
+ARG PROJECTS_PATH=${STATIC_CONTENT}/projects
 ARG DEFAULT_PROJECT=default
-ARG DEFAULT_PROJECT_ROOT=${STATIC_CONTENT_PROJECTS}/${DEFAULT_PROJECT}
+ARG DEFAULT_PROJECT_ROOT=${PROJECTS_PATH}/${DEFAULT_PROJECT}
 ARG DEFAULT_PROJECT_RESULTS=${DEFAULT_PROJECT_ROOT}/results
 ARG DEFAULT_PROJECT_REPORTS=${DEFAULT_PROJECT_ROOT}/reports
 
@@ -69,7 +69,7 @@ ENV CI=true
 # Directory structure, symlinks, and allure version file (consolidated layer)
 RUN echo -n $(allure --version) > ${ALLURE_VERSION_FILE} && \
     echo "ALLURE_VERSION: "$(cat ${ALLURE_VERSION_FILE}) && \
-    ln -s ${STATIC_CONTENT_PROJECTS} ${ROOT}/projects && \
+    ln -s ${PROJECTS_PATH} ${ROOT}/projects && \
     ln -s ${DEFAULT_PROJECT_REPORTS} ${ROOT}/default-reports && \
     mkdir ${RESULTS_DIRECTORY} && \
     mkdir -p ${DEFAULT_PROJECT_REPORTS}/latest && \

@@ -24,13 +24,13 @@ Passwords, API keys, and secrets should **always** be set via environment variab
 
 ```bash
 # Good: sensitive values via env vars
-export SECURITY_USER="admin"
-export SECURITY_PASS="strong-password"
+export ADMIN_USER="admin"
+export ADMIN_PASS="strong-password"
 export JWT_SECRET_KEY="<generated-via-openssl>"
 
 # Bad: hardcoding in YAML (do not do this)
-# security_user: "admin"
-# security_pass: "strong-password"
+# admin_user: "admin"
+# admin_pass: "strong-password"
 ```
 
 ## Server Configuration
@@ -60,27 +60,27 @@ export DEV_MODE="true"
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
 | `SECURITY_ENABLED` | `security_enabled` | `false` | Enable HTTP Basic and JWT authentication, and role-based access control |
-| `SECURITY_USER` | `security_user` | *(empty)* | Admin username (used when `SECURITY_ENABLED=true`) |
-| `SECURITY_PASS` | `security_pass` | *(empty)* | Admin password (used when `SECURITY_ENABLED=true`) |
-| `SECURITY_VIEWER_USER` | `viewer_user` | *(empty)* | Read-only viewer username |
-| `SECURITY_VIEWER_PASS` | `viewer_pass` | *(empty)* | Read-only viewer password |
-| `JWT_SECRET_KEY` | `jwt_secret` | `super-secret-key-for-dev` | HMAC-SHA256 signing key for JWT tokens. **Must be changed in production.** |
-| `JWT_ACCESS_TOKEN_EXPIRES` | `access_token_expiry_secs` | `900` | Access token lifetime in seconds (default: 15 minutes) |
-| `JWT_REFRESH_TOKEN_EXPIRES` | `refresh_token_expiry_secs` | `2592000` | Refresh token lifetime in seconds (default: 30 days) |
+| `ADMIN_USER` | `admin_user` | *(empty)* | Admin username (used when `SECURITY_ENABLED=true`) |
+| `ADMIN_PASS` | `admin_pass` | *(empty)* | Admin password (used when `SECURITY_ENABLED=true`) |
+| `VIEWER_USER` | `viewer_user` | *(empty)* | Read-only viewer username |
+| `VIEWER_PASS` | `viewer_pass` | *(empty)* | Read-only viewer password |
+| `JWT_SECRET_KEY` | `jwt_secret_key` | `super-secret-key-for-dev` | HMAC-SHA256 signing key for JWT tokens. **Must be changed in production.** |
+| `JWT_ACCESS_TOKEN_EXPIRES` | `jwt_access_token_expires` | `900` | Access token lifetime in seconds (default: 15 minutes) |
+| `JWT_REFRESH_TOKEN_EXPIRES` | `jwt_refresh_token_expires` | `2592000` | Refresh token lifetime in seconds (default: 30 days) |
 
 ### Advanced Security
 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
 | `MAKE_VIEWER_ENDPOINTS_PUBLIC` | `make_viewer_endpoints_public` | `false` | When `true`, viewer-role endpoints require no authentication. Useful for public dashboards |
-| `TRUST_X_FORWARDED_FOR` | `trust_forwarded_for` | `false` | Trust `X-Forwarded-For` header for client IP. **Set to `true` when running behind a reverse proxy** (nginx, ALB, etc.) to ensure correct rate limiting |
+| `TRUST_FORWARDED_FOR` | `trust_forwarded_for` | `false` | Trust `X-Forwarded-For` header for client IP. **Set to `true` when running behind a reverse proxy** (nginx, ALB, etc.) to ensure correct rate limiting |
 
 ### Production Security Requirements
 
 When `SECURITY_ENABLED=true`, the API enforces the following:
 
 - **JWT Secret** — if `JWT_SECRET_KEY` is still the default value (`super-secret-key-for-dev`), the API refuses to start
-- **Admin Credentials** — must be set (both `SECURITY_USER` and `SECURITY_PASS`)
+- **Admin Credentials** — must be set (both `ADMIN_USER` and `ADMIN_PASS`)
 
 Generate a strong JWT secret:
 
@@ -96,16 +96,16 @@ For details on roles, token types, CSRF protection, and the production security 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
 | `STORAGE_TYPE` | `storage_type` | `local` | Storage backend: `local` (filesystem) or `s3` (S3/MinIO) |
-| `STATIC_CONTENT_PROJECTS` | `projects_directory` | `/app/projects` | Directory where Allure project results and reports are stored. Must be readable and writable |
-| `DATABASE_PATH` | `database_path` | `/app/allure.db` | Path to the SQLite metadata database file |
-| `KEEP_HISTORY` | `keep_history` | `false` | Retain report history between builds. When `false`, only the latest report is kept |
+| `PROJECTS_PATH` | `projects_path` | `/data/projects` | Directory where Allure project results and reports are stored. Must be readable and writable |
+| `DATABASE_PATH` | `database_path` | `/data/db/alluredeck.db` | Path to the SQLite metadata database file |
+| `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
 | `KEEP_HISTORY_LATEST` | `keep_history_latest` | `20` | Maximum number of historical reports to keep per project (when `keep_history=true`) |
 
 ### Example
 
 ```bash
 # Store projects in /data/allure-projects
-export STATIC_CONTENT_PROJECTS="/data/allure-projects"
+export PROJECTS_PATH="/data/allure-projects"
 export DATABASE_PATH="/data/allure.db"
 export KEEP_HISTORY="true"
 export KEEP_HISTORY_LATEST="50"
@@ -119,19 +119,19 @@ Set `STORAGE_TYPE=s3` to use S3 or MinIO for object storage.
 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
-| `S3_ENDPOINT` | `s3_endpoint` | *(empty)* | S3 or MinIO endpoint URL. **Required when `STORAGE_TYPE=s3`**. Examples: `https://s3.amazonaws.com`, `http://minio:9000` |
-| `S3_BUCKET` | `s3_bucket` | *(empty)* | S3 bucket name. **Required when `STORAGE_TYPE=s3`** |
+| `S3_ENDPOINT` | `s3.endpoint` | *(empty)* | S3 or MinIO endpoint URL. **Required when `STORAGE_TYPE=s3`**. Examples: `https://s3.amazonaws.com`, `http://minio:9000` |
+| `S3_BUCKET` | `s3.bucket` | *(empty)* | S3 bucket name. **Required when `STORAGE_TYPE=s3`** |
 
 ### Optional S3 Settings
 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
-| `S3_REGION` | `s3_region` | `us-east-1` | AWS region (e.g., `eu-west-1`, `us-west-2`) |
-| `S3_ACCESS_KEY` | `s3_access_key` | *(empty)* | S3 access key ID. Leave empty if using IAM roles (IRSA on EKS, EC2 instance roles, etc.) |
-| `S3_SECRET_KEY` | `s3_secret_key` | *(empty)* | S3 secret access key. Leave empty if using IAM roles. **Set via environment variable in production.** |
-| `S3_USE_SSL` | `s3_use_ssl` | `false` | Enable TLS for S3 connections. Use `false` for MinIO over HTTP, `true` for AWS S3 HTTPS |
-| `S3_PATH_STYLE` | `s3_path_style` | `false` | Use path-style S3 URLs. **Required for MinIO** (e.g., `http://minio:9000/bucket/key`). AWS S3 uses virtual-hosted-style by default |
-| `S3_CONCURRENCY` | `s3_concurrency` | `10` | Maximum number of parallel S3 operations (uploads/downloads). Increase for high-throughput environments; decrease to reduce memory usage |
+| `S3_REGION` | `s3.region` | `us-east-1` | AWS region (e.g., `eu-west-1`, `us-west-2`) |
+| `S3_ACCESS_KEY` | `s3.access_key` | *(empty)* | S3 access key ID. Leave empty if using IAM roles (IRSA on EKS, EC2 instance roles, etc.) |
+| `S3_SECRET_KEY` | `s3.secret_key` | *(empty)* | S3 secret access key. Leave empty if using IAM roles. **Set via environment variable in production.** |
+| `S3_USE_SSL` | `s3.use_ssl` | `false` | Enable TLS for S3 connections. Use `false` for MinIO over HTTP, `true` for AWS S3 HTTPS |
+| `S3_PATH_STYLE` | `s3.path_style` | `false` | Use path-style S3 URLs. **Required for MinIO** (e.g., `http://minio:9000/bucket/key`). AWS S3 uses virtual-hosted-style by default |
+| `S3_CONCURRENCY` | `s3.concurrency` | `10` | Maximum number of parallel S3 operations (uploads/downloads). Increase for high-throughput environments; decrease to reduce memory usage |
 
 ### Validation
 
@@ -165,7 +165,7 @@ export S3_PATH_STYLE="true"
 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
-| `CHECK_RESULTS_EVERY_SECONDS` | `check_results_secs` | `NONE` | Seconds between automatic result scans for new test data. Set to `NONE` to disable automatic scanning. Valid values: positive integers or `NONE` |
+| `CHECK_RESULTS_EVERY_SECONDS` | `check_results_every_secs` | `NONE` | Seconds between automatic result scans for new test data. Set to `NONE` to disable automatic scanning. Valid values: positive integers or `NONE` |
 | `ALLURE_VERSION_FILE` | `allure_version_path` | `/app/version` | Path to a text file containing the Allure CLI version string (e.g., `2.25.0`). Used for report display |
 
 ### Example
@@ -245,13 +245,13 @@ tls: false
 
 # --- Security ---
 security_enabled: false
-security_user: ""
-security_pass: ""
+admin_user: ""
+admin_pass: ""
 viewer_user: ""
 viewer_pass: ""
-jwt_secret: ""
-access_token_expiry_secs: 900
-refresh_token_expiry_secs: 2592000
+jwt_secret_key: ""
+jwt_access_token_expires: 900
+jwt_refresh_token_expires: 2592000
 make_viewer_endpoints_public: false
 trust_forwarded_for: false
 
@@ -259,13 +259,13 @@ trust_forwarded_for: false
 log_level: "info"
 
 # --- Storage ---
-projects_directory: "/app/projects"
-database_path: "/app/allure.db"
-keep_history: false
+projects_path: "/data/projects"
+database_path: "/data/db/alluredeck.db"
+keep_history: true
 keep_history_latest: 20
 
 # --- Report generation ---
-check_results_secs: "NONE"
+check_results_every_secs: "NONE"
 allure_version_path: "/app/version"
 
 # --- UI / API behaviour ---
@@ -275,14 +275,15 @@ api_response_less_verbose: false
 storage_type: "local"
 
 # --- S3/MinIO Storage (optional) ---
-s3_endpoint: ""
-s3_bucket: ""
-s3_region: "us-east-1"
-s3_access_key: ""
-s3_secret_key: ""
-s3_use_ssl: false
-s3_path_style: false
-s3_concurrency: 10
+s3:
+  endpoint: ""
+  bucket: ""
+  region: "us-east-1"
+  access_key: ""
+  secret_key: ""
+  use_ssl: false
+  path_style: false
+  concurrency: 10
 
 # --- CORS ---
 cors_allowed_origins: []
@@ -300,14 +301,14 @@ tls: false
 
 # --- Security ---
 security_enabled: true
-# Set via env vars (SECURITY_USER, SECURITY_PASS, JWT_SECRET_KEY)
-security_user: ""
-security_pass: ""
+# Set via env vars (ADMIN_USER, ADMIN_PASS, JWT_SECRET_KEY)
+admin_user: ""
+admin_pass: ""
 viewer_user: ""
 viewer_pass: ""
-jwt_secret: ""
-access_token_expiry_secs: 900
-refresh_token_expiry_secs: 2592000
+jwt_secret_key: ""
+jwt_access_token_expires: 900
+jwt_refresh_token_expires: 2592000
 make_viewer_endpoints_public: false
 trust_forwarded_for: true
 
@@ -315,13 +316,13 @@ trust_forwarded_for: true
 log_level: "warn"
 
 # --- Storage ---
-projects_directory: "/app/projects"
-database_path: "/app/allure.db"
+projects_path: "/data/projects"
+database_path: "/data/db/alluredeck.db"
 keep_history: true
 keep_history_latest: 100
 
 # --- Report generation ---
-check_results_secs: "60"
+check_results_every_secs: "60"
 allure_version_path: "/app/version"
 
 # --- UI / API behaviour ---
@@ -333,15 +334,16 @@ cors_allowed_origins:
 storage_type: "s3"
 
 # --- S3/MinIO Storage ---
-s3_endpoint: "https://s3.amazonaws.com"
-s3_bucket: "alluredeck-reports-prod"
-s3_region: "eu-west-1"
-# Access key and secret via env vars (S3_ACCESS_KEY, S3_SECRET_KEY)
-s3_access_key: ""
-s3_secret_key: ""
-s3_use_ssl: true
-s3_path_style: false
-s3_concurrency: 20
+s3:
+  endpoint: "https://s3.amazonaws.com"
+  bucket: "alluredeck-reports-prod"
+  region: "eu-west-1"
+  # Access key and secret via env vars (S3_ACCESS_KEY, S3_SECRET_KEY)
+  access_key: ""
+  secret_key: ""
+  use_ssl: true
+  path_style: false
+  concurrency: 20
 ```
 
 ## Related Documentation

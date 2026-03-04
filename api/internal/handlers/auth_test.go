@@ -17,11 +17,11 @@ import (
 func testAuthConfig() *config.Config {
 	cfg := &config.Config{
 		SecurityEnabled:    true,
-		SecurityUser:       "admin",
-		SecurityPass:       "password",
+		AdminUser:          "admin",
+		AdminPass:          "password",
 		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  15 * time.Minute,
-		RefreshTokenExpiry: 30 * 24 * time.Hour,
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
 	// Hash passwords so bcrypt comparison works in tests.
 	if err := cfg.HashPasswords(); err != nil {

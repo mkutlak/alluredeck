@@ -12,10 +12,10 @@ import (
 
 func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 	cfg := &config.Config{
-		Port:             "5050",
-		DevMode:          true,
-		SecurityEnabled:  false,
-		CheckResultsSecs: "5",
+		Port:                     "5050",
+		DevMode:                  true,
+		SecurityEnabled:          false,
+		CheckResultsEverySeconds: "5",
 	}
 
 	handler := NewSystemHandler(cfg, nil)

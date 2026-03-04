@@ -72,7 +72,7 @@ Per-IP token bucket rate limiting protects the API from abuse:
 
 ### Behind a Reverse Proxy
 
-If AllureDeck runs behind nginx, a load balancer, or another reverse proxy, set `TRUST_X_FORWARDED_FOR=true` so the rate limiter uses the real client IP from the `X-Forwarded-For` header rather than the proxy's IP.
+If AllureDeck runs behind nginx, a load balancer, or another reverse proxy, set `TRUST_FORWARDED_FOR=true` so the rate limiter uses the real client IP from the `X-Forwarded-For` header rather than the proxy's IP.
 
 ## Security Headers
 
@@ -102,7 +102,7 @@ Before deploying to production:
 - [ ] Change the default `admin` / `admin` credentials
 - [ ] Set a strong viewer password (or disable the viewer account)
 - [ ] Set `CORS_ALLOWED_ORIGINS` to your UI domain (e.g. `https://alluredeck.example.com`)
-- [ ] Set `TRUST_X_FORWARDED_FOR=true` if running behind a reverse proxy
+- [ ] Set `TRUST_FORWARDED_FOR=true` if running behind a reverse proxy
 - [ ] Use HTTPS — either via `TLS=true` on the API or at the ingress/load balancer layer
 - [ ] In Kubernetes: use `api.existingSecret` to supply credentials from a secrets manager, not plain Helm values
 

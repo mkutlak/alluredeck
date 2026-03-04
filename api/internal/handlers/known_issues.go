@@ -61,7 +61,7 @@ func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -114,7 +114,7 @@ func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -199,7 +199,7 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -298,7 +298,7 @@ func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -360,7 +360,7 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{

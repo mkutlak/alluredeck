@@ -34,15 +34,15 @@ func NewFileSystem(cfg *config.Config) *FileSystem {
 
 // CleanResults implements cleanAllureResults.sh
 func (fs *FileSystem) CleanResults(projectID string) error {
-	resultsDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "results")
+	resultsDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "results")
 	return removeDirContents(resultsDir)
 }
 
 // CleanHistory implements cleanAllureHistory.sh
 func (fs *FileSystem) CleanHistory(projectID string) error {
-	reportsDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "reports")
+	reportsDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "reports")
 	latestDir := filepath.Join(reportsDir, "latest")
-	historyDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "results", "history")
+	historyDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "results", "history")
 
 	if err := removeDirContents(latestDir); err != nil {
 		return err
@@ -63,7 +63,7 @@ func (fs *FileSystem) CleanHistory(projectID string) error {
 		return err
 	}
 
-	executorPath := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "results", "executor.json")
+	executorPath := filepath.Join(fs.cfg.ProjectsPath, projectID, "results", "executor.json")
 	if _, err := os.Stat(executorPath); err == nil {
 		if err := os.WriteFile(executorPath, []byte(""), 0o644); err != nil { //nolint:gosec // G306: 0o644 required for allure CLI to read executor file
 			return fmt.Errorf("clearing executor.json: %w", err)
@@ -76,15 +76,15 @@ func (fs *FileSystem) CleanHistory(projectID string) error {
 // KeepHistory implements keepAllureHistory.sh
 func (fs *FileSystem) KeepHistory(projectID string) error {
 	if !fs.cfg.KeepHistory {
-		historyDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "results", "history")
+		historyDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "results", "history")
 		if err := os.RemoveAll(historyDir); err != nil {
 			return fmt.Errorf("remove history dir %q: %w", historyDir, err)
 		}
 		return nil
 	}
 
-	latestHistoryDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "reports", "latest", "history")
-	resultsHistoryDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "results", "history")
+	latestHistoryDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "reports", "latest", "history")
+	resultsHistoryDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "results", "history")
 
 	if err := os.MkdirAll(resultsHistoryDir, 0o755); err != nil { //nolint:gosec // G301: 0o755 required for allure web server to read history
 		return fmt.Errorf("failed to create results history dir: %w", err)
@@ -109,7 +109,7 @@ func (fs *FileSystem) DeleteReport(projectID, reportID string) error {
 		}
 	}
 
-	reportsDir := filepath.Join(fs.cfg.ProjectsDirectory, projectID, "reports")
+	reportsDir := filepath.Join(fs.cfg.ProjectsPath, projectID, "reports")
 	reportDir := filepath.Join(reportsDir, reportID)
 
 	// Guard against path traversal: resolved path must stay inside reportsDir.

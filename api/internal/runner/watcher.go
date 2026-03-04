@@ -41,7 +41,7 @@ func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore *store.Proj
 
 // Start begins the polling loop in a background goroutine
 func (w *Watcher) Start() {
-	checkSecsStr := w.cfg.CheckResultsSecs
+	checkSecsStr := w.cfg.CheckResultsEverySeconds
 	if strings.EqualFold(checkSecsStr, "NONE") || checkSecsStr == "" {
 		w.logger.Info("background file watcher is disabled", zap.String("reason", "CHECK_RESULTS_EVERY_SECONDS=NONE"))
 		return

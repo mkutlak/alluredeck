@@ -42,22 +42,22 @@ spec:
             - name: GOMEMLIMIT
               value: {{ .Values.api.config.goMemLimit | quote }}
             {{- $secretName := include "alluredeck.api.secretName" . }}
-            - name: SECURITY_USER
+            - name: ADMIN_USER
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: adminUser
-            - name: SECURITY_PASS
+            - name: ADMIN_PASS
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: adminPassword
-            - name: SECURITY_VIEWER_USER
+            - name: VIEWER_USER
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: viewerUser
-            - name: SECURITY_VIEWER_PASS
+            - name: VIEWER_PASS
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}

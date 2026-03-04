@@ -123,7 +123,7 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "err-proj"
 
-	cfg := &config.Config{ProjectsDirectory: dir}
+	cfg := &config.Config{ProjectsPath: dir}
 	st := storage.NewLocalStore(cfg)
 	s, err := store.Open(":memory:")
 	if err != nil {
@@ -151,7 +151,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "record-proj"
 
-	cfg := &config.Config{ProjectsDirectory: dir}
+	cfg := &config.Config{ProjectsPath: dir}
 	st := storage.NewLocalStore(cfg)
 	s, err := store.Open(":memory:")
 	if err != nil {

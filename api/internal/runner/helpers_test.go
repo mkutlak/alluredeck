@@ -17,7 +17,7 @@ import (
 // Pass t.TempDir() when no specific project directory is needed.
 func newTestAllure(t *testing.T, projectsDir string) *Allure {
 	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
+	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
 	s, err := store.Open(":memory:")
 	if err != nil {

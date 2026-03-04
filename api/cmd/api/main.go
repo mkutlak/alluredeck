@@ -109,7 +109,7 @@ func main() {
 	if cfg.StorageType == "s3" {
 		overlayFS = newS3ReportHandler(dataStore)
 	} else {
-		overlayFS = newOverlayHandler(cfg.ProjectsDirectory)
+		overlayFS = newOverlayHandler(cfg.ProjectsPath)
 	}
 	// Allure report pages are third-party static content requiring inline scripts/styles.
 	// Override the strict API CSP with a permissive one for report routes.
@@ -240,9 +240,9 @@ func registerRoutes(
 	adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
 		return auth(middleware.RequireRole("admin")(h))
 	}
-	// viewerUp: when MakeViewerEndptsPub is true, these endpoints are public (no auth).
+	// viewerUp: when MakeViewerEndpointsPublic is true, these endpoints are public (no auth).
 	viewerUp := func(h http.HandlerFunc) http.HandlerFunc {
-		if cfg.MakeViewerEndptsPub {
+		if cfg.MakeViewerEndpointsPublic {
 			return h
 		}
 		return auth(middleware.RequireRole("viewer")(h))
@@ -262,7 +262,7 @@ func registerRoutes(
 	// Auth only (no specific role required)
 	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(authHandler.Logout)))
 
-	// Viewer+ endpoints (public when MakeViewerEndptsPub=true) — mutable cache.
+	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(mutableCache(allure.GetProjects)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))

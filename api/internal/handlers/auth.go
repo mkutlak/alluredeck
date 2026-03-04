@@ -76,7 +76,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var roles []string
 	valid := false
 
-	adminUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.SecurityUser)) == 1
+	adminUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.AdminUser)) == 1
 	adminPassMatch := len(h.cfg.SecurityPassHash) > 0 &&
 		bcrypt.CompareHashAndPassword(h.cfg.SecurityPassHash, []byte(password)) == nil
 	if adminUserMatch && adminPassMatch {
@@ -188,14 +188,14 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		tokenStr = extractCookieToken(r, "jwt")
 	}
 	if tokenStr != "" {
-		h.blacklistToken(tokenStr, "access", h.cfg.AccessTokenExpiry)
+		h.blacklistToken(tokenStr, "access", h.cfg.AccessTokenExpiry.Duration())
 	}
 
 	// Also blacklist the refresh token JTI so it cannot be used to mint new access
 	// tokens after logout — fixes AUDIT 1.6 (incomplete token revocation).
 	refreshTokenStr := extractCookieToken(r, "refresh_jwt")
 	if refreshTokenStr != "" {
-		h.blacklistToken(refreshTokenStr, "refresh", h.cfg.RefreshTokenExpiry)
+		h.blacklistToken(refreshTokenStr, "refresh", h.cfg.RefreshTokenExpiry.Duration())
 	}
 
 	// Expire all auth cookies with SameSite: Lax (AUDIT 1.1, REVIEW #11).

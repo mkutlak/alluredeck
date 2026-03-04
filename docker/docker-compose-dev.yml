@@ -16,10 +16,10 @@ services:
       CHECK_RESULTS_EVERY_SECONDS: NONE
       KEEP_HISTORY: 1
       KEEP_HISTORY_LATEST: 5
-      SECURITY_USER: "my_username"
-      SECURITY_PASS: "my_password"
-      SECURITY_VIEWER_USER: "view_user"
-      SECURITY_VIEWER_PASS: "view_pass"
+      ADMIN_USER: "my_username"
+      ADMIN_PASS: "my_password"
+      VIEWER_USER: "view_user"
+      VIEWER_PASS: "view_pass"
       SECURITY_ENABLED: 0
       MAKE_VIEWER_ENDPOINTS_PUBLIC: 0
       API_RESPONSE_LESS_VERBOSE: 0

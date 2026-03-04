@@ -35,12 +35,12 @@ docker compose -f docker/docker-compose.yml up -d
 | AllureDeck UI | http://localhost:7474 |
 | AllureDeck API | http://localhost:5050 |
 
-Default credentials: `admin` / `admin` (change via `SECURITY_USER` / `SECURITY_PASS` env vars).
+Default credentials: `admin` / `admin` (change via `ADMIN_USER` / `ADMIN_PASS` env vars).
 
 Report data is persisted in a Docker volume named `allure-projects`. To customize, set env vars before running:
 
 ```bash
-SECURITY_USER=myuser SECURITY_PASS=mypassword \
+ADMIN_USER=myuser ADMIN_PASS=mypassword \
 JWT_SECRET_KEY=$(openssl rand -hex 32) \
 docker compose -f docker/docker-compose.yml up -d
 ```

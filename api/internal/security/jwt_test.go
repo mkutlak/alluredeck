@@ -11,8 +11,8 @@ import (
 func testJWTConfig() *config.Config {
 	return &config.Config{
 		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  15 * time.Minute,
-		RefreshTokenExpiry: 30 * 24 * time.Hour,
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
 }
 

@@ -134,13 +134,13 @@ dev_mode: {{ .Values.api.config.devMode }}
 security_enabled: {{ .Values.api.security.enabled }}
 log_level: {{ .Values.api.config.logLevel | quote }}
 storage_type: {{ .Values.api.config.storageType | quote }}
-check_results_secs: {{ .Values.api.config.checkResultsEverySeconds | quote }}
+check_results_every_secs: {{ .Values.api.config.checkResultsEverySeconds | quote }}
 keep_history: {{ .Values.api.config.keepHistory }}
 keep_history_latest: {{ .Values.api.config.keepHistoryLatest | int }}
 api_response_less_verbose: {{ .Values.api.config.apiResponseLessVerbose }}
 trust_forwarded_for: {{ .Values.api.config.trustXForwardedFor }}
 make_viewer_endpoints_public: {{ .Values.api.config.makeViewerEndpointsPublic }}
-projects_directory: {{ .Values.api.config.staticContentProjects | quote }}
+projects_path: {{ .Values.api.config.staticContentProjects | quote }}
 database_path: {{ .Values.api.config.databasePath | quote }}
 {{- $corsOrigins := .Values.api.config.corsAllowedOrigins }}
 {{- if and (empty $corsOrigins) .Values.ui.ingress.enabled .Values.ui.ingress.host }}
@@ -154,12 +154,13 @@ cors_allowed_origins:
 {{- end }}
 {{- end }}
 {{- if eq .Values.api.config.storageType "s3" }}
-s3_endpoint: {{ .Values.api.s3.endpoint | quote }}
-s3_bucket: {{ .Values.api.s3.bucket | quote }}
-s3_region: {{ .Values.api.s3.region | quote }}
-s3_use_ssl: {{ .Values.api.s3.useSSL }}
-s3_path_style: {{ .Values.api.s3.pathStyle }}
-s3_concurrency: {{ .Values.api.s3.concurrency | int }}
+s3:
+  endpoint: {{ .Values.api.s3.endpoint | quote }}
+  bucket: {{ .Values.api.s3.bucket | quote }}
+  region: {{ .Values.api.s3.region | quote }}
+  use_ssl: {{ .Values.api.s3.useSSL }}
+  path_style: {{ .Values.api.s3.pathStyle }}
+  concurrency: {{ .Values.api.s3.concurrency | int }}
 {{- end }}
 {{- end }}
 

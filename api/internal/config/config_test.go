@@ -32,6 +32,16 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestKeepHistoryDefaultTrue(t *testing.T) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.KeepHistory {
+		t.Errorf("Expected KeepHistory default true, got false")
+	}
+}
+
 func TestCORSOriginsEmpty(t *testing.T) {
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -71,22 +81,22 @@ func TestLoadConfigFromYAMLFile(t *testing.T) {
 		{"Port", cfg.Port, "9090"},
 		{"DevMode", cfg.DevMode, true},
 		{"SecurityEnabled", cfg.SecurityEnabled, true},
-		{"SecurityUser", cfg.SecurityUser, "yaml-admin"},
-		{"SecurityPass", cfg.SecurityPass, "yaml-pass"},
+		{"AdminUser", cfg.AdminUser, "yaml-admin"},
+		{"AdminPass", cfg.AdminPass, "yaml-pass"},
 		{"ViewerUser", cfg.ViewerUser, "yaml-viewer"},
 		{"ViewerPass", cfg.ViewerPass, "yaml-viewpass"},
 		{"JWTSecret", cfg.JWTSecret, "yaml-jwt-secret-that-is-long-enough"},
-		{"MakeViewerEndptsPub", cfg.MakeViewerEndptsPub, true},
+		{"MakeViewerEndpointsPublic", cfg.MakeViewerEndpointsPublic, true},
 		{"AllureVersionPath", cfg.AllureVersionPath, "/yaml-version"},
-		{"ProjectsDirectory", cfg.ProjectsDirectory, "/yaml/projects"},
-		{"CheckResultsSecs", cfg.CheckResultsSecs, "5"},
+		{"ProjectsPath", cfg.ProjectsPath, "/yaml/projects"},
+		{"CheckResultsEverySeconds", cfg.CheckResultsEverySeconds, "5"},
 		{"KeepHistory", cfg.KeepHistory, true},
 		{"KeepHistoryLatest", cfg.KeepHistoryLatest, 50},
 		{"TLS", cfg.TLS, true},
-		{"APIRespLessVerbose", cfg.APIRespLessVerbose, true},
+		{"APIResponseLessVerbose", cfg.APIResponseLessVerbose, true},
 		{"DatabasePath", cfg.DatabasePath, "/yaml/allure.db"},
-		{"AccessTokenExpiry", cfg.AccessTokenExpiry, 1800 * time.Second},
-		{"RefreshTokenExpiry", cfg.RefreshTokenExpiry, 86400 * time.Second},
+		{"AccessTokenExpiry", cfg.AccessTokenExpiry, DurationSeconds(1800 * time.Second)},
+		{"RefreshTokenExpiry", cfg.RefreshTokenExpiry, DurationSeconds(86400 * time.Second)},
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
@@ -133,8 +143,8 @@ func TestPartialYAMLWithDefaults(t *testing.T) {
 	if cfg.KeepHistoryLatest != 20 {
 		t.Errorf("default KeepHistoryLatest: want 20, got %d", cfg.KeepHistoryLatest)
 	}
-	if cfg.DatabasePath != "/app/allure.db" {
-		t.Errorf("default DatabasePath: want /app/allure.db, got %s", cfg.DatabasePath)
+	if cfg.DatabasePath != "/data/db/alluredeck.db" {
+		t.Errorf("default DatabasePath: want /data/db/alluredeck.db, got %s", cfg.DatabasePath)
 	}
 }
 
@@ -173,7 +183,8 @@ func TestDefaultConfigPathMissing(t *testing.T) {
 }
 
 func TestMalformedYAML(t *testing.T) {
-	_, err := loadFromYAML("testdata/malformed.yaml")
+	t.Setenv("CONFIG_FILE", "testdata/malformed.yaml")
+	_, err := LoadConfig()
 	if err == nil {
 		t.Error("expected error for malformed YAML, got nil")
 	}
@@ -222,10 +233,10 @@ func TestYAMLTokenExpiry(t *testing.T) {
 		t.Fatalf("LoadConfig: %v", err)
 	}
 
-	if cfg.AccessTokenExpiry != 1800*time.Second {
+	if cfg.AccessTokenExpiry != DurationSeconds(1800*time.Second) {
 		t.Errorf("AccessTokenExpiry: want 1800s, got %v", cfg.AccessTokenExpiry)
 	}
-	if cfg.RefreshTokenExpiry != 86400*time.Second {
+	if cfg.RefreshTokenExpiry != DurationSeconds(86400*time.Second) {
 		t.Errorf("RefreshTokenExpiry: want 86400s, got %v", cfg.RefreshTokenExpiry)
 	}
 }
@@ -401,14 +412,14 @@ func TestS3ConcurrencyFromEnv(t *testing.T) {
 
 func TestHashPasswords_ClearsPlaintext(t *testing.T) {
 	cfg := &Config{
-		SecurityPass: "admin-secret",
-		ViewerPass:   "viewer-secret",
+		AdminPass:  "admin-secret",
+		ViewerPass: "viewer-secret",
 	}
 	if err := cfg.HashPasswords(); err != nil {
 		t.Fatalf("HashPasswords: %v", err)
 	}
-	if cfg.SecurityPass != "" {
-		t.Errorf("SecurityPass should be empty after hashing, got %q", cfg.SecurityPass)
+	if cfg.AdminPass != "" {
+		t.Errorf("AdminPass should be empty after hashing, got %q", cfg.AdminPass)
 	}
 	if cfg.ViewerPass != "" {
 		t.Errorf("ViewerPass should be empty after hashing, got %q", cfg.ViewerPass)
@@ -423,8 +434,8 @@ func TestHashPasswords_ClearsPlaintext(t *testing.T) {
 
 func TestHashPasswords_CorrectPasswordVerifies(t *testing.T) {
 	cfg := &Config{
-		SecurityPass: "admin-secret",
-		ViewerPass:   "viewer-secret",
+		AdminPass:  "admin-secret",
+		ViewerPass: "viewer-secret",
 	}
 	if err := cfg.HashPasswords(); err != nil {
 		t.Fatalf("HashPasswords: %v", err)
@@ -439,7 +450,7 @@ func TestHashPasswords_CorrectPasswordVerifies(t *testing.T) {
 
 func TestHashPasswords_WrongPasswordRejected(t *testing.T) {
 	cfg := &Config{
-		SecurityPass: "admin-secret",
+		AdminPass: "admin-secret",
 	}
 	if err := cfg.HashPasswords(); err != nil {
 		t.Fatalf("HashPasswords: %v", err)
@@ -459,5 +470,35 @@ func TestHashPasswords_EmptyPasswordsNoOp(t *testing.T) {
 	}
 	if len(cfg.ViewerPassHash) != 0 {
 		t.Error("ViewerPassHash should be empty when no password set")
+	}
+}
+
+func TestDurationSeconds_IntegerSeconds(t *testing.T) {
+	var d DurationSeconds
+	if err := d.Decode("900"); err != nil {
+		t.Fatalf("Decode(\"900\"): %v", err)
+	}
+	if d.Duration() != 900*time.Second {
+		t.Errorf("expected 900s, got %v", d.Duration())
+	}
+	if d.Seconds() != 900 {
+		t.Errorf("expected 900, got %v", d.Seconds())
+	}
+}
+
+func TestDurationSeconds_GoDuration(t *testing.T) {
+	var d DurationSeconds
+	if err := d.Decode("15m"); err != nil {
+		t.Fatalf("Decode(\"15m\"): %v", err)
+	}
+	if d.Duration() != 15*time.Minute {
+		t.Errorf("expected 15m, got %v", d.Duration())
+	}
+}
+
+func TestDurationSeconds_InvalidValue(t *testing.T) {
+	var d DurationSeconds
+	if err := d.Decode("invalid"); err == nil {
+		t.Error("expected error for invalid duration, got nil")
 	}
 }

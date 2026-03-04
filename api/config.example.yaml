@@ -30,34 +30,34 @@ tls: false
 security_enabled: false
 
 # Admin credentials (used when security_enabled: true).
-# Prefer setting these via SECURITY_USER / SECURITY_PASS env vars.
-security_user: ""
-security_pass: ""
+# Prefer setting these via ADMIN_USER / ADMIN_PASS env vars.
+admin_user: ""
+admin_pass: ""
 
 # Read-only viewer credentials.
-# Prefer setting these via SECURITY_VIEWER_USER / SECURITY_VIEWER_PASS env vars.
+# Prefer setting these via VIEWER_USER / VIEWER_PASS env vars.
 viewer_user: ""
 viewer_pass: ""
 
 # JWT signing secret. MUST be changed in production when security_enabled: true.
 # Prefer setting via JWT_SECRET_KEY env var.
 # Default: "super-secret-key-for-dev"
-jwt_secret: ""
+jwt_secret_key: ""
 
 # JWT access token lifetime in seconds. Env var: JWT_ACCESS_TOKEN_EXPIRES
 # Default: 900 (15 minutes)
-access_token_expiry_secs: 900
+jwt_access_token_expires: 900
 
 # JWT refresh token lifetime in seconds. Env var: JWT_REFRESH_TOKEN_EXPIRES
 # Default: 2592000 (30 days)
-refresh_token_expiry_secs: 2592000
+jwt_refresh_token_expires: 2592000
 
 # When true, viewer-role endpoints require no authentication. Env var: MAKE_VIEWER_ENDPOINTS_PUBLIC
 # Default: false
 make_viewer_endpoints_public: false
 
 # Enable when running behind a trusted reverse proxy (nginx, ALB). Affects IP-based rate limiting.
-# Env var: TRUST_X_FORWARDED_FOR
+# Env var: TRUST_FORWARDED_FOR
 # Default: false
 trust_forwarded_for: false
 
@@ -69,17 +69,17 @@ log_level: "info"
 
 # --- Storage ---
 
-# Directory where Allure project results and reports are stored. Env var: STATIC_CONTENT_PROJECTS
-# Default: "/app/projects"
-projects_directory: "/app/projects"
+# Directory where Allure project results and reports are stored. Env var: PROJECTS_PATH
+# Default: "/data/projects"
+projects_path: "/data/projects"
 
 # Path for the SQLite metadata database. Env var: DATABASE_PATH
-# Default: "/app/allure.db"
-database_path: "/app/allure.db"
+# Default: "/data/db/alluredeck.db"
+database_path: "/data/db/alluredeck.db"
 
 # Retain report history between builds. Env var: KEEP_HISTORY
-# Default: false
-keep_history: false
+# Default: true
+keep_history: true
 
 # Number of historical reports to retain per project. Env var: KEEP_HISTORY_LATEST
 # Default: 20
@@ -90,7 +90,7 @@ keep_history_latest: 20
 # Seconds between automatic result scans. Use "NONE" to disable the watcher.
 # Env var: CHECK_RESULTS_EVERY_SECONDS
 # Default: "NONE"
-check_results_secs: "NONE"
+check_results_every_secs: "NONE"
 
 # Path to the file containing the Allure CLI version string. Env var: ALLURE_VERSION_FILE
 # Default: "/app/version"
@@ -109,40 +109,42 @@ api_response_less_verbose: false
 storage_type: "local"
 
 # --- S3/MinIO Storage (optional) ---
+# Nested under the "s3:" key. Environment variables use the S3_ prefix (unchanged).
 
-# S3/MinIO endpoint URL. Env var: S3_ENDPOINT
-# MinIO local: "http://minio:9000"
-# AWS S3: "https://s3.amazonaws.com"
-# Required when storage_type: "s3"
-s3_endpoint: ""
+s3:
+  # S3/MinIO endpoint URL. Env var: S3_ENDPOINT
+  # MinIO local: "http://minio:9000"
+  # AWS S3: "https://s3.amazonaws.com"
+  # Required when storage_type: "s3"
+  endpoint: ""
 
-# S3 bucket name. Env var: S3_BUCKET
-# Required when storage_type: "s3"
-s3_bucket: ""
+  # S3 bucket name. Env var: S3_BUCKET
+  # Required when storage_type: "s3"
+  bucket: ""
 
-# AWS region. Env var: S3_REGION
-# Default: "us-east-1"
-s3_region: "us-east-1"
+  # AWS region. Env var: S3_REGION
+  # Default: "us-east-1"
+  region: "us-east-1"
 
-# S3 access key ID. Env var: S3_ACCESS_KEY
-# Prefer setting via S3_ACCESS_KEY env var.
-s3_access_key: ""
+  # S3 access key ID. Env var: S3_ACCESS_KEY
+  # Prefer setting via S3_ACCESS_KEY env var.
+  access_key: ""
 
-# S3 secret access key. Env var: S3_SECRET_KEY
-# MUST be set via S3_SECRET_KEY env var in production.
-s3_secret_key: ""
+  # S3 secret access key. Env var: S3_SECRET_KEY
+  # MUST be set via S3_SECRET_KEY env var in production.
+  secret_key: ""
 
-# Enable TLS for S3 connections. Env var: S3_USE_SSL
-# Default: false
-s3_use_ssl: false
+  # Enable TLS for S3 connections. Env var: S3_USE_SSL
+  # Default: false
+  use_ssl: false
 
-# Use path-style S3 URLs (required for MinIO). Env var: S3_PATH_STYLE
-# Default: false
-s3_path_style: false
+  # Use path-style S3 URLs (required for MinIO). Env var: S3_PATH_STYLE
+  # Default: false
+  path_style: false
 
-# Maximum parallel S3 operations (uploads/downloads). Env var: S3_CONCURRENCY
-# Default: 10
-s3_concurrency: 10
+  # Maximum parallel S3 operations (uploads/downloads). Env var: S3_CONCURRENCY
+  # Default: 10
+  concurrency: 10
 
 # --- CORS ---
 

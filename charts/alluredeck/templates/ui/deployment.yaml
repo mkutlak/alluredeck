@@ -53,6 +53,9 @@ spec:
             {{- toYaml .Values.ui.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.ui.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -65,3 +68,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}

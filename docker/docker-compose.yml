@@ -21,10 +21,10 @@ services:
       dockerfile: docker/Dockerfile.api
     environment:
       SECURITY_ENABLED: "1"
-      SECURITY_USER: "${SECURITY_USER:-admin}"
-      SECURITY_PASS: "${SECURITY_PASS:-admin}"
-      SECURITY_VIEWER_USER: "${SECURITY_VIEWER_USER:-viewer}"
-      SECURITY_VIEWER_PASS: "${SECURITY_VIEWER_PASS:-viewer}"
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASS: "${ADMIN_PASS:-admin}"
+      VIEWER_USER: "${VIEWER_USER:-viewer}"
+      VIEWER_PASS: "${VIEWER_PASS:-viewer}"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-68af59c5a580cf01e094ff4cf6722203c6e2a6de6ed6c3fb8185bfac9c490f3e}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:7474}"
       KEEP_HISTORY: "1"
@@ -34,7 +34,7 @@ services:
     ports:
       - "5050:8080"
     volumes:
-      - allure-projects:/app/projects
+      - allure-projects:/data/projects
     restart: unless-stopped
 
 volumes:

@@ -20,8 +20,8 @@ func newTestConfig(t *testing.T) (*config.Config, string) {
 	t.Helper()
 	dir := t.TempDir()
 	return &config.Config{
-		ProjectsDirectory: dir,
-		KeepHistory:       false,
+		ProjectsPath: dir,
+		KeepHistory:  false,
 	}, dir
 }
 

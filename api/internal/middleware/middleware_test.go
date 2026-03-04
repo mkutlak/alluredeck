@@ -16,8 +16,8 @@ func TestAuthMiddleware(t *testing.T) {
 	cfg := &config.Config{
 		SecurityEnabled:    true,
 		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  15 * time.Minute,
-		RefreshTokenExpiry: 30 * 24 * time.Hour,
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
 	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 
@@ -98,8 +98,8 @@ func TestAuthMiddleware(t *testing.T) {
 		shortCfg := &config.Config{
 			SecurityEnabled:    true,
 			JWTSecret:          "test-secret",
-			AccessTokenExpiry:  1 * time.Millisecond,
-			RefreshTokenExpiry: 30 * 24 * time.Hour,
+			AccessTokenExpiry:  config.DurationSeconds(1 * time.Millisecond),
+			RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 		}
 		shortMgr := security.NewJWTManager(shortCfg, testutil.NewMemBlacklist())
 		expiredToken, _, _ := shortMgr.GenerateTokens("testuser", "admin")
@@ -139,8 +139,8 @@ func TestRequireRole(t *testing.T) {
 	cfg := &config.Config{
 		SecurityEnabled:    true,
 		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  15 * time.Minute,
-		RefreshTokenExpiry: 30 * 24 * time.Hour,
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
 	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 

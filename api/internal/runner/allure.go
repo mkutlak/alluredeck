@@ -381,7 +381,7 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID string) error {
 		}
 	}
 
-	checkSecs := strings.ToUpper(a.cfg.CheckResultsSecs)
+	checkSecs := strings.ToUpper(a.cfg.CheckResultsEverySeconds)
 	if checkSecs != "NONE" {
 		if err := a.store.KeepHistory(ctx, projectID); err != nil {
 			return fmt.Errorf("keep history for %q: %w", projectID, err)
@@ -446,7 +446,7 @@ func (a *Allure) CleanResults(ctx context.Context, projectID string) error {
 
 // CreateProject creates the necessary directories for a new project
 func (a *Allure) CreateProject(ctx context.Context, projectID string) error {
-	projectDir := filepath.Join(a.cfg.ProjectsDirectory, projectID)
+	projectDir := filepath.Join(a.cfg.ProjectsPath, projectID)
 
 	if _, err := os.Stat(projectDir); err == nil {
 		return fmt.Errorf("%w: %s", ErrProjectExists, projectID)
@@ -462,7 +462,7 @@ func (a *Allure) CreateProject(ctx context.Context, projectID string) error {
 // This thin wrapper exists for backward compatibility with tests; new code should call
 // store.PublishReport directly with the localProjectDir from PrepareLocal.
 func (a *Allure) StoreReport(ctx context.Context, projectID string, buildOrder int) error {
-	localProjectDir := filepath.Join(a.cfg.ProjectsDirectory, projectID)
+	localProjectDir := filepath.Join(a.cfg.ProjectsPath, projectID)
 	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}

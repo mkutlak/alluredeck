@@ -37,7 +37,7 @@ func openTestDB(t *testing.T) *sql.DB {
 // filesystem fixtures created before calling this function are reflected in the DB.
 func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
+	cfg := &config.Config{ProjectsPath: projectsDir}
 
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -66,7 +66,7 @@ func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 // Includes a TestResultStore; the caller controls the full DB lifecycle.
 func newTestAllureHandlerWithDB(t *testing.T, projectsDir string, db *store.SQLiteStore) *AllureHandler {
 	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
+	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	bs := store.NewBuildStore(db, logger)
@@ -81,7 +81,7 @@ func newTestAllureHandlerWithDB(t *testing.T, projectsDir string, db *store.SQLi
 // backed by the provided generator, for async job handler tests.
 func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) *AllureHandler {
 	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir, KeepHistory: false}
+	cfg := &config.Config{ProjectsPath: projectsDir, KeepHistory: false}
 
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

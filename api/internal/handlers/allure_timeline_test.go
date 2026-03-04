@@ -227,7 +227,7 @@ func TestGetReportTimeline_SQLiteFastPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
+	cfg := &config.Config{ProjectsPath: projectsDir}
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)

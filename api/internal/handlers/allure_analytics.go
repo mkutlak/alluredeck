@@ -49,7 +49,7 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{

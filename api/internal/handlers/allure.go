@@ -249,7 +249,7 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := strings.TrimSpace(reqBody.ID)
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
+	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": err.Error()},
@@ -316,7 +316,7 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -378,7 +378,7 @@ func (h *AllureHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -425,7 +425,7 @@ func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
+	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": err.Error()},
@@ -469,7 +469,7 @@ func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
+	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": err.Error()},
@@ -516,7 +516,7 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -591,7 +591,7 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.cfg.APIRespLessVerbose {
+	if h.cfg.APIResponseLessVerbose {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": fmt.Sprintf("Results successfully sent for project_id '%s'", projectID)},
 		})
@@ -915,7 +915,7 @@ func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1041,7 +1041,7 @@ func (h *AllureHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1156,7 +1156,7 @@ func (h *AllureHandler) GetReportCategories(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1217,7 +1217,7 @@ func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
+	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"metadata": map[string]string{"message": err.Error()},
@@ -1277,7 +1277,7 @@ func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{
