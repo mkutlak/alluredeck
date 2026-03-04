@@ -7,8 +7,6 @@ on:
       - "ui/**"
       - "Makefile"
       - ".github/workflows/ci-ui.yml"
-  push:
-    branches: [main]
 
 permissions:
   contents: read

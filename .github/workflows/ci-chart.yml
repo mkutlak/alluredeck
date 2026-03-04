@@ -6,8 +6,6 @@ on:
     paths:
       - "charts/**"
       - ".github/workflows/ci-chart.yml"
-  push:
-    branches: [main]
 
 permissions:
   contents: read

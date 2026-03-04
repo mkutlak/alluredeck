@@ -145,11 +145,12 @@ jobs:
     if: needs.release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          ref: ${{ needs.release.outputs.new-release-git-tag }}
 
       - uses: azure/setup-helm@v4
 
@@ -165,15 +166,15 @@ jobs:
           echo "Chart.yaml updated:"
           head -10 charts/alluredeck/Chart.yaml
 
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
-      - name: Release chart to GitHub Pages
-        uses: helm/chart-releaser-action@v1.7.0
-        with:
-          charts_dir: charts
-          skip_existing: true
+      - name: Log in to GHCR
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "${GITHUB_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
+
+      - name: Package and push Helm chart
+        env:
+          VERSION: ${{ needs.release.outputs.new-release-version }}
+        run: |
+          helm package charts/alluredeck
+          helm push alluredeck-${VERSION}.tgz oci://ghcr.io/mkutlak/charts

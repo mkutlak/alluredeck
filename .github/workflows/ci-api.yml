@@ -7,8 +7,6 @@ on:
       - "api/**"
       - "Makefile"
       - ".github/workflows/ci-api.yml"
-  push:
-    branches: [main]
 
 permissions:
   contents: read

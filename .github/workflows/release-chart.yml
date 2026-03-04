@@ -7,31 +7,36 @@ on:
       - "charts/**"
 
 permissions:
-  contents: write
-  pages: write
+  contents: read
+  packages: write
 
 jobs:
   release-chart:
     name: Release Helm chart
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - uses: azure/setup-helm@v4
 
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Install yq
+        uses: mikefarah/yq@v4
 
-      - name: Release chart to GitHub Pages
-        uses: helm/chart-releaser-action@v1.7.0
-        with:
-          charts_dir: charts
-          skip_existing: true
+      - name: Read chart version
+        id: version
+        run: |
+          VERSION=$(yq '.version' charts/alluredeck/Chart.yaml)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "${GITHUB_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
+
+      - name: Package and push Helm chart
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          helm package charts/alluredeck
+          helm push alluredeck-${VERSION}.tgz oci://ghcr.io/mkutlak/charts
