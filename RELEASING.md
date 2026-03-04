@@ -156,11 +156,10 @@ Dependabot PRs use scoped `chore()` prefixes that are excluded from triggering r
 
 ### Main branch (`main`)
 
-- Requires pull request with at least 1 approval
-- Requires signed commits
 - No force pushes
 - No deletions
-- Required status checks: `Run tests`
+- Required status checks: `Run tests` (not enforced on branch creation)
+- Admin bypass for repository owner
 
 ### Tags (`v*`, `helm-v*`)
 
