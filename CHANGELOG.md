@@ -1,3 +1,13 @@
+## [0.2.0](https://github.com/mkutlak/alluredeck/compare/v0.1.2...v0.2.0) (2026-03-05)
+
+### Features
+
+* **chart:** add ArtifactHub integration for Helm chart discovery ([36836d8](https://github.com/mkutlak/alluredeck/commit/36836d84129ee9a1e4779b309340736f63e59715))
+
+### Bug Fixes
+
+* **chart:** unify ingress and add advanced pod customization ([103688c](https://github.com/mkutlak/alluredeck/commit/103688c93f9f99762fd206ebc5ab2676e539dfcb))
+
 ## [0.1.2](https://github.com/mkutlak/alluredeck/compare/v0.1.1...v0.1.2) (2026-03-04)
 
 ### Bug Fixes
