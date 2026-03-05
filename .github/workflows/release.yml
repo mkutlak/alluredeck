@@ -1,6 +1,13 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      force-release:
+        description: "Force semantic-release to run (useful after path-ignore skips)"
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths-ignore:
