@@ -36,7 +36,7 @@ func integrationConfig(t *testing.T) *config.Config {
 			Region:    "us-east-1",
 			AccessKey: accessKey,
 			SecretKey: secretKey,
-			UseSSL:    false,
+			TLSInsecureSkipVerify: false,
 			PathStyle: true,
 		},
 	}

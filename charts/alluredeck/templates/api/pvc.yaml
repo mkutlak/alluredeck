@@ -1,3 +1,4 @@
+{{- if eq (.Values.api.kind | default "Deployment") "Deployment" }}
 {{- if and .Values.api.persistence.projects.enabled (eq .Values.api.config.storageType "local") (not .Values.api.persistence.projects.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -34,4 +35,5 @@ spec:
   resources:
     requests:
       storage: {{ .Values.api.persistence.database.size }}
+{{- end }}
 {{- end }}

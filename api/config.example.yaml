@@ -134,9 +134,10 @@ s3:
   # MUST be set via S3_SECRET_KEY env var in production.
   secret_key: ""
 
-  # Enable TLS for S3 connections. Env var: S3_USE_SSL
+  # Skip TLS certificate verification for S3 connections (e.g. self-signed certs).
+  # Env var: S3_TLS_INSECURESKIPVERIFY
   # Default: false
-  use_ssl: false
+  tls_insecureskipverify: false
 
   # Use path-style S3 URLs (required for MinIO). Env var: S3_PATH_STYLE
   # Default: false

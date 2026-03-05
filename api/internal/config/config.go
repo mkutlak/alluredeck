@@ -63,7 +63,7 @@ type S3Config struct {
 	Region      string `yaml:"region" envconfig:"REGION"`
 	AccessKey   string `yaml:"access_key" envconfig:"ACCESS_KEY"` //nolint:gosec // G117: field name matches secret pattern; this is intentional
 	SecretKey   string `yaml:"secret_key" envconfig:"SECRET_KEY"`
-	UseSSL      bool   `yaml:"use_ssl" envconfig:"USE_SSL"`
+	TLSInsecureSkipVerify bool `yaml:"tls_insecureskipverify" envconfig:"TLS_INSECURESKIPVERIFY"`
 	PathStyle   bool   `yaml:"path_style" envconfig:"PATH_STYLE"`
 	Concurrency int    `yaml:"concurrency" envconfig:"CONCURRENCY"`
 }
@@ -90,6 +90,7 @@ type Config struct {
 	APIResponseLessVerbose    bool            `yaml:"api_response_less_verbose" envconfig:"API_RESPONSE_LESS_VERBOSE"`
 	CORSAllowedOrigins        []string        `yaml:"cors_allowed_origins" envconfig:"CORS_ALLOWED_ORIGINS"`
 	TrustForwardedFor         bool            `yaml:"trust_forwarded_for" envconfig:"TRUST_FORWARDED_FOR"`
+	SwaggerEnabled            bool            `yaml:"swagger_enabled" envconfig:"SWAGGER_ENABLED"`
 	AccessTokenExpiry         DurationSeconds `yaml:"jwt_access_token_expires" envconfig:"JWT_ACCESS_TOKEN_EXPIRES"`
 	RefreshTokenExpiry        DurationSeconds `yaml:"jwt_refresh_token_expires" envconfig:"JWT_REFRESH_TOKEN_EXPIRES"`
 	DatabasePath              string          `yaml:"database_path" envconfig:"DATABASE_PATH"`

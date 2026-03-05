@@ -82,7 +82,7 @@ Startup fails if these are missing when `STORAGE_TYPE=s3`:
 | `S3_REGION` | `us-east-1` | AWS region |
 | `S3_ACCESS_KEY` | *(empty)* | Access key ID (omit for IRSA) |
 | `S3_SECRET_KEY` | *(empty)* | Secret access key (omit for IRSA) |
-| `S3_USE_SSL` | `false` | Enable TLS for S3 connections |
+| `S3_TLS_INSECURESKIPVERIFY` | `false` | Skip TLS certificate verification (e.g. self-signed certs) |
 | `S3_PATH_STYLE` | `false` | Path-style URLs — **required for MinIO** |
 | `S3_CONCURRENCY` | `10` | Max parallel upload/download operations |
 
@@ -113,7 +113,6 @@ S3_REGION=us-east-1
 S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin
 S3_PATH_STYLE=true     # required for MinIO
-S3_USE_SSL=false       # no TLS in local dev
 ```
 
 ### AWS S3
@@ -125,7 +124,6 @@ S3_BUCKET=my-allure-reports
 S3_REGION=eu-west-1
 S3_ACCESS_KEY=AKIA...
 S3_SECRET_KEY=...
-S3_USE_SSL=true
 S3_PATH_STYLE=false    # virtual-hosted style for AWS
 ```
 
@@ -149,7 +147,6 @@ api:
     endpoint: "https://s3.amazonaws.com"
     bucket: "my-allure-reports"
     region: "eu-west-1"
-    useSSL: "true"
     # Do not set S3_ACCESS_KEY or S3_SECRET_KEY
 ```
 
@@ -165,7 +162,6 @@ api:
     endpoint: "http://minio.minio.svc:9000"
     bucket: "allure-reports"
     region: "us-east-1"
-    useSSL: "false"
     pathStyle: "true"
     concurrency: "10"
     # Reference a pre-created Kubernetes Secret with keys: S3_ACCESS_KEY, S3_SECRET_KEY

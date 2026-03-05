@@ -3,10 +3,12 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,6 +45,15 @@ func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 		opts = append(opts, awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
 		))
+	}
+	if cfg.S3.TLSInsecureSkipVerify {
+		opts = append(opts, awsconfig.WithHTTPClient(&http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true, //nolint:gosec // G402: intentional — user opted in via S3_TLS_INSECURESKIPVERIFY
+				},
+			},
+		}))
 	}
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)

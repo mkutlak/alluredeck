@@ -269,7 +269,7 @@ func TestS3ConfigFromEnv(t *testing.T) {
 	t.Setenv("S3_REGION", "eu-west-1")
 	t.Setenv("S3_ACCESS_KEY", "minio-user")
 	t.Setenv("S3_SECRET_KEY", "minio-password")
-	t.Setenv("S3_USE_SSL", "true")
+	t.Setenv("S3_TLS_INSECURESKIPVERIFY", "true")
 	t.Setenv("S3_PATH_STYLE", "true")
 
 	cfg, err := LoadConfig()
@@ -288,7 +288,7 @@ func TestS3ConfigFromEnv(t *testing.T) {
 		{"S3.Region", cfg.S3.Region, "eu-west-1"},
 		{"S3.AccessKey", cfg.S3.AccessKey, "minio-user"},
 		{"S3.SecretKey", cfg.S3.SecretKey, "minio-password"},
-		{"S3.UseSSL", cfg.S3.UseSSL, true},
+		{"S3.TLSInsecureSkipVerify", cfg.S3.TLSInsecureSkipVerify, true},
 		{"S3.PathStyle", cfg.S3.PathStyle, true},
 	}
 	for _, c := range checks {
@@ -376,7 +376,7 @@ func TestLoadConfigS3FromYAMLFile(t *testing.T) {
 		{"S3.Region", cfg.S3.Region, "eu-central-1"},
 		{"S3.AccessKey", cfg.S3.AccessKey, "test-access-key"},
 		{"S3.SecretKey", cfg.S3.SecretKey, "test-secret-key"},
-		{"S3.UseSSL", cfg.S3.UseSSL, true},
+		{"S3.TLSInsecureSkipVerify", cfg.S3.TLSInsecureSkipVerify, true},
 		{"S3.PathStyle", cfg.S3.PathStyle, true},
 		{"S3.Concurrency", cfg.S3.Concurrency, 5},
 	}
@@ -470,6 +470,27 @@ func TestHashPasswords_EmptyPasswordsNoOp(t *testing.T) {
 	}
 	if len(cfg.ViewerPassHash) != 0 {
 		t.Error("ViewerPassHash should be empty when no password set")
+	}
+}
+
+func TestSwaggerEnabledDefaultFalse(t *testing.T) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.SwaggerEnabled {
+		t.Errorf("Expected SwaggerEnabled default false, got true")
+	}
+}
+
+func TestSwaggerEnabledFromEnv(t *testing.T) {
+	t.Setenv("SWAGGER_ENABLED", "true")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.SwaggerEnabled {
+		t.Errorf("Expected SwaggerEnabled true when env set, got false")
 	}
 }
 

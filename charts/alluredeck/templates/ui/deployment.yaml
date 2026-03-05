@@ -6,6 +6,11 @@ metadata:
     {{- include "alluredeck.ui.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.ui.replicaCount }}
+  revisionHistoryLimit: {{ .Values.ui.revisionHistoryLimit }}
+  {{- with .Values.ui.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "alluredeck.ui.selectorLabels" . | nindent 6 }}
@@ -26,6 +31,20 @@ spec:
       serviceAccountName: {{ include "alluredeck.ui.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.ui.podSecurityContext | nindent 8 }}
+      {{- with .Values.ui.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.ui.dnsPolicy }}
+      dnsPolicy: {{ . }}
+      {{- end }}
+      {{- with .Values.ui.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ui.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ui
           image: "{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag | default .Chart.AppVersion }}"
@@ -34,9 +53,16 @@ spec:
             - name: http-ui
               containerPort: {{ .Values.ui.service.port | int }}
               protocol: TCP
+          env:
+            {{- with .Values.ui.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "alluredeck.ui.fullname" . }}
+            {{- with .Values.ui.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- with .Values.ui.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -53,9 +79,19 @@ spec:
             {{- toYaml .Values.ui.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.ui.securityContext | nindent 12 }}
+          {{- with .Values.ui.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with .Values.ui.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.ui.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -68,6 +104,13 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.ui.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- with .Values.ui.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

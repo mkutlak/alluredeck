@@ -129,7 +129,7 @@ Set `STORAGE_TYPE=s3` to use S3 or MinIO for object storage.
 | `S3_REGION` | `s3.region` | `us-east-1` | AWS region (e.g., `eu-west-1`, `us-west-2`) |
 | `S3_ACCESS_KEY` | `s3.access_key` | *(empty)* | S3 access key ID. Leave empty if using IAM roles (IRSA on EKS, EC2 instance roles, etc.) |
 | `S3_SECRET_KEY` | `s3.secret_key` | *(empty)* | S3 secret access key. Leave empty if using IAM roles. **Set via environment variable in production.** |
-| `S3_USE_SSL` | `s3.use_ssl` | `false` | Enable TLS for S3 connections. Use `false` for MinIO over HTTP, `true` for AWS S3 HTTPS |
+| `S3_TLS_INSECURESKIPVERIFY` | `s3.tls_insecureskipverify` | `false` | Skip TLS certificate verification for S3 connections (e.g. self-signed certs) |
 | `S3_PATH_STYLE` | `s3.path_style` | `false` | Use path-style S3 URLs. **Required for MinIO** (e.g., `http://minio:9000/bucket/key`). AWS S3 uses virtual-hosted-style by default |
 | `S3_CONCURRENCY` | `s3.concurrency` | `10` | Maximum number of parallel S3 operations (uploads/downloads). Increase for high-throughput environments; decrease to reduce memory usage |
 
@@ -146,7 +146,6 @@ export S3_BUCKET="alluredeck-reports"
 export S3_REGION="eu-west-1"
 export S3_ACCESS_KEY="AKIAIOSFODNN7EXAMPLE"
 export S3_SECRET_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-export S3_USE_SSL="true"
 ```
 
 ### Example: MinIO (Local)
@@ -157,7 +156,6 @@ export S3_ENDPOINT="http://minio:9000"
 export S3_BUCKET="alluredeck"
 export S3_ACCESS_KEY="minioadmin"
 export S3_SECRET_KEY="minioadmin"
-export S3_USE_SSL="false"
 export S3_PATH_STYLE="true"
 ```
 
@@ -281,7 +279,7 @@ s3:
   region: "us-east-1"
   access_key: ""
   secret_key: ""
-  use_ssl: false
+  tls_insecureskipverify: false
   path_style: false
   concurrency: 10
 
@@ -341,7 +339,7 @@ s3:
   # Access key and secret via env vars (S3_ACCESS_KEY, S3_SECRET_KEY)
   access_key: ""
   secret_key: ""
-  use_ssl: true
+  tls_insecureskipverify: false
   path_style: false
   concurrency: 20
 ```

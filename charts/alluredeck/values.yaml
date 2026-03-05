@@ -27,6 +27,7 @@ api:
     keepHistoryLatest: "20"
     apiResponseLessVerbose: "false"
     trustXForwardedFor: "true"
+    swaggerEnabled: "false"
     makeViewerEndpointsPublic: "false"
     corsAllowedOrigins: []  # auto-computed from ui.ingress if empty; list of allowed origins
     goMemLimit: "768MiB"  # Set to ~80% of resources.limits.memory to let GC reclaim before OOM kill
@@ -35,12 +36,12 @@ api:
 
   # S3/MinIO connection settings (used when storageType=s3)
   # Authentication: use s3.existingSecret for static credentials (keys: S3_ACCESS_KEY, S3_SECRET_KEY),
-  # or use IRSA on EKS via serviceAccount.annotations (no secret needed).
+  # or use IRSA on EKS via api.serviceAccount.annotations (no secret needed).
   s3:
     endpoint: ""          # e.g. "http://minio.minio.svc:9000"
     bucket: ""            # e.g. "allure-reports"
     region: "us-east-1"
-    useSSL: "false"
+    tlsInsecureSkipVerify: "false"  # skip TLS cert verification (e.g. self-signed certs)
     pathStyle: "false"    # "true" for MinIO
     concurrency: "10"
     existingSecret: ""    # pre-created K8s Secret with keys: S3_ACCESS_KEY, S3_SECRET_KEY
@@ -55,17 +56,16 @@ api:
     jwtSecretKey: ""      # REQUIRED in production; empty = random on install
     jwtAccessTokenExpires: "900"
     jwtRefreshTokenExpires: "2592000"
-
-  # Reference an existing Secret instead of creating one.
-  # The Secret must contain the following keys:
-  #   adminUser              - admin username
-  #   adminPassword          - admin password
-  #   viewerUser             - viewer username
-  #   viewerPassword         - viewer password
-  #   jwtSecretKey           - HMAC signing key for JWTs
-  #   jwtAccessTokenExpires  - access token TTL in seconds
-  #   jwtRefreshTokenExpires - refresh token TTL in seconds
-  existingSecret: ""
+    # Reference an existing Secret instead of creating one.
+    # The Secret must contain the following keys:
+    #   adminUser              - admin username
+    #   adminPassword          - admin password
+    #   viewerUser             - viewer username
+    #   viewerPassword         - viewer password
+    #   jwtSecretKey           - HMAC signing key for JWTs
+    #   jwtAccessTokenExpires  - access token TTL in seconds
+    #   jwtRefreshTokenExpires - refresh token TTL in seconds
+    existingSecret: ""
 
   # Persistence
   persistence:
@@ -83,6 +83,7 @@ api:
       size: 1Gi
 
   replicaCount: 1
+  revisionHistoryLimit: 3
 
   resources:
     requests:
@@ -104,9 +105,18 @@ api:
       drop:
         - ALL
 
+  strategy: {}
+    # type: Recreate
+    # -- or --
+    # type: RollingUpdate
+    # rollingUpdate:
+    #   maxSurge: 1
+    #   maxUnavailable: 0
+
   service:
     type: ClusterIP
     port: 8080
+    annotations: {}
 
   livenessProbe:
     httpGet:
@@ -135,22 +145,32 @@ api:
 
   terminationGracePeriodSeconds: 35
 
-  ingress:
-    enabled: false
-    ingressClassName: ""
-    annotations: {}
-      # cert-manager.io/cluster-issuer: letsencrypt-prod
-    host: ""            # e.g. api.alluredeck.example.com
-    path: /
-    pathType: Prefix
-    tls: []
-    # - secretName: alluredeck-api-tls
-    #   hosts:
-    #     - api.alluredeck.example.com
+  # Set to "StatefulSet" for stable PVC binding with local storage.
+  # Deployment is fine for S3 storage or ephemeral/dev usage.
+  kind: Deployment
+
+  extraArgs: []
+  extraEnv: []
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  initContainers: []
+  sidecars: []
+  lifecycle: {}
+  priorityClassName: ""
+  dnsPolicy: ""
+  dnsConfig: {}
 
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  topologySpreadConstraints: []
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
+      # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-api
+
   podAnnotations: {}
   podLabels: {}
 
@@ -168,6 +188,7 @@ ui:
     appTitle: "AllureDeck"
 
   replicaCount: 1
+  revisionHistoryLimit: 3
 
   resources:
     requests:
@@ -189,9 +210,12 @@ ui:
       drop:
         - ALL
 
+  strategy: {}
+
   service:
     type: ClusterIP
     port: 8080
+    annotations: {}
 
   livenessProbe:
     httpGet:
@@ -218,38 +242,52 @@ ui:
     periodSeconds: 5
     failureThreshold: 6  # 6 * 5s = 30s max startup
 
-  ingress:
-    enabled: false
-    ingressClassName: ""
-    annotations: {}
-      # cert-manager.io/cluster-issuer: letsencrypt-prod
-    host: ""            # e.g. alluredeck.example.com
-    path: /
-    pathType: Prefix
-    tls: []
-    # - secretName: alluredeck-ui-tls
-    #   hosts:
-    #     - alluredeck.example.com
+  extraEnv: []
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  initContainers: []
+  sidecars: []
+  lifecycle: {}
+  priorityClassName: ""
+  dnsPolicy: ""
+  dnsConfig: {}
 
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  topologySpreadConstraints: []
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
+
   podAnnotations: {}
   podLabels: {}
 
 # ---------------------------------------------------------------------------
-# Service Accounts
+# Ingress (single unified Ingress with path-based routing)
 # ---------------------------------------------------------------------------
-serviceAccount:
+ingress:
+  enabled: false
+  ingressClassName: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: ""              # e.g. alluredeck.example.com
+  tls: []
+  # - secretName: alluredeck-tls
+  #   hosts:
+  #     - alluredeck.example.com
   api:
-    create: true
-    name: ""
-    annotations: {}
-      # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-api
+    path: /api
+    pathType: Prefix
+  swagger:
+    enabled: false
+    path: /swagger
+    pathType: Prefix
   ui:
-    create: true
-    name: ""
-    annotations: {}
+    path: /
+    pathType: Prefix
 
 # ---------------------------------------------------------------------------
 # Network Policy
@@ -266,3 +304,22 @@ networkPolicy:
     podSelector:
       app.kubernetes.io/name: ingress-nginx
     namespaceSelector: {}
+
+# ---------------------------------------------------------------------------
+# Extra Resources
+# ---------------------------------------------------------------------------
+# Deploy arbitrary Kubernetes resources alongside the chart.
+# Each list item is a full resource manifest.
+# Example:
+#   extraResources:
+#     - apiVersion: secrets-store.csi.x-k8s.io/v1
+#       kind: SecretProviderClass
+#       metadata:
+#         name: alluredeck-secrets
+#       spec:
+#         provider: aws
+#         parameters:
+#           objects: |
+#             - objectName: "alluredeck/prod"
+#               objectType: "secretsmanager"
+extraResources: []

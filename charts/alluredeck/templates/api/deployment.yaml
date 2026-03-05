@@ -1,11 +1,26 @@
 apiVersion: apps/v1
-kind: Deployment
+{{- $kind := .Values.api.kind | default "Deployment" }}
+kind: {{ $kind }}
 metadata:
   name: {{ include "alluredeck.api.fullname" . }}
   labels:
     {{- include "alluredeck.api.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.api.replicaCount }}
+  revisionHistoryLimit: {{ .Values.api.revisionHistoryLimit }}
+  {{- if eq $kind "Deployment" }}
+  {{- with .Values.api.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- if eq $kind "StatefulSet" }}
+  serviceName: {{ include "alluredeck.api.fullname" . }}-headless
+  {{- with .Values.api.strategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "alluredeck.api.selectorLabels" . | nindent 6 }}
@@ -28,12 +43,30 @@ spec:
       securityContext:
         {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      {{- with .Values.api.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.api.dnsPolicy }}
+      dnsPolicy: {{ . }}
+      {{- end }}
+      {{- with .Values.api.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: api
           image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.api.image.pullPolicy }}
           command: ["/sbin/tini", "--"]
-          args: ["/app/alluredeck-api"]
+          args:
+            - /app/alluredeck-api
+            {{- range .Values.api.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
           ports:
             - name: http-api
               containerPort: {{ .Values.api.service.port | int }}
@@ -89,6 +122,13 @@ spec:
                   name: {{ .Values.api.s3.existingSecret }}
                   key: S3_SECRET_KEY
             {{- end }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.api.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.api.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -105,6 +145,10 @@ spec:
             {{- toYaml .Values.api.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.api.securityContext | nindent 12 }}
+          {{- with .Values.api.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: api-config
               mountPath: /app/alluredeck/config.yaml
@@ -120,12 +164,19 @@ spec:
             - name: projects
               mountPath: {{ .Values.api.config.staticContentProjects }}
             {{- end }}
+            {{- with .Values.api.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.api.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       volumes:
         - name: api-config
           configMap:
             name: {{ include "alluredeck.api.fullname" . }}
         - name: tmp
           emptyDir: {}
+        {{- if eq $kind "Deployment" }}
         {{- if .Values.api.persistence.database.enabled }}
         - name: database
           persistentVolumeClaim:
@@ -135,6 +186,10 @@ spec:
         - name: projects
           persistentVolumeClaim:
             claimName: {{ default (printf "%s-projects" (include "alluredeck.api.fullname" .)) .Values.api.persistence.projects.existingClaim }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.api.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- with .Values.api.nodeSelector }}
       nodeSelector:
@@ -148,3 +203,42 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.api.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if eq $kind "StatefulSet" }}
+  volumeClaimTemplates:
+    {{- if .Values.api.persistence.database.enabled }}
+    - metadata:
+        name: database
+        labels:
+          {{- include "alluredeck.api.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.api.persistence.database.accessMode }}
+        {{- $sc := default .Values.global.storageClassName .Values.api.persistence.database.storageClassName }}
+        {{- if $sc }}
+        storageClassName: {{ $sc | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.api.persistence.database.size }}
+    {{- end }}
+    {{- if and .Values.api.persistence.projects.enabled (eq .Values.api.config.storageType "local") }}
+    - metadata:
+        name: projects
+        labels:
+          {{- include "alluredeck.api.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.api.persistence.projects.accessMode }}
+        {{- $sc := default .Values.global.storageClassName .Values.api.persistence.projects.storageClassName }}
+        {{- if $sc }}
+        storageClassName: {{ $sc | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.api.persistence.projects.size }}
+    {{- end }}
+  {{- end }}

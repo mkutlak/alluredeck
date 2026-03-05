@@ -29,8 +29,8 @@ helm install alluredeck alluredeck/alluredeck -f my-values.yaml
 # With inline overrides
 helm install alluredeck alluredeck/alluredeck \
   --set api.security.password=mysecretpassword \
-  --set ui.ingress.enabled=true \
-  --set ui.ingress.host=alluredeck.example.com
+  --set ingress.enabled=true \
+  --set ingress.host=alluredeck.example.com
 ```
 
 ### Access (without Ingress)
@@ -56,8 +56,8 @@ helm upgrade alluredeck alluredeck/alluredeck -f my-values.yaml
 The chart includes several intelligent defaults that reduce manual configuration:
 
 - **Auto-generated credentials** — On first install, if `api.security.password`, `api.security.viewerPassword`, or `api.security.jwtSecretKey` are empty, random values are generated (32-char passwords, 64-char JWT key). On upgrade, existing secret values are preserved via Helm `lookup`.
-- **Auto-computed API URL** — If `ui.config.apiUrl` is empty, the UI is configured to use the internal cluster service name automatically.
-- **Auto-computed CORS** — If `api.config.corsAllowedOrigins` is empty and `ui.ingress.host` is set, CORS is automatically configured to allow the UI ingress host.
+- **Auto-computed API URL** — When `ingress.enabled` is true and `ingress.host` is set, the UI automatically uses a relative `/api/v1` path (same-origin, no CORS needed). Otherwise falls back to the internal cluster service URL.
+- **Auto-computed CORS** — If `api.config.corsAllowedOrigins` is empty and `ingress.host` is set, CORS is automatically configured to allow the ingress host origin.
 
 ## Values Reference
 
@@ -70,6 +70,26 @@ The chart includes several intelligent defaults that reduce manual configuration
 | `global.imagePullSecrets` | `[]` | Image pull secrets for private registries |
 | `global.storageClassName` | `""` | Default StorageClass for all PVCs |
 
+### Ingress
+
+A single unified Ingress resource with path-based routing serves both the UI and API on the same domain. This eliminates CORS issues by keeping UI and API on the same origin.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `ingress.enabled` | `false` | Enable the unified Ingress |
+| `ingress.ingressClassName` | `""` | IngressClass name (e.g. `nginx`) |
+| `ingress.annotations` | `{}` | Ingress annotations (e.g. `cert-manager.io/cluster-issuer`) |
+| `ingress.host` | `""` | Hostname (e.g. `alluredeck.example.com`) |
+| `ingress.tls` | `[]` | TLS configuration |
+| `ingress.api.path` | `/api` | Path routed to the API service |
+| `ingress.api.pathType` | `Prefix` | API path type |
+| `ingress.ui.path` | `/` | Path routed to the UI service |
+| `ingress.ui.pathType` | `Prefix` | UI path type |
+
+With this setup, a single domain serves:
+- `https://alluredeck.example.com/` → UI
+- `https://alluredeck.example.com/api/` → API
+
 ### API Image
 
 | Key | Default | Description |
@@ -77,6 +97,15 @@ The chart includes several intelligent defaults that reduce manual configuration
 | `api.image.repository` | `ghcr.io/mkutlak/alluredeck-api` | API container image |
 | `api.image.tag` | `""` | Image tag (defaults to chart `appVersion`) |
 | `api.image.pullPolicy` | `IfNotPresent` | Image pull policy |
+
+### API Workload Kind
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `api.kind` | `Deployment` | Workload type: `Deployment` or `StatefulSet` |
+
+- **Deployment** (default): Uses standalone PVCs. Fine for S3 storage or ephemeral/dev usage.
+- **StatefulSet**: Uses `volumeClaimTemplates` for stable PVC binding. Recommended for local storage in production. Automatically creates a headless Service for stable pod DNS.
 
 ### API Configuration
 
@@ -107,7 +136,7 @@ Used when `api.config.storageType: "s3"`.
 | `api.s3.endpoint` | `""` | S3/MinIO endpoint URL |
 | `api.s3.bucket` | `""` | Bucket name |
 | `api.s3.region` | `"us-east-1"` | AWS region |
-| `api.s3.useSSL` | `"false"` | Enable TLS for S3 connections |
+| `api.s3.tlsInsecureSkipVerify` | `"false"` | Skip TLS certificate verification (e.g. self-signed certs) |
 | `api.s3.pathStyle` | `"false"` | Path-style URLs (set `"true"` for MinIO) |
 | `api.s3.concurrency` | `"10"` | Max parallel S3 operations |
 | `api.s3.existingSecret` | `""` | Pre-created Secret with `S3_ACCESS_KEY`, `S3_SECRET_KEY` keys |
@@ -124,21 +153,21 @@ Used when `api.config.storageType: "s3"`.
 | `api.security.jwtSecretKey` | `""` | JWT signing key (random 64-char if empty on install) |
 | `api.security.jwtAccessTokenExpires` | `"900"` | Access token TTL in seconds |
 | `api.security.jwtRefreshTokenExpires` | `"2592000"` | Refresh token TTL in seconds |
-| `api.existingSecret` | `""` | Use a pre-created Secret instead (see below) |
+| `api.security.existingSecret` | `""` | Use a pre-created Secret instead (see below) |
 
 ### API Persistence
 
-Two PVCs are created when `storageType=local`:
+Two PVCs are managed for the API. In `Deployment` mode they are standalone PVCs; in `StatefulSet` mode they are `volumeClaimTemplates`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `api.persistence.projects.enabled` | `true` | Create PVC for project data (local storage only) |
-| `api.persistence.projects.existingClaim` | `""` | Use an existing PVC |
+| `api.persistence.projects.existingClaim` | `""` | Use an existing PVC (Deployment mode only) |
 | `api.persistence.projects.storageClassName` | `""` | StorageClass (falls back to `global.storageClassName`) |
 | `api.persistence.projects.accessMode` | `ReadWriteOnce` | PVC access mode |
 | `api.persistence.projects.size` | `10Gi` | PVC size |
 | `api.persistence.database.enabled` | `true` | Create PVC for SQLite database |
-| `api.persistence.database.existingClaim` | `""` | Use an existing PVC |
+| `api.persistence.database.existingClaim` | `""` | Use an existing PVC (Deployment mode only) |
 | `api.persistence.database.size` | `1Gi` | PVC size |
 
 ### API Resources & Scaling
@@ -151,17 +180,28 @@ Two PVCs are created when `storageType=local`:
 | `api.resources.limits.memory` | `1Gi` | Memory limit |
 | `api.terminationGracePeriodSeconds` | `35` | Graceful shutdown timeout |
 
-### API Ingress
+### API Pod Customization
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `api.ingress.enabled` | `false` | Enable Ingress for the API |
-| `api.ingress.ingressClassName` | `""` | IngressClass name |
-| `api.ingress.annotations` | `{}` | Ingress annotations (e.g. `cert-manager.io/cluster-issuer`) |
-| `api.ingress.host` | `""` | Hostname (e.g. `api.alluredeck.example.com`) |
-| `api.ingress.path` | `/` | URL path |
-| `api.ingress.pathType` | `Prefix` | Path type |
-| `api.ingress.tls` | `[]` | TLS configuration |
+| `api.strategy` | `{}` | Deployment update strategy (or StatefulSet `updateStrategy`) |
+| `api.extraArgs` | `[]` | Additional CLI arguments for the API binary |
+| `api.extraEnv` | `[]` | Additional environment variables |
+| `api.extraEnvFrom` | `[]` | Additional env sources (ConfigMap/Secret refs) |
+| `api.extraVolumes` | `[]` | Additional volumes |
+| `api.extraVolumeMounts` | `[]` | Additional volume mounts |
+| `api.initContainers` | `[]` | Init containers |
+| `api.sidecars` | `[]` | Sidecar containers |
+| `api.lifecycle` | `{}` | Container lifecycle hooks |
+| `api.priorityClassName` | `""` | Pod priority class |
+| `api.dnsPolicy` | `""` | DNS policy |
+| `api.dnsConfig` | `{}` | DNS configuration |
+| `api.nodeSelector` | `{}` | Node selector |
+| `api.tolerations` | `[]` | Tolerations |
+| `api.affinity` | `{}` | Affinity rules |
+| `api.topologySpreadConstraints` | `[]` | Topology spread constraints |
+| `api.podAnnotations` | `{}` | Additional pod annotations |
+| `api.podLabels` | `{}` | Additional pod labels |
 
 ### UI
 
@@ -169,23 +209,25 @@ Two PVCs are created when `storageType=local`:
 |-----|---------|-------------|
 | `ui.image.repository` | `ghcr.io/mkutlak/alluredeck-ui` | UI container image |
 | `ui.image.tag` | `""` | Image tag (defaults to chart `appVersion`) |
-| `ui.config.apiUrl` | `""` | API base URL (auto-computed if empty) |
+| `ui.config.apiUrl` | `""` | API base URL (auto-computed if empty — see Smart Defaults) |
 | `ui.config.appTitle` | `"AllureDeck"` | Browser tab title and brand text |
 | `ui.replicaCount` | `1` | Number of UI replicas |
 | `ui.resources.requests.cpu` | `50m` | CPU request |
 | `ui.resources.requests.memory` | `64Mi` | Memory request |
 | `ui.resources.limits.memory` | `128Mi` | Memory limit |
 
-UI Ingress keys follow the same pattern as `api.ingress.*`.
+UI pod customization keys follow the same pattern as API (`ui.extraEnv`, `ui.extraVolumes`, `ui.strategy`, etc.).
 
 ### Service Accounts
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `serviceAccount.api.create` | `true` | Create a ServiceAccount for the API |
-| `serviceAccount.api.name` | `""` | ServiceAccount name (auto-generated if empty) |
-| `serviceAccount.api.annotations` | `{}` | Annotations (use for IRSA: `eks.amazonaws.com/role-arn`) |
-| `serviceAccount.ui.create` | `true` | Create a ServiceAccount for the UI |
+| `api.serviceAccount.create` | `false` | Create a ServiceAccount for the API |
+| `api.serviceAccount.name` | `""` | ServiceAccount name (auto-generated if empty) |
+| `api.serviceAccount.annotations` | `{}` | Annotations (use for IRSA: `eks.amazonaws.com/role-arn`) |
+| `ui.serviceAccount.create` | `false` | Create a ServiceAccount for the UI |
+| `ui.serviceAccount.name` | `""` | ServiceAccount name (auto-generated if empty) |
+| `ui.serviceAccount.annotations` | `{}` | Annotations |
 
 ### Network Policy
 
@@ -225,7 +267,8 @@ Then reference it in your values:
 
 ```yaml
 api:
-  existingSecret: "alluredeck-credentials"
+  security:
+    existingSecret: "alluredeck-credentials"
 ```
 
 ### Secret Rotation
@@ -233,63 +276,82 @@ api:
 After rotating credentials, trigger a rolling restart:
 
 ```bash
+# For Deployment mode (default)
 kubectl rollout restart deployment/alluredeck-api
+
+# For StatefulSet mode
+kubectl rollout restart statefulset/alluredeck-api
 ```
 
 ## Example Values Files
 
-### Minimal Production (local storage + ingress + TLS)
+### Minimal Production (unified ingress + TLS)
+
+```yaml
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: alluredeck.example.com
+  tls:
+    - secretName: alluredeck-tls
+      hosts:
+        - alluredeck.example.com
+```
+
+This serves both UI and API on `alluredeck.example.com`:
+- `https://alluredeck.example.com/` → UI
+- `https://alluredeck.example.com/api/` → API
+
+CORS is auto-configured and the UI automatically uses relative `/api/v1` paths (same-origin).
+
+### StatefulSet with Local Storage (production)
 
 ```yaml
 api:
-  security:
-    password: ""         # auto-generated on install
-    viewerPassword: ""   # auto-generated on install
-    jwtSecretKey: ""     # auto-generated on install
-  ingress:
-    enabled: true
-    ingressClassName: nginx
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-    host: api.alluredeck.example.com
-    tls:
-      - secretName: alluredeck-api-tls
-        hosts:
-          - api.alluredeck.example.com
+  kind: StatefulSet
+  persistence:
+    projects:
+      size: 50Gi
+    database:
+      size: 5Gi
 
-ui:
-  ingress:
-    enabled: true
-    ingressClassName: nginx
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-    host: alluredeck.example.com
-    tls:
-      - secretName: alluredeck-ui-tls
-        hosts:
-          - alluredeck.example.com
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  host: alluredeck.example.com
+  tls:
+    - secretName: alluredeck-tls
+      hosts:
+        - alluredeck.example.com
 ```
+
+StatefulSet provides stable PVC binding — PVCs are managed via `volumeClaimTemplates` and are not deleted when the StatefulSet is scaled down. A headless Service is automatically created for stable pod DNS.
 
 ### S3 Storage with IRSA on EKS
 
 ```yaml
-serviceAccount:
-  api:
+api:
+  serviceAccount:
+    create: true
     annotations:
       eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-api-s3
-
-api:
   config:
     storageType: "s3"
   s3:
     endpoint: "https://s3.amazonaws.com"
     bucket: "my-allure-reports"
     region: "eu-west-1"
-    useSSL: "true"
     pathStyle: "false"
   persistence:
     projects:
       enabled: false  # not needed for S3 storage
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  host: alluredeck.example.com
 ```
 
 ### MinIO in Cluster
@@ -302,7 +364,6 @@ api:
     endpoint: "http://minio.minio.svc:9000"
     bucket: "allure-reports"
     region: "us-east-1"
-    useSSL: "false"
     pathStyle: "true"
     existingSecret: "minio-credentials"
   persistence:

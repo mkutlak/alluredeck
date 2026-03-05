@@ -27,6 +27,6 @@ s3:
   region: "eu-central-1"
   access_key: "test-access-key"
   secret_key: "test-secret-key"
-  use_ssl: true
+  tls_insecureskipverify: true
   path_style: true
   concurrency: 5

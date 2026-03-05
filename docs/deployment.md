@@ -108,7 +108,16 @@ kubectl port-forward svc/alluredeck-ui 7474:8080
 # open http://localhost:7474
 ```
 
-For ingress, TLS, S3, and other Kubernetes-specific configuration see [helm-chart.md](helm-chart.md).
+With Ingress (single domain, path-based routing):
+```bash
+helm install alluredeck alluredeck/alluredeck \
+  --set ingress.enabled=true \
+  --set ingress.host=alluredeck.example.com
+```
+
+This serves UI at `/` and API at `/api` on the same domain, eliminating CORS issues.
+
+For TLS, S3, StatefulSet mode, and other Kubernetes-specific configuration see [helm-chart.md](helm-chart.md).
 
 ## Local Development
 

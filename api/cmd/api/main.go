@@ -97,9 +97,11 @@ func main() {
 	mux.HandleFunc("GET /readyz", systemHandler.Ready)
 
 	// Swagger UI
-	mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
-		httpSwagger.URL("/swagger/doc.json"),
-	))
+	if cfg.SwaggerEnabled {
+		mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
+			httpSwagger.URL("/swagger/doc.json"),
+		))
+	}
 
 	// Overlay file server — serves generated Allure HTML reports.
 	// Numbered build dirs contain only variable content (data/, widgets/, history/).

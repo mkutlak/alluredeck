@@ -4,6 +4,10 @@ metadata:
   name: {{ include "alluredeck.api.fullname" . }}
   labels:
     {{- include "alluredeck.api.labels" . | nindent 4 }}
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.api.service.type }}
   ports:
@@ -13,3 +17,22 @@ spec:
       name: http-api
   selector:
     {{- include "alluredeck.api.selectorLabels" . | nindent 4 }}
+{{- if eq (.Values.api.kind | default "Deployment") "StatefulSet" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}-headless
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: http-api
+      protocol: TCP
+      name: http-api
+  selector:
+    {{- include "alluredeck.api.selectorLabels" . | nindent 4 }}
+{{- end }}
