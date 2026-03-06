@@ -44,7 +44,7 @@ func TestSendJSONResults_WritesFileCorrectly(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj1"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +82,7 @@ func TestSendJSONResults_MultipleFiles(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj2"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,7 +132,7 @@ func TestSendJSONResults_InvalidBase64(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj3"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestSendJSONResults_DuplicateFileNames(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj4"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -176,7 +176,7 @@ func TestSendJSONResults_MissingContentBase64(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj5"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,7 +196,7 @@ func TestSendJSONResults_EmptyResults(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj6"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +293,7 @@ func setupTarGzTest(t *testing.T) (*AllureHandler, string, string) {
 	projectsDir := t.TempDir()
 	projectID := "targz-proj"
 	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return newTestAllureHandler(t, projectsDir), projectID, resultsDir

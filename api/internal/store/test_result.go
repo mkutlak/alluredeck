@@ -58,7 +58,7 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []TestResult
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO test_results

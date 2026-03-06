@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -30,10 +31,11 @@ const defaultSizeWarnBytes int64 = 1 << 30
 
 // S3Store implements Store backed by S3/MinIO.
 type S3Store struct {
-	cfg    *config.Config
-	client s3API
-	bucket string
-	logger *zap.Logger
+	cfg      *config.Config
+	client   s3API
+	uploader s3Uploader
+	bucket   string
+	logger   *zap.Logger
 }
 
 // NewS3Store creates an S3Store from configuration.
@@ -72,16 +74,17 @@ func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 
 	client := s3.NewFromConfig(awsCfg, clientOpts...)
 	return &S3Store{
-		cfg:    cfg,
-		client: client,
-		bucket: cfg.S3.Bucket,
-		logger: logger,
+		cfg:      cfg,
+		client:   client,
+		uploader: transfermanager.New(client),
+		bucket:   cfg.S3.Bucket,
+		logger:   logger,
 	}, nil
 }
 
-// newS3StoreWithClient creates an S3Store with a pre-built client (for testing).
-func newS3StoreWithClient(cfg *config.Config, client s3API, logger *zap.Logger) *S3Store {
-	return &S3Store{cfg: cfg, client: client, bucket: cfg.S3.Bucket, logger: logger}
+// newS3StoreWithClient creates an S3Store with a pre-built client and uploader (for testing).
+func newS3StoreWithClient(cfg *config.Config, client s3API, uploader s3Uploader, logger *zap.Logger) *S3Store {
+	return &S3Store{cfg: cfg, client: client, uploader: uploader, bucket: cfg.S3.Bucket, logger: logger}
 }
 
 // s3Key builds the S3 key from parts joined by "/".
@@ -170,18 +173,15 @@ func (s *S3Store) ListProjects(ctx context.Context) ([]string, error) {
 }
 
 // WriteResultFile uploads a result file to S3.
+// transfermanager.Client automatically uses multipart upload for large files
+// and falls back to a single PutObject for small ones, eliminating the need to
+// buffer the entire body in memory.
 func (s *S3Store) WriteResultFile(ctx context.Context, projectID, filename string, r io.Reader) error {
-	// S3 PutObject requires Content-Length for streaming; buffer the content.
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return fmt.Errorf("read result file %q: %w", filename, err)
-	}
 	key := s.s3Key("projects", projectID, "results", filename)
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(s.bucket),
-		Key:           aws.String(key),
-		Body:          bytes.NewReader(data),
-		ContentLength: aws.Int64(int64(len(data))),
+	_, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Body:   r,
 	})
 	if err != nil {
 		return fmt.Errorf("put result file %q: %w", filename, err)
@@ -291,7 +291,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 	if err := deletePrefix(ctx, s.client, s.bucket, latestPrefix); err != nil {
 		return fmt.Errorf("clear latest: %w", err)
 	}
-	if err := uploadDir(ctx, s.client, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency); err != nil {
+	if err := uploadDir(ctx, s.uploader, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency); err != nil {
 		return fmt.Errorf("upload to latest: %w", err)
 	}
 
@@ -303,7 +303,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 			continue
 		}
 		dirPrefix := buildPrefix + dir + "/"
-		if err := uploadDir(ctx, s.client, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
+		if err := uploadDir(ctx, s.uploader, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
 			return fmt.Errorf("upload %s to build %d: %w", dir, buildOrder, err)
 		}
 	}

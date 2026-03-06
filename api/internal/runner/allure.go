@@ -169,7 +169,8 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 
 		// Parse stability data from generated report JSON files.
 		if stabilityEntries, err := a.parseStabilityEntries(ctx, projectID, "latest"); err == nil {
-			for _, se := range stabilityEntries {
+			for i := range stabilityEntries {
+				se := &stabilityEntries[i]
 				if se.StatusDetails != nil && se.StatusDetails.Flaky {
 					storeStats.FlakyCount++
 				}
@@ -189,7 +190,8 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 				buildID, err := a.testResultStore.GetBuildID(ctx, projectID, buildOrder)
 				if err == nil {
 					testResults := make([]store.TestResult, 0, len(stabilityEntries))
-					for _, se := range stabilityEntries {
+					for i := range stabilityEntries {
+						se := &stabilityEntries[i]
 						dur := se.Duration
 						if se.Time != nil {
 							dur = se.Time.Duration
@@ -307,7 +309,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	if err != nil {
 		return "", fmt.Errorf("prepare local dir for %q: %w", projectID, err)
 	}
-	defer a.store.CleanupLocal(localProjectDir) //nolint:errcheck // cleanup errors are non-fatal
+	defer func() { _ = a.store.CleanupLocal(localProjectDir) }()
 
 	resultsDir := filepath.Join(localProjectDir, "results")
 

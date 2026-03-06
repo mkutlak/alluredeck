@@ -35,7 +35,7 @@ func makeLocalStore(t *testing.T) (*LocalStore, string) {
 // mkdirAll creates dirs inside the temp root, ignoring errors in tests.
 func mkdirAll(t *testing.T, path string) {
 	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil { //nolint:gosec // G301: test helper
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mkdirAll %q: %v", path, err)
 	}
 }
@@ -44,7 +44,7 @@ func mkdirAll(t *testing.T, path string) {
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	mkdirAll(t, filepath.Dir(path))
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writeFile %q: %v", path, err)
 	}
 }

@@ -754,7 +754,7 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 	if err != nil {
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir) //nolint:errcheck // best-effort cleanup
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	seen := make(map[string]bool)
 	var fileNames []string
@@ -804,7 +804,7 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 
 		// Write to temp dir.
 		tmpPath := filepath.Join(tmpDir, safeName)
-		f, err := os.Create(tmpPath) //nolint:gosec // G305: safeName is sanitized via secureFilename (filepath.Base)
+		f, err := os.Create(tmpPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create temp file %q: %w", safeName, err)
 		}
@@ -832,7 +832,7 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 	// Write validated files to storage.
 	for _, name := range fileNames {
 		tmpPath := filepath.Join(tmpDir, name)
-		f, err := os.Open(tmpPath) //nolint:gosec // G304: tmpPath constructed from sanitized safeName in controlled tmpDir
+		f, err := os.Open(tmpPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("reopen temp file %q: %w", name, err)
 		}

@@ -21,7 +21,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 			csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
 		}
 		w.Header().Set("Content-Security-Policy", csp)
-		
+
 		next.ServeHTTP(w, r)
 	})
 }

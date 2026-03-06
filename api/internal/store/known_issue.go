@@ -110,10 +110,10 @@ func (ks *KnownIssueStore) ListPaginated(ctx context.Context, projectID string, 
 	}
 
 	offset := (page - 1) * perPage
-	rows, err := ks.db.QueryContext(ctx,
-		`SELECT id, project_id, test_name, pattern, ticket_url, description, is_active, created_at, updated_at
-		FROM known_issues `+whereClause+` ORDER BY id DESC LIMIT ? OFFSET ?`,
-		append(args, perPage, offset)...)
+	// whereClause is built from hardcoded SQL fragments only; no user input is concatenated.
+	paginatedQuery := `SELECT id, project_id, test_name, pattern, ticket_url, description, is_active, created_at, updated_at` + //nolint:gosec // G202: false positive — whereClause contains only hardcoded SQL, no user input
+		` FROM known_issues ` + whereClause + ` ORDER BY id DESC LIMIT ? OFFSET ?`
+	rows, err := ks.db.QueryContext(ctx, paginatedQuery, append(args, perPage, offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list paginated known issues: %w", err)
 	}

@@ -107,10 +107,10 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 func writeSummaryJSON(t *testing.T, reportDir string, content string) {
 	t.Helper()
 	widgetsDir := filepath.Join(reportDir, "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(widgetsDir, "summary.json"), []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper uses standard file permissions
+	if err := os.WriteFile(filepath.Join(widgetsDir, "summary.json"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

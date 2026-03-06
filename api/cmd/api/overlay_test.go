@@ -11,10 +11,10 @@ import (
 // writeTestFile creates parent dirs and writes content to the given path.
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // G301: test helper needs readable temp directory
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper uses standard permissions
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
@@ -52,7 +52,7 @@ func TestOverlay_ServesFromBuildDir(t *testing.T) {
 func TestOverlay_FallsBackToLatest(t *testing.T) {
 	dir := t.TempDir()
 	// Build dir 3 exists but has no index.html (partial-copy build).
-	if err := os.MkdirAll(filepath.Join(dir, "myproject", "reports", "3"), 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+	if err := os.MkdirAll(filepath.Join(dir, "myproject", "reports", "3"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t,

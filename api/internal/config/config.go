@@ -58,14 +58,14 @@ func (d DurationSeconds) Seconds() float64 {
 
 // S3Config holds S3/MinIO connection settings.
 type S3Config struct {
-	Endpoint    string `yaml:"endpoint" envconfig:"ENDPOINT"`
-	Bucket      string `yaml:"bucket" envconfig:"BUCKET"`
-	Region      string `yaml:"region" envconfig:"REGION"`
-	AccessKey   string `yaml:"access_key" envconfig:"ACCESS_KEY"` //nolint:gosec // G117: field name matches secret pattern; this is intentional
-	SecretKey   string `yaml:"secret_key" envconfig:"SECRET_KEY"`
-	TLSInsecureSkipVerify bool `yaml:"tls_insecureskipverify" envconfig:"TLS_INSECURESKIPVERIFY"`
-	PathStyle   bool   `yaml:"path_style" envconfig:"PATH_STYLE"`
-	Concurrency int    `yaml:"concurrency" envconfig:"CONCURRENCY"`
+	Endpoint              string `yaml:"endpoint" envconfig:"ENDPOINT"`
+	Bucket                string `yaml:"bucket" envconfig:"BUCKET"`
+	Region                string `yaml:"region" envconfig:"REGION"`
+	AccessKey             string `yaml:"access_key" envconfig:"ACCESS_KEY"` //nolint:gosec // G117: field name matches secret pattern; this is intentional
+	SecretKey             string `yaml:"secret_key" envconfig:"SECRET_KEY"`
+	TLSInsecureSkipVerify bool   `yaml:"tls_insecureskipverify" envconfig:"TLS_INSECURESKIPVERIFY"`
+	PathStyle             bool   `yaml:"path_style" envconfig:"PATH_STYLE"`
+	Concurrency           int    `yaml:"concurrency" envconfig:"CONCURRENCY"`
 }
 
 // Config holds the application configuration loaded from environment variables

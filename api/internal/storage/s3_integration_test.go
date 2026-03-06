@@ -25,19 +25,19 @@ func integrationConfig(t *testing.T) *config.Config {
 	endpoint := getEnvOrDefault("S3_ENDPOINT", "http://localhost:9000")
 	bucket := getEnvOrDefault("S3_BUCKET", "allure-integration-test")
 	accessKey := getEnvOrDefault("S3_ACCESS_KEY", "minioadmin")
-	secretKey := getEnvOrDefault("S3_SECRET_KEY", "minioadmin") //nolint:gosec // test credentials
+	secretKey := getEnvOrDefault("S3_SECRET_KEY", "minioadmin")
 
 	return &config.Config{
 		StorageType: "s3",
 		KeepHistory: true,
 		S3: config.S3Config{
-			Endpoint:  endpoint,
-			Bucket:    bucket,
-			Region:    "us-east-1",
-			AccessKey: accessKey,
-			SecretKey: secretKey,
+			Endpoint:              endpoint,
+			Bucket:                bucket,
+			Region:                "us-east-1",
+			AccessKey:             accessKey,
+			SecretKey:             secretKey,
 			TLSInsecureSkipVerify: false,
-			PathStyle: true,
+			PathStyle:             true,
 		},
 	}
 }

@@ -403,8 +403,8 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 	if len(knownIssues) > 0 {
 		// Build lookup map: testName -> bool
 		knownMap := make(map[string]bool, len(knownIssues))
-		for _, ki := range knownIssues {
-			knownMap[ki.TestName] = true
+		for i := range knownIssues {
+			knownMap[knownIssues[i].TestName] = true
 		}
 
 		relBase := "reports/" + reportID + "/data/test-results"

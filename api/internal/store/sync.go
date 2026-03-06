@@ -127,7 +127,7 @@ func (bs *BuildStore) insertMissingBuilds(ctx context.Context, projectID string,
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx,
 		"INSERT OR IGNORE INTO builds(project_id, build_order) VALUES(?, ?)")
@@ -218,7 +218,7 @@ func (bs *BuildStore) batchSyncStats(ctx context.Context, projectID string, buil
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		UPDATE builds

@@ -33,7 +33,7 @@ func TestGetReportHistory_EmptyDir(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj1"
 	// Create project dir but no reports subdir
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +134,7 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 	projectID := "proj3"
 	// Create a report dir without any summary.json
 	reportDir := filepath.Join(projectsDir, projectID, "reports", "1")
-	if err := os.MkdirAll(reportDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,7 +174,7 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 func TestGetReportHistory_CancelledContext(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj-cancel"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

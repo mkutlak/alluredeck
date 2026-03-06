@@ -32,10 +32,10 @@ func TestDeleteProject_OK(t *testing.T) {
 	projectID := "myproject"
 
 	// Create project directory structure.
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,7 +113,7 @@ func TestDeleteReport_OK(t *testing.T) {
 	projectID := "myproject"
 
 	// Create project with a numbered report directory.
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports", "3"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports", "3"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,7 +148,7 @@ func TestDeleteReport_NotFound(t *testing.T) {
 	projectID := "myproject"
 
 	// Create project dir but no report "999".
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,7 +165,7 @@ func TestDeleteReport_InvalidID(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "myproject"
 
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +182,7 @@ func TestDeleteReport_MissingReportID(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "myproject"
 
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -19,3 +20,13 @@ type s3API interface {
 
 // Ensure *s3.Client satisfies s3API at compile time.
 var _ s3API = (*s3.Client)(nil)
+
+// s3Uploader abstracts transfermanager.Client for testability.
+// It handles multipart uploads automatically for large objects and falls back
+// to single-part PutObject for small ones.
+type s3Uploader interface {
+	UploadObject(ctx context.Context, input *transfermanager.UploadObjectInput, opts ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error)
+}
+
+// Ensure *transfermanager.Client satisfies s3Uploader at compile time.
+var _ s3Uploader = (*transfermanager.Client)(nil)

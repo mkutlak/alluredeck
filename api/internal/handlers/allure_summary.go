@@ -219,14 +219,14 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	if h.testResultStore != nil {
 		results, err := h.testResultStore.ListFailedByBuild(ctx, projectID, build.ID, topFailuresLimit)
 		if err == nil {
-			for _, r := range results {
+			for i := range results {
 				topFailures = append(topFailures, summaryFailure{
-					TestName:   r.TestName,
-					FullName:   r.FullName,
-					Status:     r.Status,
-					DurationMs: r.DurationMs,
-					NewFailed:  r.NewFailed,
-					Flaky:      r.Flaky,
+					TestName:   results[i].TestName,
+					FullName:   results[i].FullName,
+					Status:     results[i].Status,
+					DurationMs: results[i].DurationMs,
+					NewFailed:  results[i].NewFailed,
+					Flaky:      results[i].Flaky,
 				})
 			}
 		}

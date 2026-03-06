@@ -525,7 +525,7 @@ func (bs *BuildStore) SetLatest(ctx context.Context, projectID string, buildOrde
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // tx.Rollback after Commit always returns ErrTxDone
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE builds SET is_latest=0 WHERE project_id=? AND is_latest=1", projectID); err != nil {

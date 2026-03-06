@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"go.uber.org/zap"
@@ -56,7 +56,8 @@ type fileEntry struct {
 // uploadDir walks localDir and uploads each file to S3 under s3Prefix using bounded
 // concurrency. Phase 1: walk to collect file entries (sequential). Phase 2: fan-out
 // uploads with errgroup limited to concurrency workers.
-func uploadDir(ctx context.Context, client s3API, bucket, localDir, s3Prefix string, concurrency int) error {
+// Files are streamed directly via the uploader — no full-file buffering in memory.
+func uploadDir(ctx context.Context, uploader s3Uploader, bucket, localDir, s3Prefix string, concurrency int) error {
 	if concurrency <= 0 {
 		concurrency = 10
 	}
@@ -93,15 +94,15 @@ func uploadDir(ctx context.Context, client s3API, bucket, localDir, s3Prefix str
 
 	for _, e := range entries {
 		g.Go(func() error {
-			data, err := os.ReadFile(e.path)
+			f, err := os.Open(e.path)
 			if err != nil {
-				return fmt.Errorf("read %q: %w", e.path, err)
+				return fmt.Errorf("open %q: %w", e.path, err)
 			}
-			if _, err := client.PutObject(gctx, &s3.PutObjectInput{
-				Bucket:        aws.String(bucket),
-				Key:           aws.String(e.s3Key),
-				Body:          bytes.NewReader(data),
-				ContentLength: aws.Int64(int64(len(data))),
+			defer func() { _ = f.Close() }()
+			if _, err := uploader.UploadObject(gctx, &transfermanager.UploadObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(e.s3Key),
+				Body:   f,
 			}); err != nil {
 				return fmt.Errorf("upload %q: %w", e.s3Key, err)
 			}

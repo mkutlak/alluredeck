@@ -70,7 +70,7 @@ func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
 func TestStoreReport_EmptyLatest(t *testing.T) {
 	dir := t.TempDir()
 	latestDir := filepath.Join(dir, "myproject", "reports", "latest")
-	if err := os.MkdirAll(latestDir, 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+	if err := os.MkdirAll(latestDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 

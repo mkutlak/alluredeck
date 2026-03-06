@@ -23,8 +23,6 @@ linters:
         - performance
       disabled-checks:
         - hugeParam        # too noisy for value types used across the codebase
-        - rangeValCopy     # existing code, address incrementally
-        - unnecessaryDefer # minor stylistic issue
     gosec:
       excludes:
         - G115 # integer overflow conversion (too noisy for uint/int conversions)
