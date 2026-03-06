@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
+import { invalidateProjectQueries } from '@/lib/query-keys'
 import { useAuthStore } from '@/store/auth'
 import { env } from '@/lib/env'
 import { isSafeUrl } from '@/lib/url'
@@ -89,7 +90,7 @@ export function OverviewTab() {
   const deleteMutation = useMutation({
     mutationFn: (reportId: string) => deleteReport(projectId!, reportId),
     onSuccess: (_, reportId) => {
-      queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
+      void invalidateProjectQueries(queryClient, projectId!)
       toast({ title: 'Report deleted', description: `Report #${reportId} has been removed.` })
       setDeleteReportId(null)
     },

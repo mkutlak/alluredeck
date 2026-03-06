@@ -30,6 +30,7 @@ alluredeck/
     docker-compose-s3.yml
     nginx.conf
     docker-entrypoint.sh
+  charts/
   Makefile          # unified build orchestration
 ```
 
@@ -91,26 +92,17 @@ make helm-template    # render templates (validate rendering)
 make helm-package     # package chart into .tgz
 ```
 
-## API Conventions
-- No third-party dependencies without explicit approval
-- Prefer stdlib; add libraries only when justified
-- `CGO_ENABLED=0` for production builds (pure Go)
-- Config via env vars; `CONFIG_FILE` env var points to YAML override
-- Filesystem is source of truth for report data; SQLite is metadata cache
-- All errors returned, not panicked; structured log messages to stderr
-- Test files alongside source: `foo_test.go` next to `foo.go`
-
-## UI Conventions
-- Path alias `@/` maps to `ui/src/`
-- Components use named exports (no default exports for components)
-- Tailwind classes sorted by `prettier-plugin-tailwindcss`
-- No `any` — use `unknown` and type guards instead
-- API base URL configured via `VITE_API_URL` env var
-- Test files alongside source or in `ui/src/test/`
-- Use Testing Library queries (getByRole, etc.) — avoid `container.querySelector`
-
 ## Testing
 - Write tests first (TDD) — make them fail, then implement
 - Never update existing tests without explicit permission
 - API: use `testing` stdlib; no third-party test frameworks
 - UI: Mock API calls via `vi.mock('../api/...')` or MSW handlers
+
+# API Rules
+- See @api/CLAUDE.md
+
+# UI Rules
+- See @ui/CLAUDE.md
+
+# Helm Chart Rules
+- See @charts/CLAUDE.md

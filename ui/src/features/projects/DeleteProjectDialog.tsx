@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertTriangle } from 'lucide-react'
 import { extractErrorMessage, apiClient } from '@/api/client'
+import { queryKeys, removeProjectQueries } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,8 +36,9 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
   const mutation = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      removeProjectQueries(queryClient, projectId)
       toast({ title: 'Project deleted', description: `"${projectId}" has been removed.` })
       onOpenChange(false)
       navigate('/', { replace: true })

@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { createProject } from '@/api/projects'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,8 +30,8 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
   const mutation = useMutation({
     mutationFn: createProject,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
       toast({ title: 'Project created', description: `"${projectId}" is ready.` })
       setProjectId('')
       onOpenChange(false)

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -37,6 +38,7 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId) })
       toast({ title: 'Known issue added' })
       setTestName('')
       setTicketUrl('')

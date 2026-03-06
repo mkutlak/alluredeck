@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, ExternalLink } from 'lucide-react'
 import { listKnownIssues, deleteKnownIssue, updateKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { isSafeUrl } from '@/lib/url'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/button'
@@ -61,6 +62,7 @@ export function KnownIssuesTab() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId!) })
       toast({ title: 'Status updated' })
     },
     onError: (err) => {
@@ -72,6 +74,7 @@ export function KnownIssuesTab() {
     mutationFn: (issueId: number) => deleteKnownIssue(projectId!, issueId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId!) })
       toast({ title: 'Known issue removed' })
       setDeleteIssueId(null)
     },

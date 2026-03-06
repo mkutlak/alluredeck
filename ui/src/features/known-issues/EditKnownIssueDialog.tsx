@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -44,6 +45,7 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId) })
       toast({ title: 'Known issue updated' })
       onOpenChange(false)
     },
