@@ -18,6 +18,10 @@ export function FlakyTestsCard({ projectId }: Props) {
   const flakyTests = stability?.flaky_tests ?? []
   const summary = stability?.summary
 
+  if (!isLoading && flakyTests.length === 0) {
+    return null
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -37,8 +41,6 @@ export function FlakyTestsCard({ projectId }: Props) {
               <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
-        ) : flakyTests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No flaky tests detected</p>
         ) : (
           <div className="space-y-2">
             {flakyTests.map((test, i) => (

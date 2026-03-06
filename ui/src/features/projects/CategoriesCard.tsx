@@ -15,6 +15,10 @@ export function CategoriesCard({ projectId }: Props) {
     staleTime: 30_000,
   })
 
+  if (!isLoading && (!categories || categories.length === 0)) {
+    return null
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -27,11 +31,9 @@ export function CategoriesCard({ projectId }: Props) {
               <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
-        ) : !categories || categories.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No defect categories</p>
         ) : (
           <div className="space-y-2">
-            {categories.map((cat) => (
+            {(categories ?? []).map((cat) => (
               <div key={cat.name} className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm">{cat.name}</span>
                 <div className="flex shrink-0 gap-1">

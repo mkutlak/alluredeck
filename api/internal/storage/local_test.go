@@ -605,6 +605,39 @@ func TestLocalStore_ReadBuildStats_NotFound(t *testing.T) {
 	}
 }
 
+func TestLocalStore_ReadBuildStats_Allure3Timing(t *testing.T) {
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	if err := ls.CreateProject(ctx, "proj"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Allure 3: statistic.json (no timing fields)
+	widgetsDir := filepath.Join(root, "proj", "reports", "1", "widgets")
+	stat := map[string]any{"passed": 3, "failed": 1, "broken": 0, "skipped": 0, "unknown": 0, "total": 4}
+	data, _ := json.Marshal(stat)
+	writeFile(t, filepath.Join(widgetsDir, "statistic.json"), string(data))
+
+	// Test result files with start/stop epoch milliseconds
+	// min(start)=1700000000000, max(stop)=1700000005000 → duration=5000ms
+	testResultsDir := filepath.Join(root, "proj", "reports", "1", "data", "test-results")
+	writeFile(t, filepath.Join(testResultsDir, "a.json"), `{"start":1700000000000,"stop":1700000002000}`)
+	writeFile(t, filepath.Join(testResultsDir, "b.json"), `{"start":1700000001000,"stop":1700000005000}`)
+
+	stats, err := ls.ReadBuildStats(ctx, "proj", 1)
+	if err != nil {
+		t.Fatalf("ReadBuildStats: %v", err)
+	}
+	if stats.Total != 4 {
+		t.Errorf("Total: got %d, want 4", stats.Total)
+	}
+	// Duration = max(stop) - min(start) = 1700000005000 - 1700000000000 = 5000
+	if stats.DurationMs != 5000 {
+		t.Errorf("DurationMs: got %d, want 5000", stats.DurationMs)
+	}
+}
+
 // --- ReadFile ---
 
 func TestLocalStore_ReadFile(t *testing.T) {

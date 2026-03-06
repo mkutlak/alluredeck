@@ -463,14 +463,18 @@ func (s *S3Store) ReadBuildStats(ctx context.Context, projectID string, buildOrd
 			Total   int `json:"total"`
 		}
 		if json.Unmarshal(data, &stat) == nil && stat.Total > 0 {
-			return BuildStats{
+			stats := BuildStats{
 				Passed:  stat.Passed,
 				Failed:  stat.Failed,
 				Broken:  stat.Broken,
 				Skipped: stat.Skipped,
 				Unknown: stat.Unknown,
 				Total:   stat.Total,
-			}, nil
+			}
+			// Allure 3 statistic.json has no timing; derive from test result files.
+			testResultsRelPath := "reports/" + strconv.Itoa(buildOrder) + "/data/test-results"
+			stats.DurationMs = s.durationFromTestResults(ctx, projectID, testResultsRelPath)
+			return stats, nil
 		}
 	}
 
@@ -618,6 +622,43 @@ func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error
 		return nil, fmt.Errorf("read object %q: %w", key, err)
 	}
 	return data, nil
+}
+
+// durationFromTestResults computes wall-clock duration (ms) from Allure test result JSON files in S3.
+// It lists *.json files under relPath, parses "start"/"stop" epoch-millisecond fields, and
+// returns max(stop) - min(start). Returns 0 when no valid timing data is found.
+func (s *S3Store) durationFromTestResults(ctx context.Context, projectID, relPath string) int64 {
+	entries, err := s.ReadDir(ctx, projectID, relPath)
+	if err != nil {
+		return 0
+	}
+	var minStart, maxStop int64
+	for _, e := range entries {
+		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
+			continue
+		}
+		data, err := s.ReadFile(ctx, projectID, relPath+"/"+e.Name)
+		if err != nil {
+			continue
+		}
+		var tr struct {
+			Start int64 `json:"start"`
+			Stop  int64 `json:"stop"`
+		}
+		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
+			continue
+		}
+		if minStart == 0 || tr.Start < minStart {
+			minStart = tr.Start
+		}
+		if tr.Stop > maxStop {
+			maxStop = tr.Stop
+		}
+	}
+	if maxStop > 0 && minStart > 0 && maxStop > minStart {
+		return maxStop - minStart
+	}
+	return 0
 }
 
 // Ensure S3Store implements Store at compile time.

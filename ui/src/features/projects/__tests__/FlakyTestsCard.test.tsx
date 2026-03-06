@@ -57,7 +57,7 @@ describe('FlakyTestsCard', () => {
     })
   })
 
-  it('shows empty state when no flaky tests', async () => {
+  it('renders nothing when no flaky tests', async () => {
     vi.mocked(reportsApi.fetchReportStability).mockResolvedValue({
       flaky_tests: [],
       new_failed: [],
@@ -70,9 +70,9 @@ describe('FlakyTestsCard', () => {
         total: 5,
       },
     })
-    renderCard()
+    const { container } = renderCard()
     await waitFor(() => {
-      expect(screen.getByText('No flaky tests detected')).toBeInTheDocument()
+      expect(container.firstChild).toBeNull()
     })
   })
 })

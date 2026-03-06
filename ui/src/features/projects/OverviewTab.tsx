@@ -221,9 +221,12 @@ export function OverviewTab() {
                 <span className="text-2xl font-bold">{stat?.total ?? '—'}</span>
               </div>
               {stat && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {stat.passed}p / {stat.failed}f / {stat.broken}b / {stat.skipped}s
-                </p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <Badge className="bg-green-500 text-xs text-white">{stat.passed} passed</Badge>
+                  <Badge variant="destructive" className="text-xs">{stat.failed} failed</Badge>
+                  <Badge className="bg-amber-500 text-xs text-white">{stat.broken} broken</Badge>
+                  <Badge variant="secondary" className="text-xs">{stat.skipped} skipped</Badge>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -262,7 +265,7 @@ export function OverviewTab() {
       )}
 
       {/* Environment & Categories & Flaky Tests — G1/G2/A1 */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 [&:empty]:hidden lg:grid-cols-3">
         <EnvironmentCard projectId={projectId} />
         <CategoriesCard projectId={projectId} />
         <FlakyTestsCard projectId={projectId} />

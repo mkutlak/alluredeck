@@ -22,6 +22,10 @@ export function EnvironmentCard({ projectId }: Props) {
     staleTime: 30_000,
   })
 
+  if (!isLoading && (!entries || entries.length === 0)) {
+    return null
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -34,8 +38,6 @@ export function EnvironmentCard({ projectId }: Props) {
               <Skeleton key={i} className="h-6 w-full" />
             ))}
           </div>
-        ) : !entries || entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No environment info available</p>
         ) : (
           <Table>
             <TableHeader>
@@ -45,7 +47,7 @@ export function EnvironmentCard({ projectId }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entries.map((entry) => (
+              {(entries ?? []).map((entry) => (
                 <TableRow key={entry.name}>
                   <TableCell className="font-mono text-xs font-medium">{entry.name}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">

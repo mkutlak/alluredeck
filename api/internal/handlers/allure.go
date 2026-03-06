@@ -1098,6 +1098,48 @@ func (h *AllureHandler) applySummaryFile(ctx context.Context, projectID string, 
 	return true
 }
 
+// testResultTiming holds the start/stop epoch milliseconds from an Allure test result file.
+type testResultTiming struct {
+	Start int64 `json:"start"`
+	Stop  int64 `json:"stop"`
+}
+
+// applyTimingFromTestResults scans data/test-results/*.json to derive timing for Allure 3 reports.
+// It sets entry.DurationMs = max(stop) - min(start) and entry.GeneratedAt = RFC3339 of max(stop).
+// When no valid timing is found the entry fields are left unchanged.
+func (h *AllureHandler) applyTimingFromTestResults(ctx context.Context, projectID string, entry *ReportHistoryEntry, dataRelPath string) {
+	entries, err := h.store.ReadDir(ctx, projectID, dataRelPath)
+	if err != nil {
+		return
+	}
+	var minStart, maxStop int64
+	for _, e := range entries {
+		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
+			continue
+		}
+		data, err := h.store.ReadFile(ctx, projectID, dataRelPath+"/"+e.Name)
+		if err != nil {
+			continue
+		}
+		var tr testResultTiming
+		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
+			continue
+		}
+		if minStart == 0 || tr.Start < minStart {
+			minStart = tr.Start
+		}
+		if tr.Stop > maxStop {
+			maxStop = tr.Stop
+		}
+	}
+	if maxStop > 0 && minStart > 0 && maxStop > minStart {
+		d := maxStop - minStart
+		entry.DurationMs = &d
+		t := time.Unix(0, maxStop*int64(time.Millisecond)).UTC().Format(time.RFC3339)
+		entry.GeneratedAt = &t
+	}
+}
+
 // buildReportEntry reads report metadata from widget files via the store.
 // Tries widgets/summary.json first (Allure 2), then widgets/statistic.json (Allure 3).
 func (h *AllureHandler) buildReportEntry(ctx context.Context, projectID, name string) ReportHistoryEntry {
@@ -1114,6 +1156,8 @@ func (h *AllureHandler) buildReportEntry(ctx context.Context, projectID, name st
 	if h.readJSONViaStore(ctx, projectID, widgetsRelPath+"/statistic.json", &stat) && stat.Total > 0 {
 		entry.Statistic = &stat
 	}
+	// Allure 3 has no timing in statistic.json; derive from test result files.
+	h.applyTimingFromTestResults(ctx, projectID, &entry, "reports/"+name+"/data/test-results")
 	return entry
 }
 
