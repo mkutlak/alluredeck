@@ -1,3 +1,9 @@
+## [0.3.0](https://github.com/mkutlak/alluredeck/compare/v0.2.1...v0.3.0) (2026-03-06)
+
+### Features
+
+* enhance API configuration and deployment flexibility ([ab22f3e](https://github.com/mkutlak/alluredeck/commit/ab22f3e7a3ccf74c6f05248df194cb6c8c0ecdeb))
+
 ## [0.2.1](https://github.com/mkutlak/alluredeck/compare/v0.2.0...v0.2.1) (2026-03-06)
 
 ### Bug Fixes
