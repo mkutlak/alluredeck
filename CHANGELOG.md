@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/mkutlak/alluredeck/compare/v0.2.0...v0.2.1) (2026-03-06)
+
+### Bug Fixes
+
+* **api:** Fix typo in strings import ([754a97c](https://github.com/mkutlak/alluredeck/commit/754a97c2759de65f88772ce3ef14b6d0dfb1482b))
+* **api:** relax CSP for Swagger UI routes ([53e67ac](https://github.com/mkutlak/alluredeck/commit/53e67acf50d7e1130ac9b379b0b4f0459bc26452))
+
 ## [0.2.0](https://github.com/mkutlak/alluredeck/compare/v0.1.2...v0.2.0) (2026-03-05)
 
 ### Features
