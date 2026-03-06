@@ -3,7 +3,7 @@ package middleware
 import (
 	"encoding/json"
 	"net/http"
-	"string"
+	"strings"
 
 	"go.uber.org/zap"
 
