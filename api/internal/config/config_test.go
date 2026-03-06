@@ -494,6 +494,27 @@ func TestSwaggerEnabledFromEnv(t *testing.T) {
 	}
 }
 
+func TestSwaggerHostDefaultEmpty(t *testing.T) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.SwaggerHost != "" {
+		t.Errorf("Expected SwaggerHost default empty, got %q", cfg.SwaggerHost)
+	}
+}
+
+func TestSwaggerHostFromEnv(t *testing.T) {
+	t.Setenv("SWAGGER_HOST", "alluredeck.example.com")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.SwaggerHost != "alluredeck.example.com" {
+		t.Errorf("Expected SwaggerHost %q, got %q", "alluredeck.example.com", cfg.SwaggerHost)
+	}
+}
+
 func TestDurationSeconds_IntegerSeconds(t *testing.T) {
 	var d DurationSeconds
 	if err := d.Decode("900"); err != nil {

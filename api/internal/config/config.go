@@ -91,12 +91,14 @@ type Config struct {
 	CORSAllowedOrigins        []string        `yaml:"cors_allowed_origins" envconfig:"CORS_ALLOWED_ORIGINS"`
 	TrustForwardedFor         bool            `yaml:"trust_forwarded_for" envconfig:"TRUST_FORWARDED_FOR"`
 	SwaggerEnabled            bool            `yaml:"swagger_enabled" envconfig:"SWAGGER_ENABLED"`
+	SwaggerHost               string          `yaml:"swagger_host" envconfig:"SWAGGER_HOST"`
 	AccessTokenExpiry         DurationSeconds `yaml:"jwt_access_token_expires" envconfig:"JWT_ACCESS_TOKEN_EXPIRES"`
 	RefreshTokenExpiry        DurationSeconds `yaml:"jwt_refresh_token_expires" envconfig:"JWT_REFRESH_TOKEN_EXPIRES"`
 	DatabasePath              string          `yaml:"database_path" envconfig:"DATABASE_PATH"`
 	StorageType               string          `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
 	S3                        S3Config        `yaml:"s3"`
 	LogLevel                  string          `yaml:"log_level" envconfig:"LOG_LEVEL"`
+	MaxUploadSizeMB           int             `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
 	SecurityPassHash          []byte          `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 	ViewerPassHash            []byte          `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 }
@@ -122,6 +124,7 @@ func LoadConfig() (*Config, error) {
 		DatabasePath:             "/data/db/alluredeck.db",
 		StorageType:              "local",
 		LogLevel:                 "info",
+		MaxUploadSizeMB:          100,
 		S3: S3Config{
 			Region:      "us-east-1",
 			Concurrency: 10,

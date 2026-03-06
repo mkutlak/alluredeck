@@ -20,14 +20,10 @@ definitions:
         type: integer
       make_viewer_endpoints_public:
         type: boolean
-      optimize_storage:
-        type: boolean
       security_enabled:
         type: boolean
       tls:
         type: boolean
-      url_prefix:
-        type: string
       version:
         type: string
     type: object
@@ -87,6 +83,26 @@ paths:
       summary: Get service configuration
       tags:
       - system
+  /dashboard:
+    get:
+      description: Returns all projects with their latest build status and pass rate
+        sparklines.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get cross-project dashboard data
+      tags:
+      - dashboard
   /health:
     get:
       description: Returns 200 OK with no dependency checks.

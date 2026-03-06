@@ -7,3 +7,4 @@ metadata:
 data:
   VITE_API_URL: {{ include "alluredeck.ui.apiUrl" . | quote }}
   VITE_APP_TITLE: {{ .Values.ui.config.appTitle | quote }}
+  VITE_APP_VERSION: {{ .Values.ui.config.appVersion | default .Chart.AppVersion | quote }}

@@ -35,6 +35,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/dashboard": {
+            "get": {
+                "description": "Returns all projects with their latest build status and pass rate sparklines.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Get cross-project dashboard data",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns 200 OK with no dependency checks.",
@@ -1281,17 +1309,11 @@ const docTemplate = `{
                 "make_viewer_endpoints_public": {
                     "type": "boolean"
                 },
-                "optimize_storage": {
-                    "type": "boolean"
-                },
                 "security_enabled": {
                     "type": "boolean"
                 },
                 "tls": {
                     "type": "boolean"
-                },
-                "url_prefix": {
-                    "type": "string"
                 },
                 "version": {
                     "type": "string"

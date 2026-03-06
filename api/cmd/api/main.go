@@ -22,7 +22,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
-	_ "github.com/mkutlak/alluredeck/api/internal/swagger"
+	swaggerDocs "github.com/mkutlak/alluredeck/api/internal/swagger"
 )
 
 // @title           AllureDeck API
@@ -95,6 +95,10 @@ func main() {
 	mux.HandleFunc("GET /healthz", systemHandler.Health)
 	mux.HandleFunc("GET /ready", systemHandler.Ready)
 	mux.HandleFunc("GET /readyz", systemHandler.Ready)
+
+	// Override Swagger host: empty string = use browser's current host (works for all environments).
+	swaggerDocs.SwaggerInfo.Host = cfg.SwaggerHost
+	swaggerDocs.SwaggerInfo.Schemes = []string{}
 
 	// Swagger UI
 	if cfg.SwaggerEnabled {

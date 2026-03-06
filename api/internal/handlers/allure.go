@@ -552,9 +552,9 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Limit request body to 200 MB to prevent memory exhaustion (AUDIT 2.2).
-	// Raised from 100 MB to accommodate compressed tar.gz archives.
-	const maxBodyBytes = 200 << 20 // 200 MB
+	// Limit request body to prevent memory exhaustion (AUDIT 2.2).
+	// Configurable via MAX_UPLOAD_SIZE_MB env var or max_upload_size_mb YAML key (default 100 MB).
+	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 	processedFiles, failedFiles, err := h.parseResultsBody(r, projectID)

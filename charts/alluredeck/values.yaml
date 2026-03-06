@@ -30,6 +30,7 @@ api:
     swaggerEnabled: "false"
     makeViewerEndpointsPublic: "false"
     corsAllowedOrigins: []  # auto-computed from ui.ingress if empty; list of allowed origins
+    maxUploadSizeMb: "100"  # Maximum upload size in MB for test results
     goMemLimit: "768MiB"  # Set to ~80% of resources.limits.memory to let GC reclaim before OOM kill
     staticContentProjects: "/data/projects"
     databasePath: "/data/db/alluredeck.db"
@@ -186,6 +187,7 @@ ui:
   config:
     apiUrl: ""         # defaults to internal API service name (in-cluster)
     appTitle: "AllureDeck"
+    appVersion: ""     # defaults to Chart.appVersion
 
   replicaCount: 1
   revisionHistoryLimit: 3
@@ -271,7 +273,10 @@ ui:
 ingress:
   enabled: false
   ingressClassName: ""
-  annotations: {}
+  annotations:
+    # Required for nginx ingress to allow large uploads (default is 1m).
+    # Should match or exceed api.config.maxUploadSizeMb.
+    # nginx.ingress.kubernetes.io/proxy-body-size: "100m"
     # cert-manager.io/cluster-issuer: letsencrypt-prod
   host: ""              # e.g. alluredeck.example.com
   tls: []

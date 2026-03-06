@@ -137,6 +137,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_VERSION=${{ needs.release.outputs.new-release-version }}
+            VITE_APP_VERSION=${{ needs.release.outputs.new-release-version }}
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
             BUILD_REF=${{ github.sha }}
           cache-from: type=gha
