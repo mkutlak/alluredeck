@@ -3,6 +3,7 @@ package middleware
 import (
 	"encoding/json"
 	"net/http"
+	"string"
 
 	"go.uber.org/zap"
 
@@ -14,7 +15,13 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+
+		csp := "default-src 'self'"
+		if strings.HasPrefix(r.URL.Path, "/swagger/") {
+			csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+		}
+		w.Header().Set("Content-Security-Policy", csp)
+		
 		next.ServeHTTP(w, r)
 	})
 }
