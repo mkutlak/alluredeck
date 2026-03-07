@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { MoreHorizontal, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Tags, Trash2 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import {
 import { formatDate, formatDuration } from '@/lib/utils'
 import { PassRateSparkline } from './PassRateSparkline'
 import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
+import { EditTagsDialog } from '@/features/projects/EditTagsDialog'
 import { useAuthStore } from '@/store/auth'
 import type { DashboardProjectEntry } from '@/types/api'
 
@@ -29,8 +30,10 @@ function passRateBadgeVariant(rate: number): 'default' | 'secondary' | 'destruct
 export function ProjectStatusCard({ project }: Props) {
   const isAdmin = useAuthStore((s) => s.isAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [editTagsOpen, setEditTagsOpen] = useState(false)
   const { latest_build, sparkline } = project
   const passRate = latest_build?.pass_rate ?? 0
+  const tags = project.tags ?? []
 
   return (
     <>
@@ -68,6 +71,10 @@ export function ProjectStatusCard({ project }: Props) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setEditTagsOpen(true)}>
+                      <Tags size={14} />
+                      Edit tags
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => setDeleteOpen(true)}
@@ -80,6 +87,15 @@ export function ProjectStatusCard({ project }: Props) {
               )}
             </div>
           </div>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {tags.map((tag) => (
+                <Badge key={tag} variant="outline" className="text-xs font-normal">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="flex flex-1 flex-col gap-3">
           {sparkline.length > 0 && <PassRateSparkline data={sparkline} />}
@@ -137,11 +153,21 @@ export function ProjectStatusCard({ project }: Props) {
       </Card>
 
       {isAdmin() && (
-        <DeleteProjectDialog
-          projectId={project.project_id}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
+        <>
+          <DeleteProjectDialog
+            projectId={project.project_id}
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+          />
+          {editTagsOpen && (
+            <EditTagsDialog
+              projectId={project.project_id}
+              currentTags={tags}
+              open={editTagsOpen}
+              onOpenChange={setEditTagsOpen}
+            />
+          )}
+        </>
       )}
     </>
   )

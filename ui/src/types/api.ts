@@ -28,6 +28,11 @@ export interface LoginData {
 export interface ProjectEntry {
   project_id: string
   created_at?: string
+  tags?: string[]
+}
+
+export interface UpdateTagsRequest {
+  tags: string[]
 }
 
 export type ProjectsData = ProjectEntry[]
@@ -353,6 +358,7 @@ export interface DashboardSparklinePoint {
 export interface DashboardProjectEntry {
   project_id: string
   created_at: string
+  tags?: string[]
   latest_build: DashboardLatestBuild | null
   sparkline: DashboardSparklinePoint[]
 }

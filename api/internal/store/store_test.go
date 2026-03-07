@@ -63,8 +63,8 @@ func TestOpen_IdempotentMigrations(t *testing.T) {
 	if err := s2.DB().QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
-	if count != 8 {
-		t.Errorf("expected 8 schema_version rows, got %d", count)
+	if count != 9 {
+		t.Errorf("expected 9 schema_version rows, got %d", count)
 	}
 }
 
@@ -85,6 +85,26 @@ func TestOpen_TablesExist(t *testing.T) {
 		if err != nil {
 			t.Errorf("table %q not found: %v", tbl, err)
 		}
+	}
+}
+
+func TestOpen_ProjectTagsColumn(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(filepath.Join(dir, "tags.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	var exists int
+	err = s.DB().QueryRow(
+		"SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='tags'",
+	).Scan(&exists)
+	if err != nil {
+		t.Fatalf("checking tags column: %v", err)
+	}
+	if exists == 0 {
+		t.Error("column 'tags' not found in projects table")
 	}
 }
 

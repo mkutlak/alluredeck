@@ -14,7 +14,7 @@ func TestGetDashboardData_NoProjects(t *testing.T) {
 	bs := store.NewBuildStore(s, zap.NewNop())
 	ctx := context.Background()
 
-	result, err := bs.GetDashboardData(ctx, 10)
+	result, err := bs.GetDashboardData(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("GetDashboardData: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestGetDashboardData_ProjectWithNoBuilds(t *testing.T) {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	result, err := bs.GetDashboardData(ctx, 10)
+	result, err := bs.GetDashboardData(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("GetDashboardData: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGetDashboardData_ProjectWithBuilds(t *testing.T) {
 		t.Fatalf("SetLatest: %v", err)
 	}
 
-	result, err := bs.GetDashboardData(ctx, 10)
+	result, err := bs.GetDashboardData(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("GetDashboardData: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestGetDashboardData_SparklineDepth(t *testing.T) {
 		t.Fatalf("SetLatest: %v", err)
 	}
 
-	result, err := bs.GetDashboardData(ctx, 10)
+	result, err := bs.GetDashboardData(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("GetDashboardData: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestGetDashboardData_MultipleProjects(t *testing.T) {
 		}
 	}
 
-	result, err := bs.GetDashboardData(ctx, 10)
+	result, err := bs.GetDashboardData(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("GetDashboardData: %v", err)
 	}

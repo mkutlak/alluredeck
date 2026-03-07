@@ -96,8 +96,9 @@ func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.J
 
 // ProjectEntry holds a single project in the paginated project listing.
 type ProjectEntry struct {
-	ProjectID string `json:"project_id"`
-	CreatedAt string `json:"created_at"`
+	ProjectID string   `json:"project_id"`
+	CreatedAt string   `json:"created_at"`
+	Tags      []string `json:"tags"`
 }
 
 // reservedProjectNames lists names that clash with API route segments
@@ -197,8 +198,9 @@ func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	pg := parsePagination(r)
+	tag := r.URL.Query().Get("tag")
 
-	dbProjects, total, err := h.projectStore.ListProjectsPaginated(r.Context(), pg.Page, pg.PerPage)
+	dbProjects, total, err := h.projectStore.ListProjectsPaginated(r.Context(), pg.Page, pg.PerPage, tag)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -209,9 +211,14 @@ func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]ProjectEntry, 0, len(dbProjects))
 	for _, p := range dbProjects {
+		tags := p.Tags
+		if tags == nil {
+			tags = []string{}
+		}
 		entries = append(entries, ProjectEntry{
 			ProjectID: p.ID,
 			CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
+			Tags:      tags,
 		})
 	}
 

@@ -49,6 +49,7 @@ type CIMetadata struct {
 type DashboardProject struct {
 	ProjectID string
 	CreatedAt time.Time
+	Tags      []string
 	Latest    *Build
 	Sparkline []SparklinePoint
 }
@@ -554,10 +555,14 @@ func (bs *BuildStore) DeleteAllBuilds(ctx context.Context, projectID string) err
 
 // GetDashboardData returns all projects with their latest build and sparkline data.
 // sparklineDepth controls how many recent builds to include per project (e.g. 10).
-func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]DashboardProject, error) {
+// When tag is non-empty, only projects containing that tag are returned.
+func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int, tag string) ([]DashboardProject, error) {
 	// Query 1: all projects LEFT JOIN their latest build.
-	rows, err := bs.db.QueryContext(ctx, `
-		SELECT p.id, p.created_at,
+	var query string
+	var args []any
+	if tag != "" {
+		query = `
+		SELECT p.id, p.created_at, p.tags,
 		       b.id, b.project_id, b.build_order, b.created_at,
 		       b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
 		       b.duration_ms, b.is_latest,
@@ -565,7 +570,22 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		       b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
 		FROM projects p
 		LEFT JOIN builds b ON b.project_id = p.id AND b.is_latest = 1
-		ORDER BY p.id`)
+		WHERE EXISTS (SELECT 1 FROM json_each(p.tags) WHERE json_each.value = ?)
+		ORDER BY p.id`
+		args = []any{tag}
+	} else {
+		query = `
+		SELECT p.id, p.created_at, p.tags,
+		       b.id, b.project_id, b.build_order, b.created_at,
+		       b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
+		       b.duration_ms, b.is_latest,
+		       b.flaky_count, b.retried_count, b.new_failed_count, b.new_passed_count,
+		       b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
+		FROM projects p
+		LEFT JOIN builds b ON b.project_id = p.id AND b.is_latest = 1
+		ORDER BY p.id`
+	}
+	rows, err := bs.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard projects query: %w", err)
 	}
@@ -575,7 +595,7 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 	var orderedIDs []string
 
 	for rows.Next() {
-		var projID, projCreatedAt string
+		var projID, projCreatedAt, projTags string
 		// Build fields — all nullable since LEFT JOIN may produce NULLs.
 		var buildID, buildOrder sql.NullInt64
 		var buildProjID, buildCreatedAt sql.NullString
@@ -586,7 +606,7 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA sql.NullString
 
 		if err := rows.Scan(
-			&projID, &projCreatedAt,
+			&projID, &projCreatedAt, &projTags,
 			&buildID, &buildProjID, &buildOrder, &buildCreatedAt,
 			&passed, &failed, &broken, &skipped, &unknown, &total,
 			&durationMs, &isLatest,
@@ -600,6 +620,7 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		if t, err := time.Parse("2006-01-02T15:04:05Z", projCreatedAt); err == nil {
 			dp.CreatedAt = t
 		}
+		dp.Tags = parseTags(projTags)
 
 		if buildID.Valid {
 			b := &Build{

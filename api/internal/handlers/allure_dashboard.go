@@ -42,6 +42,7 @@ type sparklinePointResp struct {
 type dashboardProjectResp struct {
 	ProjectID   string               `json:"project_id"`
 	CreatedAt   string               `json:"created_at"`
+	Tags        []string             `json:"tags"`
 	LatestBuild *latestBuildResp     `json:"latest_build"`
 	Sparkline   []sparklinePointResp `json:"sparkline"`
 }
@@ -65,7 +66,8 @@ func (h *AllureHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	projects, err := h.buildStore.GetDashboardData(ctx, 10)
+	tag := r.URL.Query().Get("tag")
+	projects, err := h.buildStore.GetDashboardData(ctx, 10, tag)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -78,9 +80,14 @@ func (h *AllureHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	summary := dashboardSummaryResp{TotalProjects: len(projects)}
 
 	for _, dp := range projects {
+		tags := dp.Tags
+		if tags == nil {
+			tags = []string{}
+		}
 		pr := dashboardProjectResp{
 			ProjectID: dp.ProjectID,
 			CreatedAt: dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			Tags:      tags,
 			Sparkline: buildSparkline(dp.Sparkline),
 		}
 

@@ -2,20 +2,31 @@ import { useState } from 'react'
 import { Plus, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchDashboard } from '@/api/dashboard'
+import { getTags } from '@/api/projects'
 import { ProjectStatusCard } from './ProjectStatusCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { useAuthStore } from '@/store/auth'
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
 
 export function DashboardPage() {
   const [createOpen, setCreateOpen] = useState(false)
+  const [selectedTag, setSelectedTag] = useState('')
   const isAdmin = useAuthStore((s) => s.isAdmin)
 
+  const { data: tagsResp } = useQuery({
+    queryKey: ['tags'],
+    queryFn: getTags,
+    staleTime: 60_000,
+  })
+  const availableTags = tagsResp?.data ?? []
+
+  const tag = selectedTag || undefined
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: fetchDashboard,
+    queryKey: ['dashboard', selectedTag],
+    queryFn: () => fetchDashboard(tag),
     staleTime: 30_000,
   })
 
@@ -86,6 +97,30 @@ export function DashboardPage() {
         <SummaryCard label="Degraded" value={summary.degraded} className="text-amber-500" />
         <SummaryCard label="Failing" value={summary.failing} className="text-destructive" />
       </div>
+
+      {/* Tag filter bar */}
+      {availableTags.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Filter:</span>
+          <Badge
+            variant={selectedTag === '' ? 'default' : 'outline'}
+            className="cursor-pointer"
+            onClick={() => setSelectedTag('')}
+          >
+            All
+          </Badge>
+          {availableTags.map((t) => (
+            <Badge
+              key={t}
+              variant={selectedTag === t ? 'default' : 'outline'}
+              className="cursor-pointer"
+              onClick={() => setSelectedTag(t)}
+            >
+              {t}
+            </Badge>
+          ))}
+        </div>
+      )}
 
       {/* Project grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

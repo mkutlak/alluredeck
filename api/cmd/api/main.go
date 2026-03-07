@@ -302,4 +302,8 @@ func registerRoutes(
 
 	// Dashboard — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(shortCache(allure.GetDashboard)))
+
+	// Project tags — admin write, viewer read.
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/tags", adminOnly(noStore(allure.UpdateProjectTags)))
+	mux.HandleFunc("GET "+prefix+"/tags", viewerUp(mutableCache(allure.ListTags)))
 }

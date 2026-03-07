@@ -1,0 +1,1 @@
+ALTER TABLE projects ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
