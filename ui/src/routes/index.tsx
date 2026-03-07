@@ -29,6 +29,9 @@ const ComparePage = lazy(() =>
 const AdminPage = lazy(() =>
   import('@/features/admin').then(m => ({ default: m.AdminPage })),
 )
+const TestHistoryPage = lazy(() =>
+  import('@/features/tests/TestHistoryPage').then(m => ({ default: m.TestHistoryPage })),
+)
 
 function PageLoader() {
   return (
@@ -106,6 +109,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <ComparePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/tests"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <TestHistoryPage />
               </Suspense>
             }
           />

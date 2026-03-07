@@ -77,6 +77,7 @@ type AllureHandler struct {
 	testResultStore *store.TestResultStore
 	searchStore     *store.SearchStore
 	store           storage.Store
+	branchStore     *store.BranchStore
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
@@ -92,6 +93,11 @@ func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.J
 		searchStore:     searchStore,
 		store:           st,
 	}
+}
+
+// SetBranchStore configures an optional branch store for branch-aware filtering.
+func (h *AllureHandler) SetBranchStore(bs *store.BranchStore) {
+	h.branchStore = bs
 }
 
 // ProjectEntry holds a single project in the paginated project listing.
@@ -933,8 +939,16 @@ func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 
 	pg := parsePagination(r)
 
+	// Resolve optional branch filter.
+	var branchID *int64
+	if branchName := r.URL.Query().Get("branch"); branchName != "" && h.branchStore != nil {
+		if br, err := h.branchStore.GetByName(r.Context(), projectID, branchName); err == nil {
+			branchID = &br.ID
+		}
+	}
+
 	// Fetch numbered builds from DB (sorted descending by build_order).
-	builds, total, err := h.buildStore.ListBuildsPaginated(r.Context(), projectID, pg.Page, pg.PerPage)
+	builds, total, err := h.buildStore.ListBuildsPaginatedBranch(r.Context(), projectID, pg.Page, pg.PerPage, branchID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{

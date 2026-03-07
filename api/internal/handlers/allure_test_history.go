@@ -1,0 +1,136 @@
+package handlers
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
+)
+
+const defaultTestHistoryLimit = 20
+const maxTestHistoryLimit = 100
+
+// TestHistoryHandler handles HTTP requests for per-test history.
+type TestHistoryHandler struct {
+	testResultStore *store.TestResultStore
+	buildStore      *store.BuildStore
+	branchStore     *store.BranchStore
+}
+
+// NewTestHistoryHandler creates a new TestHistoryHandler.
+func NewTestHistoryHandler(ts *store.TestResultStore, bs *store.BuildStore, brs *store.BranchStore) *TestHistoryHandler {
+	return &TestHistoryHandler{
+		testResultStore: ts,
+		buildStore:      bs,
+		branchStore:     brs,
+	}
+}
+
+// testHistoryEntryJSON is the JSON shape for one history entry.
+type testHistoryEntryJSON struct {
+	BuildOrder  int       `json:"build_order"`
+	BuildID     int64     `json:"build_id"`
+	Status      string    `json:"status"`
+	DurationMs  int64     `json:"duration_ms"`
+	CreatedAt   time.Time `json:"created_at"`
+	CICommitSHA *string   `json:"ci_commit_sha,omitempty"`
+}
+
+// GetTestHistory godoc
+// @Summary      Get test history
+// @Description  Returns the run history for a specific test (identified by history_id) within a project.
+// @Tags         tests
+// @Produce      json
+// @Param        project_id  path   string  true   "Project ID"
+// @Param        history_id  query  string  true   "Test history ID"
+// @Param        branch      query  string  false  "Branch name filter"
+// @Param        limit       query  int     false  "Max entries"  default(50)
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Router       /projects/{project_id}/test-history [get]
+func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	ctx := r.Context()
+
+	projectID := r.PathValue("project_id")
+	historyID := r.URL.Query().Get("history_id")
+	if historyID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": "history_id query parameter is required"},
+		})
+		return
+	}
+
+	// Parse optional limit (default 20, max 100).
+	limit := defaultTestHistoryLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			if n > maxTestHistoryLimit {
+				n = maxTestHistoryLimit
+			}
+			limit = n
+		}
+	}
+
+	// Resolve optional branch filter.
+	var branchID *int64
+	var resolvedBranchName string
+	if branchName := r.URL.Query().Get("branch"); branchName != "" && h.branchStore != nil {
+		branch, err := h.branchStore.GetByName(ctx, projectID, branchName)
+		if err != nil {
+			if errors.Is(err, store.ErrBranchNotFound) {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"metadata": map[string]string{"message": "branch not found"},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"metadata": map[string]string{"message": "failed to resolve branch"},
+			})
+			return
+		}
+		branchID = &branch.ID
+		resolvedBranchName = branch.Name
+	}
+
+	entries, err := h.testResultStore.GetTestHistory(ctx, projectID, historyID, branchID, limit)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]string{"message": "failed to fetch test history"},
+		})
+		return
+	}
+
+	out := make([]testHistoryEntryJSON, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, testHistoryEntryJSON{
+			BuildOrder:  e.BuildOrder,
+			BuildID:     e.BuildID,
+			Status:      e.Status,
+			DurationMs:  e.DurationMs,
+			CreatedAt:   e.CreatedAt,
+			CICommitSHA: e.CICommitSHA,
+		})
+	}
+
+	data := map[string]any{
+		"history_id": historyID,
+		"history":    out,
+	}
+	if resolvedBranchName != "" {
+		data["branch_name"] = resolvedBranchName
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data":     data,
+		"metadata": map[string]string{"message": "Test history successfully obtained"},
+	})
+}

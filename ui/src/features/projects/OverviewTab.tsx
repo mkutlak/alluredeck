@@ -54,6 +54,7 @@ import { CleanDialog } from '@/features/reports/CleanDialog'
 import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
 import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
+import { BranchSelector } from '@/features/projects/BranchSelector'
 import type { ReportHistoryEntry, PaginationMeta, AllureStatistic } from '@/types/api'
 
 const PER_PAGE = 20
@@ -190,6 +191,168 @@ interface ReportHistoryTableProps {
   onToggleBuild: (id: string) => void
 }
 
+interface CommitGroup {
+  sha: string
+  reports: ReportHistoryEntry[]
+  latestDate: string | null
+}
+
+function ReportRow({
+  projectId,
+  r,
+  isAdmin,
+  onDeleteReport,
+  selectedBuilds,
+  onToggleBuild,
+}: {
+  projectId: string
+  r: ReportHistoryEntry
+  isAdmin: () => boolean
+  onDeleteReport: (reportId: string) => void
+  selectedBuilds: Set<string>
+  onToggleBuild: (id: string) => void
+}) {
+  const rStat = r.statistic
+  const rPassRate = rStat ? calcPassRate(rStat.passed, rStat.total) : null
+  const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
+
+  return (
+    <TableRow className="cursor-pointer hover:bg-muted/50">
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          checked={selectedBuilds.has(r.report_id)}
+          onCheckedChange={() => onToggleBuild(r.report_id)}
+          disabled={!selectedBuilds.has(r.report_id) && selectedBuilds.size >= 2}
+          aria-label={`Select report #${r.report_id}`}
+        />
+      </TableCell>
+      <TableCell>
+        <Link
+          to={reportUrl}
+          className="font-mono text-sm font-medium text-primary hover:underline"
+        >
+          #{r.report_id}
+        </Link>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {r.generated_at ? formatDate(r.generated_at) : '—'}
+      </TableCell>
+      <TableCell className="text-center font-mono text-sm">{rStat?.total ?? '—'}</TableCell>
+      <TableCell className="text-center font-mono text-sm text-green-600">
+        {rStat?.passed ?? '—'}
+      </TableCell>
+      <TableCell className="text-center font-mono text-sm text-red-600">
+        {rStat?.failed ?? '—'}
+      </TableCell>
+      <TableCell className="text-center font-mono text-sm text-amber-600">
+        {rStat?.broken ?? '—'}
+      </TableCell>
+      <TableCell className="text-center font-mono text-sm text-muted-foreground">
+        {rStat?.skipped ?? '—'}
+      </TableCell>
+      <TableCell className="text-center">
+        {rPassRate !== null ? (
+          <span
+            className={
+              rPassRate >= 90
+                ? 'font-semibold text-green-600'
+                : rPassRate >= 70
+                  ? 'font-semibold text-amber-600'
+                  : 'font-semibold text-red-600'
+            }
+          >
+            {rPassRate}%
+          </span>
+        ) : (
+          '—'
+        )}
+      </TableCell>
+      <TableCell className="text-center">
+        <div className="flex justify-center gap-1">
+          {r.flaky_count != null && r.flaky_count > 0 && (
+            <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+              Flaky: {r.flaky_count}
+            </Badge>
+          )}
+          {r.new_failed_count != null && r.new_failed_count > 0 && (
+            <Badge variant="destructive" className="text-xs">
+              Regressed: {r.new_failed_count}
+            </Badge>
+          )}
+          {r.new_passed_count != null && r.new_passed_count > 0 && (
+            <Badge className="bg-green-500 text-xs text-white hover:bg-green-600">
+              Fixed: {r.new_passed_count}
+            </Badge>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="text-center">
+        {r.ci_provider || r.ci_branch || r.ci_commit_sha ? (
+          <div className="flex flex-col items-center gap-1">
+            {r.ci_provider &&
+              (r.ci_build_url && isSafeUrl(r.ci_build_url) ? (
+                <a
+                  href={r.ci_build_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <ExternalLink size={10} />
+                  {r.ci_provider}
+                </a>
+              ) : (
+                <span className="text-xs text-muted-foreground">{r.ci_provider}</span>
+              ))}
+            {r.ci_branch && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <GitBranch size={10} />
+                {r.ci_branch}
+              </span>
+            )}
+            {r.ci_commit_sha && (
+              <span className="font-mono text-xs text-muted-foreground">
+                {r.ci_commit_sha.slice(0, 7)}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex justify-end gap-1">
+          <Button asChild size="sm" variant="ghost">
+            <Link to={reportUrl}>View</Link>
+          </Button>
+          <Button asChild size="sm" variant="ghost">
+            <a
+              href={`${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}/index.html`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open in new tab"
+            >
+              <ExternalLink size={12} />
+            </a>
+          </Button>
+          {isAdmin() && !r.is_latest && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              aria-label={`Delete report #${r.report_id}`}
+              onClick={() => onDeleteReport(r.report_id)}
+            >
+              <Trash2 size={12} />
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+const TABLE_COL_COUNT = 12
+
 function ReportHistoryTable({
   projectId,
   reports,
@@ -198,6 +361,54 @@ function ReportHistoryTable({
   selectedBuilds,
   onToggleBuild,
 }: ReportHistoryTableProps) {
+  const [expandedShas, setExpandedShas] = useState<Set<string>>(new Set())
+
+  const { groups, ungrouped } = useMemo(() => {
+    const shaMap = new Map<string, ReportHistoryEntry[]>()
+    const ungroupedList: ReportHistoryEntry[] = []
+
+    for (const r of reports) {
+      if (r.ci_commit_sha) {
+        const existing = shaMap.get(r.ci_commit_sha)
+        if (existing) {
+          existing.push(r)
+        } else {
+          shaMap.set(r.ci_commit_sha, [r])
+        }
+      } else {
+        ungroupedList.push(r)
+      }
+    }
+
+    const groupList: CommitGroup[] = []
+    for (const [sha, groupReports] of shaMap.entries()) {
+      if (groupReports.length < 2) {
+        ungroupedList.push(...groupReports)
+      } else {
+        const latestDate = groupReports.reduce<string | null>((best, r) => {
+          if (!r.generated_at) return best
+          if (!best) return r.generated_at
+          return r.generated_at > best ? r.generated_at : best
+        }, null)
+        groupList.push({ sha, reports: groupReports, latestDate })
+      }
+    }
+
+    return { groups: groupList, ungrouped: ungroupedList }
+  }, [reports])
+
+  const toggleSha = (sha: string) => {
+    setExpandedShas((prev) => {
+      const next = new Set(prev)
+      if (next.has(sha)) {
+        next.delete(sha)
+      } else {
+        next.add(sha)
+      }
+      return next
+    })
+  }
+
   return (
     <div className="rounded-lg border">
       <Table>
@@ -218,147 +429,62 @@ function ReportHistoryTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {reports.map((r) => {
-            const rStat = r.statistic
-            const rPassRate = rStat ? calcPassRate(rStat.passed, rStat.total) : null
-            const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
-
+          {groups.map(({ sha, reports: groupReports, latestDate }) => {
+            const isExpanded = expandedShas.has(sha)
             return (
-              <TableRow key={r.report_id} className="cursor-pointer hover:bg-muted/50">
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    checked={selectedBuilds.has(r.report_id)}
-                    onCheckedChange={() => onToggleBuild(r.report_id)}
-                    disabled={!selectedBuilds.has(r.report_id) && selectedBuilds.size >= 2}
-                    aria-label={`Select report #${r.report_id}`}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Link
-                    to={reportUrl}
-                    className="font-mono text-sm font-medium text-primary hover:underline"
-                  >
-                    #{r.report_id}
-                  </Link>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {r.generated_at ? formatDate(r.generated_at) : '—'}
-                </TableCell>
-                <TableCell className="text-center font-mono text-sm">
-                  {rStat?.total ?? '—'}
-                </TableCell>
-                <TableCell className="text-center font-mono text-sm text-green-600">
-                  {rStat?.passed ?? '—'}
-                </TableCell>
-                <TableCell className="text-center font-mono text-sm text-red-600">
-                  {rStat?.failed ?? '—'}
-                </TableCell>
-                <TableCell className="text-center font-mono text-sm text-amber-600">
-                  {rStat?.broken ?? '—'}
-                </TableCell>
-                <TableCell className="text-center font-mono text-sm text-muted-foreground">
-                  {rStat?.skipped ?? '—'}
-                </TableCell>
-                <TableCell className="text-center">
-                  {rPassRate !== null ? (
-                    <span
-                      className={
-                        rPassRate >= 90
-                          ? 'font-semibold text-green-600'
-                          : rPassRate >= 70
-                            ? 'font-semibold text-amber-600'
-                            : 'font-semibold text-red-600'
-                      }
-                    >
-                      {rPassRate}%
-                    </span>
-                  ) : (
-                    '—'
-                  )}
-                </TableCell>
-                <TableCell className="text-center">
-                  <div className="flex justify-center gap-1">
-                    {r.flaky_count != null && r.flaky_count > 0 && (
-                      <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
-                        Flaky: {r.flaky_count}
-                      </Badge>
-                    )}
-                    {r.new_failed_count != null && r.new_failed_count > 0 && (
-                      <Badge variant="destructive" className="text-xs">
-                        Regressed: {r.new_failed_count}
-                      </Badge>
-                    )}
-                    {r.new_passed_count != null && r.new_passed_count > 0 && (
-                      <Badge className="bg-green-500 text-xs text-white hover:bg-green-600">
-                        Fixed: {r.new_passed_count}
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="text-center">
-                  {r.ci_provider || r.ci_branch || r.ci_commit_sha ? (
-                    <div className="flex flex-col items-center gap-1">
-                      {r.ci_provider &&
-                        (r.ci_build_url && isSafeUrl(r.ci_build_url) ? (
-                          <a
-                            href={r.ci_build_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-xs text-primary hover:underline"
-                          >
-                            <ExternalLink size={10} />
-                            {r.ci_provider}
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">{r.ci_provider}</span>
-                        ))}
-                      {r.ci_branch && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <GitBranch size={10} />
-                          {r.ci_branch}
+              <>
+                <TableRow
+                  key={`group-${sha}`}
+                  className="cursor-pointer bg-muted/30 hover:bg-muted/50"
+                  onClick={() => toggleSha(sha)}
+                  data-testid={`commit-group-${sha.slice(0, 7)}`}
+                >
+                  <TableCell colSpan={TABLE_COL_COUNT}>
+                    <div className="flex items-center gap-2 text-sm">
+                      <ChevronRight
+                        size={14}
+                        className={isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
+                      />
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {sha.slice(0, 7)}
+                      </span>
+                      {latestDate && (
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(latestDate)}
                         </span>
                       )}
-                      {r.ci_commit_sha && (
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {r.ci_commit_sha.slice(0, 7)}
-                        </span>
-                      )}
+                      <Badge variant="secondary" className="text-xs">
+                        {groupReports.length} builds
+                      </Badge>
                     </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button asChild size="sm" variant="ghost">
-                      <Link to={reportUrl}>View</Link>
-                    </Button>
-                    <Button asChild size="sm" variant="ghost">
-                      <a
-                        href={`${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}/index.html`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="Open in new tab"
-                      >
-                        <ExternalLink size={12} />
-                      </a>
-                    </Button>
-                    {isAdmin() && !r.is_latest && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        aria-label={`Delete report #${r.report_id}`}
-                        onClick={() => onDeleteReport(r.report_id)}
-                      >
-                        <Trash2 size={12} />
-                      </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                </TableRow>
+                {isExpanded &&
+                  groupReports.map((r) => (
+                    <ReportRow
+                      key={r.report_id}
+                      projectId={projectId}
+                      r={r}
+                      isAdmin={isAdmin}
+                      onDeleteReport={onDeleteReport}
+                      selectedBuilds={selectedBuilds}
+                      onToggleBuild={onToggleBuild}
+                    />
+                  ))}
+              </>
             )
           })}
+          {ungrouped.map((r) => (
+            <ReportRow
+              key={r.report_id}
+              projectId={projectId}
+              r={r}
+              isAdmin={isAdmin}
+              onDeleteReport={onDeleteReport}
+              selectedBuilds={selectedBuilds}
+              onToggleBuild={onToggleBuild}
+            />
+          ))}
         </TableBody>
       </Table>
     </div>
@@ -425,6 +551,7 @@ export function OverviewTab() {
   const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
   const [selectedBuilds, setSelectedBuilds] = useState<Set<string>>(new Set())
 
   const handleToggleBuild = (id: string) => {
@@ -445,8 +572,8 @@ export function OverviewTab() {
   }
 
   const { data: historyData, isLoading } = useQuery({
-    queryKey: queryKeys.reportHistory(projectId ?? '', page),
-    queryFn: () => fetchReportHistory(projectId!, page, PER_PAGE),
+    queryKey: queryKeys.reportHistory(projectId ?? '', page, selectedBranch),
+    queryFn: () => fetchReportHistory(projectId!, page, PER_PAGE, selectedBranch),
     enabled: !!projectId,
     staleTime: 10_000,
     placeholderData: keepPreviousData,
@@ -579,25 +706,29 @@ export function OverviewTab() {
       </div>
 
       {/* Compare Selected bar */}
-      {selectedBuilds.size === 2 && (() => {
-        const [a, b] = Array.from(selectedBuilds)
-        const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
-        return (
-          <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2">
-            <span className="text-sm text-muted-foreground">2 builds selected</span>
-            <Button asChild size="sm">
-              <Link to={compareUrl}>Compare Selected</Link>
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setSelectedBuilds(new Set())}
-            >
-              Clear
-            </Button>
-          </div>
-        )
-      })()}
+      {selectedBuilds.size === 2 &&
+        (() => {
+          const [a, b] = Array.from(selectedBuilds)
+          const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
+          return (
+            <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2">
+              <span className="text-sm text-muted-foreground">2 builds selected</span>
+              <Button asChild size="sm">
+                <Link to={compareUrl}>Compare Selected</Link>
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedBuilds(new Set())}>
+                Clear
+              </Button>
+            </div>
+          )
+        })()}
+
+      {/* Branch filter */}
+      <BranchSelector
+        projectId={projectId}
+        selectedBranch={selectedBranch}
+        onBranchChange={setSelectedBranch}
+      />
 
       {/* Report history table */}
       {isLoading ? (

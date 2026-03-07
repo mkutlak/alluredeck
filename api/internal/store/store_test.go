@@ -63,8 +63,8 @@ func TestOpen_IdempotentMigrations(t *testing.T) {
 	if err := s2.DB().QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
-	if count != 9 {
-		t.Errorf("expected 9 schema_version rows, got %d", count)
+	if count != 10 {
+		t.Errorf("expected 10 schema_version rows, got %d", count)
 	}
 }
 

@@ -131,12 +131,12 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	}
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
+	a := NewAllure(cfg, st, bs, lm, nil, nil, zap.NewNop())
 
 	// Close the DB so InsertBuild will fail.
 	_ = s.Close()
 
-	err = a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{})
+	err = a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{}, nil)
 	if err == nil {
 		t.Fatal("expected error from storeAndPruneBuild when DB is closed, got nil")
 	}
@@ -167,7 +167,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
+	a := NewAllure(cfg, st, bs, lm, nil, nil, zap.NewNop())
 
 	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
 		t.Fatalf("recordBuild: %v", err)

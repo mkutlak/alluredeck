@@ -8,6 +8,9 @@ import * as reportsApi from '@/api/reports'
 import { useAuthStore } from '@/store/auth'
 
 vi.mock('@/api/reports')
+vi.mock('@/api/branches', () => ({
+  fetchBranches: vi.fn().mockResolvedValue([]),
+}))
 vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
@@ -174,7 +177,7 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => {
       expect(screen.getByText('#5')).toBeInTheDocument()
     })
-    expect(reportsApi.fetchReportHistory).toHaveBeenCalledWith('test-project', 2, 20)
+    expect(reportsApi.fetchReportHistory).toHaveBeenCalledWith('test-project', 2, 20, undefined)
   })
 
   it('previous button shows prior page after navigating forward', async () => {
@@ -327,6 +330,56 @@ describe('OverviewTab - report history pagination', () => {
     })
     expect(checkboxes[0]).not.toBeChecked()
     expect(checkboxes[1]).not.toBeChecked()
+  })
+
+  it('renders BranchSelector', async () => {
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [makeReport('42', true), makeReport('41')],
+        { page: 1, per_page: 20, total: 1, total_pages: 1 },
+      ),
+    )
+    renderTab()
+    // BranchSelector renders null when there are no branches (branches query returns empty/undefined)
+    // Verify the component mounts without crashing — the selector is absent when branches are empty
+    await waitFor(() => screen.getByText('#41'))
+    // The branch filter combobox should not appear when no branches are returned
+    expect(screen.queryByRole('combobox', { name: /filter by branch/i })).not.toBeInTheDocument()
+  })
+
+  it('groups builds by commit SHA', async () => {
+    function makeReportWithSha(id: string, sha: string) {
+      return {
+        ...makeReport(id),
+        ci_commit_sha: sha,
+      }
+    }
+
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [
+          makeReport('10', true),
+          makeReportWithSha('9', 'abc1234567890'),
+          makeReportWithSha('8', 'abc1234567890'),
+          makeReport('7'),
+        ],
+        { page: 1, per_page: 20, total: 3, total_pages: 1 },
+      ),
+    )
+    renderTab()
+
+    // Wait for data to load
+    await waitFor(() => screen.getByText('#7'))
+
+    // The grouped commit header row should be visible (shows truncated SHA)
+    expect(screen.getByTestId('commit-group-abc1234')).toBeInTheDocument()
+    // The grouped builds count badge should show "2 builds"
+    expect(screen.getByText('2 builds')).toBeInTheDocument()
+    // The individual grouped report rows should NOT be visible until expanded
+    expect(screen.queryByText('#9')).not.toBeInTheDocument()
+    expect(screen.queryByText('#8')).not.toBeInTheDocument()
+    // The ungrouped report is visible
+    expect(screen.getByText('#7')).toBeInTheDocument()
   })
 
   it('disables next button on the last page', async () => {

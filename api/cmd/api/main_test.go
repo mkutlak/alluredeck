@@ -36,14 +36,14 @@ func TestRegisterRoutes(t *testing.T) {
 	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, nil, zap.NewNop())
+	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, nil, nil, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, projectStore, buildStore, store.NewKnownIssueStore(db), nil, nil, localStore)
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	adminHandler := handlers.NewAdminHandler(nil, nil, zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil)
 
 	tests := []struct {
 		method string
@@ -93,14 +93,14 @@ func TestBareRoutes_Return404(t *testing.T) {
 	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, nil, zap.NewNop())
+	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, nil, nil, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, projectStore, buildStore, store.NewKnownIssueStore(db), nil, nil, localStore)
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	adminHandler := handlers.NewAdminHandler(nil, nil, zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil)
 
 	// Bare routes (no /api/v1 prefix) should return 404.
 	bareRoutes := []struct {

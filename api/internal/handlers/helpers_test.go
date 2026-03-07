@@ -55,7 +55,7 @@ func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 
 	buildStore := store.NewBuildStore(db, logger)
 	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, logger)
+	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, nil, logger)
 	return NewAllureHandler(cfg, r, nil,
 		store.NewProjectStore(db, logger), buildStore, store.NewKnownIssueStore(db),
 		nil, store.NewSearchStore(db, logger), st)
@@ -72,7 +72,7 @@ func newTestAllureHandlerWithDB(t *testing.T, projectsDir string, db *store.SQLi
 	bs := store.NewBuildStore(db, logger)
 	lockManager := store.NewLockManager()
 	ts := store.NewTestResultStore(db, logger)
-	r := runner.NewAllure(cfg, st, bs, lockManager, ts, logger)
+	r := runner.NewAllure(cfg, st, bs, lockManager, ts, nil, logger)
 	return NewAllureHandler(cfg, r, nil,
 		store.NewProjectStore(db, logger), bs, store.NewKnownIssueStore(db), ts, nil, st)
 }
@@ -93,7 +93,7 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 	st := storage.NewLocalStore(cfg)
 	buildStore := store.NewBuildStore(db, logger)
 	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, logger)
+	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, nil, logger)
 
 	jm := runner.NewJobManager(gen, 2, logger)
 	jm.Start(context.Background())

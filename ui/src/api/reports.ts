@@ -84,10 +84,17 @@ export async function fetchReportHistory(
   projectId: string,
   page = 1,
   perPage = 20,
+  branch?: string,
 ): Promise<PaginatedResponse<ReportHistoryData>> {
   const res = await apiClient.get<PaginatedResponse<ReportHistoryData>>(
     `/projects/${encodeURIComponent(projectId)}/reports`,
-    { params: { page, per_page: perPage } },
+    {
+      params: {
+        page,
+        per_page: perPage,
+        ...(branch !== undefined ? { branch } : {}),
+      },
+    },
   )
   return res.data
 }

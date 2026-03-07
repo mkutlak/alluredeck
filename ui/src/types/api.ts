@@ -429,3 +429,32 @@ export interface DashboardData {
   projects: DashboardProjectEntry[]
   summary: DashboardSummary
 }
+
+// ---------------------------------------------------------------------------
+// Branches
+// ---------------------------------------------------------------------------
+export interface Branch {
+  id: number
+  project_id: string
+  name: string
+  is_default: boolean
+  created_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Test history
+// ---------------------------------------------------------------------------
+export interface TestHistoryEntry {
+  build_order: number
+  build_id: number
+  status: string
+  duration_ms: number
+  created_at: string
+  ci_commit_sha?: string
+}
+
+export interface TestHistoryData {
+  history: TestHistoryEntry[]
+  history_id: string
+  branch_name?: string
+}

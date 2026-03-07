@@ -26,7 +26,7 @@ func newTestAllure(t *testing.T, projectsDir string) *Allure {
 	t.Cleanup(func() { _ = s.Close() })
 	bs := store.NewBuildStore(s, zap.NewNop())
 	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
+	return NewAllure(cfg, st, bs, lm, nil, nil, zap.NewNop())
 }
 
 // mustWriteFile creates parent dirs and writes content to path.

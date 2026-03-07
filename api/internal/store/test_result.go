@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -392,6 +393,70 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID stri
 		results = []TestResult{}
 	}
 	return results, nil
+}
+
+// TestHistoryEntry holds one run of a test across builds.
+type TestHistoryEntry struct {
+	BuildOrder  int
+	BuildID     int64
+	Status      string
+	DurationMs  int64
+	CreatedAt   time.Time
+	CICommitSHA *string
+}
+
+// GetTestHistory returns the run history for a test identified by historyID.
+// When branchID is non-nil, only builds on that branch are returned.
+// Results are ordered by build_order DESC.
+func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error) {
+	var rows *sql.Rows
+	var err error
+
+	if branchID != nil {
+		rows, err = ts.db.QueryContext(ctx, `
+            SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha
+            FROM test_results tr
+            JOIN builds b ON tr.build_id = b.id
+            WHERE tr.project_id = ? AND tr.history_id = ? AND b.branch_id = ?
+            ORDER BY b.build_order DESC
+            LIMIT ?`, projectID, historyID, *branchID, limit)
+	} else {
+		rows, err = ts.db.QueryContext(ctx, `
+            SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha
+            FROM test_results tr
+            JOIN builds b ON tr.build_id = b.id
+            WHERE tr.project_id = ? AND tr.history_id = ?
+            ORDER BY b.build_order DESC
+            LIMIT ?`, projectID, historyID, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get test history: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var entries []TestHistoryEntry
+	for rows.Next() {
+		var e TestHistoryEntry
+		var createdAt string
+		var ciCommitSHA sql.NullString
+		if err := rows.Scan(&e.BuildOrder, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA); err != nil {
+			return nil, fmt.Errorf("scan test history row: %w", err)
+		}
+		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err == nil {
+			e.CreatedAt = t
+		}
+		if ciCommitSHA.Valid {
+			e.CICommitSHA = &ciCommitSHA.String
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate test history: %w", err)
+	}
+	if entries == nil {
+		entries = []TestHistoryEntry{}
+	}
+	return entries, nil
 }
 
 // DeleteByBuild removes all test results for a specific build.

@@ -80,12 +80,16 @@ func main() {
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 
 	testResultStore := store.NewTestResultStore(db, logger)
-	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, testResultStore, logger)
+	branchStore := store.NewBranchStore(db)
+	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, testResultStore, branchStore, logger)
 	knownIssueStore := store.NewKnownIssueStore(db)
 	searchStore := store.NewSearchStore(db, logger)
 	jobManager := runner.NewJobManager(allureCore, 2, logger)
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore)
 	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, logger)
+	branchHandler := handlers.NewBranchHandler(branchStore, buildStore)
+	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
+	allureHandler.SetBranchStore(branchStore)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -142,7 +146,7 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -238,6 +242,8 @@ func registerRoutes(
 	authHandler *handlers.AuthHandler,
 	allure *handlers.AllureHandler,
 	admin *handlers.AdminHandler,
+	branchHandler *handlers.BranchHandler,
+	testHistoryHandler *handlers.TestHistoryHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false)(h)
@@ -317,4 +323,16 @@ func registerRoutes(
 	mux.HandleFunc("GET "+prefix+"/admin/results", adminOnly(noStore(admin.ListPendingResults)))
 	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(admin.CancelJob)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(admin.CleanProjectResults)))
+
+	// Branch management endpoints.
+	if branchHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/branches", viewerUp(mutableCache(branchHandler.ListBranches)))
+		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/branches/{branch_id}/default", adminOnly(noStore(branchHandler.SetDefaultBranch)))
+		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/branches/{branch_id}", adminOnly(noStore(branchHandler.DeleteBranch)))
+	}
+
+	// Per-test history endpoint.
+	if testHistoryHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/tests/history", viewerUp(shortCache(testHistoryHandler.GetTestHistory)))
+	}
 }

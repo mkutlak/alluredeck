@@ -769,3 +769,221 @@ func (bs *BuildStore) DeleteBuild(ctx context.Context, projectID string, buildOr
 	}
 	return nil
 }
+
+// UpdateBuildBranchID sets the branch_id on a build row.
+func (bs *BuildStore) UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error {
+	res, err := bs.db.ExecContext(ctx,
+		"UPDATE builds SET branch_id=? WHERE project_id=? AND build_order=?",
+		branchID, projectID, buildOrder)
+	if err != nil {
+		return fmt.Errorf("update build branch_id: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("%w: project=%s build=%d", ErrBuildNotFound, projectID, buildOrder)
+	}
+	return nil
+}
+
+// SetLatestBranch marks the given build_order as latest.
+// When branchID is non-nil, only clears is_latest for builds on that branch.
+// When branchID is nil, clears is_latest for all builds in the project (same as SetLatest).
+func (bs *BuildStore) SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error {
+	if branchID == nil {
+		return bs.SetLatest(ctx, projectID, buildOrder)
+	}
+	tx, err := bs.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE builds SET is_latest=0 WHERE project_id=? AND branch_id=? AND is_latest=1",
+		projectID, *branchID); err != nil {
+		return fmt.Errorf("clear is_latest for branch: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE builds SET is_latest=1 WHERE project_id=? AND build_order=?",
+		projectID, buildOrder); err != nil {
+		return fmt.Errorf("set is_latest: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit set latest branch: %w", err)
+	}
+	return nil
+}
+
+// PruneBuildsBranch removes the oldest builds exceeding `keep` count.
+// When branchID is non-nil, only considers builds on that branch.
+// When branchID is nil, considers all builds in the project (same as PruneBuilds).
+// Returns the build_orders of removed builds.
+func (bs *BuildStore) PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error) {
+	if keep <= 0 {
+		return nil, nil
+	}
+
+	var rows *sql.Rows
+	var err error
+	if branchID != nil {
+		rows, err = bs.db.QueryContext(ctx, `
+            SELECT build_order FROM builds
+            WHERE project_id = ? AND branch_id = ?
+            ORDER BY build_order DESC
+            LIMIT -1 OFFSET ?`, projectID, *branchID, keep)
+	} else {
+		rows, err = bs.db.QueryContext(ctx, `
+            SELECT build_order FROM builds
+            WHERE project_id = ?
+            ORDER BY build_order DESC
+            LIMIT -1 OFFSET ?`, projectID, keep)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("prune builds branch query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var toRemove []int
+	for rows.Next() {
+		var bo int
+		if err := rows.Scan(&bo); err != nil {
+			return nil, fmt.Errorf("scan build_order: %w", err)
+		}
+		toRemove = append(toRemove, bo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate prune branch rows: %w", err)
+	}
+
+	for _, bo := range toRemove {
+		if _, err := bs.db.ExecContext(ctx,
+			"DELETE FROM builds WHERE project_id=? AND build_order=?",
+			projectID, bo); err != nil {
+			return nil, fmt.Errorf("delete build %d: %w", bo, err)
+		}
+	}
+	return toRemove, nil
+}
+
+// ListBuildsPaginatedBranch returns a page of builds for a project in descending build_order.
+// When branchID is non-nil, only builds on that branch are returned.
+// When branchID is nil, all builds are returned (same as ListBuildsPaginated).
+func (bs *BuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]Build, int, error) {
+	var totalCount int
+	var err error
+	if branchID != nil {
+		err = bs.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM builds WHERE project_id = ? AND branch_id = ?", projectID, *branchID,
+		).Scan(&totalCount)
+	} else {
+		err = bs.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM builds WHERE project_id = ?", projectID,
+		).Scan(&totalCount)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("count builds branch: %w", err)
+	}
+
+	offset := (page - 1) * perPage
+	const cols = `SELECT id, project_id, build_order, created_at,
+               stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
+               duration_ms, is_latest,
+               flaky_count, retried_count, new_failed_count, new_passed_count,
+               ci_provider, ci_build_url, ci_branch, ci_commit_sha
+        FROM builds`
+
+	var rows *sql.Rows
+	if branchID != nil {
+		rows, err = bs.db.QueryContext(ctx, cols+`
+            WHERE project_id = ? AND branch_id = ?
+            ORDER BY build_order DESC
+            LIMIT ? OFFSET ?`, projectID, *branchID, perPage, offset)
+	} else {
+		rows, err = bs.db.QueryContext(ctx, cols+`
+            WHERE project_id = ?
+            ORDER BY build_order DESC
+            LIMIT ? OFFSET ?`, projectID, perPage, offset)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("list builds paginated branch: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var builds []Build
+	for rows.Next() {
+		var b Build
+		var createdAt string
+		var passed, failed, broken, skipped, unknown, total sql.NullInt64
+		var durationMs sql.NullInt64
+		var isLatest int
+		var flakyCount, retriedCount, newFailedCount, newPassedCount int
+		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA sql.NullString
+		if err := rows.Scan(
+			&b.ID, &b.ProjectID, &b.BuildOrder, &createdAt,
+			&passed, &failed, &broken, &skipped, &unknown, &total,
+			&durationMs, &isLatest,
+			&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
+			&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan build branch: %w", err)
+		}
+		if t, err := time.Parse("2006-01-02T15:04:05Z", createdAt); err != nil {
+			bs.logger.Warn("invalid created_at for build",
+				zap.String("created_at", createdAt),
+				zap.String("project_id", projectID),
+				zap.Int("build_order", b.BuildOrder),
+				zap.Error(err))
+		} else {
+			b.CreatedAt = t
+		}
+		b.IsLatest = isLatest == 1
+		if passed.Valid {
+			v := int(passed.Int64)
+			b.StatPassed = &v
+		}
+		if failed.Valid {
+			v := int(failed.Int64)
+			b.StatFailed = &v
+		}
+		if broken.Valid {
+			v := int(broken.Int64)
+			b.StatBroken = &v
+		}
+		if skipped.Valid {
+			v := int(skipped.Int64)
+			b.StatSkipped = &v
+		}
+		if unknown.Valid {
+			v := int(unknown.Int64)
+			b.StatUnknown = &v
+		}
+		if total.Valid {
+			v := int(total.Int64)
+			b.StatTotal = &v
+		}
+		if durationMs.Valid {
+			b.DurationMs = &durationMs.Int64
+		}
+		b.FlakyCount = &flakyCount
+		b.RetriedCount = &retriedCount
+		b.NewFailedCount = &newFailedCount
+		b.NewPassedCount = &newPassedCount
+		if ciProvider.Valid {
+			b.CIProvider = &ciProvider.String
+		}
+		if ciBuildURL.Valid {
+			b.CIBuildURL = &ciBuildURL.String
+		}
+		if ciBranch.Valid {
+			b.CIBranch = &ciBranch.String
+		}
+		if ciCommitSHA.Valid {
+			b.CICommitSHA = &ciCommitSHA.String
+		}
+		builds = append(builds, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate build branch rows: %w", err)
+	}
+	return builds, totalCount, nil
+}

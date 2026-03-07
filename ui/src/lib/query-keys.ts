@@ -5,9 +5,11 @@ export const queryKeys = {
   dashboard: ['dashboard'] as const,
   search: (query: string) => ['search', query] as const,
   // Project-scoped
-  reportHistory: (pid: string, page?: number) =>
+  reportHistory: (pid: string, page?: number, branch?: string) =>
     page != null
-      ? (['report-history', pid, page] as const)
+      ? branch != null
+        ? (['report-history', pid, page, branch] as const)
+        : (['report-history', pid, page] as const)
       : (['report-history', pid] as const),
   reportCategories: (pid: string) => ['report-categories', pid] as const,
   reportCategoriesLatest: (pid: string) => ['report-categories', pid, 'latest'] as const,
@@ -23,6 +25,15 @@ export const queryKeys = {
     ['build-comparison', pid, a, b] as const,
   adminJobs: ['admin-jobs'] as const,
   adminResults: ['admin-results'] as const,
+  branches: {
+    list: (projectId: string) => ['branches', projectId] as const,
+  },
+  tests: {
+    history: (projectId: string, historyId: string, branch?: string) =>
+      branch != null
+        ? (['test-history', projectId, historyId, branch] as const)
+        : (['test-history', projectId, historyId] as const),
+  },
 }
 
 function projectScopedKeys(projectId: string) {
