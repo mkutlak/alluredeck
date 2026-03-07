@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import type { TimelineTestCase } from '@/types/api'
 import { STATUS_COLORS, detectLaneStrategy, toTimelineLanes } from '@/lib/chart-utils'
 import { formatDuration, getStatusVariant } from '@/lib/utils'
@@ -48,19 +49,24 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
   const strategy = detectLaneStrategy(testCases)
   const lanes = toTimelineLanes(testCases, strategy)
 
-  const laneData = lanes.map((lane) => {
-    const laneTcs = testCases.filter((tc) => {
-      if (strategy === 'thread') return (tc.thread || 'default') === lane.id
-      if (strategy === 'host') return (tc.host || 'default') === lane.id
-      return true
-    })
-    const bars = laneTcs.map((tc) => computeBar(tc, minStart, totalMs))
-    const rows = stackBarsIntoRows(bars)
-    return { lane, rows }
-  })
+  const laneData = useMemo(
+    () =>
+      lanes.map((lane) => {
+        const laneTcs = testCases.filter((tc) => {
+          if (strategy === 'thread') return (tc.thread || 'default') === lane.id
+          if (strategy === 'host') return (tc.host || 'default') === lane.id
+          return true
+        })
+        const bars = laneTcs.map((tc) => computeBar(tc, minStart, totalMs))
+        const rows = stackBarsIntoRows(bars)
+        return { lane, rows }
+      }),
+    [lanes, testCases, strategy, minStart, totalMs],
+  )
 
-  const presentStatuses = LEGEND_ITEMS.filter(({ status }) =>
-    testCases.some((tc) => tc.status === status),
+  const presentStatuses = useMemo(
+    () => LEGEND_ITEMS.filter(({ status }) => testCases.some((tc) => tc.status === status)),
+    [testCases],
   )
 
   return (

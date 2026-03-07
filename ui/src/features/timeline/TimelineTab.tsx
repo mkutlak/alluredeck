@@ -1,6 +1,7 @@
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportTimeline } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TimelineChart } from './TimelineChart'
@@ -8,8 +9,8 @@ import { TimelineChart } from './TimelineChart'
 export function TimelineTab() {
   const { id: projectId } = useParams<{ id: string }>()
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['report-timeline', projectId],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: queryKeys.reportTimeline(projectId!),
     queryFn: () => fetchReportTimeline(projectId!),
     enabled: !!projectId,
     staleTime: 10_000,
@@ -22,6 +23,14 @@ export function TimelineTab() {
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-[400px] w-full rounded-lg" />
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-destructive/50 p-4 text-center">
+        <p className="text-sm text-destructive">Failed to load timeline data. Please try again.</p>
       </div>
     )
   }

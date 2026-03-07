@@ -20,7 +20,9 @@ import { env } from '@/lib/env'
 
 export function TopBar() {
   const { theme, setTheme } = useTheme()
-  const { username, isAdmin, clearAuth } = useAuthStore()
+  const username = useAuthStore((s) => s.username)
+  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const clearAuth = useAuthStore((s) => s.clearAuth)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 

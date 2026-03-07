@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertTriangle } from 'lucide-react'
-import { extractErrorMessage, apiClient } from '@/api/client'
+import { extractErrorMessage } from '@/api/client'
+import { deleteProject } from '@/api/projects'
 import { queryKeys, removeProjectQueries } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,10 +22,6 @@ interface DeleteProjectDialogProps {
   projectId: string
   open: boolean
   onOpenChange: (open: boolean) => void
-}
-
-async function deleteProject(projectId: string): Promise<void> {
-  await apiClient.delete(`/projects/${encodeURIComponent(projectId)}`)
 }
 
 export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeleteProjectDialogProps) {

@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import {
   toStatusTrendData,
   toPassRateTrendData,
@@ -20,23 +22,30 @@ import { LowPerformingCard } from './LowPerformingCard'
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
 
-  const { data: historyData, isLoading } = useQuery({
-    queryKey: ['report-history-analytics', projectId],
+  const { data: historyData, isLoading, isError } = useQuery({
+    queryKey: queryKeys.reportHistoryAnalytics(projectId!),
     queryFn: () => fetchReportHistory(projectId!, 1, 100),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
-    queryKey: ['report-categories', projectId, 'latest'],
+    queryKey: queryKeys.reportCategoriesLatest(projectId!),
     queryFn: () => fetchReportCategories(projectId!),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
-  if (!projectId) return null
+  const reports = useMemo(() => historyData?.data.reports ?? [], [historyData])
 
-  const reports = historyData?.data.reports ?? []
+  const statusTrend = useMemo(() => toStatusTrendData(reports), [reports])
+  const passRateTrend = useMemo(() => toPassRateTrendData(reports), [reports])
+  const durationTrend = useMemo(() => toDurationTrendData(reports), [reports])
+  const pieData = useMemo(() => toStatusPieData(reports), [reports])
+  const total = reports[0]?.statistic?.total ?? 0
+  const categoryData = useMemo(() => toCategoryBreakdownData(categoriesData ?? []), [categoriesData])
+
+  if (!projectId) return null
 
   if (isLoading) {
     return (
@@ -44,6 +53,14 @@ export function AnalyticsTab() {
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-72 w-full rounded-lg" />
         ))}
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-destructive/50 p-4 text-center">
+        <p className="text-sm text-destructive">Failed to load analytics data. Please try again.</p>
       </div>
     )
   }
@@ -58,13 +75,6 @@ export function AnalyticsTab() {
       </div>
     )
   }
-
-  const statusTrend = toStatusTrendData(reports)
-  const passRateTrend = toPassRateTrendData(reports)
-  const durationTrend = toDurationTrendData(reports)
-  const pieData = toStatusPieData(reports)
-  const total = reports[0]?.statistic?.total ?? 0
-  const categoryData = toCategoryBreakdownData(categoriesData ?? [])
 
   return (
     <div className="space-y-4">

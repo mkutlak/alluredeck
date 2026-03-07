@@ -1,13 +1,36 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 import { AuthGuard } from '@/features/auth/AuthGuard'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { Layout } from '@/components/app/Layout'
-import { OverviewTab } from '@/features/projects/OverviewTab'
-import { AnalyticsTab } from '@/features/analytics/AnalyticsTab'
-import { KnownIssuesTab } from '@/features/known-issues/KnownIssuesTab'
-import { TimelineTab } from '@/features/timeline/TimelineTab'
-import { ReportViewerPage } from '@/features/reports/ReportViewerPage'
-import { DashboardPage } from '@/features/dashboard'
+import { ErrorBoundary } from '@/components/app/ErrorBoundary'
+
+const DashboardPage = lazy(() =>
+  import('@/features/dashboard').then(m => ({ default: m.DashboardPage })),
+)
+const OverviewTab = lazy(() =>
+  import('@/features/projects/OverviewTab').then(m => ({ default: m.OverviewTab })),
+)
+const AnalyticsTab = lazy(() =>
+  import('@/features/analytics/AnalyticsTab').then(m => ({ default: m.AnalyticsTab })),
+)
+const KnownIssuesTab = lazy(() =>
+  import('@/features/known-issues/KnownIssuesTab').then(m => ({ default: m.KnownIssuesTab })),
+)
+const TimelineTab = lazy(() =>
+  import('@/features/timeline/TimelineTab').then(m => ({ default: m.TimelineTab })),
+)
+const ReportViewerPage = lazy(() =>
+  import('@/features/reports/ReportViewerPage').then(m => ({ default: m.ReportViewerPage })),
+)
+
+function PageLoader() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  )
+}
 
 function NotFound() {
   return (
@@ -21,27 +44,71 @@ function NotFound() {
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
 
-      <Route
-        element={
-          <AuthGuard>
-            <Layout />
-          </AuthGuard>
-        }
-      >
-        <Route index element={<DashboardPage />} />
-        <Route path="projects/:id" element={<OverviewTab />} />
-        <Route path="projects/:id/analytics" element={<AnalyticsTab />} />
-        <Route path="projects/:id/known-issues" element={<KnownIssuesTab />} />
-        <Route path="projects/:id/timeline" element={<TimelineTab />} />
-        <Route path="projects/:id/reports/:reportId" element={<ReportViewerPage />} />
-        <Route path="dashboard" element={<Navigate to="/" replace />} />
-        <Route path="*" element={<NotFound />} />
-      </Route>
+        <Route
+          element={
+            <AuthGuard>
+              <Layout />
+            </AuthGuard>
+          }
+        >
+          <Route
+            index
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <DashboardPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <OverviewTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/analytics"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <AnalyticsTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/known-issues"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <KnownIssuesTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/timeline"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <TimelineTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/reports/:reportId"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ReportViewerPage />
+              </Suspense>
+            }
+          />
+          <Route path="dashboard" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ErrorBoundary>
   )
 }

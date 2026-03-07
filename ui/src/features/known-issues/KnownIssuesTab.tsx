@@ -46,8 +46,8 @@ export function KnownIssuesTab() {
   const [editIssue, setEditIssue] = useState<KnownIssue | null>(null)
   const [deleteIssueId, setDeleteIssueId] = useState<number | null>(null)
 
-  const { data: issues, isLoading } = useQuery({
-    queryKey: ['known-issues', projectId],
+  const { data: issues, isLoading, isError } = useQuery({
+    queryKey: queryKeys.knownIssues(projectId!),
     queryFn: () => listKnownIssues(projectId!, false),
     enabled: !!projectId,
     staleTime: 15_000,
@@ -61,7 +61,7 @@ export function KnownIssuesTab() {
         is_active: !issue.is_active,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId!) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId!) })
       toast({ title: 'Status updated' })
     },
@@ -73,7 +73,7 @@ export function KnownIssuesTab() {
   const deleteMutation = useMutation({
     mutationFn: (issueId: number) => deleteKnownIssue(projectId!, issueId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId!) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId!) })
       toast({ title: 'Known issue removed' })
       setDeleteIssueId(null)
@@ -119,6 +119,10 @@ export function KnownIssuesTab() {
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-12 w-full" />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="rounded-lg border border-destructive/50 p-4 text-center">
+          <p className="text-sm text-destructive">Failed to load known issues. Please try again.</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">

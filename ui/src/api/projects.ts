@@ -43,3 +43,7 @@ export async function getTags(): Promise<ApiResponse<string[]>> {
   const res = await apiClient.get<ApiResponse<string[]>>('/tags')
   return res.data
 }
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await apiClient.delete(`/projects/${encodeURIComponent(projectId)}`)
+}
