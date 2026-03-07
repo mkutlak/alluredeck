@@ -1,3 +1,15 @@
+## [0.4.0](https://github.com/mkutlak/alluredeck/compare/v0.3.0...v0.4.0) (2026-03-07)
+
+### Features
+
+* add project tagging and filtering ([7f965e1](https://github.com/mkutlak/alluredeck/commit/7f965e12a2a7be7e205b0f58168df5d217579b1a))
+* derive Allure 3 report timing and improve UI empty states ([2dcdee9](https://github.com/mkutlak/alluredeck/commit/2dcdee9208fa2e16094767cc7d91e07d953551ef))
+
+### Performance Improvements
+
+* **api:** optimize S3 storage operations and clean up linter findings ([6c03e26](https://github.com/mkutlak/alluredeck/commit/6c03e2629ed13f74474ba7d442e3f4538068db89))
+* **ui:** optimize rendering and implement lazy loading ([2bdd192](https://github.com/mkutlak/alluredeck/commit/2bdd192bdfa7a83351b17dff72a540c31127a61a))
+
 ## [0.3.0](https://github.com/mkutlak/alluredeck/compare/v0.2.1...v0.3.0) (2026-03-06)
 
 ### Features
