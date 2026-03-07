@@ -24,6 +24,7 @@ import { isSafeUrl } from '@/lib/url'
 import { formatDate, formatDuration, calcPassRate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -185,6 +186,8 @@ interface ReportHistoryTableProps {
   reports: ReportHistoryEntry[]
   isAdmin: () => boolean
   onDeleteReport: (reportId: string) => void
+  selectedBuilds: Set<string>
+  onToggleBuild: (id: string) => void
 }
 
 function ReportHistoryTable({
@@ -192,12 +195,15 @@ function ReportHistoryTable({
   reports,
   isAdmin,
   onDeleteReport,
+  selectedBuilds,
+  onToggleBuild,
 }: ReportHistoryTableProps) {
   return (
     <div className="rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10" />
             <TableHead>Report</TableHead>
             <TableHead>Generated</TableHead>
             <TableHead className="text-center">Total</TableHead>
@@ -219,6 +225,14 @@ function ReportHistoryTable({
 
             return (
               <TableRow key={r.report_id} className="cursor-pointer hover:bg-muted/50">
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selectedBuilds.has(r.report_id)}
+                    onCheckedChange={() => onToggleBuild(r.report_id)}
+                    disabled={!selectedBuilds.has(r.report_id) && selectedBuilds.size >= 2}
+                    aria-label={`Select report #${r.report_id}`}
+                  />
+                </TableCell>
                 <TableCell>
                   <Link
                     to={reportUrl}
@@ -411,6 +425,19 @@ export function OverviewTab() {
   const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  const [selectedBuilds, setSelectedBuilds] = useState<Set<string>>(new Set())
+
+  const handleToggleBuild = (id: string) => {
+    setSelectedBuilds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else if (next.size < 2) {
+        next.add(id)
+      }
+      return next
+    })
+  }
   const [prevProjectId, setPrevProjectId] = useState(projectId)
   if (prevProjectId !== projectId) {
     setPrevProjectId(projectId)
@@ -551,6 +578,27 @@ export function OverviewTab() {
         <FlakyTestsCard projectId={projectId} />
       </div>
 
+      {/* Compare Selected bar */}
+      {selectedBuilds.size === 2 && (() => {
+        const [a, b] = Array.from(selectedBuilds)
+        const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
+        return (
+          <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2">
+            <span className="text-sm text-muted-foreground">2 builds selected</span>
+            <Button asChild size="sm">
+              <Link to={compareUrl}>Compare Selected</Link>
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedBuilds(new Set())}
+            >
+              Clear
+            </Button>
+          </div>
+        )
+      })()}
+
       {/* Report history table */}
       {isLoading ? (
         <div className="space-y-2">
@@ -576,6 +624,8 @@ export function OverviewTab() {
           reports={tableReports}
           isAdmin={isAdmin}
           onDeleteReport={setDeleteReportId}
+          selectedBuilds={selectedBuilds}
+          onToggleBuild={handleToggleBuild}
         />
       )}
 

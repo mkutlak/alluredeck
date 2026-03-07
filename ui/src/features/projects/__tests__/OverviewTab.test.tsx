@@ -221,6 +221,114 @@ describe('OverviewTab - report history pagination', () => {
     })
   })
 
+  it('renders checkboxes in table rows', async () => {
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [makeReport('42', true), makeReport('41'), makeReport('40')],
+        { page: 1, per_page: 20, total: 2, total_pages: 1 },
+      ),
+    )
+    renderTab()
+    await waitFor(() => screen.getByText('#41'))
+
+    // Each non-latest report row should have a checkbox
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('selecting 2 builds shows compare button and link', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [makeReport('42', true), makeReport('41'), makeReport('40')],
+        { page: 1, per_page: 20, total: 2, total_pages: 1 },
+      ),
+    )
+    renderTab()
+    await waitFor(() => screen.getByText('#41'))
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    await user.click(checkboxes[0])
+    await user.click(checkboxes[1])
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /compare selected/i })).toBeInTheDocument()
+    })
+  })
+
+  it('compare link contains correct build params', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [makeReport('42', true), makeReport('41'), makeReport('40')],
+        { page: 1, per_page: 20, total: 2, total_pages: 1 },
+      ),
+    )
+    renderTab()
+    await waitFor(() => screen.getByText('#41'))
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    await user.click(checkboxes[0]) // selects #41
+    await user.click(checkboxes[1]) // selects #40
+
+    await waitFor(() => {
+      const link = screen.getByRole('link', { name: /compare selected/i })
+      const href = link.getAttribute('href') ?? ''
+      expect(href).toMatch(/compare/)
+      expect(href).toMatch(/a=/)
+      expect(href).toMatch(/b=/)
+    })
+  })
+
+  it('cannot select more than 2 builds', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [makeReport('42', true), makeReport('41'), makeReport('40'), makeReport('39')],
+        { page: 1, per_page: 20, total: 3, total_pages: 1 },
+      ),
+    )
+    renderTab()
+    await waitFor(() => screen.getByText('#41'))
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    await user.click(checkboxes[0])
+    await user.click(checkboxes[1])
+
+    // Third checkbox should be disabled when 2 are already selected
+    await waitFor(() => {
+      expect(checkboxes[2]).toBeDisabled()
+    })
+  })
+
+  it('clear button resets selection', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [makeReport('42', true), makeReport('41'), makeReport('40')],
+        { page: 1, per_page: 20, total: 2, total_pages: 1 },
+      ),
+    )
+    renderTab()
+    await waitFor(() => screen.getByText('#41'))
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    await user.click(checkboxes[0])
+    await user.click(checkboxes[1])
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /compare selected/i })).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: /clear/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('link', { name: /compare selected/i })).not.toBeInTheDocument()
+    })
+    expect(checkboxes[0]).not.toBeChecked()
+    expect(checkboxes[1]).not.toBeChecked()
+  })
+
   it('disables next button on the last page', async () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory)

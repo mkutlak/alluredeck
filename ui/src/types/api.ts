@@ -336,6 +336,38 @@ export interface TimelineData {
 }
 
 // ---------------------------------------------------------------------------
+// Build Comparison (Diff View)
+// ---------------------------------------------------------------------------
+export type DiffCategory = 'regressed' | 'fixed' | 'added' | 'removed'
+
+export interface CompareDiffEntry {
+  test_name: string
+  full_name: string
+  history_id: string
+  status_a: string
+  status_b: string
+  duration_a: number
+  duration_b: number
+  duration_delta: number
+  category: DiffCategory
+}
+
+export interface CompareSummary {
+  regressed: number
+  fixed: number
+  added: number
+  removed: number
+  total: number
+}
+
+export interface CompareData {
+  build_a: number
+  build_b: number
+  summary: CompareSummary
+  tests: CompareDiffEntry[]
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard (cross-project overview)
 // ---------------------------------------------------------------------------
 export interface DashboardLatestBuild {

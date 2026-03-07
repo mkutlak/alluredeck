@@ -23,6 +23,9 @@ const TimelineTab = lazy(() =>
 const ReportViewerPage = lazy(() =>
   import('@/features/reports/ReportViewerPage').then(m => ({ default: m.ReportViewerPage })),
 )
+const ComparePage = lazy(() =>
+  import('@/features/compare/ComparePage').then(m => ({ default: m.ComparePage })),
+)
 
 function PageLoader() {
   return (
@@ -92,6 +95,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <TimelineTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/compare"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ComparePage />
               </Suspense>
             }
           />

@@ -19,6 +19,8 @@ export const queryKeys = {
   lowPerforming: (pid: string) => ['low-performing-tests', pid] as const,
   knownIssues: (pid: string) => ['known-issues', pid] as const,
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
+  buildComparison: (pid: string, a: number, b: number) =>
+    ['build-comparison', pid, a, b] as const,
 }
 
 function projectScopedKeys(projectId: string) {
