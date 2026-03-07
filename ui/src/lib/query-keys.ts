@@ -21,6 +21,8 @@ export const queryKeys = {
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
   buildComparison: (pid: string, a: number, b: number) =>
     ['build-comparison', pid, a, b] as const,
+  adminJobs: ['admin-jobs'] as const,
+  adminResults: ['admin-results'] as const,
 }
 
 function projectScopedKeys(projectId: string) {

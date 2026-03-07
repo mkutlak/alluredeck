@@ -368,6 +368,29 @@ export interface CompareData {
 }
 
 // ---------------------------------------------------------------------------
+// Admin System Monitor
+// ---------------------------------------------------------------------------
+export type AdminJobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface AdminJobEntry {
+  job_id: string
+  project_id: string
+  status: AdminJobStatus
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  output: string
+  error: string
+}
+
+export interface AdminResultsEntry {
+  project_id: string
+  file_count: number
+  total_size: number
+  last_modified: string
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard (cross-project overview)
 // ---------------------------------------------------------------------------
 export interface DashboardLatestBuild {

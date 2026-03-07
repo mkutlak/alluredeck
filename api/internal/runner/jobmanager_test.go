@@ -299,6 +299,179 @@ func TestCleanupExpired(t *testing.T) {
 	}
 }
 
+// cancelAwareMockGenerator blocks until ch is closed OR ctx is cancelled.
+// Used for cancellation tests that need GenerateReport to respect context.
+type cancelAwareMockGenerator struct {
+	ch chan struct{}
+}
+
+func newCancelAwareGen() *cancelAwareMockGenerator {
+	return &cancelAwareMockGenerator{ch: make(chan struct{})}
+}
+
+func (m *cancelAwareMockGenerator) GenerateReport(ctx context.Context, projectID, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
+	select {
+	case <-m.ch:
+		return "ok", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// TestListJobs_Empty verifies ListJobs returns a non-nil empty slice for a fresh manager.
+func TestListJobs_Empty(t *testing.T) {
+	gen := newMockGen()
+	defer close(gen.ch)
+
+	jm := newTestJobManager(t, gen, 2)
+
+	jobs := jm.ListJobs()
+	if jobs == nil {
+		t.Error("ListJobs should return non-nil slice, got nil")
+	}
+	if len(jobs) != 0 {
+		t.Errorf("expected 0 jobs, got %d", len(jobs))
+	}
+}
+
+// TestListJobs_ReturnsAllJobs verifies ListJobs returns all submitted jobs.
+func TestListJobs_ReturnsAllJobs(t *testing.T) {
+	gen := newMockGen()
+	defer close(gen.ch)
+
+	jm := newTestJobManager(t, gen, 4)
+
+	j1 := jm.Submit("proj-list-1", JobParams{})
+	j2 := jm.Submit("proj-list-2", JobParams{})
+	j3 := jm.Submit("proj-list-3", JobParams{})
+
+	jobs := jm.ListJobs()
+	if len(jobs) != 3 {
+		t.Fatalf("expected 3 jobs, got %d", len(jobs))
+	}
+
+	ids := make(map[string]bool)
+	for _, j := range jobs {
+		ids[j.ID] = true
+	}
+	for _, expected := range []string{j1.ID, j2.ID, j3.ID} {
+		if !ids[expected] {
+			t.Errorf("job %q not found in ListJobs result", expected)
+		}
+	}
+}
+
+// TestListJobs_ReturnsCopies verifies mutations to returned jobs don't affect internal state.
+func TestListJobs_ReturnsCopies(t *testing.T) {
+	gen := newMockGen()
+	defer close(gen.ch)
+
+	jm := newTestJobManager(t, gen, 2)
+	jm.Submit("proj-copies", JobParams{})
+
+	jobs := jm.ListJobs()
+	if len(jobs) == 0 {
+		t.Fatal("expected at least one job")
+	}
+
+	// Mutate the returned copy.
+	jobs[0].Status = "mutated"
+
+	// Internal state should be unchanged.
+	internal := jm.Get(jobs[0].ID)
+	if internal == nil {
+		t.Fatal("job not found internally")
+	}
+	if internal.Status == "mutated" {
+		t.Error("ListJobs returned a reference, not a copy")
+	}
+}
+
+// TestCancel_PendingJob verifies a queued (pending) job can be cancelled before it runs.
+func TestCancel_PendingJob(t *testing.T) {
+	gen := newMockGen()
+	jm := newTestJobManager(t, gen, 1)
+
+	// Fill the single slot.
+	j1 := jm.Submit("proj-cancel-pending-1", JobParams{})
+	waitForStatus(t, jm, j1.ID, JobStatusRunning, 2*time.Second)
+
+	// Submit j2 — pool is full, it queues as pending.
+	j2 := jm.Submit("proj-cancel-pending-2", JobParams{})
+
+	if err := jm.Cancel(j2.ID); err != nil {
+		t.Fatalf("Cancel returned unexpected error: %v", err)
+	}
+
+	// Release j1 so the semaphore slot opens and j2's worker can proceed.
+	close(gen.ch)
+
+	waitForStatus(t, jm, j2.ID, JobStatusCancelled, 2*time.Second)
+}
+
+// TestCancel_RunningJob verifies a running job is stopped and marked cancelled.
+func TestCancel_RunningJob(t *testing.T) {
+	gen := newCancelAwareGen()
+	jm := newTestJobManager(t, gen, 2)
+
+	j1 := jm.Submit("proj-cancel-running", JobParams{})
+	waitForStatus(t, jm, j1.ID, JobStatusRunning, 2*time.Second)
+
+	if err := jm.Cancel(j1.ID); err != nil {
+		t.Fatalf("Cancel returned unexpected error: %v", err)
+	}
+
+	waitForStatus(t, jm, j1.ID, JobStatusCancelled, 2*time.Second)
+}
+
+// TestCancel_TerminalJob_Error verifies Cancel returns an error for already-completed jobs.
+func TestCancel_TerminalJob_Error(t *testing.T) {
+	gen := newMockGen()
+	jm := newTestJobManager(t, gen, 2)
+
+	j := jm.Submit("proj-cancel-terminal", JobParams{})
+	close(gen.ch)
+	waitForStatus(t, jm, j.ID, JobStatusCompleted, 2*time.Second)
+
+	if err := jm.Cancel(j.ID); err == nil {
+		t.Error("expected error when cancelling completed job, got nil")
+	}
+}
+
+// TestCancel_UnknownID_Error verifies Cancel returns an error for unknown job IDs.
+func TestCancel_UnknownID_Error(t *testing.T) {
+	gen := newMockGen()
+	defer close(gen.ch)
+
+	jm := newTestJobManager(t, gen, 2)
+
+	if err := jm.Cancel("does-not-exist"); err == nil {
+		t.Error("expected error for unknown job ID, got nil")
+	}
+}
+
+// TestCancel_AllowsResubmit verifies a new job can be submitted after cancellation.
+func TestCancel_AllowsResubmit(t *testing.T) {
+	gen := newCancelAwareGen()
+	jm := newTestJobManager(t, gen, 2)
+
+	j1 := jm.Submit("proj-resubmit", JobParams{})
+	waitForStatus(t, jm, j1.ID, JobStatusRunning, 2*time.Second)
+
+	if err := jm.Cancel(j1.ID); err != nil {
+		t.Fatalf("Cancel failed: %v", err)
+	}
+	waitForStatus(t, jm, j1.ID, JobStatusCancelled, 2*time.Second)
+
+	// Close gen.ch so the next GenerateReport call returns immediately.
+	close(gen.ch)
+
+	j2 := jm.Submit("proj-resubmit", JobParams{})
+	if j2.ID == j1.ID {
+		t.Error("expected new job ID after cancel, got same ID")
+	}
+}
+
 // TestCleanupExpired_KeepsActiveJobs verifies pending/running jobs are not removed.
 func TestCleanupExpired_KeepsActiveJobs(t *testing.T) {
 	gen := newMockGen()

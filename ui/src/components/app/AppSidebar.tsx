@@ -9,8 +9,10 @@ import {
   FolderOpen,
   Gauge,
   LayoutDashboard,
+  Shield,
 } from 'lucide-react'
 import { getProjects } from '@/api/projects'
+import { useAuthStore } from '@/store/auth'
 import {
   Sidebar,
   SidebarContent,
@@ -40,6 +42,7 @@ export function AppSidebar() {
   const { id: projectId } = useParams<{ id: string }>()
   const [userClosed, setUserClosed] = useState(false)
   const open = !userClosed || !!projectId
+  const isAdmin = useAuthStore((s) => s.isAdmin())
 
   const { data, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -72,6 +75,21 @@ export function AppSidebar() {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
+
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <NavLink to="/admin">
+                    <Shield />
+                    <span>System Monitor</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarMenu>

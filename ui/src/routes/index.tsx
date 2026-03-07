@@ -26,6 +26,9 @@ const ReportViewerPage = lazy(() =>
 const ComparePage = lazy(() =>
   import('@/features/compare/ComparePage').then(m => ({ default: m.ComparePage })),
 )
+const AdminPage = lazy(() =>
+  import('@/features/admin').then(m => ({ default: m.AdminPage })),
+)
 
 function PageLoader() {
   return (
@@ -111,6 +114,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <ReportViewerPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="admin"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <AdminPage />
               </Suspense>
             }
           />

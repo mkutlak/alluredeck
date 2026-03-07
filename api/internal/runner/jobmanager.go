@@ -2,6 +2,9 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -89,20 +92,38 @@ func (jm *JobManager) Submit(projectID string, params JobParams) *Job {
 func (jm *JobManager) runWorker(job *Job) {
 	defer jm.wg.Done()
 
+	// Create per-job context so Cancel() can stop GenerateReport.
+	jobCtx, jobCancel := context.WithCancel(jm.ctx)
+	defer jobCancel()
+
+	// Store cancel func under lock so Cancel() can call it.
+	jm.mu.Lock()
+	job.cancel = jobCancel
+	jm.mu.Unlock()
+
 	// Acquire semaphore (blocks if pool is full).
 	jm.semaphore <- struct{}{}
 	defer func() { <-jm.semaphore }()
 
-	// Mark job as running.
+	// Check under lock whether the job was cancelled before acquiring the slot.
 	now := time.Now()
 	jm.mu.Lock()
+	if job.Status == JobStatusCancelled {
+		if job.CompletedAt == nil {
+			job.CompletedAt = &now
+		}
+		jm.mu.Unlock()
+		return
+	}
+
+	// Mark job as running.
 	job.Status = JobStatusRunning
 	job.StartedAt = &now
 	jm.mu.Unlock()
 
-	// Run the generator using the server context (not the HTTP request context).
+	// Run the generator using the per-job context (not the server context).
 	out, err := jm.generator.GenerateReport(
-		jm.ctx,
+		jobCtx,
 		job.ProjectID,
 		job.Params.ExecName,
 		job.Params.ExecFrom,
@@ -116,13 +137,20 @@ func (jm *JobManager) runWorker(job *Job) {
 	jm.mu.Lock()
 	job.CompletedAt = &completedAt
 	if err != nil {
-		job.Status = JobStatusFailed
-		job.Error = err.Error()
-		jm.logger.Error("async report generation failed",
-			zap.String("job_id", job.ID),
-			zap.String("project_id", job.ProjectID),
-			zap.Error(err),
-		)
+		if errors.Is(err, context.Canceled) {
+			// Context was cancelled by Cancel() — status is already set; just ensure it's marked.
+			job.Status = JobStatusCancelled
+			// projectJobs was already cleaned up by Cancel(); do not delete here.
+		} else {
+			job.Status = JobStatusFailed
+			job.Error = err.Error()
+			jm.logger.Error("async report generation failed",
+				zap.String("job_id", job.ID),
+				zap.String("project_id", job.ProjectID),
+				zap.Error(err),
+			)
+			delete(jm.projectJobs, job.ProjectID)
+		}
 	} else {
 		job.Status = JobStatusCompleted
 		job.Output = out
@@ -130,10 +158,47 @@ func (jm *JobManager) runWorker(job *Job) {
 			zap.String("job_id", job.ID),
 			zap.String("project_id", job.ProjectID),
 		)
+		delete(jm.projectJobs, job.ProjectID)
 	}
-	// Remove from projectJobs so new jobs can be submitted for this project.
-	delete(jm.projectJobs, job.ProjectID)
 	jm.mu.Unlock()
+}
+
+// ListJobs returns copies of all known jobs sorted by creation time (newest first).
+// The returned slice is never nil.
+func (jm *JobManager) ListJobs() []*Job {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+
+	jobs := make([]*Job, 0, len(jm.jobs))
+	for _, j := range jm.jobs {
+		jobs = append(jobs, copyJob(j))
+	}
+	sort.Slice(jobs, func(i, k int) bool {
+		return jobs[i].CreatedAt.After(jobs[k].CreatedAt)
+	})
+	return jobs
+}
+
+// Cancel cancels the job with the given ID.
+// Returns an error if the job is not found or is already in a terminal state.
+func (jm *JobManager) Cancel(jobID string) error {
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+
+	j, ok := jm.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("job %q not found", jobID)
+	}
+	if j.Status == JobStatusCompleted || j.Status == JobStatusFailed || j.Status == JobStatusCancelled {
+		return fmt.Errorf("job %q is already in terminal state %q", jobID, j.Status)
+	}
+
+	if j.cancel != nil {
+		j.cancel()
+	}
+	j.Status = JobStatusCancelled
+	delete(jm.projectJobs, j.ProjectID)
+	return nil
 }
 
 // Get returns a copy of the job with the given ID, or nil if not found.
@@ -152,13 +217,13 @@ func (jm *JobManager) Shutdown() {
 	jm.wg.Wait()
 }
 
-// cleanupExpired removes completed/failed jobs older than maxAge from both maps.
+// cleanupExpired removes completed, failed, and cancelled jobs older than maxAge.
 func (jm *JobManager) cleanupExpired(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 	for id, j := range jm.jobs {
-		if j.Status != JobStatusCompleted && j.Status != JobStatusFailed {
+		if j.Status != JobStatusCompleted && j.Status != JobStatusFailed && j.Status != JobStatusCancelled {
 			continue
 		}
 		if j.CompletedAt != nil && !j.CompletedAt.After(cutoff) {
