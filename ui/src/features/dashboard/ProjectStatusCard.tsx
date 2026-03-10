@@ -101,15 +101,15 @@ export function ProjectStatusCard({ project }: Props) {
           {sparkline.length > 0 && <PassRateSparkline data={sparkline} />}
 
           {latest_build ? (
-            <div className="space-y-1 text-sm text-muted-foreground">
+            <div className="text-muted-foreground space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Tests</span>
-                <span className="font-medium text-foreground">{latest_build.statistics.total}</span>
+                <span className="text-foreground font-medium">{latest_build.statistics.total}</span>
               </div>
               {latest_build.statistics.failed + latest_build.statistics.broken > 0 && (
                 <div className="flex justify-between">
                   <span>Failures</span>
-                  <span className="font-medium text-destructive">
+                  <span className="text-destructive font-medium">
                     {latest_build.statistics.failed + latest_build.statistics.broken}
                   </span>
                 </div>
@@ -122,30 +122,30 @@ export function ProjectStatusCard({ project }: Props) {
               )}
               <div className="flex justify-between">
                 <span>Duration</span>
-                <span className="font-medium text-foreground">
+                <span className="text-foreground font-medium">
                   {formatDuration(latest_build.duration_ms)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Last run</span>
-                <span className="font-medium text-foreground">
+                <span className="text-foreground font-medium">
                   {formatDate(latest_build.created_at)}
                 </span>
               </div>
               {latest_build.ci_branch && (
                 <div className="flex justify-between">
                   <span>Branch</span>
-                  <span className="font-medium text-foreground">{latest_build.ci_branch}</span>
+                  <span className="text-foreground font-medium">{latest_build.ci_branch}</span>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No runs yet</p>
+            <p className="text-muted-foreground text-sm">No runs yet</p>
           )}
 
           <NavLink
             to={`/projects/${project.project_id}`}
-            className="mt-auto text-sm text-primary hover:underline"
+            className="text-primary mt-auto text-sm hover:underline"
           >
             View project
           </NavLink>

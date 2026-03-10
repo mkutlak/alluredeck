@@ -51,7 +51,9 @@ export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: P
     const trimmed = tag.trim()
     if (!trimmed) return
     if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
-      setError('Tag contains invalid characters: only letters, numbers, hyphens, and underscores are allowed.')
+      setError(
+        'Tag contains invalid characters: only letters, numbers, hyphens, and underscores are allowed.',
+      )
       return
     }
     if (trimmed.length > 50) {
@@ -101,7 +103,7 @@ export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: P
                   <button
                     type="button"
                     onClick={() => removeTag(tag)}
-                    className="ml-0.5 rounded-full hover:bg-muted-foreground/20"
+                    className="hover:bg-muted-foreground/20 ml-0.5 rounded-full"
                     aria-label={`Remove tag ${tag}`}
                   >
                     <X size={10} />
@@ -125,12 +127,12 @@ export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: P
             />
             {/* Autocomplete suggestions */}
             {input.trim() && suggestions.length > 0 && (
-              <ul className="absolute z-10 mt-1 w-full rounded-md border bg-popover py-1 shadow-md">
+              <ul className="bg-popover absolute z-10 mt-1 w-full rounded-md border py-1 shadow-md">
                 {suggestions.slice(0, 6).map((s) => (
                   <li key={s}>
                     <button
                       type="button"
-                      className="w-full px-3 py-1.5 text-left text-sm hover:bg-accent"
+                      className="hover:bg-accent w-full px-3 py-1.5 text-left text-sm"
                       onMouseDown={(e) => {
                         e.preventDefault()
                         addTag(s)
@@ -145,7 +147,7 @@ export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: P
             )}
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
 
         <DialogFooter>

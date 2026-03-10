@@ -6,11 +6,7 @@ import { getProjects } from '@/api/projects'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Command,
   CommandEmpty,

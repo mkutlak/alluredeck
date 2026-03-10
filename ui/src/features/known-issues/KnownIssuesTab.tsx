@@ -46,7 +46,11 @@ export function KnownIssuesTab() {
   const [editIssue, setEditIssue] = useState<KnownIssue | null>(null)
   const [deleteIssueId, setDeleteIssueId] = useState<number | null>(null)
 
-  const { data: issues, isLoading, isError } = useQuery({
+  const {
+    data: issues,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: queryKeys.knownIssues(projectId!),
     queryFn: () => listKnownIssues(projectId!, false),
     enabled: !!projectId,
@@ -66,7 +70,11 @@ export function KnownIssuesTab() {
       toast({ title: 'Status updated' })
     },
     onError: (err) => {
-      toast({ title: 'Update failed', description: extractErrorMessage(err), variant: 'destructive' })
+      toast({
+        title: 'Update failed',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -79,7 +87,11 @@ export function KnownIssuesTab() {
       setDeleteIssueId(null)
     },
     onError: (err) => {
-      toast({ title: 'Delete failed', description: extractErrorMessage(err), variant: 'destructive' })
+      toast({
+        title: 'Delete failed',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
       setDeleteIssueId(null)
     },
   })
@@ -92,7 +104,7 @@ export function KnownIssuesTab() {
     <div className="space-y-4">
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
-        <p className="text-sm text-muted-foreground">Known Issues</p>
+        <p className="text-muted-foreground text-sm">Known Issues</p>
       </div>
 
       <div className="flex items-center justify-between gap-4">
@@ -121,14 +133,14 @@ export function KnownIssuesTab() {
           ))}
         </div>
       ) : isError ? (
-        <div className="rounded-lg border border-destructive/50 p-4 text-center">
-          <p className="text-sm text-destructive">Failed to load known issues. Please try again.</p>
+        <div className="border-destructive/50 rounded-lg border p-4 text-center">
+          <p className="text-destructive text-sm">Failed to load known issues. Please try again.</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No known issues tracked for this project</p>
           {isAdmin() && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               Add known issues to separate them from new failures in reports.
             </p>
           )}
@@ -156,16 +168,16 @@ export function KnownIssuesTab() {
                         href={issue.ticket_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-sm text-primary hover:underline"
+                        className="text-primary flex items-center gap-1 text-sm hover:underline"
                       >
                         <ExternalLink size={12} />
                         {issue.ticket_url.replace(/^https?:\/\//, '')}
                       </a>
                     ) : (
-                      <span className="text-sm text-muted-foreground">—</span>
+                      <span className="text-muted-foreground text-sm">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
+                  <TableCell className="text-muted-foreground max-w-xs truncate text-sm">
                     {issue.description || '—'}
                   </TableCell>
                   <TableCell className="text-center">
@@ -187,7 +199,7 @@ export function KnownIssuesTab() {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-muted-foreground text-sm">
                     {formatDate(issue.created_at)}
                   </TableCell>
                   {isAdmin() && (

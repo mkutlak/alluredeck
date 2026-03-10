@@ -21,8 +21,7 @@ export const queryKeys = {
   lowPerforming: (pid: string) => ['low-performing-tests', pid] as const,
   knownIssues: (pid: string) => ['known-issues', pid] as const,
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
-  buildComparison: (pid: string, a: number, b: number) =>
-    ['build-comparison', pid, a, b] as const,
+  buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
   adminJobs: ['admin-jobs'] as const,
   adminResults: ['admin-results'] as const,
   branches: {
@@ -35,8 +34,7 @@ export const queryKeys = {
         : (['test-history', projectId, historyId] as const),
   },
   // Phase 8 — PostgreSQL analytics dashboards
-  topErrors: (projectId: string, builds: number) =>
-    ['top-errors', projectId, builds] as const,
+  topErrors: (projectId: string, builds: number) => ['top-errors', projectId, builds] as const,
   suitePassRates: (projectId: string, builds: number) =>
     ['suite-pass-rates', projectId, builds] as const,
   labelBreakdown: (projectId: string, name: string, builds: number) =>
@@ -69,9 +67,7 @@ export async function invalidateProjectQueries(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
-    ...projectScopedKeys(projectId).map((key) =>
-      queryClient.invalidateQueries({ queryKey: key }),
-    ),
+    ...projectScopedKeys(projectId).map((key) => queryClient.invalidateQueries({ queryKey: key })),
   ])
 }
 

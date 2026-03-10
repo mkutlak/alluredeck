@@ -41,8 +41,8 @@ export function formatRelativeTime(ms: number): string {
 
 /** Nice step intervals in ms, ordered smallest → largest. */
 const NICE_INTERVALS_MS = [
-  1_000, 2_000, 5_000, 10_000, 15_000, 30_000,
-  60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000,
+  1_000, 2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000,
+  3_600_000,
 ]
 
 /**
@@ -86,11 +86,7 @@ export function computeTicks(minStart: number, maxStop: number): TickMark[] {
  * @param minStart  Absolute timestamp of the timeline origin.
  * @param totalMs   Total duration of the visible timeline window.
  */
-export function computeBar(
-  tc: TimelineTestCase,
-  minStart: number,
-  totalMs: number,
-): ComputedBar {
+export function computeBar(tc: TimelineTestCase, minStart: number, totalMs: number): ComputedBar {
   const leftMs = Math.max(0, tc.start - minStart)
   const widthMs = Math.max(0, tc.stop - tc.start)
   const leftPct = (leftMs / totalMs) * 100

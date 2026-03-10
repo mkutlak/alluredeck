@@ -16,12 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { DiffCategory } from '@/types/api'
 
 type FilterValue = DiffCategory | 'all'
@@ -53,8 +48,14 @@ function DiffCategoryBadge({ category }: { category: DiffCategory }) {
 function DurationDelta({ delta }: { delta: number }) {
   if (delta === 0) return <span className="text-muted-foreground">—</span>
   const sign = delta > 0 ? '+' : ''
-  const cls = delta > 0 ? 'text-[#d20f39] dark:text-[#f38ba8]' : 'text-[#40a02b] dark:text-[#a6e3a1]'
-  return <span className={cls}>{sign}{formatDuration(Math.abs(delta))}</span>
+  const cls =
+    delta > 0 ? 'text-[#d20f39] dark:text-[#f38ba8]' : 'text-[#40a02b] dark:text-[#a6e3a1]'
+  return (
+    <span className={cls}>
+      {sign}
+      {formatDuration(Math.abs(delta))}
+    </span>
+  )
 }
 
 export function ComparePage() {
@@ -81,8 +82,8 @@ export function ComparePage() {
   if (!paramsValid) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-        <p className="text-lg font-medium text-destructive">Invalid comparison parameters</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-destructive text-lg font-medium">Invalid comparison parameters</p>
+        <p className="text-muted-foreground text-sm">
           Both <code>a</code> and <code>b</code> query parameters must be positive integers.
         </p>
         <Button asChild variant="outline" size="sm">
@@ -124,7 +125,7 @@ export function ComparePage() {
             <h1 className="text-xl font-semibold">
               Build #{buildA} vs Build #{buildB}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               {summary.total} difference{summary.total !== 1 ? 's' : ''} found
             </p>
           </div>
@@ -134,8 +135,8 @@ export function ComparePage() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {categories.map((cat) => (
             <Card key={cat}>
-              <CardHeader className="pb-1 pt-4">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardHeader className="pt-4 pb-1">
+                <CardTitle className="text-muted-foreground text-sm font-medium">
                   {CATEGORY_LABELS[cat]}
                 </CardTitle>
               </CardHeader>
@@ -170,7 +171,9 @@ export function ComparePage() {
         {/* Diff table */}
         {filteredTests.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
-            <p className="text-sm text-muted-foreground">No differences found between these builds.</p>
+            <p className="text-muted-foreground text-sm">
+              No differences found between these builds.
+            </p>
           </div>
         ) : (
           <div className="rounded-lg border">
@@ -193,24 +196,20 @@ export function ComparePage() {
                           <span className="cursor-default font-medium">{entry.test_name}</span>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p className="max-w-xs break-all text-xs">{entry.full_name}</p>
+                          <p className="max-w-xs text-xs break-all">{entry.full_name}</p>
                         </TooltipContent>
                       </Tooltip>
                     </TableCell>
                     <TableCell>
                       {entry.status_a ? (
-                        <Badge variant={getStatusVariant(entry.status_a)}>
-                          {entry.status_a}
-                        </Badge>
+                        <Badge variant={getStatusVariant(entry.status_a)}>{entry.status_a}</Badge>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell>
                       {entry.status_b ? (
-                        <Badge variant={getStatusVariant(entry.status_b)}>
-                          {entry.status_b}
-                        </Badge>
+                        <Badge variant={getStatusVariant(entry.status_b)}>{entry.status_b}</Badge>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

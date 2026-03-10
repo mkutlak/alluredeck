@@ -65,13 +65,15 @@ func (m *MemJobManager) Submit(projectID string, params JobParams) *Job {
 	return j
 }
 
-// ListJobs returns all known jobs.
+// ListJobs returns a snapshot of all known jobs.
+// Each element is a copy so callers can safely read fields without holding the lock.
 func (m *MemJobManager) ListJobs() []*Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	jobs := make([]*Job, 0, len(m.jobs))
 	for _, j := range m.jobs {
-		jobs = append(jobs, j)
+		cp := *j
+		jobs = append(jobs, &cp)
 	}
 	return jobs
 }
@@ -120,11 +122,17 @@ func (m *MemJobManager) Delete(jobID string) error {
 	return nil
 }
 
-// Get returns a job by ID, or nil if not found.
+// Get returns a snapshot of a job by ID, or nil if not found.
+// The returned value is a copy so callers can safely read fields without holding the lock.
 func (m *MemJobManager) Get(jobID string) *Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.jobs[jobID]
+	j, ok := m.jobs[jobID]
+	if !ok {
+		return nil
+	}
+	cp := *j
+	return &cp
 }
 
 func (m *MemJobManager) runWorker(ctx context.Context) {

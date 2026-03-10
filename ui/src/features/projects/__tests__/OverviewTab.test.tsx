@@ -56,13 +56,18 @@ function renderTab(isAdminUser = false) {
     flaky_tests: [],
     new_failed: [],
     new_passed: [],
-    summary: { flaky_count: 0, retried_count: 0, new_failed_count: 0, new_passed_count: 0, total: 0 },
+    summary: {
+      flaky_count: 0,
+      retried_count: 0,
+      new_failed_count: 0,
+      new_passed_count: 0,
+      total: 0,
+    },
   })
 
-  const router = createMemoryRouter(
-    [{ path: '/projects/:id', element: <OverviewTab /> }],
-    { initialEntries: ['/projects/test-project'] },
-  )
+  const router = createMemoryRouter([{ path: '/projects/:id', element: <OverviewTab /> }], {
+    initialEntries: ['/projects/test-project'],
+  })
 
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -79,10 +84,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('filters the synthetic "latest" alias out of the history table', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true), makeReport('41'), makeReport('40')],
-        { page: 1, per_page: 20, total: 2, total_pages: 1 },
-      ),
+      makePaginated([makeReport('latest', true), makeReport('41'), makeReport('40')], {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      }),
     )
     renderTab()
     await waitFor(() => {
@@ -94,10 +101,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('shows empty state when only the synthetic "latest" alias is returned', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true)],
-        { page: 1, per_page: 20, total: 0, total_pages: 0 },
-      ),
+      makePaginated([makeReport('latest', true)], {
+        page: 1,
+        per_page: 20,
+        total: 0,
+        total_pages: 0,
+      }),
     )
     renderTab()
     await waitFor(() => {
@@ -107,10 +116,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('shows total count from pagination metadata in the stat card', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true), makeReport('20')],
-        { page: 1, per_page: 20, total: 50, total_pages: 3 },
-      ),
+      makePaginated([makeReport('latest', true), makeReport('20')], {
+        page: 1,
+        per_page: 20,
+        total: 50,
+        total_pages: 3,
+      }),
     )
     renderTab()
     await waitFor(() => {
@@ -120,10 +131,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('hides pagination controls when total_pages <= 1', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true), makeReport('1')],
-        { page: 1, per_page: 20, total: 1, total_pages: 1 },
-      ),
+      makePaginated([makeReport('latest', true), makeReport('1')], {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        total_pages: 1,
+      }),
     )
     renderTab()
     await waitFor(() => screen.getByText('#1'))
@@ -132,10 +145,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('shows pagination controls when total_pages > 1', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true), makeReport('20'), makeReport('19')],
-        { page: 1, per_page: 20, total: 50, total_pages: 3 },
-      ),
+      makePaginated([makeReport('latest', true), makeReport('20'), makeReport('19')], {
+        page: 1,
+        per_page: 20,
+        total: 50,
+        total_pages: 3,
+      }),
     )
     renderTab()
     await waitFor(() => {
@@ -145,10 +160,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('shows page info text', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true), makeReport('20')],
-        { page: 1, per_page: 20, total: 50, total_pages: 3 },
-      ),
+      makePaginated([makeReport('latest', true), makeReport('20')], {
+        page: 1,
+        per_page: 20,
+        total: 50,
+        total_pages: 3,
+      }),
     )
     renderTab()
     await waitFor(() => {
@@ -160,16 +177,20 @@ describe('OverviewTab - report history pagination', () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory)
       .mockResolvedValueOnce(
-        makePaginated(
-          [makeReport('latest', true), makeReport('20')],
-          { page: 1, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('20')], {
+          page: 1,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
       .mockResolvedValue(
-        makePaginated(
-          [makeReport('latest', true), makeReport('5')],
-          { page: 2, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('5')], {
+          page: 2,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
     renderTab()
     await waitFor(() => screen.getByText('#20'))
@@ -184,22 +205,28 @@ describe('OverviewTab - report history pagination', () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory)
       .mockResolvedValueOnce(
-        makePaginated(
-          [makeReport('latest', true), makeReport('page1-report')],
-          { page: 1, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('page1-report')], {
+          page: 1,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
       .mockResolvedValueOnce(
-        makePaginated(
-          [makeReport('latest', true), makeReport('page2-report')],
-          { page: 2, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('page2-report')], {
+          page: 2,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
       .mockResolvedValue(
-        makePaginated(
-          [makeReport('latest', true), makeReport('page1-report')],
-          { page: 1, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('page1-report')], {
+          page: 1,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
     renderTab()
     await waitFor(() => screen.getByText('#page1-report'))
@@ -213,10 +240,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('disables previous button on the first page', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('latest', true), makeReport('20')],
-        { page: 1, per_page: 20, total: 25, total_pages: 2 },
-      ),
+      makePaginated([makeReport('latest', true), makeReport('20')], {
+        page: 1,
+        per_page: 20,
+        total: 25,
+        total_pages: 2,
+      }),
     )
     renderTab()
     await waitFor(() => {
@@ -226,10 +255,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('renders checkboxes in table rows', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('42', true), makeReport('41'), makeReport('40')],
-        { page: 1, per_page: 20, total: 2, total_pages: 1 },
-      ),
+      makePaginated([makeReport('42', true), makeReport('41'), makeReport('40')], {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      }),
     )
     renderTab()
     await waitFor(() => screen.getByText('#41'))
@@ -242,10 +273,12 @@ describe('OverviewTab - report history pagination', () => {
   it('selecting 2 builds shows compare button and link', async () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('42', true), makeReport('41'), makeReport('40')],
-        { page: 1, per_page: 20, total: 2, total_pages: 1 },
-      ),
+      makePaginated([makeReport('42', true), makeReport('41'), makeReport('40')], {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      }),
     )
     renderTab()
     await waitFor(() => screen.getByText('#41'))
@@ -262,10 +295,12 @@ describe('OverviewTab - report history pagination', () => {
   it('compare link contains correct build params', async () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('42', true), makeReport('41'), makeReport('40')],
-        { page: 1, per_page: 20, total: 2, total_pages: 1 },
-      ),
+      makePaginated([makeReport('42', true), makeReport('41'), makeReport('40')], {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      }),
     )
     renderTab()
     await waitFor(() => screen.getByText('#41'))
@@ -307,10 +342,12 @@ describe('OverviewTab - report history pagination', () => {
   it('clear button resets selection', async () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('42', true), makeReport('41'), makeReport('40')],
-        { page: 1, per_page: 20, total: 2, total_pages: 1 },
-      ),
+      makePaginated([makeReport('42', true), makeReport('41'), makeReport('40')], {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      }),
     )
     renderTab()
     await waitFor(() => screen.getByText('#41'))
@@ -334,10 +371,12 @@ describe('OverviewTab - report history pagination', () => {
 
   it('renders BranchSelector', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated(
-        [makeReport('42', true), makeReport('41')],
-        { page: 1, per_page: 20, total: 1, total_pages: 1 },
-      ),
+      makePaginated([makeReport('42', true), makeReport('41')], {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        total_pages: 1,
+      }),
     )
     renderTab()
     // BranchSelector renders null when there are no branches (branches query returns empty/undefined)
@@ -386,16 +425,20 @@ describe('OverviewTab - report history pagination', () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory)
       .mockResolvedValueOnce(
-        makePaginated(
-          [makeReport('latest', true), makeReport('20')],
-          { page: 1, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('20')], {
+          page: 1,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
       .mockResolvedValue(
-        makePaginated(
-          [makeReport('latest', true), makeReport('5')],
-          { page: 2, per_page: 20, total: 25, total_pages: 2 },
-        ),
+        makePaginated([makeReport('latest', true), makeReport('5')], {
+          page: 2,
+          per_page: 20,
+          total: 25,
+          total_pages: 2,
+        }),
       )
     renderTab()
     await waitFor(() => screen.getByText('#20'))

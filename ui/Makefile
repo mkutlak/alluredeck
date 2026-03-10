@@ -7,7 +7,7 @@
 # ── Variables ──────────────────────────────────────────────────
 BUILD_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-.PHONY: help install dev build preview typecheck lint format \
+.PHONY: help install upgrade dev build preview typecheck lint format \
         test test-watch test-allure upload-allure-results coverage check clean
 
 help: ## Show available targets
@@ -18,6 +18,10 @@ help: ## Show available targets
 
 install: ## Install dependencies (npm ci)
 	npm ci
+
+upgrade: ## Upgrade all dependencies to latest versions (updates package.json + installs)
+	npx npm-check-updates -u
+	npm install
 
 # ── Dev ─────────────────────────────────────────────────────────
 

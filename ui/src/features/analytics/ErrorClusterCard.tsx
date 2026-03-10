@@ -4,12 +4,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface Props {
   projectId: string
@@ -48,7 +43,7 @@ export function ErrorClusterCard({ projectId }: Props) {
             ))}
           </div>
         ) : errors.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
+          <p className="text-muted-foreground py-4 text-center text-sm">
             No failure data available
           </p>
         ) : (
@@ -56,7 +51,7 @@ export function ErrorClusterCard({ projectId }: Props) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
+                  <tr className="text-muted-foreground border-b text-xs">
                     <th className="pb-1 text-left font-medium">Failure Message</th>
                     <th className="pb-1 text-right font-medium">Occurrences</th>
                   </tr>

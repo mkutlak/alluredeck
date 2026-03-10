@@ -22,7 +22,10 @@ function renderDialog(props: {
   onOpenChange?: (open: boolean) => void
 }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  vi.mocked(projectsApi.getTags).mockResolvedValue({ data: ['backend', 'nightly', 'frontend'], metadata: { message: '' } })
+  vi.mocked(projectsApi.getTags).mockResolvedValue({
+    data: ['backend', 'nightly', 'frontend'],
+    metadata: { message: '' },
+  })
   return render(
     <QueryClientProvider client={qc}>
       <EditTagsDialog

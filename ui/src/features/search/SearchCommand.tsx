@@ -82,17 +82,11 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
           onValueChange={setQuery}
         />
         <CommandList>
-          {isFetching && hasQuery && (
-            <CommandEmpty>Searching...</CommandEmpty>
-          )}
+          {isFetching && hasQuery && <CommandEmpty>Searching...</CommandEmpty>}
 
-          {!isFetching && hasQuery && !hasResults && (
-            <CommandEmpty>No results found.</CommandEmpty>
-          )}
+          {!isFetching && hasQuery && !hasResults && <CommandEmpty>No results found.</CommandEmpty>}
 
-          {!hasQuery && (
-            <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>
-          )}
+          {!hasQuery && <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>}
 
           {projects.length > 0 && (
             <CommandGroup heading="Projects">
@@ -102,7 +96,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                   value={`project-${p.project_id}`}
                   onSelect={() => handleSelect(`/projects/${p.project_id}`)}
                 >
-                  <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                  <FolderOpen className="text-muted-foreground size-4 shrink-0" />
                   <span>{p.project_id}</span>
                 </CommandItem>
               ))}
@@ -119,10 +113,10 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                   value={`test-${t.project_id}-${t.test_name}-${i}`}
                   onSelect={() => handleSelect(`/projects/${t.project_id}`)}
                 >
-                  <FlaskConical className="size-4 shrink-0 text-muted-foreground" />
+                  <FlaskConical className="text-muted-foreground size-4 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <span className="block truncate">{t.test_name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
+                    <span className="text-muted-foreground block truncate text-xs">
                       {t.project_id}
                     </span>
                   </div>
