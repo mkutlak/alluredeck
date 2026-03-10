@@ -1,3 +1,12 @@
+## [0.5.0](https://github.com/mkutlak/alluredeck/compare/v0.4.0...v0.5.0) (2026-03-10)
+
+### Features
+
+* add admin system monitor for job and results management ([7153bcf](https://github.com/mkutlak/alluredeck/commit/7153bcf0e0294cd07742c428115233061abf2eb3))
+* implement branch management and per-test history tracking ([5ac3e2f](https://github.com/mkutlak/alluredeck/commit/5ac3e2ffbdf6a594aa89b71278ff18effc458057))
+* implement build comparison (diff view) across API and UI ([0e08ead](https://github.com/mkutlak/alluredeck/commit/0e08eadba9cbbb94f1b2df1b53c148ec27abdc4e))
+* migrate to PostgreSQL analytics and upgrade UI theme ([9722299](https://github.com/mkutlak/alluredeck/commit/9722299ef5b210a601a944058636e356d6871787))
+
 ## [0.4.0](https://github.com/mkutlak/alluredeck/compare/v0.3.0...v0.4.0) (2026-03-07)
 
 ### Features
