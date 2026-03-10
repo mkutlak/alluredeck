@@ -60,21 +60,20 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
 }
 
 function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<UIState> = {}) {
-  vi.mocked(useAuthStore).mockImplementation(
-    (selector: (state: AuthState) => unknown) =>
-      selector({
-        isAuthenticated: false,
-        roles: isAdmin ? (['admin'] as Role[]) : [],
-        username: null,
-        expiresAt: null,
-        setAuth: vi.fn(),
-        clearAuth: vi.fn(),
-        isAdmin: () => isAdmin,
-        isSessionValid: () => true,
-      }),
+  vi.mocked(useAuthStore).mockImplementation((selector: (state: AuthState) => unknown) =>
+    selector({
+      isAuthenticated: false,
+      roles: isAdmin ? (['admin'] as Role[]) : [],
+      username: null,
+      expiresAt: null,
+      setAuth: vi.fn(),
+      clearAuth: vi.fn(),
+      isAdmin: () => isAdmin,
+      isSessionValid: () => true,
+    }),
   )
-  vi.mocked(useUIStore).mockImplementation(
-    (selector: (state: UIState) => unknown) => selector(makeUIState(uiStateOverrides)),
+  vi.mocked(useUIStore).mockImplementation((selector: (state: UIState) => unknown) =>
+    selector(makeUIState(uiStateOverrides)),
   )
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(

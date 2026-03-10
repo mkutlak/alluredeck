@@ -90,9 +90,7 @@ export function LabelBreakdownCard({ projectId }: Props) {
         {isLoading ? (
           <Skeleton className="h-[300px] w-full rounded-md" />
         ) : labels.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            No label data available
-          </p>
+          <p className="text-muted-foreground py-4 text-center text-sm">No label data available</p>
         ) : (
           <ChartContainer config={chartConfig} className="h-[300px] w-full">
             <PieChart accessibilityLayer>

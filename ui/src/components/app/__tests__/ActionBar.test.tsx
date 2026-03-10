@@ -29,18 +29,17 @@ vi.mock('@/features/reports/CleanDialog', () => ({
 }))
 
 function renderActionBar(path: string, isAdminResult = true) {
-  vi.mocked(useAuthStore).mockImplementation(
-    (selector: (state: AuthState) => unknown) =>
-      selector({
-        isAuthenticated: false,
-        roles: isAdminResult ? (['admin'] as Role[]) : [],
-        username: null,
-        expiresAt: null,
-        setAuth: vi.fn(),
-        clearAuth: vi.fn(),
-        isAdmin: () => isAdminResult,
-        isSessionValid: () => true,
-      }),
+  vi.mocked(useAuthStore).mockImplementation((selector: (state: AuthState) => unknown) =>
+    selector({
+      isAuthenticated: false,
+      roles: isAdminResult ? (['admin'] as Role[]) : [],
+      username: null,
+      expiresAt: null,
+      setAuth: vi.fn(),
+      clearAuth: vi.fn(),
+      isAdmin: () => isAdminResult,
+      isSessionValid: () => true,
+    }),
   )
   return render(
     <MemoryRouter initialEntries={[path]}>

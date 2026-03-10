@@ -25,7 +25,11 @@ import { LabelBreakdownCard } from './LabelBreakdownCard'
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
 
-  const { data: historyData, isLoading, isError } = useQuery({
+  const {
+    data: historyData,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: queryKeys.reportHistoryAnalytics(projectId!),
     queryFn: () => fetchReportHistory(projectId!, 1, 100),
     enabled: !!projectId,
@@ -46,7 +50,10 @@ export function AnalyticsTab() {
   const durationTrend = useMemo(() => toDurationTrendData(reports), [reports])
   const pieData = useMemo(() => toStatusPieData(reports), [reports])
   const total = reports[0]?.statistic?.total ?? 0
-  const categoryData = useMemo(() => toCategoryBreakdownData(categoriesData ?? []), [categoriesData])
+  const categoryData = useMemo(
+    () => toCategoryBreakdownData(categoriesData ?? []),
+    [categoriesData],
+  )
 
   if (!projectId) return null
 
@@ -62,8 +69,8 @@ export function AnalyticsTab() {
 
   if (isError) {
     return (
-      <div className="rounded-lg border border-destructive/50 p-4 text-center">
-        <p className="text-sm text-destructive">Failed to load analytics data. Please try again.</p>
+      <div className="border-destructive/50 rounded-lg border p-4 text-center">
+        <p className="text-destructive text-sm">Failed to load analytics data. Please try again.</p>
       </div>
     )
   }
@@ -72,7 +79,7 @@ export function AnalyticsTab() {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
         <p className="font-medium">No report data yet</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Generate a report to see analytics charts here.
         </p>
       </div>
@@ -83,7 +90,7 @@ export function AnalyticsTab() {
     <div className="space-y-4">
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
-        <p className="text-sm text-muted-foreground">Analytics</p>
+        <p className="text-muted-foreground text-sm">Analytics</p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

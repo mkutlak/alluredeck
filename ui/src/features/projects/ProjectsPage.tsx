@@ -29,8 +29,10 @@ export function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground">
-            {isLoading ? 'Loading…' : `${projects.length} project${projects.length !== 1 ? 's' : ''}`}
+          <p className="text-muted-foreground text-sm">
+            {isLoading
+              ? 'Loading…'
+              : `${projects.length} project${projects.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -74,7 +76,7 @@ export function ProjectsPage() {
 
       {/* Error state */}
       {isError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+        <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border p-4 text-sm">
           Failed to load projects. Check the API connection and try again.
         </div>
       )}
@@ -94,7 +96,7 @@ export function ProjectsPage() {
           <FolderX size={40} className="text-muted-foreground/50" />
           <div>
             <p className="font-medium">No projects yet</p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               {isAdmin()
                 ? 'Create a project to start collecting Allure results.'
                 : 'Ask an administrator to create a project.'}
@@ -134,9 +136,7 @@ export function ProjectsPage() {
         </div>
       )}
 
-      {isAdmin() && (
-        <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
-      )}
+      {isAdmin() && <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />}
     </div>
   )
 }

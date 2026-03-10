@@ -90,7 +90,7 @@ function ProjectStatCards({
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Pass Rate</CardTitle>
+          <CardTitle className="text-muted-foreground text-sm font-medium">Pass Rate</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
@@ -102,7 +102,7 @@ function ProjectStatCards({
             </span>
           </div>
           {adjustedPassRate !== null && adjustedPassRate !== passRate && (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-muted-foreground mt-1 text-xs">
               {adjustedPassRate}% adjusted
               <span className="ml-1 text-xs opacity-70">(excl. {knownCount} known)</span>
             </p>
@@ -112,7 +112,7 @@ function ProjectStatCards({
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Total Tests</CardTitle>
+          <CardTitle className="text-muted-foreground text-sm font-medium">Total Tests</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
@@ -121,11 +121,15 @@ function ProjectStatCards({
           </div>
           {stat && (
             <div className="mt-1 flex flex-wrap gap-1">
-              <Badge variant="passed" className="text-xs">{stat.passed} passed</Badge>
+              <Badge variant="passed" className="text-xs">
+                {stat.passed} passed
+              </Badge>
               <Badge variant="failed" className="text-xs">
                 {stat.failed} failed
               </Badge>
-              <Badge variant="broken" className="text-xs">{stat.broken} broken</Badge>
+              <Badge variant="broken" className="text-xs">
+                {stat.broken} broken
+              </Badge>
               <Badge variant="secondary" className="text-xs">
                 {stat.skipped} skipped
               </Badge>
@@ -136,9 +140,7 @@ function ProjectStatCards({
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Last Duration
-          </CardTitle>
+          <CardTitle className="text-muted-foreground text-sm font-medium">Last Duration</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
@@ -152,7 +154,7 @@ function ProjectStatCards({
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Last Run</CardTitle>
+          <CardTitle className="text-muted-foreground text-sm font-medium">Last Run</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
@@ -162,7 +164,7 @@ function ProjectStatCards({
             </span>
           </div>
           {pagination && pagination.total > 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-muted-foreground mt-1 text-xs">
               {pagination.total} report{pagination.total !== 1 ? 's' : ''} total
             </p>
           )}
@@ -211,7 +213,7 @@ function ReportRow({
   const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
 
   return (
-    <TableRow className="cursor-pointer hover:bg-muted/50">
+    <TableRow className="hover:bg-muted/50 cursor-pointer">
       <TableCell onClick={(e) => e.stopPropagation()}>
         <Checkbox
           checked={selectedBuilds.has(r.report_id)}
@@ -221,14 +223,11 @@ function ReportRow({
         />
       </TableCell>
       <TableCell>
-        <Link
-          to={reportUrl}
-          className="font-mono text-sm font-medium text-primary hover:underline"
-        >
+        <Link to={reportUrl} className="text-primary font-mono text-sm font-medium hover:underline">
           #{r.report_id}
         </Link>
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
+      <TableCell className="text-muted-foreground text-sm">
         {r.generated_at ? formatDate(r.generated_at) : '—'}
       </TableCell>
       <TableCell className="text-center font-mono text-sm">{rStat?.total ?? '—'}</TableCell>
@@ -241,7 +240,7 @@ function ReportRow({
       <TableCell className="text-center font-mono text-sm text-[#fe640b] dark:text-[#fab387]">
         {rStat?.broken ?? '—'}
       </TableCell>
-      <TableCell className="text-center font-mono text-sm text-muted-foreground">
+      <TableCell className="text-muted-foreground text-center font-mono text-sm">
         {rStat?.skipped ?? '—'}
       </TableCell>
       <TableCell className="text-center">
@@ -289,28 +288,28 @@ function ReportRow({
                   href={r.ci_build_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                  className="text-primary flex items-center gap-1 text-xs hover:underline"
                 >
                   <ExternalLink size={10} />
                   {r.ci_provider}
                 </a>
               ) : (
-                <span className="text-xs text-muted-foreground">{r.ci_provider}</span>
+                <span className="text-muted-foreground text-xs">{r.ci_provider}</span>
               ))}
             {r.ci_branch && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="text-muted-foreground flex items-center gap-1 text-xs">
                 <GitBranch size={10} />
                 {r.ci_branch}
               </span>
             )}
             {r.ci_commit_sha && (
-              <span className="font-mono text-xs text-muted-foreground">
+              <span className="text-muted-foreground font-mono text-xs">
                 {r.ci_commit_sha.slice(0, 7)}
               </span>
             )}
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-muted-foreground text-xs">—</span>
         )}
       </TableCell>
       <TableCell className="text-right">
@@ -415,7 +414,9 @@ function ReportHistoryTable({
             <TableHead className="text-center text-[#40a02b] dark:text-[#a6e3a1]">Passed</TableHead>
             <TableHead className="text-center text-[#d20f39] dark:text-[#f38ba8]">Failed</TableHead>
             <TableHead className="text-center text-[#fe640b] dark:text-[#fab387]">Broken</TableHead>
-            <TableHead className="text-center text-[#6c6f85] dark:text-[#a6adc8]">Skipped</TableHead>
+            <TableHead className="text-center text-[#6c6f85] dark:text-[#a6adc8]">
+              Skipped
+            </TableHead>
             <TableHead className="text-center">Pass rate</TableHead>
             <TableHead className="text-center">Stability</TableHead>
             <TableHead className="text-center">CI</TableHead>
@@ -429,7 +430,7 @@ function ReportHistoryTable({
               <>
                 <TableRow
                   key={`group-${sha}`}
-                  className="cursor-pointer bg-muted/30 hover:bg-muted/50"
+                  className="bg-muted/30 hover:bg-muted/50 cursor-pointer"
                   onClick={() => toggleSha(sha)}
                   data-testid={`commit-group-${sha.slice(0, 7)}`}
                 >
@@ -437,13 +438,15 @@ function ReportHistoryTable({
                     <div className="flex items-center gap-2 text-sm">
                       <ChevronRight
                         size={14}
-                        className={isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
+                        className={
+                          isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'
+                        }
                       />
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="text-muted-foreground font-mono text-xs">
                         {sha.slice(0, 7)}
                       </span>
                       {latestDate && (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-muted-foreground text-xs">
                           {formatDate(latestDate)}
                         </span>
                       )}
@@ -511,7 +514,7 @@ function ReportPagination({ page, totalPages, onPageChange }: ReportPaginationPr
           </Button>
         </PaginationItem>
         <PaginationItem>
-          <span className="px-4 text-sm text-muted-foreground">
+          <span className="text-muted-foreground px-4 text-sm">
             Page {page} of {totalPages}
           </span>
         </PaginationItem>
@@ -617,7 +620,7 @@ export function OverviewTab() {
       {/* Page title */}
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
-        <p className="text-sm text-muted-foreground">Overview</p>
+        <p className="text-muted-foreground text-sm">Overview</p>
       </div>
 
       {/* Stat cards */}
@@ -632,7 +635,7 @@ export function OverviewTab() {
       />
 
       {/* Environment & Categories & Flaky Tests — G1/G2/A1 */}
-      <div className="grid grid-cols-1 gap-4 [&:empty]:hidden lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 [&:empty]:hidden">
         <EnvironmentCard projectId={projectId} />
         <CategoriesCard projectId={projectId} />
         <FlakyTestsCard projectId={projectId} />
@@ -644,8 +647,8 @@ export function OverviewTab() {
           const [a, b] = Array.from(selectedBuilds)
           const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
           return (
-            <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2">
-              <span className="text-sm text-muted-foreground">2 builds selected</span>
+            <div className="bg-muted/40 flex items-center gap-3 rounded-lg border px-4 py-2">
+              <span className="text-muted-foreground text-sm">2 builds selected</span>
               <Button asChild size="sm">
                 <Link to={compareUrl}>Compare Selected</Link>
               </Button>
@@ -675,7 +678,7 @@ export function OverviewTab() {
           <RefreshCw size={36} className="text-muted-foreground/40" />
           <div>
             <p className="font-medium">No reports yet</p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               {isAdmin()
                 ? 'Send results and generate a report to get started.'
                 : 'No reports available for this project.'}
@@ -695,16 +698,12 @@ export function OverviewTab() {
 
       {/* Pagination controls */}
       {pagination && pagination.total_pages > 1 && (
-        <ReportPagination
-          page={page}
-          totalPages={pagination.total_pages}
-          onPageChange={setPage}
-        />
+        <ReportPagination page={page} totalPages={pagination.total_pages} onPageChange={setPage} />
       )}
 
       {/* Duration summary */}
       {latest?.duration_ms && (
-        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        <p className="text-muted-foreground flex items-center gap-1 text-xs">
           <Clock size={12} />
           Latest suite duration:{' '}
           <span className="font-mono">{formatDuration(latest.duration_ms)}</span>

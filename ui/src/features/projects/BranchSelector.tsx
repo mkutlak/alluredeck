@@ -30,10 +30,7 @@ export function BranchSelector({
   })
 
   // Derive the default branch name once branches are loaded
-  const defaultBranchName = useMemo(
-    () => branches?.find((b) => b.is_default)?.name,
-    [branches],
-  )
+  const defaultBranchName = useMemo(() => branches?.find((b) => b.is_default)?.name, [branches])
 
   // Track when the user explicitly selects "All branches" so we can show it correctly
   // even when selectedBranch is undefined (which also describes the initial unset state).

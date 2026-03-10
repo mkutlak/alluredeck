@@ -45,10 +45,7 @@ describe('ProjectsPage', () => {
 
   it('renders project cards when loaded', async () => {
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: [
-        { project_id: 'my-project' },
-        { project_id: 'other-project' },
-      ],
+      data: [{ project_id: 'my-project' }, { project_id: 'other-project' }],
       metadata: { message: 'ok' },
       pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
     })

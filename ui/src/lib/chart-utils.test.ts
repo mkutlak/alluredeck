@@ -57,7 +57,11 @@ describe('toStatusTrendData', () => {
   })
 
   it('maps statistic fields correctly', () => {
-    const entries = [makeEntry('1', { statistic: { passed: 5, failed: 2, broken: 1, skipped: 2, unknown: 0, total: 10 } })]
+    const entries = [
+      makeEntry('1', {
+        statistic: { passed: 5, failed: 2, broken: 1, skipped: 2, unknown: 0, total: 10 },
+      }),
+    ]
     const result = toStatusTrendData(entries)
     expect(result[0].passed).toBe(5)
     expect(result[0].failed).toBe(2)
@@ -72,13 +76,21 @@ describe('toPassRateTrendData', () => {
   })
 
   it('calculates pass rate correctly', () => {
-    const entries = [makeEntry('1', { statistic: { passed: 9, failed: 1, broken: 0, skipped: 0, unknown: 0, total: 10 } })]
+    const entries = [
+      makeEntry('1', {
+        statistic: { passed: 9, failed: 1, broken: 0, skipped: 0, unknown: 0, total: 10 },
+      }),
+    ]
     const result = toPassRateTrendData(entries)
     expect(result[0].passRate).toBe(90)
   })
 
   it('handles zero total without throwing', () => {
-    const entries = [makeEntry('1', { statistic: { passed: 0, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 0 } })]
+    const entries = [
+      makeEntry('1', {
+        statistic: { passed: 0, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 0 },
+      }),
+    ]
     const result = toPassRateTrendData(entries)
     expect(result[0].passRate).toBe(0)
   })
@@ -105,7 +117,13 @@ describe('toDurationTrendData', () => {
 describe('toCategoryBreakdownData', () => {
   const makeCategory = (
     name: string,
-    matchedStatistic: CategoryEntry['matchedStatistic'] = { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 },
+    matchedStatistic: CategoryEntry['matchedStatistic'] = {
+      failed: 2,
+      broken: 1,
+      known: 0,
+      unknown: 0,
+      total: 3,
+    },
   ): CategoryEntry => ({ name, matchedStatistic })
 
   it('returns empty array for empty input', () => {
@@ -130,7 +148,9 @@ describe('toCategoryBreakdownData', () => {
   })
 
   it('maps fields correctly for known category', () => {
-    const entries = [makeCategory('Product defects', { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 })]
+    const entries = [
+      makeCategory('Product defects', { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 }),
+    ]
     const result = toCategoryBreakdownData(entries)
     expect(result[0].name).toBe('Product defects')
     expect(result[0].failed).toBe(2)
@@ -153,8 +173,12 @@ describe('toStatusPieData', () => {
 
   it('uses first entry (latest) for pie data', () => {
     const entries = [
-      makeEntry('3', { statistic: { passed: 9, failed: 0, broken: 0, skipped: 1, unknown: 0, total: 10 } }),
-      makeEntry('2', { statistic: { passed: 5, failed: 5, broken: 0, skipped: 0, unknown: 0, total: 10 } }),
+      makeEntry('3', {
+        statistic: { passed: 9, failed: 0, broken: 0, skipped: 1, unknown: 0, total: 10 },
+      }),
+      makeEntry('2', {
+        statistic: { passed: 5, failed: 5, broken: 0, skipped: 0, unknown: 0, total: 10 },
+      }),
     ]
     const result = toStatusPieData(entries)
     const passed = result.find((d) => d.name === 'Passed')
@@ -163,7 +187,9 @@ describe('toStatusPieData', () => {
 
   it('filters out zero-value statuses', () => {
     const entries = [
-      makeEntry('1', { statistic: { passed: 8, failed: 0, broken: 0, skipped: 2, unknown: 0, total: 10 } }),
+      makeEntry('1', {
+        statistic: { passed: 8, failed: 0, broken: 0, skipped: 2, unknown: 0, total: 10 },
+      }),
     ]
     const result = toStatusPieData(entries)
     expect(result.every((d) => d.value > 0)).toBe(true)

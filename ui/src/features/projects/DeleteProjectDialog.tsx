@@ -71,7 +71,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
+          <DialogTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle size={18} />
             Delete project
           </DialogTitle>
@@ -91,7 +91,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
             onChange={(e) => setConfirmText(e.target.value)}
             disabled={mutation.isPending}
           />
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

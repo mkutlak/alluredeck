@@ -2,12 +2,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router'
 import { Upload, Play, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuthStore } from '@/store/auth'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
@@ -24,7 +19,7 @@ export function ActionBar() {
   if (!projectId || !isAdmin()) return null
 
   return (
-    <div className="flex items-center gap-2 border-b bg-muted/30 px-6 py-2">
+    <div className="bg-muted/30 flex items-center gap-2 border-b px-6 py-2">
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -77,11 +72,7 @@ export function ActionBar() {
         </Tooltip>
       </TooltipProvider>
 
-      <SendResultsDialog
-        projectId={projectId}
-        open={sendOpen}
-        onOpenChange={setSendOpen}
-      />
+      <SendResultsDialog projectId={projectId} open={sendOpen} onOpenChange={setSendOpen} />
       <GenerateReportDialog
         projectId={projectId}
         open={generateOpen}

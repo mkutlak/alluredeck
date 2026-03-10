@@ -26,8 +26,8 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
       <Card className="group relative transition-shadow hover:shadow-md">
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <FolderOpen size={16} className="shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 items-center gap-2">
+              <FolderOpen size={16} className="text-muted-foreground shrink-0" />
               <CardTitle className="truncate text-sm font-medium">{projectId}</CardTitle>
             </div>
             {isAdmin() && (
@@ -68,11 +68,7 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
       </Card>
 
       {isAdmin() && (
-        <DeleteProjectDialog
-          projectId={projectId}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
+        <DeleteProjectDialog projectId={projectId} open={deleteOpen} onOpenChange={setDeleteOpen} />
       )}
     </>
   )

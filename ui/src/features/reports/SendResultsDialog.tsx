@@ -160,9 +160,9 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
             {files.map((f) => (
               <div
                 key={f.name}
-                className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+                className="hover:bg-muted flex items-center gap-2 rounded px-2 py-1 text-xs"
               >
-                <FileText size={12} className="shrink-0 text-muted-foreground" />
+                <FileText size={12} className="text-muted-foreground shrink-0" />
                 <span className="flex-1 truncate font-mono">{f.name}</span>
                 <button
                   onClick={() => removeFile(f.name)}
@@ -189,7 +189,7 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
           </Label>
         </div>
 
-        {displayError && <p className="text-sm text-destructive">{displayError}</p>}
+        {displayError && <p className="text-destructive text-sm">{displayError}</p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isBusy}>

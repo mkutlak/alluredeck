@@ -1,5 +1,20 @@
 import { apiClient } from './client'
-import type { ApiResponse, PaginatedResponse, AllureSummary, CategoryEntry, CompareData, EnvironmentEntry, GenerateReportAccepted, GenerateReportParams, JobData, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
+import type {
+  ApiResponse,
+  PaginatedResponse,
+  AllureSummary,
+  CategoryEntry,
+  CompareData,
+  EnvironmentEntry,
+  GenerateReportAccepted,
+  GenerateReportParams,
+  JobData,
+  KnownFailuresData,
+  LowPerformingData,
+  ReportHistoryData,
+  StabilityData,
+  TimelineData,
+} from '@/types/api'
 import { env } from '@/lib/env'
 
 export async function generateReport(

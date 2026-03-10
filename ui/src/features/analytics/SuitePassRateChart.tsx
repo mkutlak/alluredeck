@@ -38,9 +38,7 @@ export function SuitePassRateChart({ projectId }: Props) {
         {isLoading ? (
           <Skeleton className="h-[300px] w-full rounded-md" />
         ) : suites.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            No suite data available
-          </p>
+          <p className="text-muted-foreground py-4 text-center text-sm">No suite data available</p>
         ) : (
           <ChartContainer config={chartConfig} className="h-[300px] w-full">
             <BarChart

@@ -1,12 +1,5 @@
 import { NavLink } from 'react-router'
-import {
-  AlertCircle,
-  BarChart3,
-  Clock,
-  Gauge,
-  LayoutDashboard,
-  Shield,
-} from 'lucide-react'
+import { AlertCircle, BarChart3, Clock, Gauge, LayoutDashboard, Shield } from 'lucide-react'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useAuthStore } from '@/store/auth'
 import {
@@ -86,7 +79,7 @@ export function AppSidebar() {
         )}
       </SidebarContent>
       <SidebarFooter>
-        <p className="px-2 py-1 text-xs text-muted-foreground">v{env.appVersion}</p>
+        <p className="text-muted-foreground px-2 py-1 text-xs">v{env.appVersion}</p>
       </SidebarFooter>
     </Sidebar>
   )

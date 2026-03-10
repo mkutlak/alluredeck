@@ -50,7 +50,7 @@ export function EnvironmentCard({ projectId }: Props) {
               {(entries ?? []).map((entry) => (
                 <TableRow key={entry.name}>
                   <TableCell className="font-mono text-xs font-medium">{entry.name}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="text-muted-foreground text-xs">
                     {entry.values.join(', ')}
                   </TableCell>
                 </TableRow>

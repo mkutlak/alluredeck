@@ -11,7 +11,7 @@ vi.mock('@/store/auth', () => ({
 
 vi.mock('@/features/projects/CreateProjectDialog', () => ({
   CreateProjectDialog: vi.fn(({ open }: { open: boolean }) =>
-    open ? <div data-testid="create-project-dialog">Dialog</div> : null
+    open ? <div data-testid="create-project-dialog">Dialog</div> : null,
   ),
 }))
 
@@ -32,18 +32,17 @@ beforeAll(() => {
 })
 
 function mockAdmin(isAdminResult: boolean) {
-  vi.mocked(useAuthStore).mockImplementation(
-    (selector: (state: AuthState) => unknown) =>
-      selector({
-        isAuthenticated: false,
-        roles: isAdminResult ? (['admin'] as Role[]) : [],
-        username: null,
-        expiresAt: null,
-        setAuth: vi.fn(),
-        clearAuth: vi.fn(),
-        isAdmin: () => isAdminResult,
-        isSessionValid: () => true,
-      }),
+  vi.mocked(useAuthStore).mockImplementation((selector: (state: AuthState) => unknown) =>
+    selector({
+      isAuthenticated: false,
+      roles: isAdminResult ? (['admin'] as Role[]) : [],
+      username: null,
+      expiresAt: null,
+      setAuth: vi.fn(),
+      clearAuth: vi.fn(),
+      isAdmin: () => isAdminResult,
+      isSessionValid: () => true,
+    }),
   )
 }
 
