@@ -5,9 +5,11 @@ export const queryKeys = {
   dashboard: ['dashboard'] as const,
   search: (query: string) => ['search', query] as const,
   // Project-scoped
-  reportHistory: (pid: string, page?: number) =>
+  reportHistory: (pid: string, page?: number, branch?: string) =>
     page != null
-      ? (['report-history', pid, page] as const)
+      ? branch != null
+        ? (['report-history', pid, page, branch] as const)
+        : (['report-history', pid, page] as const)
       : (['report-history', pid] as const),
   reportCategories: (pid: string) => ['report-categories', pid] as const,
   reportCategoriesLatest: (pid: string) => ['report-categories', pid, 'latest'] as const,
@@ -19,6 +21,24 @@ export const queryKeys = {
   lowPerforming: (pid: string) => ['low-performing-tests', pid] as const,
   knownIssues: (pid: string) => ['known-issues', pid] as const,
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
+  buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
+  adminJobs: ['admin-jobs'] as const,
+  adminResults: ['admin-results'] as const,
+  branches: {
+    list: (projectId: string) => ['branches', projectId] as const,
+  },
+  tests: {
+    history: (projectId: string, historyId: string, branch?: string) =>
+      branch != null
+        ? (['test-history', projectId, historyId, branch] as const)
+        : (['test-history', projectId, historyId] as const),
+  },
+  // Phase 8 — PostgreSQL analytics dashboards
+  topErrors: (projectId: string, builds: number) => ['top-errors', projectId, builds] as const,
+  suitePassRates: (projectId: string, builds: number) =>
+    ['suite-pass-rates', projectId, builds] as const,
+  labelBreakdown: (projectId: string, name: string, builds: number) =>
+    ['label-breakdown', projectId, name, builds] as const,
 }
 
 function projectScopedKeys(projectId: string) {
@@ -47,9 +67,7 @@ export async function invalidateProjectQueries(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
-    ...projectScopedKeys(projectId).map((key) =>
-      queryClient.invalidateQueries({ queryKey: key }),
-    ),
+    ...projectScopedKeys(projectId).map((key) => queryClient.invalidateQueries({ queryKey: key })),
   ])
 }
 

@@ -7,7 +7,9 @@ export default mergeConfig(
     test: {
       globals: true,
       environment: 'jsdom',
-      setupFiles: ['./src/test/setup.ts'],
+      setupFiles: ['./src/test/setup.ts', 'allure-vitest/setup'],
+      pool: 'threads',
+      reporters: ['default', 'allure-vitest/reporter'],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov', 'html'],

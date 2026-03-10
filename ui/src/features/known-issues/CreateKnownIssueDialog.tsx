@@ -47,7 +47,11 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
       onOpenChange(false)
     },
     onError: (err) => {
-      toast({ title: 'Failed to create', description: extractErrorMessage(err), variant: 'destructive' })
+      toast({
+        title: 'Failed to create',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -89,7 +93,7 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
               value={testName}
               onChange={(e) => setTestName(e.target.value)}
             />
-            {nameError && <p className="text-xs text-destructive">{nameError}</p>}
+            {nameError && <p className="text-destructive text-xs">{nameError}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="ticket_url">Ticket URL</Label>

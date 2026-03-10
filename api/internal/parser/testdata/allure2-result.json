@@ -1,0 +1,58 @@
+{
+  "name": "loginWithInvalidCredentialsShouldFail",
+  "fullName": "com.example.auth.LoginTest.loginWithInvalidCredentialsShouldFail",
+  "status": "failed",
+  "statusDetails": {
+    "message": "Expected status 401 but got 200",
+    "trace": "at com.example.auth.LoginTest.loginWithInvalidCredentialsShouldFail(LoginTest.java:42)\nat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)"
+  },
+  "description": "Verifies that login with invalid credentials returns 401 Unauthorized",
+  "historyId": "abc123def456abc123def456",
+  "labels": [
+    {"name": "suite", "value": "AuthSuite"},
+    {"name": "severity", "value": "critical"}
+  ],
+  "parameters": [
+    {"name": "browser", "value": "chrome"}
+  ],
+  "steps": [
+    {
+      "name": "Given user navigates to login page",
+      "status": "passed",
+      "statusDetails": {"message": "", "trace": ""},
+      "steps": [
+        {
+          "name": "And the page title is Login",
+          "status": "passed",
+          "statusDetails": {},
+          "steps": [],
+          "attachments": [],
+          "start": 1709000000100,
+          "stop": 1709000000200
+        }
+      ],
+      "attachments": [
+        {"name": "page.png", "source": "abc-screenshot.png", "type": "image/png"}
+      ],
+      "start": 1709000000000,
+      "stop": 1709000000500
+    },
+    {
+      "name": "When user enters invalid credentials and submits",
+      "status": "failed",
+      "statusDetails": {"message": "Element not found: #submit-btn", "trace": ""},
+      "steps": [],
+      "attachments": [],
+      "start": 1709000000500,
+      "stop": 1709000001000
+    }
+  ],
+  "attachments": [
+    {"name": "failure-screenshot.png", "source": "xyz-fail.png", "type": "image/png"}
+  ],
+  "time": {
+    "start": 1709000000000,
+    "stop": 1709000005000,
+    "duration": 5000
+  }
+}

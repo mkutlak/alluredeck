@@ -16,6 +16,7 @@ jobs:
   ui-check:
     name: UI quality gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: ui

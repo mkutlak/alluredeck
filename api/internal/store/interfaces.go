@@ -1,0 +1,140 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	parser "github.com/mkutlak/alluredeck/api/internal/parser"
+)
+
+// Sentinel errors returned by store operations.
+// Callers use errors.Is() to check for these without importing implementation packages.
+var (
+	ErrProjectNotFound           = errors.New("project not found")
+	ErrProjectExists             = errors.New("project already exists")
+	ErrBuildNotFound             = errors.New("build not found")
+	ErrBranchNotFound            = errors.New("branch not found")
+	ErrCannotDeleteDefaultBranch = errors.New("cannot delete default branch")
+	ErrKnownIssueNotFound        = errors.New("known issue not found")
+	ErrDuplicateEntry            = errors.New("unique constraint violation")
+)
+
+// ProjectStorer is the interface for project operations.
+type ProjectStorer interface {
+	CreateProject(ctx context.Context, id string) error
+	GetProject(ctx context.Context, id string) (*Project, error)
+	ListProjects(ctx context.Context) ([]Project, error)
+	ListProjectsPaginated(ctx context.Context, page, perPage int, tag string) ([]Project, int, error)
+	ListAllTags(ctx context.Context) ([]string, error)
+	SetTags(ctx context.Context, projectID string, tags []string) error
+	DeleteProject(ctx context.Context, id string) error
+	ProjectExists(ctx context.Context, id string) (bool, error)
+}
+
+// BuildStorer is the interface for build operations.
+type BuildStorer interface {
+	NextBuildOrder(ctx context.Context, projectID string) (int, error)
+	InsertBuild(ctx context.Context, projectID string, buildOrder int) error
+	UpdateBuildStats(ctx context.Context, projectID string, buildOrder int, stats BuildStats) error
+	UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta CIMetadata) error
+	GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (Build, error)
+	GetPreviousBuild(ctx context.Context, projectID string, buildOrder int) (Build, error)
+	GetLatestBuild(ctx context.Context, projectID string) (Build, error)
+	ListBuilds(ctx context.Context, projectID string) ([]Build, error)
+	ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]Build, int, error)
+	PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error)
+	SetLatest(ctx context.Context, projectID string, buildOrder int) error
+	DeleteAllBuilds(ctx context.Context, projectID string) error
+	GetDashboardData(ctx context.Context, sparklineDepth int, tag string) ([]DashboardProject, error)
+	DeleteBuild(ctx context.Context, projectID string, buildOrder int) error
+	UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error
+	SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error
+	PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
+	ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]Build, int, error)
+}
+
+// TestResultStorer is the interface for test result operations.
+type TestResultStorer interface {
+	InsertBatch(ctx context.Context, results []TestResult) error
+	InsertBatchFull(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error
+	GetBuildID(ctx context.Context, projectID string, buildOrder int) (int64, error)
+	ListSlowest(ctx context.Context, projectID string, builds, limit int) ([]LowPerformingTest, error)
+	ListLeastReliable(ctx context.Context, projectID string, builds, limit int) ([]LowPerformingTest, error)
+	ListTimeline(ctx context.Context, projectID string, buildID int64, limit int) ([]TimelineRow, error)
+	ListFailedByBuild(ctx context.Context, projectID string, buildID int64, limit int) ([]TestResult, error)
+	GetTestHistory(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error)
+	DeleteByBuild(ctx context.Context, buildID int64) error
+	DeleteByProject(ctx context.Context, projectID string) error
+	CompareBuildsByHistoryID(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]DiffEntry, error)
+}
+
+// KnownIssueStorer is the interface for known issue operations.
+type KnownIssueStorer interface {
+	Create(ctx context.Context, projectID, testName, pattern, ticketURL, description string) (*KnownIssue, error)
+	Get(ctx context.Context, id int64) (*KnownIssue, error)
+	List(ctx context.Context, projectID string, activeOnly bool) ([]KnownIssue, error)
+	ListPaginated(ctx context.Context, projectID string, activeOnly bool, page, perPage int) ([]KnownIssue, int, error)
+	Update(ctx context.Context, id int64, projectID, ticketURL, description string, isActive bool) error
+	Delete(ctx context.Context, id int64, projectID string) error
+	IsKnown(ctx context.Context, projectID, testName string) (bool, error)
+}
+
+// BlacklistStorer is the interface for JWT blacklist operations.
+type BlacklistStorer interface {
+	AddToBlacklist(ctx context.Context, jti string, expiresAt time.Time) error
+	IsBlacklisted(ctx context.Context, jti string) (bool, error)
+	PruneExpired(ctx context.Context) (int64, error)
+}
+
+// BranchStorer is the interface for branch operations.
+type BranchStorer interface {
+	GetOrCreate(ctx context.Context, projectID, name string) (*Branch, bool, error)
+	List(ctx context.Context, projectID string) ([]Branch, error)
+	GetDefault(ctx context.Context, projectID string) (*Branch, error)
+	SetDefault(ctx context.Context, projectID string, branchID int64) error
+	Delete(ctx context.Context, projectID string, branchID int64) error
+	GetByName(ctx context.Context, projectID, name string) (*Branch, error)
+}
+
+// SearchStorer is the interface for search operations.
+type SearchStorer interface {
+	SearchProjects(ctx context.Context, query string, limit int) ([]ProjectMatch, error)
+	SearchTests(ctx context.Context, query string, limit int) ([]TestMatch, error)
+}
+
+// ErrorCluster holds a grouped failure message and its occurrence count.
+type ErrorCluster struct {
+	Message string
+	Count   int
+}
+
+// SuitePassRate holds per-suite pass rate data across recent builds.
+type SuitePassRate struct {
+	Suite    string
+	Total    int
+	Passed   int
+	PassRate float64
+}
+
+// LabelCount holds a label value and the count of distinct tests carrying it.
+type LabelCount struct {
+	Value string
+	Count int
+}
+
+// AnalyticsStorer provides analytics queries over the expanded test data schema.
+type AnalyticsStorer interface {
+	// ListTopErrors returns the most common failure messages across recent builds.
+	ListTopErrors(ctx context.Context, projectID string, builds, limit int) ([]ErrorCluster, error)
+	// ListSuitePassRates returns per-suite pass rates across recent builds.
+	ListSuitePassRates(ctx context.Context, projectID string, builds int) ([]SuitePassRate, error)
+	// ListLabelBreakdown returns counts grouped by label value for a given label name.
+	ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int) ([]LabelCount, error)
+}
+
+// Locker serialises per-project operations using PostgreSQL advisory locks
+// for multi-instance safety. Implemented by *pg.PGStore.
+type Locker interface {
+	AcquireLock(ctx context.Context, key string) (func(), error)
+}

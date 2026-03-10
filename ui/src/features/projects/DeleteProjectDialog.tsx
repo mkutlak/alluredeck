@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/use-toast'
+import { useUIStore } from '@/store/ui'
 
 interface DeleteProjectDialogProps {
   projectId: string
@@ -33,6 +34,10 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
   const mutation = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
+      const { lastProjectId, clearLastProjectId } = useUIStore.getState()
+      if (lastProjectId === projectId) {
+        clearLastProjectId()
+      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
       removeProjectQueries(queryClient, projectId)
@@ -66,7 +71,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
+          <DialogTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle size={18} />
             Delete project
           </DialogTitle>
@@ -86,7 +91,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
             onChange={(e) => setConfirmText(e.target.value)}
             disabled={mutation.isPending}
           />
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

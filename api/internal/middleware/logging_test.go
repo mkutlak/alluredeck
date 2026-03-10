@@ -19,6 +19,7 @@ func newObservedLogger() (*zap.Logger, *observer.ObservedLogs) {
 }
 
 func TestLoggingMiddlewareLogsRequestCompletion(t *testing.T) {
+	t.Parallel()
 	logger, logs := newObservedLogger()
 
 	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +55,7 @@ func TestLoggingMiddlewareLogsRequestCompletion(t *testing.T) {
 }
 
 func TestLoggingMiddlewareIncludesRequestID(t *testing.T) {
+	t.Parallel()
 	logger, logs := newObservedLogger()
 
 	// Wrap with RequestID middleware so the ID is in context before logging
@@ -78,6 +80,7 @@ func TestLoggingMiddlewareIncludesRequestID(t *testing.T) {
 }
 
 func TestLoggingMiddlewareStoresChildLoggerInContext(t *testing.T) {
+	t.Parallel()
 	logger, _ := newObservedLogger()
 
 	var loggerInCtx *zap.Logger
@@ -95,6 +98,7 @@ func TestLoggingMiddlewareStoresChildLoggerInContext(t *testing.T) {
 }
 
 func TestLoggingMiddlewareStatusCode(t *testing.T) {
+	t.Parallel()
 	logger, logs := newObservedLogger()
 
 	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +116,7 @@ func TestLoggingMiddlewareStatusCode(t *testing.T) {
 }
 
 func TestLoggingMiddlewareDefaultStatus200(t *testing.T) {
+	t.Parallel()
 	logger, logs := newObservedLogger()
 
 	// Handler writes body but never calls WriteHeader explicitly
@@ -130,6 +135,7 @@ func TestLoggingMiddlewareDefaultStatus200(t *testing.T) {
 }
 
 func TestLoggingMiddlewareOnlyFirstWriteHeaderCounts(t *testing.T) {
+	t.Parallel()
 	logger, logs := newObservedLogger()
 
 	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

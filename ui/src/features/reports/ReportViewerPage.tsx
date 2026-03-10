@@ -13,14 +13,14 @@ export function ReportViewerPage() {
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center gap-3 border-b bg-background px-4 py-2">
+      <div className="bg-background flex shrink-0 items-center gap-3 border-b px-4 py-2">
         <Button asChild variant="ghost" size="sm">
           <Link to={`/projects/${projectId}`}>
             <ChevronLeft size={14} />
             {projectId}
           </Link>
         </Button>
-        <span className="text-sm text-muted-foreground">/</span>
+        <span className="text-muted-foreground text-sm">/</span>
         <span className="font-mono text-sm font-medium">Report #{reportId}</span>
 
         <div className="flex-1" />

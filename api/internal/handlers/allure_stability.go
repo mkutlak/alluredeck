@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
@@ -49,24 +48,10 @@ type stabilityRawEntry struct {
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/stability [get]
 func (h *AllureHandler) GetReportStability(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -75,10 +60,7 @@ func (h *AllureHandler) GetReportStability(w http.ResponseWriter, r *http.Reques
 		reportID = "latest"
 	}
 	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -148,7 +130,7 @@ func (h *AllureHandler) GetReportStability(w http.ResponseWriter, r *http.Reques
 		newPassed = []stabilityTestEntry{}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"flaky_tests": flakyTests,
 			"new_failed":  newFailed,

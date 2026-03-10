@@ -50,7 +50,11 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
       onOpenChange(false)
     },
     onError: (err) => {
-      toast({ title: 'Update failed', description: extractErrorMessage(err), variant: 'destructive' })
+      toast({
+        title: 'Update failed',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -67,7 +71,7 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Test Name (read-only)</Label>
+            <Label className="text-muted-foreground text-xs">Test Name (read-only)</Label>
             <p className="font-mono text-sm">{issue.test_name}</p>
           </div>
           <div className="space-y-2">

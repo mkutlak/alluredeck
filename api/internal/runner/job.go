@@ -1,6 +1,9 @@
 package runner
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // JobStatus represents the current state of an async report generation job.
 type JobStatus string
@@ -10,6 +13,7 @@ const (
 	JobStatusRunning   JobStatus = "running"
 	JobStatusCompleted JobStatus = "completed"
 	JobStatusFailed    JobStatus = "failed"
+	JobStatusCancelled JobStatus = "cancelled"
 )
 
 // JobParams holds the parameters for a report generation job.
@@ -33,4 +37,16 @@ type Job struct {
 	Output      string     `json:"output,omitempty"`
 	Error       string     `json:"error,omitempty"`
 	Params      JobParams  `json:"-"`
+}
+
+// JobQueuer is the interface for async report generation job queues.
+// Implemented by RiverJobManager (PostgreSQL-backed).
+type JobQueuer interface {
+	Submit(projectID string, params JobParams) *Job
+	ListJobs() []*Job
+	Cancel(jobID string) error
+	Delete(jobID string) error
+	Get(jobID string) *Job
+	Start(ctx context.Context)
+	Shutdown()
 }

@@ -94,13 +94,18 @@ type Config struct {
 	SwaggerHost               string          `yaml:"swagger_host" envconfig:"SWAGGER_HOST"`
 	AccessTokenExpiry         DurationSeconds `yaml:"jwt_access_token_expires" envconfig:"JWT_ACCESS_TOKEN_EXPIRES"`
 	RefreshTokenExpiry        DurationSeconds `yaml:"jwt_refresh_token_expires" envconfig:"JWT_REFRESH_TOKEN_EXPIRES"`
-	DatabasePath              string          `yaml:"database_path" envconfig:"DATABASE_PATH"`
-	StorageType               string          `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
-	S3                        S3Config        `yaml:"s3"`
-	LogLevel                  string          `yaml:"log_level" envconfig:"LOG_LEVEL"`
-	MaxUploadSizeMB           int             `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
-	SecurityPassHash          []byte          `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
-	ViewerPassHash            []byte          `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
+	// PostgreSQL connection URL
+	DatabaseURL string `yaml:"database_url" envconfig:"DATABASE_URL"`
+	// PostgreSQL connection pool settings
+	DBMaxOpenConns    int           `yaml:"db_max_open_conns" envconfig:"DB_MAX_OPEN_CONNS"`
+	DBMaxIdleConns    int           `yaml:"db_max_idle_conns" envconfig:"DB_MAX_IDLE_CONNS"`
+	DBConnMaxLifetime time.Duration `yaml:"db_conn_max_lifetime" envconfig:"DB_CONN_MAX_LIFETIME"`
+	StorageType       string        `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
+	S3                S3Config      `yaml:"s3"`
+	LogLevel          string        `yaml:"log_level" envconfig:"LOG_LEVEL"`
+	MaxUploadSizeMB   int           `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
+	SecurityPassHash  []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
+	ViewerPassHash    []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 }
 
 const defaultJWTSecret = "super-secret-key-for-dev"
@@ -121,7 +126,9 @@ func LoadConfig() (*Config, error) {
 		KeepHistoryLatest:        20,
 		AccessTokenExpiry:        DurationSeconds(900 * time.Second),
 		RefreshTokenExpiry:       DurationSeconds(2592000 * time.Second),
-		DatabasePath:             "/data/db/alluredeck.db",
+		DBMaxOpenConns:           25,
+		DBMaxIdleConns:           5,
+		DBConnMaxLifetime:        5 * time.Minute,
 		StorageType:              "local",
 		LogLevel:                 "info",
 		MaxUploadSizeMB:          100,

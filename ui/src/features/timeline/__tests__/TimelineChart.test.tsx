@@ -51,14 +51,14 @@ describe('TimelineChart', () => {
     const testCases = [makeTestCase({ name: 'pass-test', status: 'passed' })]
     render(<TimelineChart testCases={testCases} minStart={MIN_START} maxStop={MAX_STOP} />)
     const bar = screen.getByTestId('bar-pass-test')
-    expect(bar).toHaveStyle({ backgroundColor: '#16a34a' })
+    expect(bar).toHaveStyle({ backgroundColor: '#40a02b' })
   })
 
   it('applies failed status color to bar via inline style', () => {
     const testCases = [makeTestCase({ name: 'fail-test', status: 'failed' })]
     render(<TimelineChart testCases={testCases} minStart={MIN_START} maxStop={MAX_STOP} />)
     const bar = screen.getByTestId('bar-fail-test')
-    expect(bar).toHaveStyle({ backgroundColor: '#dc2626' })
+    expect(bar).toHaveStyle({ backgroundColor: '#d20f39' })
   })
 
   it('renders time axis element', () => {

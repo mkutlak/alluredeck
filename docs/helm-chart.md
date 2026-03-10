@@ -125,7 +125,7 @@ These values are rendered into a `config.yaml` file mounted at `/app/alluredeck/
 | `api.config.corsAllowedOrigins` | `[]` | Allowed CORS origins (auto-computed if empty) |
 | `api.config.goMemLimit` | `"768MiB"` | Go GC memory limit (~80% of memory limit) |
 | `api.config.staticContentProjects` | `"/data/projects"` | Projects data directory |
-| `api.config.databasePath` | `"/data/db/alluredeck.db"` | SQLite database path |
+| `api.config.databaseURL` | `""` | PostgreSQL connection string (e.g. `postgres://alluredeck:pass@db:5432/alluredeck?sslmode=disable`) |
 
 ### API S3 Settings
 
@@ -166,7 +166,7 @@ Two PVCs are managed for the API. In `Deployment` mode they are standalone PVCs;
 | `api.persistence.projects.storageClassName` | `""` | StorageClass (falls back to `global.storageClassName`) |
 | `api.persistence.projects.accessMode` | `ReadWriteOnce` | PVC access mode |
 | `api.persistence.projects.size` | `10Gi` | PVC size |
-| `api.persistence.database.enabled` | `true` | Create PVC for SQLite database |
+| `api.persistence.database.enabled` | `true` | Create PVC for PostgreSQL data |
 | `api.persistence.database.existingClaim` | `""` | Use an existing PVC (Deployment mode only) |
 | `api.persistence.database.size` | `1Gi` | PVC size |
 

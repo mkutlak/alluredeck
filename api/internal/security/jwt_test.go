@@ -17,6 +17,7 @@ func testJWTConfig() *config.Config {
 }
 
 func TestJWTManager_GenerateAndValidate(t *testing.T) {
+	t.Parallel()
 	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
 
 	access, refresh, err := manager.GenerateTokens("testuser", "admin")
@@ -57,9 +58,11 @@ func TestJWTManager_GenerateAndValidate(t *testing.T) {
 }
 
 func TestGenerateTokensWithRole(t *testing.T) {
+	t.Parallel()
 	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
 
 	t.Run("AdminRole", func(t *testing.T) {
+		t.Parallel()
 		access, _, err := manager.GenerateTokens("admin-user", "admin")
 		if err != nil {
 			t.Fatalf("GenerateTokens failed: %v", err)
@@ -75,6 +78,7 @@ func TestGenerateTokensWithRole(t *testing.T) {
 	})
 
 	t.Run("ViewerRole", func(t *testing.T) {
+		t.Parallel()
 		access, _, err := manager.GenerateTokens("viewer-user", "viewer")
 		if err != nil {
 			t.Fatalf("GenerateTokens failed: %v", err)
@@ -91,6 +95,7 @@ func TestGenerateTokensWithRole(t *testing.T) {
 }
 
 func TestJWTManager_Blacklist(t *testing.T) {
+	t.Parallel()
 	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
 	jti := "test-jti-123"
 
@@ -106,6 +111,7 @@ func TestJWTManager_Blacklist(t *testing.T) {
 }
 
 func TestJWTManager_BlacklistedTokenRejected(t *testing.T) {
+	t.Parallel()
 	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
 
 	access, _, err := manager.GenerateTokens("testuser", "admin")

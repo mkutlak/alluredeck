@@ -26,7 +26,7 @@ function formatMetric(value: number, sort: SortMode): string {
 const miniConfig = {}
 
 function MiniSparkline({ data }: { data: number[] }) {
-  if (!data || data.length < 2) return <span className="text-xs text-muted-foreground">—</span>
+  if (!data || data.length < 2) return <span className="text-muted-foreground text-xs">—</span>
   const chartData = data.map((v, i) => ({ i, v }))
   return (
     <ChartContainer config={miniConfig} className="h-6 w-[60px]">
@@ -81,14 +81,14 @@ export function LowPerformingCard({ projectId }: Props) {
             ))}
           </div>
         ) : tests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             No data yet — generate some reports to see trends.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-xs text-muted-foreground">
+                <tr className="text-muted-foreground border-b text-xs">
                   <th className="pb-1 text-left font-medium">Test</th>
                   <th className="pb-1 text-right font-medium">
                     {sort === 'duration' ? 'Avg duration' : 'Failure rate'}
@@ -108,7 +108,7 @@ export function LowPerformingCard({ projectId }: Props) {
                     <td className="py-1 text-right font-mono text-xs">
                       {formatMetric(test.metric, sort)}
                     </td>
-                    <td className="py-1 text-center text-xs text-muted-foreground">
+                    <td className="text-muted-foreground py-1 text-center text-xs">
                       {test.build_count}
                     </td>
                     <td className="py-1 text-center">

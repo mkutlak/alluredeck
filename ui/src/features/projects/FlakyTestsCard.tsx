@@ -50,7 +50,7 @@ export function FlakyTestsCard({ projectId }: Props) {
                 </span>
                 <div className="flex shrink-0 gap-1">
                   {test.retries_count > 0 && (
-                    <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+                    <Badge variant="broken" className="text-xs">
                       {test.retries_count}x
                     </Badge>
                   )}

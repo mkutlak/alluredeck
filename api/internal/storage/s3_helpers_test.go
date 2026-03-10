@@ -33,6 +33,7 @@ func buildListResponse(keys []string) *s3.ListObjectsV2Output {
 }
 
 func TestDownloadPrefix_Parallel_MultipleObjects(t *testing.T) {
+	t.Parallel()
 	const n = 20
 	const concurrency = 5
 	prefix := "test-prefix/"
@@ -82,6 +83,7 @@ func TestDownloadPrefix_Parallel_MultipleObjects(t *testing.T) {
 }
 
 func TestDownloadPrefix_EmptyPrefix(t *testing.T) {
+	t.Parallel()
 	var getObjectCalled bool
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -103,6 +105,7 @@ func TestDownloadPrefix_EmptyPrefix(t *testing.T) {
 }
 
 func TestDownloadPrefix_SingleObject(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	key := prefix + "result.json"
 	content := `{"status":"passed"}`
@@ -135,6 +138,7 @@ func TestDownloadPrefix_SingleObject(t *testing.T) {
 }
 
 func TestDownloadPrefix_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	keys := []string{prefix + "a.json", prefix + "b.json", prefix + "c.json"}
 
@@ -164,6 +168,7 @@ func TestDownloadPrefix_ContextCancellation(t *testing.T) {
 }
 
 func TestDownloadPrefix_SizeWarning(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	content600 := strings.Repeat("x", 600)
 	keys := []string{prefix + "a.bin", prefix + "b.bin"}
@@ -199,6 +204,7 @@ func TestDownloadPrefix_SizeWarning(t *testing.T) {
 }
 
 func TestDownloadPrefix_ErrorInOneObject(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	keys := []string{prefix + "ok.json", prefix + "fail.json"}
 	failKey := prefix + "fail.json"
@@ -223,6 +229,7 @@ func TestDownloadPrefix_ErrorInOneObject(t *testing.T) {
 }
 
 func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
+	t.Parallel()
 	const n = 15
 	const concurrency = 4
 
@@ -260,6 +267,7 @@ func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
 }
 
 func TestUploadDir_EmptyDir(t *testing.T) {
+	t.Parallel()
 	var uploadCalled bool
 	mock := &mockS3Uploader{
 		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
@@ -278,6 +286,7 @@ func TestUploadDir_EmptyDir(t *testing.T) {
 }
 
 func TestUploadDir_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	for i := range 5 {
 		path := filepath.Join(tmpDir, fmt.Sprintf("file%d.json", i))

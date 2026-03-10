@@ -7,12 +7,14 @@ import (
 )
 
 func TestNoStore(t *testing.T) {
+	t.Parallel()
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := NoStore(inner)
 
 	t.Run("SetsCacheControlNoStore", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodPost, "/", nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -27,6 +29,7 @@ func TestNoStore(t *testing.T) {
 	})
 
 	t.Run("OverwritesExistingHeader", func(t *testing.T) {
+		t.Parallel()
 		h := NoStore(inner)
 
 		req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -43,11 +46,13 @@ func TestNoStore(t *testing.T) {
 }
 
 func TestCacheControl(t *testing.T) {
+	t.Parallel()
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("MutableDirective", func(t *testing.T) {
+		t.Parallel()
 		handler := CacheControl(CacheMutable)(inner)
 		req := httptest.NewRequest(http.MethodGet, "/projects", nil)
 		rr := httptest.NewRecorder()
@@ -60,6 +65,7 @@ func TestCacheControl(t *testing.T) {
 	})
 
 	t.Run("ShortLivedDirective", func(t *testing.T) {
+		t.Parallel()
 		handler := CacheControl(CacheShortLived)(inner)
 		req := httptest.NewRequest(http.MethodGet, "/analytics", nil)
 		rr := httptest.NewRecorder()
@@ -72,6 +78,7 @@ func TestCacheControl(t *testing.T) {
 	})
 
 	t.Run("CallsNextHandler", func(t *testing.T) {
+		t.Parallel()
 		called := false
 		h := CacheControl(CacheMutable)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			called = true
@@ -88,12 +95,14 @@ func TestCacheControl(t *testing.T) {
 }
 
 func TestReportCache(t *testing.T) {
+	t.Parallel()
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := ReportCache(inner)
 
 	t.Run("NumericReportID_Immutable", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/projects/proj1/reports/42/categories", nil)
 		req.SetPathValue("report_id", "42")
 		rr := httptest.NewRecorder()
@@ -106,6 +115,7 @@ func TestReportCache(t *testing.T) {
 	})
 
 	t.Run("LargeNumericReportID_Immutable", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/projects/proj1/reports/1000/categories", nil)
 		req.SetPathValue("report_id", "1000")
 		rr := httptest.NewRecorder()
@@ -118,6 +128,7 @@ func TestReportCache(t *testing.T) {
 	})
 
 	t.Run("LatestReportID_ShortLived", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/projects/proj1/reports/latest/categories", nil)
 		req.SetPathValue("report_id", "latest")
 		rr := httptest.NewRecorder()
@@ -130,6 +141,7 @@ func TestReportCache(t *testing.T) {
 	})
 
 	t.Run("EmptyReportID_ShortLived", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/projects/proj1/reports//categories", nil)
 		req.SetPathValue("report_id", "")
 		rr := httptest.NewRecorder()
@@ -142,6 +154,7 @@ func TestReportCache(t *testing.T) {
 	})
 
 	t.Run("CallsNextHandler", func(t *testing.T) {
+		t.Parallel()
 		called := false
 		h := ReportCache(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			called = true
@@ -159,6 +172,7 @@ func TestReportCache(t *testing.T) {
 }
 
 func TestIsNumericID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  bool
@@ -178,6 +192,7 @@ func TestIsNumericID(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
 			got := isNumericID(tc.input)
 			if got != tc.want {
 				t.Errorf("isNumericID(%q) = %v, want %v", tc.input, got, tc.want)

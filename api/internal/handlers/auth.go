@@ -49,22 +49,14 @@ type LoginRequest struct {
 // @Failure      401   {object}  map[string]any
 // @Router       /login [post]
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if !h.cfg.SecurityEnabled {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "SECURITY is not enabled"},
-		})
+		writeError(w, http.StatusNotFound, "SECURITY is not enabled")
 		return
 	}
 
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Missing JSON in body request"},
-		})
+		writeError(w, http.StatusBadRequest, "Missing JSON in body request")
 		return
 	}
 
@@ -95,19 +87,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Invalid username/password"},
-		})
+		writeError(w, http.StatusUnauthorized, "Invalid username/password")
 		return
 	}
 
 	accessToken, refreshToken, err := h.jwtManager.GenerateTokens(username, roles[0])
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Failed to generate tokens"},
-		})
+		writeError(w, http.StatusInternalServerError, "Failed to generate tokens")
 		return
 	}
 
@@ -115,10 +101,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	csrfToken, err := middleware.GenerateCSRFToken()
 	if err != nil {
 		logging.FromContext(r.Context()).Error("auth: failed to generate CSRF token", zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Failed to generate tokens"},
-		})
+		writeError(w, http.StatusInternalServerError, "Failed to generate tokens")
 		return
 	}
 
@@ -161,8 +144,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // Logout godoc
@@ -173,12 +155,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {object}  map[string]any
 // @Router       /logout [delete]
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	if !h.cfg.SecurityEnabled {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "SECURITY is not enabled"},
-		})
+		writeError(w, http.StatusNotFound, "SECURITY is not enabled")
 		return
 	}
 
@@ -227,8 +205,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"metadata": map[string]string{"message": "Successfully logged out"},
 	})
 }

@@ -49,6 +49,8 @@ services:
     depends_on:
       minio-init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
       STORAGE_TYPE: "s3"
       S3_ENDPOINT: "http://minio:9000"
@@ -66,6 +68,7 @@ services:
       KEEP_HISTORY: "true"
       KEEP_HISTORY_LATEST: "20"
       GOMEMLIMIT: "1GiB"
+      DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
     ports:
       - "5050:8080"
     healthcheck:
@@ -92,5 +95,21 @@ services:
       - "7474:8080"
     restart: unless-stopped
 
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: allure
+      POSTGRES_USER: allure
+      POSTGRES_PASSWORD: allure
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allure"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   minio-data:
+  postgres_data:

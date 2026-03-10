@@ -36,7 +36,5 @@ export async function updateKnownIssue(
 }
 
 export async function deleteKnownIssue(projectId: string, issueId: number): Promise<void> {
-  await apiClient.delete(
-    `/projects/${encodeURIComponent(projectId)}/known-issues/${issueId}`,
-  )
+  await apiClient.delete(`/projects/${encodeURIComponent(projectId)}/known-issues/${issueId}`)
 }

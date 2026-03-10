@@ -28,9 +28,10 @@ env:
   IMAGE_UI: ghcr.io/mkutlak/alluredeck-ui
 
 jobs:
-  test:
-    name: Run tests
+  test-api:
+    name: API tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
@@ -42,6 +43,13 @@ jobs:
       - name: API tests
         working-directory: api
         run: go test -race ./...
+
+  test-ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
@@ -59,7 +67,7 @@ jobs:
 
   release:
     name: Semantic release
-    needs: test
+    needs: [test-api, test-ui]
     runs-on: ubuntu-latest
     outputs:
       new-release-published: ${{ steps.semantic.outputs.new_release_published }}

@@ -33,6 +33,7 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestKeepHistoryDefaultTrue(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -43,6 +44,7 @@ func TestKeepHistoryDefaultTrue(t *testing.T) {
 }
 
 func TestCORSOriginsEmpty(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -94,12 +96,12 @@ func TestLoadConfigFromYAMLFile(t *testing.T) {
 		{"KeepHistoryLatest", cfg.KeepHistoryLatest, 50},
 		{"TLS", cfg.TLS, true},
 		{"APIResponseLessVerbose", cfg.APIResponseLessVerbose, true},
-		{"DatabasePath", cfg.DatabasePath, "/yaml/allure.db"},
 		{"AccessTokenExpiry", cfg.AccessTokenExpiry, DurationSeconds(1800 * time.Second)},
 		{"RefreshTokenExpiry", cfg.RefreshTokenExpiry, DurationSeconds(86400 * time.Second)},
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			if c.got != c.want {
 				t.Errorf("expected %v, got %v", c.want, c.got)
 			}
@@ -142,9 +144,6 @@ func TestPartialYAMLWithDefaults(t *testing.T) {
 	// Unset fields get hardcoded defaults
 	if cfg.KeepHistoryLatest != 20 {
 		t.Errorf("default KeepHistoryLatest: want 20, got %d", cfg.KeepHistoryLatest)
-	}
-	if cfg.DatabasePath != "/data/db/alluredeck.db" {
-		t.Errorf("default DatabasePath: want /data/db/alluredeck.db, got %s", cfg.DatabasePath)
 	}
 }
 
@@ -242,6 +241,7 @@ func TestYAMLTokenExpiry(t *testing.T) {
 }
 
 func TestStorageTypeDefault(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -293,6 +293,7 @@ func TestS3ConfigFromEnv(t *testing.T) {
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			if c.got != c.want {
 				t.Errorf("want %v, got %v", c.want, c.got)
 			}
@@ -301,6 +302,7 @@ func TestS3ConfigFromEnv(t *testing.T) {
 }
 
 func TestValidateS3RequiresEndpoint(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		StorageType: "s3",
 		S3:          S3Config{Bucket: "my-bucket"},
@@ -313,6 +315,7 @@ func TestValidateS3RequiresEndpoint(t *testing.T) {
 }
 
 func TestValidateS3RequiresBucket(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		StorageType: "s3",
 		S3:          S3Config{Endpoint: "http://minio:9000"},
@@ -325,6 +328,7 @@ func TestValidateS3RequiresBucket(t *testing.T) {
 }
 
 func TestValidateS3WithFullConfig(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		StorageType: "s3",
 		S3: S3Config{
@@ -339,6 +343,7 @@ func TestValidateS3WithFullConfig(t *testing.T) {
 }
 
 func TestValidateLocalStorageNoS3Required(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		StorageType: "local",
 		JWTSecret:   "some-safe-secret",
@@ -349,6 +354,7 @@ func TestValidateLocalStorageNoS3Required(t *testing.T) {
 }
 
 func TestS3RegionDefault(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -382,6 +388,7 @@ func TestLoadConfigS3FromYAMLFile(t *testing.T) {
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			if c.got != c.want {
 				t.Errorf("want %v, got %v", c.want, c.got)
 			}
@@ -390,6 +397,7 @@ func TestLoadConfigS3FromYAMLFile(t *testing.T) {
 }
 
 func TestS3ConcurrencyDefault(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -411,6 +419,7 @@ func TestS3ConcurrencyFromEnv(t *testing.T) {
 }
 
 func TestHashPasswords_ClearsPlaintext(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		AdminPass:  "admin-secret",
 		ViewerPass: "viewer-secret",
@@ -433,6 +442,7 @@ func TestHashPasswords_ClearsPlaintext(t *testing.T) {
 }
 
 func TestHashPasswords_CorrectPasswordVerifies(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		AdminPass:  "admin-secret",
 		ViewerPass: "viewer-secret",
@@ -449,6 +459,7 @@ func TestHashPasswords_CorrectPasswordVerifies(t *testing.T) {
 }
 
 func TestHashPasswords_WrongPasswordRejected(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		AdminPass: "admin-secret",
 	}
@@ -461,6 +472,7 @@ func TestHashPasswords_WrongPasswordRejected(t *testing.T) {
 }
 
 func TestHashPasswords_EmptyPasswordsNoOp(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{}
 	if err := cfg.HashPasswords(); err != nil {
 		t.Fatalf("HashPasswords: %v", err)
@@ -474,6 +486,7 @@ func TestHashPasswords_EmptyPasswordsNoOp(t *testing.T) {
 }
 
 func TestSwaggerEnabledDefaultFalse(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -495,6 +508,7 @@ func TestSwaggerEnabledFromEnv(t *testing.T) {
 }
 
 func TestSwaggerHostDefaultEmpty(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -516,6 +530,7 @@ func TestSwaggerHostFromEnv(t *testing.T) {
 }
 
 func TestDurationSeconds_IntegerSeconds(t *testing.T) {
+	t.Parallel()
 	var d DurationSeconds
 	if err := d.Decode("900"); err != nil {
 		t.Fatalf("Decode(\"900\"): %v", err)
@@ -529,6 +544,7 @@ func TestDurationSeconds_IntegerSeconds(t *testing.T) {
 }
 
 func TestDurationSeconds_GoDuration(t *testing.T) {
+	t.Parallel()
 	var d DurationSeconds
 	if err := d.Decode("15m"); err != nil {
 		t.Fatalf("Decode(\"15m\"): %v", err)
@@ -539,6 +555,7 @@ func TestDurationSeconds_GoDuration(t *testing.T) {
 }
 
 func TestDurationSeconds_InvalidValue(t *testing.T) {
+	t.Parallel()
 	var d DurationSeconds
 	if err := d.Decode("invalid"); err == nil {
 		t.Error("expected error for invalid duration, got nil")

@@ -39,3 +39,15 @@ globalThis.ResizeObserver = class ResizeObserver {
 
 // scrollIntoView is used by cmdk but not implemented in jsdom
 Element.prototype.scrollIntoView = () => {}
+
+// Radix UI Select (and other Radix primitives) call hasPointerCapture/setPointerCapture
+// on pointer events; jsdom does not implement these, so stub them out.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {}
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {}
+}

@@ -8,9 +8,7 @@ interface Props {
 
 export function CategoryBreakdownChart({ data }: Props) {
   if (data.length === 0) {
-    return (
-      <p className="py-4 text-center text-sm text-muted-foreground">No defect categories</p>
-    )
+    return <p className="text-muted-foreground py-4 text-center text-sm">No defect categories</p>
   }
 
   const height = Math.max(80, data.length * 52)
@@ -53,7 +51,7 @@ export function CategoryBreakdownChart({ data }: Props) {
               />
               <span>{d.name}</span>
             </span>
-            <span className="font-mono text-muted-foreground">{d.total}</span>
+            <span className="text-muted-foreground font-mono">{d.total}</span>
           </li>
         ))}
       </ul>

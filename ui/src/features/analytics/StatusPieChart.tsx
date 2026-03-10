@@ -34,7 +34,7 @@ export function StatusPieChart({ data, total }: Props) {
       {/* Center label */}
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-2xl font-bold tabular-nums">{total}</span>
-        <span className="text-xs text-muted-foreground">total</span>
+        <span className="text-muted-foreground text-xs">total</span>
       </div>
     </div>
   )

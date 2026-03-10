@@ -43,7 +43,7 @@ export function CategoriesCard({ projectId }: Props) {
                     </Badge>
                   )}
                   {cat.matchedStatistic && cat.matchedStatistic.broken > 0 && (
-                    <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+                    <Badge variant="broken" className="text-xs">
                       {cat.matchedStatistic.broken}b
                     </Badge>
                   )}

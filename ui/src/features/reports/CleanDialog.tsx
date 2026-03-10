@@ -60,16 +60,22 @@ export function CleanDialog({ projectId, mode, open, onOpenChange }: CleanDialog
   })
 
   return (
-    <AlertDialog open={open} onOpenChange={(v) => { if (!v) setError(''); onOpenChange(v) }}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) setError('')
+        onOpenChange(v)
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+          <AlertDialogTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle size={18} />
             {msg.title}
           </AlertDialogTitle>
           <AlertDialogDescription>{msg.description} This cannot be undone.</AlertDialogDescription>
         </AlertDialogHeader>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-destructive text-sm">{error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button

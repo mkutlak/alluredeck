@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	parser "github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -59,20 +60,22 @@ type stabilityEntry struct {
 type Allure struct {
 	cfg             *config.Config
 	store           storage.Store
-	buildStore      *store.BuildStore
-	lockManager     *store.LockManager
-	testResultStore *store.TestResultStore
+	buildStore      store.BuildStorer
+	lockManager     store.Locker
+	testResultStore store.TestResultStorer
+	branchStore     store.BranchStorer
 	logger          *zap.Logger
 }
 
 // NewAllure creates a new Allure runner
-func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore *store.BuildStore, lockManager *store.LockManager, testResultStore *store.TestResultStore, logger *zap.Logger) *Allure {
+func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore store.BuildStorer, locker store.Locker, testResultStore store.TestResultStorer, branchStore store.BranchStorer, logger *zap.Logger) *Allure {
 	return &Allure{
 		cfg:             cfg,
 		store:           dataStore,
 		buildStore:      buildStore,
-		lockManager:     lockManager,
+		lockManager:     locker,
 		testResultStore: testResultStore,
+		branchStore:     branchStore,
 		logger:          logger,
 	}
 }
@@ -149,12 +152,21 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID 
 }
 
 // storeAndPruneBuild stores a report snapshot and records it in the database.
-func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildOrder int, ciMeta store.CIMetadata) error {
+func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildOrder int, ciMeta store.CIMetadata, branchID *int64) error {
 	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
 	if err := a.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
 		return fmt.Errorf("insert build: %w", err)
+	}
+	// Associate build with branch if resolved.
+	if branchID != nil {
+		if err := a.buildStore.UpdateBuildBranchID(ctx, projectID, buildOrder, *branchID); err != nil {
+			a.logger.Warn("failed to set build branch_id",
+				zap.String("project_id", projectID),
+				zap.Int("build_order", buildOrder),
+				zap.Error(err))
+		}
 	}
 	if stats, err := a.store.ReadBuildStats(ctx, projectID, buildOrder); err == nil {
 		storeStats := store.BuildStats{
@@ -241,6 +253,17 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 						a.logger.Warn("failed to insert test results",
 							zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 					}
+					// Enrich with full parsed data (labels, parameters, steps, attachments).
+					resultsDir := filepath.Join(localProjectDir, "results")
+					if parsedResults, parseErr := parser.ParseDir(resultsDir); parseErr != nil {
+						a.logger.Warn("failed to parse raw results for enrichment",
+							zap.String("project_id", projectID), zap.Error(parseErr))
+					} else if len(parsedResults) > 0 {
+						if enrichErr := a.testResultStore.InsertBatchFull(ctx, buildID, projectID, parsedResults); enrichErr != nil {
+							a.logger.Warn("failed to enrich test results",
+								zap.String("project_id", projectID), zap.Error(enrichErr))
+						}
+					}
 				} else {
 					a.logger.Warn("failed to get build id for test results",
 						zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
@@ -262,7 +285,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 		}
 	}
-	if err := a.buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
+	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildOrder, branchID); err != nil {
 		a.logger.Error("failed to set latest build",
 			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 	}
@@ -275,7 +298,7 @@ func (a *Allure) recordBuild(ctx context.Context, projectID string, buildOrder i
 	if err := a.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
 		return fmt.Errorf("insert build: %w", err)
 	}
-	if err := a.buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
+	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildOrder, nil); err != nil {
 		a.logger.Error("failed to set latest build (recordBuild)",
 			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 	}
@@ -292,7 +315,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	}
 
 	// 1. Acquire per-project lock to serialize concurrent report generation.
-	unlock, err := a.lockManager.Acquire(ctx, projectID, "generate")
+	unlock, err := a.lockManager.AcquireLock(ctx, projectID)
 	if err != nil {
 		return "", fmt.Errorf("acquire generation lock: %w", err)
 	}
@@ -340,6 +363,20 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 		return "", err
 	}
 
+	// Resolve branch — auto-create if ci_branch is provided.
+	var resolvedBranchID *int64
+	if ciBranch != "" && a.branchStore != nil {
+		branch, _, branchErr := a.branchStore.GetOrCreate(ctx, projectID, ciBranch)
+		if branchErr != nil {
+			a.logger.Warn("failed to get/create branch",
+				zap.String("project_id", projectID),
+				zap.String("branch", ciBranch),
+				zap.Error(branchErr))
+		} else {
+			resolvedBranchID = &branch.ID
+		}
+	}
+
 	// 7. Store Report and record in database
 	if a.cfg.KeepHistory {
 		if storeResults {
@@ -349,7 +386,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 				Branch:    ciBranch,
 				CommitSHA: ciCommitSHA,
 			}
-			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder, ciMeta); err != nil {
+			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder, ciMeta, resolvedBranchID); err != nil {
 				return "", err
 			}
 		} else {
@@ -360,7 +397,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	}
 
 	// 8. Keep Latest History (Cleanup old reports)
-	if err := a.KeepLatestHistory(ctx, projectID); err != nil {
+	if err := a.KeepLatestHistory(ctx, projectID, resolvedBranchID); err != nil {
 		return "", err
 	}
 
@@ -473,11 +510,11 @@ func (a *Allure) StoreReport(ctx context.Context, projectID string, buildOrder i
 
 // KeepLatestHistory removes the oldest historical report directories when count exceeds keepLatest.
 // Uses the database to determine which builds to prune, then removes their filesystem directories.
-func (a *Allure) KeepLatestHistory(ctx context.Context, projectID string) error {
+func (a *Allure) KeepLatestHistory(ctx context.Context, projectID string, branchID *int64) error {
 	if !a.cfg.KeepHistory {
 		return nil
 	}
-	removed, err := a.buildStore.PruneBuilds(ctx, projectID, a.cfg.KeepHistoryLatest)
+	removed, err := a.buildStore.PruneBuildsBranch(ctx, projectID, a.cfg.KeepHistoryLatest, branchID)
 	if err != nil {
 		return fmt.Errorf("prune builds from db: %w", err)
 	}

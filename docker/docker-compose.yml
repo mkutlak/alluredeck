@@ -31,11 +31,33 @@ services:
       KEEP_HISTORY_LATEST: "20"
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
       GOMEMLIMIT: "1GiB"
+      DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
     ports:
       - "5050:8080"
     volumes:
       - allure-projects:/data/projects
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: allure
+      POSTGRES_USER: allure
+      POSTGRES_PASSWORD: allure
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allure"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
   allure-projects:
+  postgres_data:

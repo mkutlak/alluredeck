@@ -1,8 +1,24 @@
 volumes:
   alluredeck:
     driver: local
+  postgres_data:
 
 services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: allure
+      POSTGRES_USER: allure
+      POSTGRES_PASSWORD: allure
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allure"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   alluredeck-api:
     platform: linux/amd64
     image: alluredeck-api:dev
@@ -25,7 +41,11 @@ services:
       API_RESPONSE_LESS_VERBOSE: 0
       TLS: 0
       GOMEMLIMIT: "1GiB"
+      DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
     ports:
       - "${ALLUREDECK_API_PORT:-5050}:8080"
     volumes:
       - ../.data/alluredeck/allure-results:/app/allure-results
+    depends_on:
+      postgres:
+        condition: service_healthy

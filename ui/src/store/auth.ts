@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 
 export type Role = 'admin' | 'viewer'
 
-interface AuthState {
+export interface AuthState {
   isAuthenticated: boolean
   roles: Role[]
   username: string | null

@@ -142,7 +142,9 @@ trust_forwarded_for: {{ .Values.api.config.trustXForwardedFor }}
 swagger_enabled: {{ .Values.api.config.swaggerEnabled }}
 make_viewer_endpoints_public: {{ .Values.api.config.makeViewerEndpointsPublic }}
 projects_path: {{ .Values.api.config.staticContentProjects | quote }}
-database_path: {{ .Values.api.config.databasePath | quote }}
+{{- if .Values.api.config.databaseURL }}
+database_url: {{ .Values.api.config.databaseURL | quote }}
+{{- end }}
 max_upload_size_mb: {{ .Values.api.config.maxUploadSizeMb | int }}
 {{- $corsOrigins := .Values.api.config.corsAllowedOrigins }}
 {{- if and (empty $corsOrigins) .Values.ingress.enabled .Values.ingress.host }}

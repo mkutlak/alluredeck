@@ -19,7 +19,6 @@ cors_allowed_origins:
   - "https://b.example.com"
 jwt_access_token_expires: 1800
 jwt_refresh_token_expires: 86400
-database_path: "/yaml/allure.db"
 storage_type: "s3"
 s3:
   endpoint: "http://minio-test:9000"
