@@ -16,6 +16,7 @@ jobs:
   api-check:
     name: API quality gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: api

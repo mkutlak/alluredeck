@@ -28,14 +28,25 @@ type JobParams struct {
 
 // Job represents a single async report generation task.
 type Job struct {
-	ID          string             `json:"job_id"`
-	ProjectID   string             `json:"project_id"`
-	Status      JobStatus          `json:"status"`
-	CreatedAt   time.Time          `json:"created_at"`
-	StartedAt   *time.Time         `json:"started_at,omitempty"`
-	CompletedAt *time.Time         `json:"completed_at,omitempty"`
-	Output      string             `json:"output,omitempty"`
-	Error       string             `json:"error,omitempty"`
-	Params      JobParams          `json:"-"`
-	cancel      context.CancelFunc `json:"-"` //nolint:unused // set by runWorker, called by Cancel
+	ID          string     `json:"job_id"`
+	ProjectID   string     `json:"project_id"`
+	Status      JobStatus  `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Output      string     `json:"output,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	Params      JobParams  `json:"-"`
+}
+
+// JobQueuer is the interface for async report generation job queues.
+// Implemented by RiverJobManager (PostgreSQL-backed).
+type JobQueuer interface {
+	Submit(projectID string, params JobParams) *Job
+	ListJobs() []*Job
+	Cancel(jobID string) error
+	Delete(jobID string) error
+	Get(jobID string) *Job
+	Start(ctx context.Context)
+	Shutdown()
 }

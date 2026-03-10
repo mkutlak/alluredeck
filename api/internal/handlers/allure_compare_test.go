@@ -8,54 +8,32 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"go.uber.org/zap"
-
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
-
-// seedCompareBuilds creates a project with two builds pre-seeded in the DB.
-func seedCompareBuilds(t *testing.T, db *store.SQLiteStore, projectID string) {
-	t.Helper()
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ts := store.NewTestResultStore(db, zap.NewNop())
-
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	for _, order := range []int{1, 2} {
-		if err := bs.InsertBuild(ctx, projectID, order); err != nil {
-			t.Fatalf("InsertBuild %d: %v", order, err)
-		}
-	}
-
-	idA, err := ts.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID 1: %v", err)
-	}
-	idB, err := ts.GetBuildID(ctx, projectID, 2)
-	if err != nil {
-		t.Fatalf("GetBuildID 2: %v", err)
-	}
-
-	_ = ts.InsertBatch(ctx, []store.TestResult{
-		{BuildID: idA, ProjectID: projectID, TestName: "LoginTest", FullName: "pkg.LoginTest", Status: "passed", DurationMs: 1000, HistoryID: "h1"},
-		{BuildID: idA, ProjectID: projectID, TestName: "OldTest", FullName: "pkg.OldTest", Status: "passed", DurationMs: 500, HistoryID: "h2"},
-	})
-	_ = ts.InsertBatch(ctx, []store.TestResult{
-		{BuildID: idB, ProjectID: projectID, TestName: "LoginTest", FullName: "pkg.LoginTest", Status: "failed", DurationMs: 2000, HistoryID: "h1"},
-		{BuildID: idB, ProjectID: projectID, TestName: "NewTest", FullName: "pkg.NewTest", Status: "passed", DurationMs: 300, HistoryID: "h3"},
-	})
-}
 
 func TestCompareBuilds_Success(t *testing.T) {
 	projectsDir := t.TempDir()
-	db := openTestStore(t)
 	projectID := "cmp-handler"
-	seedCompareBuilds(t, db, projectID)
 
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
+	mocks := testutil.New()
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
+		switch buildOrder {
+		case 1:
+			return 10, nil
+		case 2:
+			return 20, nil
+		}
+		return 0, store.ErrBuildNotFound
+	}
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, pid string, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "LoginTest", FullName: "pkg.LoginTest", HistoryID: "h1", StatusA: "passed", StatusB: "failed", DurationA: 1000, DurationB: 2000, Category: store.DiffRegressed},
+			{TestName: "NewTest", FullName: "pkg.NewTest", HistoryID: "h3", StatusA: "", StatusB: "passed", DurationA: 0, DurationB: 300, Category: store.DiffAdded},
+		}, nil
+	}
+
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/compare?a=1&b=2", projectID), nil)
@@ -189,21 +167,21 @@ func TestCompareBuilds_SameBuild(t *testing.T) {
 
 func TestCompareBuilds_BuildNotFound(t *testing.T) {
 	projectsDir := t.TempDir()
-	db := openTestStore(t)
-	projectID := "cmp-notfound"
 
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	bs := store.NewBuildStore(db, zap.NewNop())
-	_ = ps.CreateProject(ctx, projectID)
-	_ = bs.InsertBuild(ctx, projectID, 1)
+	mocks := testutil.New()
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
+		if buildOrder == 99 {
+			return 0, store.ErrBuildNotFound
+		}
+		return 10, nil
+	}
 
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
 
 	// Build 99 does not exist
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		fmt.Sprintf("/api/v1/projects/%s/compare?a=1&b=99", projectID), nil)
-	req.SetPathValue("project_id", projectID)
+		"/api/v1/projects/cmp-notfound/compare?a=1&b=99", nil)
+	req.SetPathValue("project_id", "cmp-notfound")
 
 	rr := httptest.NewRecorder()
 	h.CompareBuilds(rr, req)

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { Moon, Sun, LogOut, User } from 'lucide-react'
+import { Moon, Sun, LogOut, User, Search } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -16,7 +16,9 @@ import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useAuthStore } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
-import { env } from '@/lib/env'
+import { useSearchCommand } from '@/features/search'
+import { ProjectSwitcher } from './ProjectSwitcher'
+import { CreateMenu } from './CreateMenu'
 
 export function TopBar() {
   const { theme, setTheme } = useTheme()
@@ -25,6 +27,7 @@ export function TopBar() {
   const clearAuth = useAuthStore((s) => s.clearAuth)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { setOpen: setSearchOpen } = useSearchCommand()
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -50,13 +53,33 @@ export function TopBar() {
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="h-4" />
 
-      {/* Logo / brand */}
-      <Link to="/" className="flex items-center gap-2 font-semibold">
+      {/* Favicon only — no app title text */}
+      <Link to="/">
         <img src="/favicon.svg" alt="Allure" className="h-5 w-5" />
-        <span className="text-sm">{env.appTitle}</span>
       </Link>
+      <Separator orientation="vertical" className="h-4" />
+
+      {/* Project switcher */}
+      <ProjectSwitcher />
 
       <div className="flex-1" />
+
+      {/* Search trigger */}
+      <Button
+        variant="ghost"
+        className="h-8 gap-2 px-3 text-sm text-muted-foreground"
+        onClick={() => setSearchOpen(true)}
+        aria-label="Search"
+      >
+        <Search size={16} />
+        <span className="hidden sm:inline">Search...</span>
+        <kbd className="pointer-events-none hidden select-none rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium sm:inline">
+          ⌘K
+        </kbd>
+      </Button>
+
+      {/* Create menu (admin only) */}
+      <CreateMenu />
 
       {/* Theme toggle */}
       <Button

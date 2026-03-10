@@ -34,6 +34,13 @@ export const queryKeys = {
         ? (['test-history', projectId, historyId, branch] as const)
         : (['test-history', projectId, historyId] as const),
   },
+  // Phase 8 — PostgreSQL analytics dashboards
+  topErrors: (projectId: string, builds: number) =>
+    ['top-errors', projectId, builds] as const,
+  suitePassRates: (projectId: string, builds: number) =>
+    ['suite-pass-rates', projectId, builds] as const,
+  labelBreakdown: (projectId: string, name: string, builds: number) =>
+    ['label-breakdown', projectId, name, builds] as const,
 }
 
 function projectScopedKeys(projectId: string) {

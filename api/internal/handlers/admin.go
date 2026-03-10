@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,13 +13,13 @@ import (
 
 // AdminHandler handles admin-only system monitoring endpoints.
 type AdminHandler struct {
-	jobManager *runner.JobManager
+	jobManager runner.JobQueuer
 	store      storage.Store
 	logger     *zap.Logger
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(jm *runner.JobManager, store storage.Store, logger *zap.Logger) *AdminHandler {
+func NewAdminHandler(jm runner.JobQueuer, store storage.Store, logger *zap.Logger) *AdminHandler {
 	return &AdminHandler{
 		jobManager: jm,
 		store:      store,
@@ -45,8 +44,7 @@ type pendingResultsEntry struct {
 // @Router       /admin/jobs [get]
 func (h *AdminHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := h.jobManager.ListJobs()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": jobs,
 		"metadata": map[string]any{
 			"message": fmt.Sprintf("%d job(s) found", len(jobs)),
@@ -109,8 +107,7 @@ func (h *AdminHandler) ListPendingResults(w http.ResponseWriter, r *http.Request
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": entries,
 		"metadata": map[string]any{
 			"message": fmt.Sprintf("%d project(s) with pending results", len(entries)),
@@ -131,18 +128,13 @@ func (h *AdminHandler) ListPendingResults(w http.ResponseWriter, r *http.Request
 func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("job_id")
 	if jobID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]any{"message": "job_id is required"},
-		})
+		writeError(w, http.StatusBadRequest, "job_id is required")
 		return
 	}
 
 	err := h.jobManager.Cancel(jobID)
 	if err == nil {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"metadata": map[string]any{"message": "job cancelled"},
 		})
 		return
@@ -150,20 +142,12 @@ func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 
 	// Distinguish not-found vs already-terminal.
 	if isJobNotFound(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]any{"message": err.Error()},
-		})
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	// Terminal state conflict.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusConflict)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"metadata": map[string]any{"message": err.Error()},
-	})
+	writeError(w, http.StatusConflict, err.Error())
 }
 
 // CleanProjectResults godoc
@@ -179,47 +163,70 @@ func (h *AdminHandler) CleanProjectResults(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 	projectID := r.PathValue("project_id")
 	if projectID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]any{"message": "project_id is required"},
-		})
+		writeError(w, http.StatusBadRequest, "project_id is required")
 		return
 	}
 
 	exists, err := h.store.ProjectExists(ctx, projectID)
 	if err != nil {
 		h.logger.Error("admin: project exists check failed", zap.String("project_id", projectID), zap.Error(err))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]any{"message": "internal error"},
-		})
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !exists {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]any{"message": fmt.Sprintf("project %q not found", projectID)},
-		})
+		writeError(w, http.StatusNotFound, fmt.Sprintf("project %q not found", projectID))
 		return
 	}
 
 	if err := h.store.CleanResults(ctx, projectID); err != nil {
 		h.logger.Error("admin: clean results failed", zap.String("project_id", projectID), zap.Error(err))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]any{"message": "failed to clean results"},
+		writeError(w, http.StatusInternalServerError, "failed to clean results")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"metadata": map[string]any{"message": "results cleaned"},
+	})
+}
+
+// DeleteJob godoc
+// @Summary      Delete a terminal job
+// @Description  Permanently removes a completed, failed, or cancelled job record.
+// @Tags         admin
+// @Produce      json
+// @Param        job_id  path  string  true  "Job ID"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Failure      409  {object}  map[string]any
+// @Router       /admin/jobs/{job_id} [delete]
+func (h *AdminHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("job_id")
+	if jobID == "" {
+		writeError(w, http.StatusBadRequest, "job_id is required")
+		return
+	}
+
+	err := h.jobManager.Delete(jobID)
+	if err == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"metadata": map[string]any{"message": "job deleted"},
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"metadata": map[string]any{"message": "results cleaned"},
-	})
+	if isJobNotFound(err) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if isJobNotTerminal(err) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	h.logger.Error("admin: delete job failed", zap.String("job_id", jobID), zap.Error(err))
+	writeError(w, http.StatusInternalServerError, "internal error")
 }
 
 // isJobNotFound returns true when the Cancel error indicates the job was not found.
@@ -230,4 +237,14 @@ func isJobNotFound(err error) bool {
 	}
 	msg := err.Error()
 	return len(msg) >= 9 && msg[len(msg)-9:] == "not found"
+}
+
+// isJobNotTerminal returns true when the Delete error indicates the job is still active.
+func isJobNotTerminal(err error) bool {
+	if err == nil {
+		return false
+	}
+	const suffix = "not in a terminal state"
+	msg := err.Error()
+	return len(msg) >= len(suffix) && msg[len(msg)-len(suffix):] == suffix
 }

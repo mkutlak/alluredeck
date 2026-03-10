@@ -169,6 +169,100 @@ describe('AdminPage', () => {
     expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument()
   })
 
+  it('shows checkboxes only for terminal jobs', async () => {
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
+      makeJob({ job_id: 'job-running', status: 'running' }),
+      makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+      makeJob({ job_id: 'job-failed', status: 'failed', completed_at: '2026-03-07T10:01:00Z' }),
+    ])
+    vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('running')).toBeInTheDocument()
+    })
+
+    // select-all in header + 2 terminal job rows = 3 checkboxes total
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(3)
+  })
+
+  it('shows delete selected button when a terminal job is selected', async () => {
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
+      makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+    ])
+    vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('completed')).toBeInTheDocument()
+    })
+
+    // no delete button initially
+    expect(screen.queryByRole('button', { name: /delete selected/i })).not.toBeInTheDocument()
+
+    // select the job row checkbox (index 1; index 0 is select-all)
+    const checkboxes = screen.getAllByRole('checkbox')
+    await userEvent.click(checkboxes[1])
+
+    expect(screen.getByRole('button', { name: /delete selected/i })).toBeInTheDocument()
+  })
+
+  it('select all checkbox selects all terminal jobs', async () => {
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
+      makeJob({ job_id: 'job-running', status: 'running' }),
+      makeJob({ job_id: 'job-done-1', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+      makeJob({ job_id: 'job-done-2', status: 'failed', completed_at: '2026-03-07T10:01:00Z' }),
+    ])
+    vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('running')).toBeInTheDocument()
+    })
+
+    // click select-all (first checkbox)
+    const checkboxes = screen.getAllByRole('checkbox')
+    await userEvent.click(checkboxes[0])
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /delete selected \(2\)/i })).toBeInTheDocument()
+    })
+  })
+
+  it('delete selected calls deleteJob for selected jobs after confirmation', async () => {
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
+      makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+    ])
+    vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
+    vi.mocked(adminApi.deleteJob).mockResolvedValue()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('completed')).toBeInTheDocument()
+    })
+
+    // select the job
+    const checkboxes = screen.getAllByRole('checkbox')
+    await userEvent.click(checkboxes[1])
+
+    // click "Delete selected (1)"
+    const deleteSelectedBtn = screen.getByRole('button', { name: /delete selected/i })
+    await userEvent.click(deleteSelectedBtn)
+
+    // confirm in the dialog
+    const confirmBtn = await screen.findByRole('button', { name: /^confirm$/i })
+    await userEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(adminApi.deleteJob).toHaveBeenCalledWith('job-done')
+    })
+  })
+
   it('delete button triggers confirmation dialog and calls API on confirm', async () => {
     vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([

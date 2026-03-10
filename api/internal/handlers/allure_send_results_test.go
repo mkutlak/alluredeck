@@ -9,10 +9,18 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"go.uber.org/zap"
+
+	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/runner"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // makeJSONSendResultsReq builds a POST request with a JSON body containing the
@@ -624,6 +632,46 @@ func TestSendTarGzResults_ProcessedFilesAreSorted(t *testing.T) {
 		if processed[i] != name {
 			t.Errorf("processed[%d] = %q, want %q", i, processed[i], name)
 		}
+	}
+}
+
+// TestSendResults_ForceProjectCreation_RegistersInDB verifies that when
+// force_project_creation=true is used for a non-existent project, the project
+// is registered in the projectStore (DB) in addition to being created on the
+// filesystem. This guards against River job failures caused by FK violations.
+func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "force-create-proj"
+
+	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 10}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
+	h := NewAllureHandler(cfg, r, nil,
+		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st)
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
+	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
+		{"file_name": "result.xml", "content_base64": encoded},
+	})
+	q := req.URL.Query()
+	q.Set("force_project_creation", "true")
+	req.URL.RawQuery = q.Encode()
+
+	w := httptest.NewRecorder()
+	h.SendResults(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	exists, err := mocks.Projects.ProjectExists(context.Background(), projectID)
+	if err != nil {
+		t.Fatalf("unexpected error checking project in DB: %v", err)
+	}
+	if !exists {
+		t.Error("project was not registered in projectStore after force_project_creation=true")
 	}
 }
 

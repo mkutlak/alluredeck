@@ -97,7 +97,7 @@ For details on roles, token types, CSRF protection, and the production security 
 |----------------------|----------|---------|-------------|
 | `STORAGE_TYPE` | `storage_type` | `local` | Storage backend: `local` (filesystem) or `s3` (S3/MinIO) |
 | `PROJECTS_PATH` | `projects_path` | `/data/projects` | Directory where Allure project results and reports are stored. Must be readable and writable |
-| `DATABASE_PATH` | `database_path` | `/data/db/alluredeck.db` | Path to the SQLite metadata database file |
+| `DATABASE_URL` | `database_url` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
 | `KEEP_HISTORY_LATEST` | `keep_history_latest` | `20` | Maximum number of historical reports to keep per project (when `keep_history=true`) |
 
@@ -106,7 +106,7 @@ For details on roles, token types, CSRF protection, and the production security 
 ```bash
 # Store projects in /data/allure-projects
 export PROJECTS_PATH="/data/allure-projects"
-export DATABASE_PATH="/data/allure.db"
+export DATABASE_URL="postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable"
 export KEEP_HISTORY="true"
 export KEEP_HISTORY_LATEST="50"
 ```
@@ -258,7 +258,7 @@ log_level: "info"
 
 # --- Storage ---
 projects_path: "/data/projects"
-database_path: "/data/db/alluredeck.db"
+database_url: "postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable"
 keep_history: true
 keep_history_latest: 20
 
@@ -315,7 +315,7 @@ log_level: "warn"
 
 # --- Storage ---
 projects_path: "/data/projects"
-database_path: "/data/db/alluredeck.db"
+database_url: "postgres://alluredeck:alluredeck@db:5432/alluredeck?sslmode=disable"
 keep_history: true
 keep_history_latest: 100
 

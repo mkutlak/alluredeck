@@ -97,7 +97,7 @@ func (s *S3Store) s3Key(parts ...string) string {
 // that have not yet had any results uploaded.  Without this marker, an empty
 // project has no S3 objects and ProjectExists would return false, causing
 // SendResults to 404.  The marker also allows SyncMetadata to rediscover the
-// project from S3 after a SQLite wipe.
+// project from S3 after a database reset.
 func (s *S3Store) CreateProject(ctx context.Context, projectID string) error {
 	key := s.s3Key("projects", projectID, ".keep")
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{

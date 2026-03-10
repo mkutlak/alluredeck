@@ -12,12 +12,12 @@ import (
 
 // BranchHandler handles HTTP requests for branch management.
 type BranchHandler struct {
-	branchStore *store.BranchStore
-	buildStore  *store.BuildStore
+	branchStore store.BranchStorer
+	buildStore  store.BuildStorer
 }
 
 // NewBranchHandler creates a new BranchHandler.
-func NewBranchHandler(bs *store.BranchStore, buildStore *store.BuildStore) *BranchHandler {
+func NewBranchHandler(bs store.BranchStorer, buildStore store.BuildStorer) *BranchHandler {
 	return &BranchHandler{
 		branchStore: bs,
 		buildStore:  buildStore,

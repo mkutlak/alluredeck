@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	parser "github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -59,20 +60,20 @@ type stabilityEntry struct {
 type Allure struct {
 	cfg             *config.Config
 	store           storage.Store
-	buildStore      *store.BuildStore
-	lockManager     *store.LockManager
-	testResultStore *store.TestResultStore
-	branchStore     *store.BranchStore
+	buildStore      store.BuildStorer
+	lockManager     store.Locker
+	testResultStore store.TestResultStorer
+	branchStore     store.BranchStorer
 	logger          *zap.Logger
 }
 
 // NewAllure creates a new Allure runner
-func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore *store.BuildStore, lockManager *store.LockManager, testResultStore *store.TestResultStore, branchStore *store.BranchStore, logger *zap.Logger) *Allure {
+func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore store.BuildStorer, locker store.Locker, testResultStore store.TestResultStorer, branchStore store.BranchStorer, logger *zap.Logger) *Allure {
 	return &Allure{
 		cfg:             cfg,
 		store:           dataStore,
 		buildStore:      buildStore,
-		lockManager:     lockManager,
+		lockManager:     locker,
 		testResultStore: testResultStore,
 		branchStore:     branchStore,
 		logger:          logger,
@@ -252,6 +253,17 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 						a.logger.Warn("failed to insert test results",
 							zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 					}
+					// Enrich with full parsed data (labels, parameters, steps, attachments).
+					resultsDir := filepath.Join(localProjectDir, "results")
+					if parsedResults, parseErr := parser.ParseDir(resultsDir); parseErr != nil {
+						a.logger.Warn("failed to parse raw results for enrichment",
+							zap.String("project_id", projectID), zap.Error(parseErr))
+					} else if len(parsedResults) > 0 {
+						if enrichErr := a.testResultStore.InsertBatchFull(ctx, buildID, projectID, parsedResults); enrichErr != nil {
+							a.logger.Warn("failed to enrich test results",
+								zap.String("project_id", projectID), zap.Error(enrichErr))
+						}
+					}
 				} else {
 					a.logger.Warn("failed to get build id for test results",
 						zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
@@ -303,7 +315,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	}
 
 	// 1. Acquire per-project lock to serialize concurrent report generation.
-	unlock, err := a.lockManager.Acquire(ctx, projectID, "generate")
+	unlock, err := a.lockManager.AcquireLock(ctx, projectID)
 	if err != nil {
 		return "", fmt.Errorf("acquire generation lock: %w", err)
 	}

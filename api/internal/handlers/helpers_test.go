@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"go.uber.org/zap"
@@ -13,94 +14,135 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// openTestStore creates a temporary SQLiteStore and registers cleanup.
-func openTestStore(t *testing.T) *store.SQLiteStore {
-	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
-}
-
-// openTestDB creates a temporary *sql.DB for tests that need raw DB access (e.g. system_test).
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	return openTestStore(t).DB()
-}
-
-// newTestAllureHandler creates an AllureHandler backed by a real SQLite store
-// (in-memory via t.TempDir) and syncs the given projectsDir into it so that
-// filesystem fixtures created before calling this function are reflected in the DB.
+// newTestAllureHandler creates an AllureHandler backed by stateful in-memory
+// stores. After construction it scans projectsDir and populates the build store
+// with any numbered report directories found, so GetReportHistory tests see the
+// expected DB-backed entries without a real PostgreSQL connection.
 func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 	t.Helper()
 	cfg := &config.Config{ProjectsPath: projectsDir}
-
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	logger := zap.NewNop()
 	st := storage.NewLocalStore(cfg)
-
-	// Sync filesystem fixtures → DB so numbered reports are visible.
-	if err := store.SyncMetadata(context.Background(), st, db, logger); err != nil {
-		t.Fatalf("SyncMetadata: %v", err)
-	}
-
-	buildStore := store.NewBuildStore(db, logger)
-	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, nil, logger)
-	return NewAllureHandler(cfg, r, nil,
-		store.NewProjectStore(db, logger), buildStore, store.NewKnownIssueStore(db),
-		nil, store.NewSearchStore(db, logger), st)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
+	h := NewAllureHandler(cfg, r, nil,
+		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st)
+	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
+	return h
 }
 
-// newTestAllureHandlerWithDB creates an AllureHandler wired to an externally-provided
-// SQLiteStore. Use this when tests pre-seed DB state before handler construction.
-// Includes a TestResultStore; the caller controls the full DB lifecycle.
-func newTestAllureHandlerWithDB(t *testing.T, projectsDir string, db *store.SQLiteStore) *AllureHandler {
+// syncTestBuildsFromFilesystem scans projectsDir for numbered report directories
+// and inserts them into builds, optionally populating stats from summary.json.
+func syncTestBuildsFromFilesystem(t *testing.T, projectsDir string, builds *testutil.MemBuildStore) {
+	t.Helper()
+	projectEntries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return
+	}
+	ctx := context.Background()
+	for _, pe := range projectEntries {
+		if !pe.IsDir() {
+			continue
+		}
+		projectID := pe.Name()
+		reportsDir := filepath.Join(projectsDir, projectID, "reports")
+		reportEntries, err := os.ReadDir(reportsDir)
+		if err != nil {
+			continue
+		}
+		for _, re := range reportEntries {
+			if !re.IsDir() {
+				continue
+			}
+			order, err := strconv.Atoi(re.Name())
+			if err != nil {
+				continue // skip "latest" and any non-numeric dirs
+			}
+			if err := builds.InsertBuild(ctx, projectID, order); err != nil {
+				t.Logf("syncTestBuildsFromFilesystem: InsertBuild %s/%d: %v", projectID, order, err)
+				continue
+			}
+			// Parse summary.json for stats if present.
+			data, err := os.ReadFile(filepath.Join(reportsDir, re.Name(), "widgets", "summary.json"))
+			if err != nil {
+				continue
+			}
+			var summary struct {
+				Statistic struct {
+					Passed  int `json:"passed"`
+					Failed  int `json:"failed"`
+					Broken  int `json:"broken"`
+					Skipped int `json:"skipped"`
+					Unknown int `json:"unknown"`
+					Total   int `json:"total"`
+				} `json:"statistic"`
+				Time struct {
+					Duration int64 `json:"duration"`
+				} `json:"time"`
+			}
+			if json.Unmarshal(data, &summary) != nil {
+				continue
+			}
+			_ = builds.UpdateBuildStats(ctx, projectID, order, store.BuildStats{
+				Passed:     summary.Statistic.Passed,
+				Failed:     summary.Statistic.Failed,
+				Broken:     summary.Statistic.Broken,
+				Skipped:    summary.Statistic.Skipped,
+				Unknown:    summary.Statistic.Unknown,
+				Total:      summary.Statistic.Total,
+				DurationMs: summary.Time.Duration,
+			})
+		}
+	}
+}
+
+// newTestAllureHandlerAndMocks is like newTestAllureHandler but also returns the
+// mock bundle so callers can pre-seed stores or make assertions against them.
+func newTestAllureHandlerAndMocks(t *testing.T, projectsDir string) (*AllureHandler, *testutil.MockStores) {
 	t.Helper()
 	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
-	bs := store.NewBuildStore(db, logger)
-	lockManager := store.NewLockManager()
-	ts := store.NewTestResultStore(db, logger)
-	r := runner.NewAllure(cfg, st, bs, lockManager, ts, nil, logger)
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
+	h := NewAllureHandler(cfg, r, nil,
+		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st)
+	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
+	return h, mocks
+}
+
+// newTestAllureHandlerWithMocks creates an AllureHandler wired to caller-provided
+// mock stores. Use this when tests pre-seed mock Fn fields before handler construction.
+func newTestAllureHandlerWithMocks(t *testing.T, projectsDir string, mocks *testutil.MockStores) *AllureHandler {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, logger)
 	return NewAllureHandler(cfg, r, nil,
-		store.NewProjectStore(db, logger), bs, store.NewKnownIssueStore(db), ts, nil, st)
+		mocks.Projects, mocks.Builds, mocks.KnownIssues, mocks.TestResults, mocks.Search, st)
 }
 
 // newTestAllureHandlerWithJobManager builds an AllureHandler with a real JobManager
 // backed by the provided generator, for async job handler tests.
+// Uses mock stores since job manager tests do not require DB-level persistence.
 func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) *AllureHandler {
 	t.Helper()
 	cfg := &config.Config{ProjectsPath: projectsDir, KeepHistory: false}
-
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
 	logger := zap.NewNop()
 	st := storage.NewLocalStore(cfg)
-	buildStore := store.NewBuildStore(db, logger)
-	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, buildStore, lockManager, nil, nil, logger)
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, logger)
 
-	jm := runner.NewJobManager(gen, 2, logger)
+	jm := runner.NewMemJobManager(gen, 2, logger)
 	jm.Start(context.Background())
 	t.Cleanup(func() { jm.Shutdown() })
 
 	return NewAllureHandler(cfg, r, jm,
-		store.NewProjectStore(db, logger), buildStore, store.NewKnownIssueStore(db), nil, nil, st)
+		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, st)
 }
 
 // writeSummaryJSON creates widgets/summary.json under the given report dir.

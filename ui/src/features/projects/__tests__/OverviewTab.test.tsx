@@ -77,25 +77,25 @@ describe('OverviewTab - report history pagination', () => {
     vi.clearAllMocks()
   })
 
-  it('filters latest report out of the history table', async () => {
+  it('filters the synthetic "latest" alias out of the history table', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated(
-        [makeReport('42', true), makeReport('41'), makeReport('40')],
+        [makeReport('latest', true), makeReport('41'), makeReport('40')],
         { page: 1, per_page: 20, total: 2, total_pages: 1 },
       ),
     )
     renderTab()
     await waitFor(() => {
-      expect(screen.queryByText('#42')).not.toBeInTheDocument()
+      expect(screen.queryByText('#latest')).not.toBeInTheDocument()
       expect(screen.getByText('#41')).toBeInTheDocument()
       expect(screen.getByText('#40')).toBeInTheDocument()
     })
   })
 
-  it('shows empty state when there are no non-latest reports', async () => {
+  it('shows empty state when only the synthetic "latest" alias is returned', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated(
-        [makeReport('1', true)],
+        [makeReport('latest', true)],
         { page: 1, per_page: 20, total: 0, total_pages: 0 },
       ),
     )

@@ -81,9 +81,9 @@ WORKDIR ${ROOT}
 # Copy the compiled Go binary from the build stage
 COPY --from=build_stage --chown=${UID}:${GID} /build/alluredeck-api ${ROOT}/alluredeck-api
 
-RUN mkdir -p /data/db && \
+RUN mkdir -p /data && \
     chown -R ${UID}:${GID} ${ROOT} && \
-    chown ${UID}:${GID} /data /data/db
+    chown ${UID}:${GID} /data
 
 # Volatile build metadata — placed last to avoid busting layer cache
 ARG BUILD_DATE

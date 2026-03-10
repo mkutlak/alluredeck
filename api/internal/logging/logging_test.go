@@ -11,6 +11,7 @@ import (
 )
 
 func TestSetupDevMode(t *testing.T) {
+	t.Parallel()
 	logger := logging.Setup(true, "debug")
 	if logger == nil {
 		t.Fatal("Setup(devMode=true) returned nil logger")
@@ -18,6 +19,7 @@ func TestSetupDevMode(t *testing.T) {
 }
 
 func TestSetupProdMode(t *testing.T) {
+	t.Parallel()
 	logger := logging.Setup(false, "info")
 	if logger == nil {
 		t.Fatal("Setup(devMode=false) returned nil logger")
@@ -25,6 +27,7 @@ func TestSetupProdMode(t *testing.T) {
 }
 
 func TestSetupReplacesGlobals(t *testing.T) {
+	t.Parallel()
 	logging.Setup(false, "info")
 	global := zap.L()
 	if global == nil {
@@ -33,6 +36,7 @@ func TestSetupReplacesGlobals(t *testing.T) {
 }
 
 func TestParseLevel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  zapcore.Level
@@ -59,6 +63,7 @@ func TestParseLevel(t *testing.T) {
 }
 
 func TestFromContextNoLogger(t *testing.T) {
+	t.Parallel()
 	// When no logger is stored, FromContext returns the global zap.L() fallback
 	logging.Setup(false, "info") // ensure global is set
 	ctx := context.Background()
@@ -69,6 +74,7 @@ func TestFromContextNoLogger(t *testing.T) {
 }
 
 func TestWithAndFromContext(t *testing.T) {
+	t.Parallel()
 	logging.Setup(false, "info")
 	original := zap.NewNop()
 	ctx := logging.WithContext(context.Background(), original)
@@ -79,6 +85,7 @@ func TestWithAndFromContext(t *testing.T) {
 }
 
 func TestFromContextReturnsFallbackWhenNil(t *testing.T) {
+	t.Parallel()
 	// Explicitly passing nil should fall back to global
 	logging.Setup(false, "info")
 	ctx := logging.WithContext(context.Background(), nil)

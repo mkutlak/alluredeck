@@ -96,6 +96,7 @@ func testCfg() *config.Config {
 }
 
 func TestS3Store_CreateProject_WritesKeepMarker(t *testing.T) {
+	t.Parallel()
 	var gotKey string
 	mock := &mockS3Client{
 		PutObjectFn: func(_ context.Context, params *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
@@ -116,6 +117,7 @@ func TestS3Store_CreateProject_WritesKeepMarker(t *testing.T) {
 }
 
 func TestS3Store_CreateProject_PropagatesError(t *testing.T) {
+	t.Parallel()
 	mock := &mockS3Client{
 		PutObjectFn: func(_ context.Context, _ *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 			return nil, errors.New("s3 unavailable")
@@ -129,6 +131,7 @@ func TestS3Store_CreateProject_PropagatesError(t *testing.T) {
 }
 
 func TestS3Store_ResultsDirHash_Noop(t *testing.T) {
+	t.Parallel()
 	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, &mockS3Uploader{}, zap.NewNop())
 	hash, err := store.ResultsDirHash(context.Background(), "myproject")
 	if err != nil {
@@ -140,6 +143,7 @@ func TestS3Store_ResultsDirHash_Noop(t *testing.T) {
 }
 
 func TestS3Store_ListProjects(t *testing.T) {
+	t.Parallel()
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			return &s3.ListObjectsV2Output{
@@ -165,6 +169,7 @@ func TestS3Store_ListProjects(t *testing.T) {
 }
 
 func TestS3Store_WriteResultFile(t *testing.T) {
+	t.Parallel()
 	var capturedKey string
 	uploader := &mockS3Uploader{
 		UploadObjectFn: func(_ context.Context, params *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
@@ -186,6 +191,7 @@ func TestS3Store_WriteResultFile(t *testing.T) {
 }
 
 func TestS3Store_WriteResultFile_UploaderError(t *testing.T) {
+	t.Parallel()
 	uploader := &mockS3Uploader{
 		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
 			return nil, errors.New("upload failed")
@@ -199,6 +205,7 @@ func TestS3Store_WriteResultFile_UploaderError(t *testing.T) {
 }
 
 func TestS3Store_CleanResults(t *testing.T) {
+	t.Parallel()
 	var listedPrefix string
 	var deletedKeys []string
 	mock := &mockS3Client{
@@ -237,6 +244,7 @@ func TestS3Store_CleanResults(t *testing.T) {
 }
 
 func TestS3Store_DeleteReport_EmptyID(t *testing.T) {
+	t.Parallel()
 	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, &mockS3Uploader{}, zap.NewNop())
 	err := store.DeleteReport(context.Background(), "myproject", "")
 	if !errors.Is(err, ErrReportIDEmpty) {
@@ -245,6 +253,7 @@ func TestS3Store_DeleteReport_EmptyID(t *testing.T) {
 }
 
 func TestS3Store_DeleteReport_InvalidID(t *testing.T) {
+	t.Parallel()
 	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, &mockS3Uploader{}, zap.NewNop())
 	err := store.DeleteReport(context.Background(), "myproject", "latest")
 	if !errors.Is(err, ErrReportIDInvalid) {
@@ -253,6 +262,7 @@ func TestS3Store_DeleteReport_InvalidID(t *testing.T) {
 }
 
 func TestS3Store_LatestReportExists_True(t *testing.T) {
+	t.Parallel()
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			return &s3.ListObjectsV2Output{
@@ -272,6 +282,7 @@ func TestS3Store_LatestReportExists_True(t *testing.T) {
 }
 
 func TestS3Store_LatestReportExists_False(t *testing.T) {
+	t.Parallel()
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			return &s3.ListObjectsV2Output{
@@ -291,6 +302,7 @@ func TestS3Store_LatestReportExists_False(t *testing.T) {
 }
 
 func TestS3Store_ReadBuildStats_Summary(t *testing.T) {
+	t.Parallel()
 	summaryData, _ := json.Marshal(map[string]any{
 		"statistic": map[string]int{
 			"passed":  10,
@@ -334,6 +346,7 @@ func TestS3Store_ReadBuildStats_Summary(t *testing.T) {
 }
 
 func TestS3Store_ListReportBuilds(t *testing.T) {
+	t.Parallel()
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			return &s3.ListObjectsV2Output{
@@ -360,6 +373,7 @@ func TestS3Store_ListReportBuilds(t *testing.T) {
 }
 
 func TestS3Store_KeepHistory_UsesCopyObject(t *testing.T) {
+	t.Parallel()
 	historyFiles := []string{
 		"projects/myproject/reports/latest/history/history.json",
 		"projects/myproject/reports/latest/history/retry-trend.json",
@@ -449,6 +463,7 @@ func TestS3Store_KeepHistory_UsesCopyObject(t *testing.T) {
 }
 
 func TestS3Store_KeepHistory_CopyObjectError(t *testing.T) {
+	t.Parallel()
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			prefix := ""
@@ -482,6 +497,7 @@ func TestS3Store_KeepHistory_CopyObjectError(t *testing.T) {
 }
 
 func TestS3Store_KeepHistory_NoHistory(t *testing.T) {
+	t.Parallel()
 	var copyObjectCalled bool
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -506,6 +522,7 @@ func TestS3Store_KeepHistory_NoHistory(t *testing.T) {
 }
 
 func TestS3Store_KeepHistory_Disabled(t *testing.T) {
+	t.Parallel()
 	var deletedPrefix string
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -530,6 +547,7 @@ func TestS3Store_KeepHistory_Disabled(t *testing.T) {
 }
 
 func TestPrepareLocal_ParallelDownloads(t *testing.T) {
+	t.Parallel()
 	resultsKey := "projects/myproject/results/result.json"
 	historyKey := "projects/myproject/reports/latest/history/history.json"
 
@@ -591,6 +609,7 @@ func TestPrepareLocal_ParallelDownloads(t *testing.T) {
 }
 
 func TestPrepareLocal_HistoryFailureNonFatal(t *testing.T) {
+	t.Parallel()
 	resultsKey := "projects/myproject/results/result.json"
 
 	mock := &mockS3Client{

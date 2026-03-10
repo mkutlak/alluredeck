@@ -458,3 +458,28 @@ export interface TestHistoryData {
   history_id: string
   branch_name?: string
 }
+
+// ---------------------------------------------------------------------------
+// Analytics (Phase 8 — PostgreSQL analytics dashboards)
+// ---------------------------------------------------------------------------
+export interface ErrorCluster {
+  message: string
+  count: number
+}
+
+export interface SuitePassRate {
+  suite: string
+  total: number
+  passed: number
+  pass_rate: number
+}
+
+export interface LabelCount {
+  value: string
+  count: number
+}
+
+export interface AnalyticsResponse<T> {
+  data: T[]
+  project_id: string
+}

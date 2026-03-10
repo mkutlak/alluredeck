@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,35 +14,26 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
-	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 func TestRegisterRoutes(t *testing.T) {
 	cfg := &config.Config{SecurityEnabled: true, JWTSecret: "test-secret"}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer func() { _ = db.Close() }()
+	mocks := testutil.New()
 
-	blacklistStore := store.NewBlacklistStore(db)
-	buildStore := store.NewBuildStore(db, zap.NewNop())
-	projectStore := store.NewProjectStore(db, zap.NewNop())
-	lockManager := store.NewLockManager()
-
-	jwtManager := security.NewJWTManager(cfg, blacklistStore)
-	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist)
+	systemHandler := handlers.NewSystemHandler(cfg, nil)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, nil, nil, zap.NewNop())
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, projectStore, buildStore, store.NewKnownIssueStore(db), nil, nil, localStore)
+	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, localStore)
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	adminHandler := handlers.NewAdminHandler(nil, nil, zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil, nil)
 
 	tests := []struct {
 		method string
@@ -78,29 +68,20 @@ func TestRegisterRoutes(t *testing.T) {
 func TestBareRoutes_Return404(t *testing.T) {
 	cfg := &config.Config{SecurityEnabled: false, JWTSecret: "test-secret"}
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer func() { _ = db.Close() }()
+	mocks := testutil.New()
 
-	blacklistStore := store.NewBlacklistStore(db)
-	buildStore := store.NewBuildStore(db, zap.NewNop())
-	projectStore := store.NewProjectStore(db, zap.NewNop())
-	lockManager := store.NewLockManager()
-
-	jwtManager := security.NewJWTManager(cfg, blacklistStore)
-	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist)
+	systemHandler := handlers.NewSystemHandler(cfg, nil)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, buildStore, lockManager, nil, nil, zap.NewNop())
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, projectStore, buildStore, store.NewKnownIssueStore(db), nil, nil, localStore)
+	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, localStore)
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	adminHandler := handlers.NewAdminHandler(nil, nil, zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil, nil)
 
 	// Bare routes (no /api/v1 prefix) should return 404.
 	bareRoutes := []struct {

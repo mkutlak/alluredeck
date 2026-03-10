@@ -142,7 +142,7 @@ describe('toCategoryBreakdownData', () => {
   it('uses default color for unknown category names', () => {
     const entries = [makeCategory('Some other defect')]
     const result = toCategoryBreakdownData(entries)
-    expect(result[0].color).toBe('#6b7280')
+    expect(result[0].color).toBe('#8c8fa1')
   })
 })
 

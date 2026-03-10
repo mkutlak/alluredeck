@@ -34,8 +34,8 @@ const CATEGORY_LABELS: Record<DiffCategory, string> = {
 }
 
 const CATEGORY_VARIANTS: Record<DiffCategory, string> = {
-  regressed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-  fixed: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  regressed: 'bg-[#d20f39]/15 text-[#d20f39] dark:bg-[#f38ba8]/15 dark:text-[#f38ba8]',
+  fixed: 'bg-[#40a02b]/15 text-[#40a02b] dark:bg-[#a6e3a1]/15 dark:text-[#a6e3a1]',
   added: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
   removed: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400',
 }
@@ -53,7 +53,7 @@ function DiffCategoryBadge({ category }: { category: DiffCategory }) {
 function DurationDelta({ delta }: { delta: number }) {
   if (delta === 0) return <span className="text-muted-foreground">—</span>
   const sign = delta > 0 ? '+' : ''
-  const cls = delta > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+  const cls = delta > 0 ? 'text-[#d20f39] dark:text-[#f38ba8]' : 'text-[#40a02b] dark:text-[#a6e3a1]'
   return <span className={cls}>{sign}{formatDuration(Math.abs(delta))}</span>
 }
 

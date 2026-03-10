@@ -33,7 +33,7 @@ api:
     maxUploadSizeMb: "100"  # Maximum upload size in MB for test results
     goMemLimit: "768MiB"  # Set to ~80% of resources.limits.memory to let GC reclaim before OOM kill
     staticContentProjects: "/data/projects"
-    databasePath: "/data/db/alluredeck.db"
+    databaseURL: ""  # PostgreSQL connection string (required); set via DATABASE_URL env var or existingSecret
 
   # S3/MinIO connection settings (used when storageType=s3)
   # Authentication: use s3.existingSecret for static credentials (keys: S3_ACCESS_KEY, S3_SECRET_KEY),
@@ -76,12 +76,7 @@ api:
       storageClassName: ""    # uses global.storageClassName if empty
       accessMode: ReadWriteOnce
       size: 10Gi
-    database:
-      enabled: true
-      existingClaim: ""
-      storageClassName: ""
-      accessMode: ReadWriteOnce
-      size: 1Gi
+    # database PVC removed: PostgreSQL is an external dependency, no local DB volume needed
 
   replicaCount: 1
   revisionHistoryLimit: 3

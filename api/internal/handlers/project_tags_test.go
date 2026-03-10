@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -133,11 +134,11 @@ func TestUpdateProjectTags_TagTooLong(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	longTag := ""
-	for i := 0; i < 51; i++ {
-		longTag += "a"
+	var longTag strings.Builder
+	for range 51 {
+		longTag.WriteString("a")
 	}
-	body, _ := json.Marshal(map[string]any{"tags": []string{longTag}})
+	body, _ := json.Marshal(map[string]any{"tags": []string{longTag.String()}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
 		"/api/v1/projects/longtagproj/tags", bytes.NewReader(body))
 	if err != nil {

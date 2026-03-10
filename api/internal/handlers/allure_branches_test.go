@@ -7,53 +7,27 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"go.uber.org/zap"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// newTestBranchHandler creates a BranchHandler backed by a real SQLite store.
-func newTestBranchHandler(t *testing.T, db *store.SQLiteStore) *BranchHandler {
+func newTestBranchHandler(t *testing.T, mocks *testutil.MockStores) *BranchHandler {
 	t.Helper()
-	logger := zap.NewNop()
-	bs := store.NewBranchStore(db)
-	buildStore := store.NewBuildStore(db, logger)
-	return NewBranchHandler(bs, buildStore)
-}
-
-// seedBranchProject creates a project and seeds branches for tests.
-func seedBranchProject(t *testing.T, db *store.SQLiteStore, projectID string) (*store.Branch, *store.Branch) {
-	t.Helper()
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	bs := store.NewBranchStore(db)
-	main, _, err := bs.GetOrCreate(ctx, projectID, "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate main: %v", err)
-	}
-	dev, _, err := bs.GetOrCreate(ctx, projectID, "dev")
-	if err != nil {
-		t.Fatalf("GetOrCreate dev: %v", err)
-	}
-	return main, dev
+	return NewBranchHandler(mocks.Branches, mocks.Builds)
 }
 
 // --- ListBranches tests ---
 
 func TestListBranches_Empty(t *testing.T) {
-	db := openTestStore(t)
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
+	mocks := testutil.New()
 	projectID := "branch-empty"
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
+	mocks.Branches.ListFn = func(_ context.Context, _ string) ([]store.Branch, error) {
+		return []store.Branch{}, nil
 	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/branches", projectID), nil)
@@ -84,11 +58,17 @@ func TestListBranches_Empty(t *testing.T) {
 }
 
 func TestListBranches_WithData(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-list"
-	seedBranchProject(t, db, projectID)
+	now := time.Now().UTC().Truncate(time.Second)
+	mocks.Branches.ListFn = func(_ context.Context, _ string) ([]store.Branch, error) {
+		return []store.Branch{
+			{ID: 1, ProjectID: projectID, Name: "main", IsDefault: true, CreatedAt: now},
+			{ID: 2, ProjectID: projectID, Name: "dev", IsDefault: false, CreatedAt: now},
+		}, nil
+	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/branches", projectID), nil)
@@ -141,18 +121,18 @@ func TestListBranches_WithData(t *testing.T) {
 // --- SetDefaultBranch tests ---
 
 func TestSetDefaultBranch_Success(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-setdefault"
-	main, dev := seedBranchProject(t, db, projectID)
+	mocks.Branches.SetDefaultFn = func(_ context.Context, _ string, _ int64) error {
+		return nil
+	}
 
-	// main is default; set dev as default
-	_ = main
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPut,
-		fmt.Sprintf("/api/v1/projects/%s/branches/%d/default", projectID, dev.ID), nil)
+		fmt.Sprintf("/api/v1/projects/%s/branches/2/default", projectID), nil)
 	req.SetPathValue("project_id", projectID)
-	req.SetPathValue("branch_id", fmt.Sprintf("%d", dev.ID))
+	req.SetPathValue("branch_id", "2")
 
 	rr := httptest.NewRecorder()
 	h.SetDefaultBranch(rr, req)
@@ -175,15 +155,13 @@ func TestSetDefaultBranch_Success(t *testing.T) {
 }
 
 func TestSetDefaultBranch_NotFound(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-setdefault-404"
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
+	mocks.Branches.SetDefaultFn = func(_ context.Context, _ string, _ int64) error {
+		return fmt.Errorf("%w: branch=9999 project=%s", store.ErrBranchNotFound, projectID)
 	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPut,
 		fmt.Sprintf("/api/v1/projects/%s/branches/9999/default", projectID), nil)
@@ -199,24 +177,18 @@ func TestSetDefaultBranch_NotFound(t *testing.T) {
 }
 
 func TestSetDefaultBranch_WrongProject(t *testing.T) {
-	db := openTestStore(t)
-	projectID := "branch-setdefault-wrongproj"
-	_, dev := seedBranchProject(t, db, projectID)
-
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
+	mocks := testutil.New()
 	otherProject := "other-project"
-	if err := ps.CreateProject(ctx, otherProject); err != nil {
-		t.Fatalf("CreateProject other: %v", err)
+	mocks.Branches.SetDefaultFn = func(_ context.Context, _ string, _ int64) error {
+		return fmt.Errorf("%w: branch does not belong to project", store.ErrBranchNotFound)
 	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
-	// dev belongs to projectID, but we request with otherProject
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPut,
-		fmt.Sprintf("/api/v1/projects/%s/branches/%d/default", otherProject, dev.ID), nil)
+		fmt.Sprintf("/api/v1/projects/%s/branches/2/default", otherProject), nil)
 	req.SetPathValue("project_id", otherProject)
-	req.SetPathValue("branch_id", fmt.Sprintf("%d", dev.ID))
+	req.SetPathValue("branch_id", "2")
 
 	rr := httptest.NewRecorder()
 	h.SetDefaultBranch(rr, req)
@@ -227,15 +199,10 @@ func TestSetDefaultBranch_WrongProject(t *testing.T) {
 }
 
 func TestSetDefaultBranch_InvalidBranchID(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-setdefault-badid"
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPut,
 		fmt.Sprintf("/api/v1/projects/%s/branches/notanumber/default", projectID), nil)
@@ -253,16 +220,18 @@ func TestSetDefaultBranch_InvalidBranchID(t *testing.T) {
 // --- DeleteBranch tests ---
 
 func TestDeleteBranch_Success(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-delete"
-	_, dev := seedBranchProject(t, db, projectID)
+	mocks.Branches.DeleteFn = func(_ context.Context, _ string, _ int64) error {
+		return nil
+	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		fmt.Sprintf("/api/v1/projects/%s/branches/%d", projectID, dev.ID), nil)
+		fmt.Sprintf("/api/v1/projects/%s/branches/2", projectID), nil)
 	req.SetPathValue("project_id", projectID)
-	req.SetPathValue("branch_id", fmt.Sprintf("%d", dev.ID))
+	req.SetPathValue("branch_id", "2")
 
 	rr := httptest.NewRecorder()
 	h.DeleteBranch(rr, req)
@@ -273,16 +242,18 @@ func TestDeleteBranch_Success(t *testing.T) {
 }
 
 func TestDeleteBranch_DefaultBranch_Conflict(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-delete-default"
-	main, _ := seedBranchProject(t, db, projectID)
+	mocks.Branches.DeleteFn = func(_ context.Context, _ string, _ int64) error {
+		return store.ErrCannotDeleteDefaultBranch
+	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		fmt.Sprintf("/api/v1/projects/%s/branches/%d", projectID, main.ID), nil)
+		fmt.Sprintf("/api/v1/projects/%s/branches/1", projectID), nil)
 	req.SetPathValue("project_id", projectID)
-	req.SetPathValue("branch_id", fmt.Sprintf("%d", main.ID))
+	req.SetPathValue("branch_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.DeleteBranch(rr, req)
@@ -293,15 +264,13 @@ func TestDeleteBranch_DefaultBranch_Conflict(t *testing.T) {
 }
 
 func TestDeleteBranch_NotFound(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-delete-404"
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
+	mocks.Branches.DeleteFn = func(_ context.Context, _ string, _ int64) error {
+		return fmt.Errorf("%w: branch=9999 project=%s", store.ErrBranchNotFound, projectID)
 	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
 		fmt.Sprintf("/api/v1/projects/%s/branches/9999", projectID), nil)
@@ -317,15 +286,10 @@ func TestDeleteBranch_NotFound(t *testing.T) {
 }
 
 func TestDeleteBranch_InvalidBranchID(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "branch-delete-badid"
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
 
-	h := newTestBranchHandler(t, db)
+	h := newTestBranchHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
 		fmt.Sprintf("/api/v1/projects/%s/branches/notanumber", projectID), nil)

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useMemo, useEffect, useRef } from 'react'
+import { useMemo, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-keys'
 import { fetchBranches } from '@/api/branches'
@@ -35,11 +35,9 @@ export function BranchSelector({
     [branches],
   )
 
-  // The displayed value: honour the controlled prop, fall back to default branch, then "all"
-  const displayValue =
-    selectedBranch !== undefined
-      ? selectedBranch
-      : (defaultBranchName ?? ALL_BRANCHES_VALUE)
+  // Track when the user explicitly selects "All branches" so we can show it correctly
+  // even when selectedBranch is undefined (which also describes the initial unset state).
+  const [userChoseAll, setUserChoseAll] = useState(false)
 
   // Notify parent once when branches load and there is a default to auto-select
   const notifiedRef = useRef(false)
@@ -52,8 +50,17 @@ export function BranchSelector({
   }, [defaultBranchName, selectedBranch, onBranchChange])
 
   const handleValueChange = (val: string) => {
+    setUserChoseAll(val === ALL_BRANCHES_VALUE)
     onBranchChange(val === ALL_BRANCHES_VALUE ? undefined : val)
   }
+
+  // If the user explicitly chose "All branches" show that; otherwise honour the
+  // controlled prop and fall back to the default branch (pre-selection) then "all".
+  const displayValue = userChoseAll
+    ? ALL_BRANCHES_VALUE
+    : selectedBranch !== undefined
+      ? selectedBranch
+      : (defaultBranchName ?? ALL_BRANCHES_VALUE)
 
   // While loading, show a disabled placeholder trigger so tests can find the combobox
   if (isLoading) {

@@ -12,6 +12,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // makeFullLatestReport populates latest/ with both static and variable content.
@@ -118,56 +119,45 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 }
 
 // TestStoreAndPruneBuild_InsertBuildErrorPropagates verifies that when
-// InsertBuild fails (e.g. closed DB), the error is returned instead of swallowed.
+// InsertBuild fails, the error is returned instead of swallowed.
 func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "err-proj"
 
 	cfg := &config.Config{ProjectsPath: dir}
 	st := storage.NewLocalStore(cfg)
-	s, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
+	mocks := testutil.New()
+	mocks.Builds.InsertBuildFn = func(_ context.Context, _ string, _ int) error {
+		return store.ErrBuildNotFound // any non-nil error
 	}
-	bs := store.NewBuildStore(s, zap.NewNop())
-	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm, nil, nil, zap.NewNop())
+	a := NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
 
-	// Close the DB so InsertBuild will fail.
-	_ = s.Close()
-
-	err = a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{}, nil)
+	err := a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{}, nil)
 	if err == nil {
-		t.Fatal("expected error from storeAndPruneBuild when DB is closed, got nil")
+		t.Fatal("expected error from storeAndPruneBuild when InsertBuild fails, got nil")
 	}
 	if !strings.Contains(err.Error(), "insert build") {
 		t.Errorf("expected error containing %q, got: %v", "insert build", err)
 	}
 }
 
-// TestRecordBuild_RecordsInDB verifies that recordBuild inserts the build
-// into the database (for pruning) without publishing a report snapshot.
+// TestRecordBuild_RecordsInDB verifies that recordBuild calls InsertBuild and
+// the build is subsequently visible via ListBuilds.
 func TestRecordBuild_RecordsInDB(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "record-proj"
 
 	cfg := &config.Config{ProjectsPath: dir}
 	st := storage.NewLocalStore(cfg)
-	s, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
+	mocks := testutil.New()
 
-	// Create project in DB to satisfy FK constraint.
-	ps := store.NewProjectStore(s, zap.NewNop())
-	if err := ps.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
+	// Configure ListBuilds to return the build that recordBuild should have inserted.
+	expectedBuild := store.Build{ProjectID: projectID, BuildOrder: 1}
+	mocks.Builds.ListBuildsFn = func(_ context.Context, _ string) ([]store.Build, error) {
+		return []store.Build{expectedBuild}, nil
 	}
 
-	bs := store.NewBuildStore(s, zap.NewNop())
-	lm := store.NewLockManager()
-	a := NewAllure(cfg, st, bs, lm, nil, nil, zap.NewNop())
+	a := NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
 
 	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
 		t.Fatalf("recordBuild: %v", err)

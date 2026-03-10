@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -44,24 +42,10 @@ type compareSummary struct {
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/compare [get]
 func (h *AllureHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -69,23 +53,17 @@ func (h *AllureHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 	buildOrderA, errA := strconv.Atoi(q.Get("a"))
 	buildOrderB, errB := strconv.Atoi(q.Get("b"))
 	if errA != nil || errB != nil || buildOrderA <= 0 || buildOrderB <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "query parameters 'a' and 'b' are required and must be positive integers"},
-		})
+		writeError(w, http.StatusBadRequest, "query parameters 'a' and 'b' are required and must be positive integers")
 		return
 	}
 	if buildOrderA == buildOrderB {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "build_a and build_b must be different"},
-		})
+		writeError(w, http.StatusBadRequest, "build_a and build_b must be different")
 		return
 	}
 
 	// No store: return empty comparison (same pattern as analytics).
 	if h.testResultStore == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"data": map[string]any{
 				"build_a": buildOrderA,
 				"build_b": buildOrderB,
@@ -99,33 +77,24 @@ func (h *AllureHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 
 	buildIDA, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrderA)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("build #%d not found for project %s", buildOrderA, projectID)},
-		})
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildOrderA, projectID))
 		return
 	}
 	buildIDB, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrderB)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("build #%d not found for project %s", buildOrderB, projectID)},
-		})
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildOrderB, projectID))
 		return
 	}
 
 	diffs, err := h.testResultStore.CompareBuildsByHistoryID(ctx, projectID, buildIDA, buildIDB)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to compute build comparison"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to compute build comparison")
 		return
 	}
 
 	entries, summary := mapDiffEntries(diffs)
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"build_a": buildOrderA,
 			"build_b": buildOrderB,

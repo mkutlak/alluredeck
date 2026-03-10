@@ -20,7 +20,7 @@ import (
 type Watcher struct {
 	cfg          *config.Config
 	allureCore   *Allure
-	projectStore *store.ProjectStore
+	projectStore store.ProjectStorer
 	store        storage.Store
 	stop         chan struct{}
 	wg           sync.WaitGroup
@@ -28,7 +28,7 @@ type Watcher struct {
 }
 
 // NewWatcher creates a new Watcher
-func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore *store.ProjectStore, st storage.Store, logger *zap.Logger) *Watcher {
+func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore store.ProjectStorer, st storage.Store, logger *zap.Logger) *Watcher {
 	return &Watcher{
 		cfg:          cfg,
 		allureCore:   allureCore,

@@ -6,18 +6,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"go.uber.org/zap"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 func TestGetDashboard_Empty(t *testing.T) {
-	db := openTestStore(t)
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+		return []store.DashboardProject{}, nil
+	}
 
-	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
+	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
 
@@ -44,25 +46,33 @@ func TestGetDashboard_Empty(t *testing.T) {
 }
 
 func TestGetDashboard_SingleProject(t *testing.T) {
-	db := openTestStore(t)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ctx := context.Background()
-
 	projID := "single-proj"
-	_ = ps.CreateProject(ctx, projID)
+	mocks := testutil.New()
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+		return []store.DashboardProject{
+			{
+				ProjectID: projID,
+				CreatedAt: time.Now(),
+				Tags:      []string{},
+				Latest: &store.Build{
+					ID:         3,
+					ProjectID:  projID,
+					BuildOrder: 3,
+					IsLatest:   true,
+					StatPassed: intPtr(90),
+					StatTotal:  intPtr(100),
+				},
+				Sparkline: []store.SparklinePoint{
+					{BuildOrder: 1, PassRate: 80.0},
+					{BuildOrder: 2, PassRate: 85.0},
+					{BuildOrder: 3, PassRate: 90.0},
+				},
+			},
+		}, nil
+	}
 
-	// Insert 3 builds.
-	_ = bs.InsertBuild(ctx, projID, 1)
-	_ = bs.UpdateBuildStats(ctx, projID, 1, store.BuildStats{Passed: 80, Total: 100})
-	_ = bs.InsertBuild(ctx, projID, 2)
-	_ = bs.UpdateBuildStats(ctx, projID, 2, store.BuildStats{Passed: 85, Total: 100})
-	_ = bs.InsertBuild(ctx, projID, 3)
-	_ = bs.UpdateBuildStats(ctx, projID, 3, store.BuildStats{Passed: 90, Total: 100})
-	_ = bs.SetLatest(ctx, projID, 3)
-
-	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
+	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
 
@@ -105,31 +115,47 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 }
 
 func TestGetDashboard_HealthSummary(t *testing.T) {
-	db := openTestStore(t)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+		return []store.DashboardProject{
+			{
+				ProjectID: "proj-healthy",
+				CreatedAt: time.Now(),
+				Tags:      []string{},
+				Latest: &store.Build{
+					BuildOrder: 1,
+					StatPassed: intPtr(95),
+					StatTotal:  intPtr(100),
+				},
+				Sparkline: []store.SparklinePoint{},
+			},
+			{
+				ProjectID: "proj-degraded",
+				CreatedAt: time.Now(),
+				Tags:      []string{},
+				Latest: &store.Build{
+					BuildOrder: 1,
+					StatPassed: intPtr(80),
+					StatTotal:  intPtr(100),
+				},
+				Sparkline: []store.SparklinePoint{},
+			},
+			{
+				ProjectID: "proj-failing",
+				CreatedAt: time.Now(),
+				Tags:      []string{},
+				Latest: &store.Build{
+					BuildOrder: 1,
+					StatPassed: intPtr(50),
+					StatTotal:  intPtr(100),
+				},
+				Sparkline: []store.SparklinePoint{},
+			},
+		}, nil
+	}
 
-	// proj-healthy: pass_rate=95% (>= 90%)
-	_ = ps.CreateProject(ctx, "proj-healthy")
-	_ = bs.InsertBuild(ctx, "proj-healthy", 1)
-	_ = bs.UpdateBuildStats(ctx, "proj-healthy", 1, store.BuildStats{Passed: 95, Total: 100})
-	_ = bs.SetLatest(ctx, "proj-healthy", 1)
-
-	// proj-degraded: pass_rate=80% (>= 70% and < 90%)
-	_ = ps.CreateProject(ctx, "proj-degraded")
-	_ = bs.InsertBuild(ctx, "proj-degraded", 1)
-	_ = bs.UpdateBuildStats(ctx, "proj-degraded", 1, store.BuildStats{Passed: 80, Total: 100})
-	_ = bs.SetLatest(ctx, "proj-degraded", 1)
-
-	// proj-failing: pass_rate=50% (< 70%)
-	_ = ps.CreateProject(ctx, "proj-failing")
-	_ = bs.InsertBuild(ctx, "proj-failing", 1)
-	_ = bs.UpdateBuildStats(ctx, "proj-failing", 1, store.BuildStats{Passed: 50, Total: 100})
-	_ = bs.SetLatest(ctx, "proj-failing", 1)
-
-	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
+	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
 
@@ -157,14 +183,21 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 }
 
 func TestGetDashboard_ProjectWithNoBuilds(t *testing.T) {
-	db := openTestStore(t)
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+		return []store.DashboardProject{
+			{
+				ProjectID: "no-builds-proj",
+				CreatedAt: time.Now(),
+				Tags:      []string{},
+				Latest:    nil,
+				Sparkline: []store.SparklinePoint{},
+			},
+		}, nil
+	}
 
-	_ = ps.CreateProject(ctx, "no-builds-proj")
-
-	h := newTestAllureHandlerWithDB(t, t.TempDir(), db)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/dashboard", nil)
+	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
 

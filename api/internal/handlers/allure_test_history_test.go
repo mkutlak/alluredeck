@@ -7,56 +7,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"go.uber.org/zap"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// seedTestHistory creates a project with builds and test results for history tests.
-func seedTestHistory(t *testing.T, db *store.SQLiteStore, projectID string) {
+func newTestHistoryHandler(t *testing.T, mocks *testutil.MockStores) *TestHistoryHandler {
 	t.Helper()
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ts := store.NewTestResultStore(db, zap.NewNop())
-
-	if err := ps.CreateProject(ctx, projectID); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-
-	for i := 1; i <= 3; i++ {
-		if err := bs.InsertBuild(ctx, projectID, i); err != nil {
-			t.Fatalf("InsertBuild %d: %v", i, err)
-		}
-		bid, err := ts.GetBuildID(ctx, projectID, i)
-		if err != nil {
-			t.Fatalf("GetBuildID %d: %v", i, err)
-		}
-		_ = ts.InsertBatch(ctx, []store.TestResult{
-			{
-				BuildID: bid, ProjectID: projectID,
-				TestName: "LoginTest", FullName: "pkg.LoginTest",
-				Status: "passed", DurationMs: int64(i * 400),
-				HistoryID: "abc123",
-			},
-		})
-	}
-}
-
-// newTestHistoryHandler creates a TestHistoryHandler backed by a real SQLite store.
-func newTestHistoryHandler(t *testing.T, db *store.SQLiteStore) *TestHistoryHandler {
-	t.Helper()
-	logger := zap.NewNop()
-	ts := store.NewTestResultStore(db, logger)
-	bs := store.NewBuildStore(db, logger)
-	brs := store.NewBranchStore(db)
-	return NewTestHistoryHandler(ts, bs, brs)
+	return NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches)
 }
 
 func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {
-	db := openTestStore(t)
-	h := newTestHistoryHandler(t, db)
+	mocks := testutil.New()
+	h := newTestHistoryHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/test-history", nil)
@@ -80,14 +44,12 @@ func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {
 }
 
 func TestTestHistoryHandler_NoResults(t *testing.T) {
-	db := openTestStore(t)
-	ctx := context.Background()
-	ps := store.NewProjectStore(db, zap.NewNop())
-	bs := store.NewBuildStore(db, zap.NewNop())
-	_ = ps.CreateProject(ctx, "empty-proj")
-	_ = bs.InsertBuild(ctx, "empty-proj", 1)
+	mocks := testutil.New()
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+		return []store.TestHistoryEntry{}, nil
+	}
 
-	h := newTestHistoryHandler(t, db)
+	h := newTestHistoryHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/empty-proj/test-history?history_id=nonexistent", nil)
@@ -117,11 +79,18 @@ func TestTestHistoryHandler_NoResults(t *testing.T) {
 }
 
 func TestTestHistoryHandler_WithResults(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "hist-handler-proj"
-	seedTestHistory(t, db, projectID)
+	now := time.Now().UTC().Truncate(time.Second)
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+		return []store.TestHistoryEntry{
+			{BuildOrder: 1, BuildID: 101, Status: "passed", DurationMs: 400, CreatedAt: now},
+			{BuildOrder: 2, BuildID: 102, Status: "passed", DurationMs: 800, CreatedAt: now},
+			{BuildOrder: 3, BuildID: 103, Status: "failed", DurationMs: 1200, CreatedAt: now},
+		}, nil
+	}
 
-	h := newTestHistoryHandler(t, db)
+	h := newTestHistoryHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/test-history?history_id=abc123", projectID), nil)
@@ -178,11 +147,13 @@ func TestTestHistoryHandler_WithResults(t *testing.T) {
 }
 
 func TestTestHistoryHandler_BranchFilter_NotFound(t *testing.T) {
-	db := openTestStore(t)
+	mocks := testutil.New()
 	projectID := "hist-branch-proj"
-	seedTestHistory(t, db, projectID)
+	mocks.Branches.GetByNameFn = func(_ context.Context, _, _ string) (*store.Branch, error) {
+		return nil, fmt.Errorf("%w: branch=nonexistent-branch project=%s", store.ErrBranchNotFound, projectID)
+	}
 
-	h := newTestHistoryHandler(t, db)
+	h := newTestHistoryHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/test-history?history_id=abc123&branch=nonexistent-branch", projectID), nil)

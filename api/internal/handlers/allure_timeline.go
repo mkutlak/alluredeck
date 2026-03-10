@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 )
@@ -42,24 +41,10 @@ type timelineSummary struct {
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/timeline [get]
 func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -68,14 +53,11 @@ func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 		reportID = "latest"
 	}
 	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// SQLite fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
+	// Database fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
 	if buildOrder, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {
 		if buildID, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrder); err == nil {
 			if rows, err := h.testResultStore.ListTimeline(ctx, projectID, buildID, timelineMaxItems+1); err == nil && len(rows) > 0 {
@@ -109,7 +91,7 @@ func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 					totalDuration += dur
 				}
 
-				_ = json.NewEncoder(w).Encode(map[string]any{
+				writeJSON(w, http.StatusOK, map[string]any{
 					"data": map[string]any{
 						"test_cases": testCases,
 						"summary": timelineSummary{
@@ -229,7 +211,7 @@ func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 		testCases = []timelineTestCase{}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"test_cases": testCases,
 			"summary": timelineSummary{

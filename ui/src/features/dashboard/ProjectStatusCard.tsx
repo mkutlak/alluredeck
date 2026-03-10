@@ -47,9 +47,9 @@ export function ProjectStatusCard({ project }: Props) {
                   variant={passRateBadgeVariant(passRate)}
                   className={
                     passRate >= 90
-                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      ? 'bg-[#40a02b] text-white hover:bg-[#40a02b]/90 dark:bg-[#a6e3a1] dark:text-[#1e1e2e] dark:hover:bg-[#a6e3a1]/90'
                       : passRate >= 70
-                        ? 'bg-amber-500 text-white hover:bg-amber-600'
+                        ? 'bg-[#fe640b] text-white hover:bg-[#fe640b]/90 dark:bg-[#fab387] dark:text-[#1e1e2e] dark:hover:bg-[#fab387]/90'
                         : undefined
                   }
                 >

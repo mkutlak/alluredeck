@@ -18,3 +18,7 @@ export async function cancelJob(jobId: string): Promise<void> {
 export async function cleanAdminResults(projectId: string): Promise<void> {
   await apiClient.delete(`/admin/results/${projectId}`)
 }
+
+export async function deleteJob(jobId: string): Promise<void> {
+  await apiClient.delete(`/admin/jobs/${jobId}`)
+}

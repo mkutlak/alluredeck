@@ -25,7 +25,7 @@ openssl rand -hex 32
 ### Token Revocation
 
 - Every token carries a unique **JTI** (JWT ID).
-- Revoked JTIs are persisted to a `jwt_blacklist` table in SQLite and survive restarts.
+- Revoked JTIs are persisted to a `jwt_blacklist` table in PostgreSQL and survive restarts.
 - A background goroutine periodically prunes expired blacklist entries.
 
 ### Token Lifetimes

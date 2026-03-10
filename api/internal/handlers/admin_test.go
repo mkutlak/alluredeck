@@ -14,16 +14,16 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
 
-// newAdminTestJobManager creates a JobManager suitable for handler tests.
-func newAdminTestJobManager(t *testing.T, gen runner.ReportGenerator, poolSize int) *runner.JobManager {
+// newAdminTestJobManager creates a MemJobManager suitable for handler tests.
+func newAdminTestJobManager(t *testing.T, gen runner.ReportGenerator, poolSize int) runner.JobQueuer {
 	t.Helper()
-	jm := runner.NewJobManager(gen, poolSize, zap.NewNop())
+	jm := runner.NewMemJobManager(gen, poolSize, zap.NewNop())
 	jm.Start(context.Background())
 	t.Cleanup(func() { jm.Shutdown() })
 	return jm
 }
 
-func newTestAdminHandler(t *testing.T, jm *runner.JobManager, ms *storage.MockStore) *AdminHandler {
+func newTestAdminHandler(t *testing.T, jm runner.JobQueuer, ms *storage.MockStore) *AdminHandler {
 	t.Helper()
 	return NewAdminHandler(jm, ms, zap.NewNop())
 }
@@ -352,5 +352,102 @@ func TestAdminCleanResults_Success(t *testing.T) {
 	}
 	if !cleaned {
 		t.Error("expected CleanResults to be called")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DeleteJob
+// ---------------------------------------------------------------------------
+
+func TestAdminDeleteJob_MissingID(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	jm := newAdminTestJobManager(t, gen, 2)
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/", nil)
+	// job_id path value intentionally not set
+	rr := httptest.NewRecorder()
+	h.DeleteJob(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAdminDeleteJob_NotFound(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	jm := newAdminTestJobManager(t, gen, 2)
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/bogus-id", nil)
+	req.SetPathValue("job_id", "bogus-id")
+	rr := httptest.NewRecorder()
+	h.DeleteJob(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAdminDeleteJob_NonTerminal(t *testing.T) {
+	gen := newContextGen()
+	jm := newAdminTestJobManager(t, gen, 2)
+	j := jm.Submit("proj-delete-running", runner.JobParams{})
+
+	// Wait for the job to reach running state.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := jm.Get(j.ID); got != nil && got.Status == runner.JobStatusRunning {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	defer close(gen.ch)
+
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/"+j.ID, nil)
+	req.SetPathValue("job_id", j.ID)
+	rr := httptest.NewRecorder()
+	h.DeleteJob(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Errorf("want 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAdminDeleteJob_Success(t *testing.T) {
+	gen := newBlockingGen()
+	jm := newAdminTestJobManager(t, gen, 2)
+	j := jm.Submit("proj-delete-success", runner.JobParams{})
+	close(gen.ch) // let the job complete
+
+	// Wait for completion.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := jm.Get(j.ID); got != nil && got.Status == runner.JobStatusCompleted {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/"+j.ID, nil)
+	req.SetPathValue("job_id", j.ID)
+	rr := httptest.NewRecorder()
+	h.DeleteJob(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Job should no longer be retrievable.
+	if got := jm.Get(j.ID); got != nil {
+		t.Errorf("expected job to be deleted, but Get returned %+v", got)
 	}
 }

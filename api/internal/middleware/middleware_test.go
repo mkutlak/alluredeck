@@ -13,6 +13,7 @@ import (
 )
 
 func TestAuthMiddleware(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		SecurityEnabled:    true,
 		JWTSecret:          "test-secret",
@@ -26,6 +27,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("SecurityDisabled", func(t *testing.T) {
+		t.Parallel()
 		disabledCfg := &config.Config{SecurityEnabled: false}
 		h := AuthMiddleware(disabledCfg, jwtManager, false)(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -39,6 +41,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("MissingToken", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -48,6 +51,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("ValidTokenHeader", func(t *testing.T) {
+		t.Parallel()
 		accessToken, _, _ := jwtManager.GenerateTokens("testuser", "admin")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
@@ -59,6 +63,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("ValidTokenCookie", func(t *testing.T) {
+		t.Parallel()
 		accessToken, _, _ := jwtManager.GenerateTokens("testuser", "admin")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.AddCookie(&http.Cookie{Name: "jwt", Value: accessToken})
@@ -70,6 +75,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("InvalidToken", func(t *testing.T) {
+		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer invalid-token")
 		rr := httptest.NewRecorder()
@@ -94,6 +100,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("ExpiredToken_NoDetailsLeaked", func(t *testing.T) {
+		t.Parallel()
 		// Create a config with a very short expiry and generate an already-expired token
 		shortCfg := &config.Config{
 			SecurityEnabled:    true,
@@ -136,6 +143,7 @@ func TestAuthMiddleware(t *testing.T) {
 }
 
 func TestRequireRole(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		SecurityEnabled:    true,
 		JWTSecret:          "test-secret",
@@ -153,6 +161,7 @@ func TestRequireRole(t *testing.T) {
 	}
 
 	t.Run("AdminAllowedOnAdminEndpoint", func(t *testing.T) {
+		t.Parallel()
 		token, _, _ := jwtMgr.GenerateTokens("admin-user", "admin")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -164,6 +173,7 @@ func TestRequireRole(t *testing.T) {
 	})
 
 	t.Run("ViewerDeniedOnAdminEndpoint", func(t *testing.T) {
+		t.Parallel()
 		token, _, _ := jwtMgr.GenerateTokens("viewer-user", "viewer")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -175,6 +185,7 @@ func TestRequireRole(t *testing.T) {
 	})
 
 	t.Run("ViewerAllowedOnViewerEndpoint", func(t *testing.T) {
+		t.Parallel()
 		token, _, _ := jwtMgr.GenerateTokens("viewer-user", "viewer")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -186,6 +197,7 @@ func TestRequireRole(t *testing.T) {
 	})
 
 	t.Run("AdminAllowedOnViewerEndpoint", func(t *testing.T) {
+		t.Parallel()
 		token, _, _ := jwtMgr.GenerateTokens("admin-user", "admin")
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -197,6 +209,7 @@ func TestRequireRole(t *testing.T) {
 	})
 
 	t.Run("MissingClaimsReturns403", func(t *testing.T) {
+		t.Parallel()
 		// Call RequireRole directly without AuthMiddleware setting claims
 		handler := RequireRole("admin")(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -211,7 +224,9 @@ func TestRequireRole(t *testing.T) {
 }
 
 func TestCORSMiddleware(t *testing.T) {
+	t.Parallel()
 	t.Run("AllowAll", func(t *testing.T) {
+		t.Parallel()
 		cfg := &config.Config{CORSAllowedOrigins: []string{"*"}}
 		next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
 		h := CORSMiddleware(cfg, next)
@@ -230,6 +245,7 @@ func TestCORSMiddleware(t *testing.T) {
 	})
 
 	t.Run("AllowSpecific", func(t *testing.T) {
+		t.Parallel()
 		cfg := &config.Config{CORSAllowedOrigins: []string{"http://example.com"}}
 		next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
 		h := CORSMiddleware(cfg, next)
@@ -264,6 +280,7 @@ func TestCORSMiddleware(t *testing.T) {
 	})
 
 	t.Run("Preflight", func(t *testing.T) {
+		t.Parallel()
 		cfg := &config.Config{CORSAllowedOrigins: []string{"*"}}
 		next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
 		h := CORSMiddleware(cfg, next)

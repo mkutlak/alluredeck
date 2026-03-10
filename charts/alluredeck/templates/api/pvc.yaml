@@ -17,23 +17,4 @@ spec:
     requests:
       storage: {{ .Values.api.persistence.projects.size }}
 {{- end }}
-{{- if and .Values.api.persistence.database.enabled (not .Values.api.persistence.database.existingClaim) }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "alluredeck.api.fullname" . }}-database
-  labels:
-    {{- include "alluredeck.api.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.api.persistence.database.accessMode }}
-  {{- $sc := default .Values.global.storageClassName .Values.api.persistence.database.storageClassName }}
-  {{- if $sc }}
-  storageClassName: {{ $sc | quote }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.api.persistence.database.size }}
-{{- end }}
 {{- end }}

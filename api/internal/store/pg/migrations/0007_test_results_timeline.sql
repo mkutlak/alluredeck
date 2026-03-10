@@ -1,0 +1,11 @@
+-- +goose Up
+ALTER TABLE test_results ADD COLUMN IF NOT EXISTS start_ms BIGINT;
+ALTER TABLE test_results ADD COLUMN IF NOT EXISTS stop_ms  BIGINT;
+ALTER TABLE test_results ADD COLUMN IF NOT EXISTS thread   TEXT NOT NULL DEFAULT '';
+ALTER TABLE test_results ADD COLUMN IF NOT EXISTS host     TEXT NOT NULL DEFAULT '';
+
+-- +goose Down
+ALTER TABLE test_results DROP COLUMN IF EXISTS host;
+ALTER TABLE test_results DROP COLUMN IF EXISTS thread;
+ALTER TABLE test_results DROP COLUMN IF EXISTS stop_ms;
+ALTER TABLE test_results DROP COLUMN IF EXISTS start_ms;

@@ -3,8 +3,6 @@ import { Link, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   ExternalLink,
-  Upload,
-  Play,
   Trash2,
   CheckCircle2,
   XCircle,
@@ -45,12 +43,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/components/ui/use-toast'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
-import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
-import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
-import { CleanDialog } from '@/features/reports/CleanDialog'
 import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
 import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
@@ -100,9 +94,9 @@ function ProjectStatCards({
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={20} className="text-green-600" />
+            <CheckCircle2 size={20} className="text-[#40a02b] dark:text-[#a6e3a1]" />
             <span
-              className={`text-2xl font-bold ${passRate !== null && passRate >= 90 ? 'text-green-600' : passRate !== null && passRate >= 70 ? 'text-amber-600' : passRate !== null ? 'text-red-600' : ''}`}
+              className={`text-2xl font-bold ${passRate !== null && passRate >= 90 ? 'text-[#40a02b] dark:text-[#a6e3a1]' : passRate !== null && passRate >= 70 ? 'text-[#fe640b] dark:text-[#fab387]' : passRate !== null ? 'text-[#d20f39] dark:text-[#f38ba8]' : ''}`}
             >
               {passRate !== null ? `${passRate}%` : '—'}
             </span>
@@ -127,11 +121,11 @@ function ProjectStatCards({
           </div>
           {stat && (
             <div className="mt-1 flex flex-wrap gap-1">
-              <Badge className="bg-green-500 text-xs text-white">{stat.passed} passed</Badge>
-              <Badge variant="destructive" className="text-xs">
+              <Badge variant="passed" className="text-xs">{stat.passed} passed</Badge>
+              <Badge variant="failed" className="text-xs">
                 {stat.failed} failed
               </Badge>
-              <Badge className="bg-amber-500 text-xs text-white">{stat.broken} broken</Badge>
+              <Badge variant="broken" className="text-xs">{stat.broken} broken</Badge>
               <Badge variant="secondary" className="text-xs">
                 {stat.skipped} skipped
               </Badge>
@@ -238,13 +232,13 @@ function ReportRow({
         {r.generated_at ? formatDate(r.generated_at) : '—'}
       </TableCell>
       <TableCell className="text-center font-mono text-sm">{rStat?.total ?? '—'}</TableCell>
-      <TableCell className="text-center font-mono text-sm text-green-600">
+      <TableCell className="text-center font-mono text-sm text-[#40a02b] dark:text-[#a6e3a1]">
         {rStat?.passed ?? '—'}
       </TableCell>
-      <TableCell className="text-center font-mono text-sm text-red-600">
+      <TableCell className="text-center font-mono text-sm text-[#d20f39] dark:text-[#f38ba8]">
         {rStat?.failed ?? '—'}
       </TableCell>
-      <TableCell className="text-center font-mono text-sm text-amber-600">
+      <TableCell className="text-center font-mono text-sm text-[#fe640b] dark:text-[#fab387]">
         {rStat?.broken ?? '—'}
       </TableCell>
       <TableCell className="text-center font-mono text-sm text-muted-foreground">
@@ -255,10 +249,10 @@ function ReportRow({
           <span
             className={
               rPassRate >= 90
-                ? 'font-semibold text-green-600'
+                ? 'font-semibold text-[#40a02b] dark:text-[#a6e3a1]'
                 : rPassRate >= 70
-                  ? 'font-semibold text-amber-600'
-                  : 'font-semibold text-red-600'
+                  ? 'font-semibold text-[#fe640b] dark:text-[#fab387]'
+                  : 'font-semibold text-[#d20f39] dark:text-[#f38ba8]'
             }
           >
             {rPassRate}%
@@ -270,7 +264,7 @@ function ReportRow({
       <TableCell className="text-center">
         <div className="flex justify-center gap-1">
           {r.flaky_count != null && r.flaky_count > 0 && (
-            <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+            <Badge variant="broken" className="text-xs">
               Flaky: {r.flaky_count}
             </Badge>
           )}
@@ -280,7 +274,7 @@ function ReportRow({
             </Badge>
           )}
           {r.new_passed_count != null && r.new_passed_count > 0 && (
-            <Badge className="bg-green-500 text-xs text-white hover:bg-green-600">
+            <Badge variant="passed" className="text-xs">
               Fixed: {r.new_passed_count}
             </Badge>
           )}
@@ -418,10 +412,10 @@ function ReportHistoryTable({
             <TableHead>Report</TableHead>
             <TableHead>Generated</TableHead>
             <TableHead className="text-center">Total</TableHead>
-            <TableHead className="text-center text-green-600">Passed</TableHead>
-            <TableHead className="text-center text-red-600">Failed</TableHead>
-            <TableHead className="text-center text-amber-600">Broken</TableHead>
-            <TableHead className="text-center text-gray-500">Skipped</TableHead>
+            <TableHead className="text-center text-[#40a02b] dark:text-[#a6e3a1]">Passed</TableHead>
+            <TableHead className="text-center text-[#d20f39] dark:text-[#f38ba8]">Failed</TableHead>
+            <TableHead className="text-center text-[#fe640b] dark:text-[#fab387]">Broken</TableHead>
+            <TableHead className="text-center text-[#6c6f85] dark:text-[#a6adc8]">Skipped</TableHead>
             <TableHead className="text-center">Pass rate</TableHead>
             <TableHead className="text-center">Stability</TableHead>
             <TableHead className="text-center">CI</TableHead>
@@ -545,10 +539,6 @@ export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore((s) => s.isAdmin)
   const queryClient = useQueryClient()
-  const [sendOpen, setSendOpen] = useState(false)
-  const [generateOpen, setGenerateOpen] = useState(false)
-  const [cleanResultsOpen, setCleanResultsOpen] = useState(false)
-  const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
@@ -608,7 +598,7 @@ export function OverviewTab() {
   const reports = useMemo(() => historyData?.data.reports ?? [], [historyData])
   const { latest, tableReports, passRate, knownCount, adjustedPassRate } = useMemo(() => {
     const latest = reports.find((r) => r.is_latest)
-    const tableReports = reports.filter((r) => !r.is_latest)
+    const tableReports = reports.filter((r) => r.report_id !== 'latest')
     const stat = latest?.statistic
     const passRate = stat ? calcPassRate(stat.passed, stat.total) : null
     const knownCount = knownFailuresData?.known_failures?.length ?? 0
@@ -629,63 +619,6 @@ export function OverviewTab() {
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
         <p className="text-sm text-muted-foreground">Overview</p>
       </div>
-
-      {/* Admin actions */}
-      {isAdmin() && (
-        <div className="rounded-lg border p-4">
-          <p className="mb-3 text-sm font-medium">Admin actions</p>
-          <TooltipProvider>
-            <div className="flex flex-wrap gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>
-                    <Upload size={14} />
-                    Send results
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Upload Allure result files</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
-                    <Play size={14} />
-                    Generate report
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Generate report from current results</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-amber-600 hover:text-amber-700"
-                    onClick={() => setCleanResultsOpen(true)}
-                  >
-                    <Trash2 size={14} />
-                    Clean results
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Delete pending result files</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setCleanHistoryOpen(true)}
-                  >
-                    <Trash2 size={14} />
-                    Clean history
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Delete all report history</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
-        </div>
-      )}
 
       {/* Stat cards */}
       <ProjectStatCards
@@ -776,30 +709,6 @@ export function OverviewTab() {
           Latest suite duration:{' '}
           <span className="font-mono">{formatDuration(latest.duration_ms)}</span>
         </p>
-      )}
-
-      {/* Dialogs */}
-      {isAdmin() && (
-        <>
-          <SendResultsDialog projectId={projectId} open={sendOpen} onOpenChange={setSendOpen} />
-          <GenerateReportDialog
-            projectId={projectId}
-            open={generateOpen}
-            onOpenChange={setGenerateOpen}
-          />
-          <CleanDialog
-            projectId={projectId}
-            mode="results"
-            open={cleanResultsOpen}
-            onOpenChange={setCleanResultsOpen}
-          />
-          <CleanDialog
-            projectId={projectId}
-            mode="history"
-            open={cleanHistoryOpen}
-            onOpenChange={setCleanHistoryOpen}
-          />
-        </>
       )}
 
       {/* Delete confirmation */}

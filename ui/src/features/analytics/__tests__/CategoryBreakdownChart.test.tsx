@@ -15,8 +15,8 @@ vi.mock('recharts', async () => {
 })
 
 const sampleData: CategoryBreakdownPoint[] = [
-  { name: 'Product defects', failed: 3, broken: 1, total: 4, color: '#dc2626' },
-  { name: 'Test defects', failed: 1, broken: 2, total: 3, color: '#d97706' },
+  { name: 'Product defects', failed: 3, broken: 1, total: 4, color: '#d20f39' },
+  { name: 'Test defects', failed: 1, broken: 2, total: 3, color: '#fe640b' },
 ]
 
 describe('CategoryBreakdownChart', () => {

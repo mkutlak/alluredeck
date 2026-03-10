@@ -22,7 +22,7 @@ alluredeck/
       middleware/           # auth, CSRF, CORS, rate limiting
       runner/               # Allure CLI execution
       security/             # JWT management
-      store/                # SQLite metadata store
+      store/                # PostgreSQL metadata store
       storage/              # local & S3 storage backends
       version/              # version info
     static/                 # embedded static assets + Swagger UI
@@ -263,7 +263,7 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 - **HTTP**: `net/http` stdlib (no third-party router)
 - **Auth**: `golang-jwt/jwt/v5` + bcrypt passwords
 - **Config**: environment variables + optional YAML (`go.yaml.in/yaml/v3`)
-- **Database**: SQLite via `modernc.org/sqlite` (pure Go, `CGO_ENABLED=0`)
+- **Database**: PostgreSQL via `jackc/pgx/v5` + goose v3 migrations
 - **Logging**: Uber Zap (`go.uber.org/zap`) — JSON in production, console in development
 - **Documentation**: Swagger/OpenAPI via `swaggo/swag`
 - **Linting**: golangci-lint v2

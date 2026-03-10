@@ -73,9 +73,13 @@ log_level: "info"
 # Default: "/data/projects"
 projects_path: "/data/projects"
 
-# Path for the SQLite metadata database. Env var: DATABASE_PATH
-# Default: "/data/db/alluredeck.db"
-database_path: "/data/db/alluredeck.db"
+# PostgreSQL connection string (required). Env var: DATABASE_URL
+database_url: "postgresql://allure:password@localhost:5432/allure?sslmode=disable"
+
+# Connection pool settings (optional)
+db_max_open_conns: 25
+db_max_idle_conns: 5
+db_conn_max_lifetime: 300
 
 # Retain report history between builds. Env var: KEEP_HISTORY
 # Default: true

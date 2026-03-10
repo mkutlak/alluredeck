@@ -1,0 +1,28 @@
+{
+  "name": "userProfileLoadsSucessfully",
+  "fullName": "com.example.profile.ProfileTest.userProfileLoadsSucessfully",
+  "status": "passed",
+  "description": "Verifies that the user profile page loads all required fields",
+  "historyId": "def789ghi012def789ghi012",
+  "labels": [
+    {"name": "feature", "value": "UserProfile"},
+    {"name": "owner", "value": "team-profile"},
+    {"name": "severity", "value": "normal"}
+  ],
+  "parameters": [],
+  "steps": [
+    {
+      "name": "Given user is authenticated",
+      "status": "passed",
+      "statusDetails": {},
+      "steps": [],
+      "attachments": [],
+      "start": 1709000100050,
+      "stop": 1709000100900
+    }
+  ],
+  "attachments": [],
+  "start": 1709000100000,
+  "stop": 1709000101000,
+  "duration": 1000
+}

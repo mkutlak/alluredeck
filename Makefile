@@ -1,13 +1,10 @@
 # Alluredeck — unified Makefile
+# API targets delegate to api/Makefile; UI targets delegate to ui/Makefile.
 # Usage: make <target>
 
 .DEFAULT_GOAL := help
 
 # ── Variables ──────────────────────────────────────────────────
-GODIR        := api
-BINARY_NAME  := alluredeck-api
-UI_DIR       := ui
-
 IMAGE_API    := alluredeck-api
 IMAGE_UI     := alluredeck-ui
 IMAGE_TAG    := dev
@@ -15,8 +12,6 @@ IMAGE_TAG    := dev
 BUILD_DATE    := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 BUILD_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_REF     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-
-GOLANGCI_LINT := $(shell which golangci-lint 2>/dev/null || echo "go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest")
 
 COMPOSE_FILE     := docker/docker-compose.yml
 COMPOSE_DEV_FILE := docker/docker-compose-dev.yml
@@ -28,98 +23,104 @@ help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
 	/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-# ── API (Go backend) ──────────────────────────────────────────
+# ── API (delegates to api/Makefile) ───────────────────────────
 
 .PHONY: api-build api-run api-build-static api-test api-test-race api-test-cover \
         api-fmt api-lint api-vet api-tidy api-modernize api-check api-swagger api-clean
 
 api-build: ## Build API binary
-	cd $(GODIR) && go build -o bin/$(BINARY_NAME) ./cmd/api/
+	$(MAKE) -C api build
 
-api-run: api-build ## Build and run API locally
-	cd $(GODIR) && ./bin/$(BINARY_NAME)
+api-run: ## Build and run API locally
+	$(MAKE) -C api run
 
 api-build-static: ## Build static API binary (matches Docker)
-	cd $(GODIR) && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-		-ldflags="-s -w \
-		  -X github.com/mkutlak/alluredeck/api/internal/version.BuildDate=$(BUILD_DATE) \
-		  -X github.com/mkutlak/alluredeck/api/internal/version.Version=$(BUILD_VERSION) \
-		  -X github.com/mkutlak/alluredeck/api/internal/version.BuildRef=$(BUILD_REF)" \
-		-o bin/$(BINARY_NAME) ./cmd/api/
+	$(MAKE) -C api build-static
 
 api-test: ## Run API tests
-	cd $(GODIR) && go test ./...
+	$(MAKE) -C api test
 
 api-test-race: ## Run API tests with race detector
-	cd $(GODIR) && go test -race ./...
+	$(MAKE) -C api test-race
 
 api-test-cover: ## Run API tests with coverage report
-	cd $(GODIR) && go test -coverprofile=bin/coverage.out ./...
-	cd $(GODIR) && go tool cover -html=bin/coverage.out -o bin/coverage.html
-	@echo "Coverage report: $(GODIR)/bin/coverage.html"
+	$(MAKE) -C api test-cover
 
 api-fmt: ## Format API code
-	cd $(GODIR) && $(GOLANGCI_LINT) fmt ./...
+	$(MAKE) -C api fmt
 
 api-lint: ## Lint API code
-	cd $(GODIR) && $(GOLANGCI_LINT) run ./...
+	$(MAKE) -C api lint
 
 api-vet: ## Run go vet on API
-	cd $(GODIR) && go vet ./...
+	$(MAKE) -C api vet
 
 api-tidy: ## Tidy API module dependencies
-	cd $(GODIR) && go mod tidy
+	$(MAKE) -C api tidy
 
 api-modernize: ## Apply Go modernization patterns
-	cd $(GODIR) && go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
+	$(MAKE) -C api modernize
 
-api-check: api-fmt api-vet api-lint api-test ## API quality gate (fmt + vet + lint + test)
+api-check: ## API quality gate (fmt + vet + lint + test)
+	$(MAKE) -C api check
 
 api-swagger: ## Regenerate API Swagger docs
-	cd $(GODIR) && swag init -g cmd/api/main.go -o internal/swagger --parseDependency
+	$(MAKE) -C api swagger
 
 api-clean: ## Remove API build artifacts
-	rm -rf $(GODIR)/bin
+	$(MAKE) -C api clean
 
-# ── UI (React frontend) ───────────────────────────────────────
+# ── UI (delegates to ui/Makefile) ────────────────────────────
 
 .PHONY: ui-install ui-dev ui-build ui-preview ui-typecheck ui-lint ui-format \
-        ui-test ui-test-watch ui-coverage ui-check ui-clean
+        ui-test ui-test-watch ui-test-allure ui-upload-allure-results ui-dogfood \
+        ui-coverage ui-check ui-clean
 
 ui-install: ## Install UI dependencies (npm ci)
-	cd $(UI_DIR) && npm ci
+	$(MAKE) -C ui install
 
 ui-dev: ## Start UI dev server
-	cd $(UI_DIR) && npm run dev
+	$(MAKE) -C ui dev
 
 ui-build: ## Build UI for production
-	cd $(UI_DIR) && VITE_APP_VERSION=$(BUILD_VERSION) npm run build
+	$(MAKE) -C ui build
 
 ui-preview: ## Preview UI production build
-	cd $(UI_DIR) && npm run preview
+	$(MAKE) -C ui preview
 
 ui-typecheck: ## Run TypeScript type checking
-	cd $(UI_DIR) && npm run typecheck
+	$(MAKE) -C ui typecheck
 
 ui-lint: ## Lint UI code
-	cd $(UI_DIR) && npm run lint
+	$(MAKE) -C ui lint
 
 ui-format: ## Format UI source files
-	cd $(UI_DIR) && npm run format
+	$(MAKE) -C ui format
 
 ui-test: ## Run UI tests (CI mode)
-	cd $(UI_DIR) && npm run test
+	$(MAKE) -C ui test
 
 ui-test-watch: ## Run UI tests in watch mode
-	cd $(UI_DIR) && npm run test:watch
+	$(MAKE) -C ui test-watch
+
+ui-test-allure: ## Run UI tests and generate Allure results
+	$(MAKE) -C ui test-allure
+
+ui-upload-allure-results: ## Upload UI Allure results to running Alluredeck
+	$(MAKE) -C ui upload-allure-results
+
+ui-dogfood: ## Run UI tests and upload results to Alluredeck (uploads even if tests fail)
+	-$(MAKE) ui-test-allure
+	$(MAKE) ui-upload-allure-results
 
 ui-coverage: ## Run UI tests with coverage
-	cd $(UI_DIR) && npm run test:coverage
+	$(MAKE) -C ui coverage
 
-ui-check: ui-typecheck ui-lint ui-test ## UI quality gate (typecheck + lint + test)
+ui-check: ## UI quality gate (typecheck + lint + test)
+	$(MAKE) -C ui check
 
 ui-clean: ## Remove UI build artifacts
-	cd $(UI_DIR) && rm -rf dist coverage node_modules
+	$(MAKE) -C ui clean
 
 # ── Combined ──────────────────────────────────────────────────
 
@@ -183,6 +184,10 @@ docker-down-s3: ## Stop S3 stack
 docker-logs-s3: ## Follow S3 stack logs
 	docker compose -f $(COMPOSE_S3_FILE) logs -f
 
+docker-clean: ## Remove all built Docker images
+	docker rmi $(IMAGE_API):$(IMAGE_TAG) 2>/dev/null || true
+	docker rmi $(IMAGE_UI):$(IMAGE_TAG) 2>/dev/null || true
+
 # ── Helm ──────────────────────────────────────────────────────
 
 .PHONY: helm-lint helm-template helm-package helm-release
@@ -210,9 +215,4 @@ helm-release: helm-lint ## Bump chart version (BUMP=patch|minor|major) and commi
 	NEW="$$MAJOR.$$MINOR.$$PATCH"; \
 	yq -i ".version = \"$$NEW\"" $(CHART_FILE); \
 	echo "Chart version: $$CURRENT → $$NEW"; \
-	git add $(CHART_FILE); \
-	git commit -m "chore(helm): bump chart version to $$NEW"
-
-docker-clean: ## Remove all built Docker images
-	docker rmi $(IMAGE_API):$(IMAGE_TAG) 2>/dev/null || true
-	docker rmi $(IMAGE_UI):$(IMAGE_TAG) 2>/dev/null || true
+	echo 'Run git add $(CHART_FILE); git commit -m "chore(helm): bump chart version to $$NEW"'

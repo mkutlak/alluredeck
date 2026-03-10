@@ -18,6 +18,9 @@ import { DurationTrendChart } from './DurationTrendChart'
 import { StatusPieChart } from './StatusPieChart'
 import { CategoryBreakdownChart } from './CategoryBreakdownChart'
 import { LowPerformingCard } from './LowPerformingCard'
+import { ErrorClusterCard } from './ErrorClusterCard'
+import { SuitePassRateChart } from './SuitePassRateChart'
+import { LabelBreakdownCard } from './LabelBreakdownCard'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -135,6 +138,12 @@ export function AnalyticsTab() {
       </div>
 
       <LowPerformingCard projectId={projectId} />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ErrorClusterCard projectId={projectId} />
+        <SuitePassRateChart projectId={projectId} />
+        <LabelBreakdownCard projectId={projectId} />
+      </div>
     </div>
   )
 }

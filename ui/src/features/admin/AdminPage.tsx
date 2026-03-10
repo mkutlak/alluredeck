@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth'
 import { queryKeys } from '@/lib/query-keys'
 import { formatDate, formatBytes } from '@/lib/utils'
-import { fetchAdminJobs, fetchAdminResults, cancelJob, cleanAdminResults } from '@/api/admin'
+import { fetchAdminJobs, fetchAdminResults, cancelJob, cleanAdminResults, deleteJob } from '@/api/admin'
 import {
   Card,
   CardContent,
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertDialog,
@@ -53,8 +54,15 @@ function jobStatusVariant(
   }
 }
 
+function isTerminalStatus(status: AdminJobStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
 function JobsCard() {
   const queryClient = useQueryClient()
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: queryKeys.adminJobs,
     queryFn: fetchAdminJobs,
@@ -68,11 +76,73 @@ function JobsCard() {
     },
   })
 
+  const { mutate: doDeleteSelected } = useMutation({
+    mutationFn: async (jobIds: string[]) => {
+      await Promise.all(jobIds.map((id) => deleteJob(id)))
+    },
+    onSuccess: () => {
+      setSelectedIds(new Set())
+      setConfirmDeleteOpen(false)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminJobs })
+    },
+  })
+
+  const terminalJobs = jobs.filter((j) => isTerminalStatus(j.status))
+  const allSelected = terminalJobs.length > 0 && terminalJobs.every((j) => selectedIds.has(j.job_id))
+  const someSelected = terminalJobs.some((j) => selectedIds.has(j.job_id))
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(terminalJobs.map((j) => j.job_id)))
+    }
+  }
+
+  const toggleJob = (jobId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(jobId)) {
+        next.delete(jobId)
+      } else {
+        next.add(jobId)
+      }
+      return next
+    })
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Jobs</CardTitle>
-        <CardDescription>Active and recent report generation jobs</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Jobs</CardTitle>
+            <CardDescription>Active and recent report generation jobs</CardDescription>
+          </div>
+          {someSelected && (
+            <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="destructive">
+                  Delete selected ({selectedIds.size})
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete {selectedIds.size} job{selectedIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently remove the selected job records. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => doDeleteSelected(Array.from(selectedIds))}>
+                    Confirm
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -86,6 +156,14 @@ function JobsCard() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all terminal jobs"
+                    disabled={terminalJobs.length === 0}
+                  />
+                </TableHead>
                 <TableHead>Project</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
@@ -96,6 +174,15 @@ function JobsCard() {
             <TableBody>
               {jobs.map((job) => (
                 <TableRow key={job.job_id}>
+                  <TableCell>
+                    {isTerminalStatus(job.status) ? (
+                      <Checkbox
+                        checked={selectedIds.has(job.job_id)}
+                        onCheckedChange={() => toggleJob(job.job_id)}
+                        aria-label={`Select job ${job.job_id}`}
+                      />
+                    ) : null}
+                  </TableCell>
                   <TableCell>
                     <Link
                       to={`/projects/${job.project_id}`}
