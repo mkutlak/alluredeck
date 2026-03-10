@@ -49,7 +49,7 @@ export function TopBar() {
   }
 
   return (
-    <header className="z-50 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
+    <header className="bg-background z-50 flex h-12 shrink-0 items-center gap-2 border-b px-4">
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="h-4" />
 
@@ -67,13 +67,13 @@ export function TopBar() {
       {/* Search trigger */}
       <Button
         variant="ghost"
-        className="h-8 gap-2 px-3 text-sm text-muted-foreground"
+        className="text-muted-foreground h-8 gap-2 px-3 text-sm"
         onClick={() => setSearchOpen(true)}
         aria-label="Search"
       >
         <Search size={16} />
         <span className="hidden sm:inline">Search...</span>
-        <kbd className="pointer-events-none hidden select-none rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium sm:inline">
+        <kbd className="bg-muted pointer-events-none hidden rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium select-none sm:inline">
           ⌘K
         </kbd>
       </Button>
@@ -82,12 +82,7 @@ export function TopBar() {
       <CreateMenu />
 
       {/* Theme toggle */}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleThemeToggle}
-        aria-label="Toggle theme"
-      >
+      <Button variant="ghost" size="icon" onClick={handleThemeToggle} aria-label="Toggle theme">
         {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
       </Button>
 
@@ -102,7 +97,7 @@ export function TopBar() {
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium">{username ?? 'User'}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {isAdmin() ? 'Administrator' : 'Viewer'}
               </p>
             </div>

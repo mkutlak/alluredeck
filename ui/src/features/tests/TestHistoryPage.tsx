@@ -26,17 +26,15 @@ export function TestHistoryPage() {
   if (!historyId) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-        <p className="text-lg font-medium text-destructive">Missing test history ID</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-destructive text-lg font-medium">Missing test history ID</p>
+        <p className="text-muted-foreground text-sm">
           A <code>history_id</code> query parameter is required.
         </p>
       </div>
     )
   }
 
-  return (
-    <TestHistoryContent projectId={projectId ?? ''} historyId={historyId} branch={branch} />
-  )
+  return <TestHistoryContent projectId={projectId ?? ''} historyId={historyId} branch={branch} />
 }
 
 interface TestHistoryContentProps {
@@ -65,8 +63,8 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-        <p className="text-lg font-medium text-destructive">Failed to load test history</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-destructive text-lg font-medium">Failed to load test history</p>
+        <p className="text-muted-foreground text-sm">
           There was a problem fetching the history for this test.
         </p>
       </div>
@@ -81,7 +79,7 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
       <div className="flex flex-wrap items-start gap-3">
         <div className="flex-1 space-y-1">
           <h1 className="text-xl font-semibold">Test History</h1>
-          <h2 className="font-mono text-sm text-muted-foreground">{historyId}</h2>
+          <h2 className="text-muted-foreground font-mono text-sm">{historyId}</h2>
         </div>
         {branch !== undefined && (
           <Badge variant="outline" className="mt-1">
@@ -92,11 +90,11 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
 
       {/* Trend summary */}
       <Card>
-        <CardHeader className="pb-1 pt-4">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Trend</CardTitle>
+        <CardHeader className="pt-4 pb-1">
+          <CardTitle className="text-muted-foreground text-sm font-medium">Trend</CardTitle>
         </CardHeader>
         <CardContent className="pb-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             {history.length} build{history.length !== 1 ? 's' : ''} shown
           </p>
         </CardContent>
@@ -105,7 +103,7 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
       {/* Table or empty state */}
       {history.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
-          <p className="text-sm text-muted-foreground">No history found for this test.</p>
+          <p className="text-muted-foreground text-sm">No history found for this test.</p>
         </div>
       ) : (
         <div className="rounded-lg border">
@@ -130,7 +128,7 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
                   <TableCell className="text-muted-foreground">
                     {formatDate(entry.created_at)}
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
+                  <TableCell className="text-muted-foreground font-mono text-xs">
                     {entry.ci_commit_sha ? entry.ci_commit_sha.slice(0, 7) : '—'}
                   </TableCell>
                 </TableRow>

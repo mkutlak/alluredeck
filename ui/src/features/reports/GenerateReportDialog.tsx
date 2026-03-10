@@ -23,11 +23,7 @@ interface GenerateReportDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-export function GenerateReportDialog({
-  projectId,
-  open,
-  onOpenChange,
-}: GenerateReportDialogProps) {
+export function GenerateReportDialog({ projectId, open, onOpenChange }: GenerateReportDialogProps) {
   const [execName, setExecName] = useState('')
   const [execFrom, setExecFrom] = useState('')
   const [mutationError, setMutationError] = useState('')
@@ -83,8 +79,8 @@ export function GenerateReportDialog({
         <DialogHeader>
           <DialogTitle>Generate report</DialogTitle>
           <DialogDescription>
-            Generate an Allure report for{' '}
-            <span className="font-mono font-medium">{projectId}</span> from the current results.
+            Generate an Allure report for <span className="font-mono font-medium">{projectId}</span>{' '}
+            from the current results.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -108,7 +104,7 @@ export function GenerateReportDialog({
               disabled={isActive}
             />
           </div>
-          {displayError && <p className="text-sm text-destructive">{displayError}</p>}
+          {displayError && <p className="text-destructive text-sm">{displayError}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

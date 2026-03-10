@@ -4,14 +4,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth'
 import { queryKeys } from '@/lib/query-keys'
 import { formatDate, formatBytes } from '@/lib/utils'
-import { fetchAdminJobs, fetchAdminResults, cancelJob, cleanAdminResults, deleteJob } from '@/api/admin'
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+  fetchAdminJobs,
+  fetchAdminResults,
+  cancelJob,
+  cleanAdminResults,
+  deleteJob,
+} from '@/api/admin'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -88,7 +88,8 @@ function JobsCard() {
   })
 
   const terminalJobs = jobs.filter((j) => isTerminalStatus(j.status))
-  const allSelected = terminalJobs.length > 0 && terminalJobs.every((j) => selectedIds.has(j.job_id))
+  const allSelected =
+    terminalJobs.length > 0 && terminalJobs.every((j) => selectedIds.has(j.job_id))
   const someSelected = terminalJobs.some((j) => selectedIds.has(j.job_id))
 
   const toggleSelectAll = () => {
@@ -128,9 +129,12 @@ function JobsCard() {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {selectedIds.size} job{selectedIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    Delete {selectedIds.size} job{selectedIds.size !== 1 ? 's' : ''}?
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently remove the selected job records. This action cannot be undone.
+                    This will permanently remove the selected job records. This action cannot be
+                    undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -151,7 +155,7 @@ function JobsCard() {
             <Skeleton className="h-8 w-full" />
           </div>
         ) : jobs.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">No jobs in queue</p>
+          <p className="text-muted-foreground py-4 text-center text-sm">No jobs in queue</p>
         ) : (
           <Table>
             <TableHeader>
@@ -194,19 +198,15 @@ function JobsCard() {
                   <TableCell>
                     <Badge variant={jobStatusVariant(job.status)}>{job.status}</Badge>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-muted-foreground text-sm">
                     {formatDate(job.created_at)}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-muted-foreground text-sm">
                     {job.started_at ? formatDate(job.started_at) : '—'}
                   </TableCell>
                   <TableCell className="text-right">
                     {(job.status === 'pending' || job.status === 'running') && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => doCancel(job.job_id)}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => doCancel(job.job_id)}>
                         Cancel
                       </Button>
                     )}
@@ -252,9 +252,7 @@ function ResultsCard() {
             <Skeleton className="h-8 w-full" />
           </div>
         ) : results.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            No unprocessed results
-          </p>
+          <p className="text-muted-foreground py-4 text-center text-sm">No unprocessed results</p>
         ) : (
           <Table>
             <TableHeader>
@@ -278,10 +276,10 @@ function ResultsCard() {
                     </Link>
                   </TableCell>
                   <TableCell>{entry.file_count}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-muted-foreground text-sm">
                     {formatBytes(entry.total_size)}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-muted-foreground text-sm">
                     {formatDate(entry.last_modified)}
                   </TableCell>
                   <TableCell className="text-right">

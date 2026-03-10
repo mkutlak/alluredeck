@@ -29,9 +29,9 @@ export const sparklineChartConfig = {
 
 // Keep STATUS_COLORS for non-chart usage (TimelineChart, CategoryBreakdown summary dots)
 export const STATUS_COLORS = {
-  passed: '#40a02b',  // catppuccin latte green
-  failed: '#d20f39',  // catppuccin latte red
-  broken: '#fe640b',  // catppuccin latte peach
+  passed: '#40a02b', // catppuccin latte green
+  failed: '#d20f39', // catppuccin latte red
+  broken: '#fe640b', // catppuccin latte peach
   skipped: '#8c8fa1', // catppuccin latte overlay1
 } as const
 
@@ -120,7 +120,7 @@ export interface CategoryBreakdownPoint {
 
 export const CATEGORY_COLORS: Record<string, string> = {
   'Product defects': '#d20f39', // catppuccin latte red
-  'Test defects': '#fe640b',    // catppuccin latte peach
+  'Test defects': '#fe640b', // catppuccin latte peach
 } as const
 
 const CATEGORY_DEFAULT_COLOR = '#8c8fa1' // catppuccin latte overlay1
@@ -154,7 +154,10 @@ export function detectLaneStrategy(testCases: TimelineTestCase[]): LaneStrategy 
   return 'default'
 }
 
-export function toTimelineLanes(testCases: TimelineTestCase[], strategy: LaneStrategy): TimelineLane[] {
+export function toTimelineLanes(
+  testCases: TimelineTestCase[],
+  strategy: LaneStrategy,
+): TimelineLane[] {
   if (strategy === 'default') return [{ id: 'default', label: 'Tests' }]
   const seen = new Set<string>()
   const lanes: TimelineLane[] = []

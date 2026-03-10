@@ -15,10 +15,7 @@ interface UseJobPollingResult {
   isFailed: boolean
 }
 
-export function useJobPolling(
-  projectId: string,
-  jobId: string | null,
-): UseJobPollingResult {
+export function useJobPolling(projectId: string, jobId: string | null): UseJobPollingResult {
   const queryClient = useQueryClient()
 
   const query = useQuery({

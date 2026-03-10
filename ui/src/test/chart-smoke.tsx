@@ -41,10 +41,7 @@ export interface ChartSmokeOptions {
   renderEmpty: () => React.ReactElement
 }
 
-export function describeChartSmoke(
-  componentName: string,
-  opts: ChartSmokeOptions,
-): void {
+export function describeChartSmoke(componentName: string, opts: ChartSmokeOptions): void {
   describe(`${componentName} — smoke`, () => {
     it('renders a [data-chart] element when given data', () => {
       render(opts.renderWithData())

@@ -120,9 +120,7 @@ describe('KnownIssuesTab – XSS protection', () => {
     })
     // The ticket_url should NOT be rendered as an <a> link
     const links = screen.queryAllByRole('link')
-    const dangerousLink = links.find(
-      (l) => l.getAttribute('href') === 'javascript:alert(1)',
-    )
+    const dangerousLink = links.find((l) => l.getAttribute('href') === 'javascript:alert(1)')
     expect(dangerousLink).toBeUndefined()
   })
 
@@ -162,7 +160,11 @@ describe('KnownIssuesTab – inline toggle', () => {
 
   it('clicking toggle calls updateKnownIssue with flipped is_active and preserved fields', async () => {
     const user = userEvent.setup()
-    const issue = makeIssue({ ticket_url: 'https://jira.com/PROJ-1', description: 'Flaky in CI', is_active: true })
+    const issue = makeIssue({
+      ticket_url: 'https://jira.com/PROJ-1',
+      description: 'Flaky in CI',
+      is_active: true,
+    })
     vi.mocked(kiApi.listKnownIssues).mockResolvedValue([issue])
     vi.mocked(kiApi.updateKnownIssue).mockResolvedValue({ ...issue, is_active: false })
 

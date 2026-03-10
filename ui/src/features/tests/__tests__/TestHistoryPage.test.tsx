@@ -162,9 +162,7 @@ describe('TestHistoryPage', () => {
   })
 
   it('shows empty state when history is empty', async () => {
-    vi.mocked(testHistoryApi.fetchTestHistory).mockResolvedValue(
-      makeHistoryData({ history: [] }),
-    )
+    vi.mocked(testHistoryApi.fetchTestHistory).mockResolvedValue(makeHistoryData({ history: [] }))
     renderPage()
 
     await waitFor(() => {

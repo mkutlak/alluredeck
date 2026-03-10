@@ -68,7 +68,11 @@ describe('EditKnownIssueDialog', () => {
     const user = userEvent.setup()
     vi.mocked(kiApi.updateKnownIssue).mockResolvedValue(makeIssue())
 
-    const issue = makeIssue({ ticket_url: 'https://jira.com/PROJ-1', description: '', is_active: true })
+    const issue = makeIssue({
+      ticket_url: 'https://jira.com/PROJ-1',
+      description: '',
+      is_active: true,
+    })
     renderDialog(issue)
 
     await user.click(screen.getByRole('button', { name: /save/i }))

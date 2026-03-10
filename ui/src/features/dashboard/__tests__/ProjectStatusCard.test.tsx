@@ -46,7 +46,10 @@ const healthyProject: DashboardProjectEntry = {
     new_passed_count: 1,
     ci_branch: 'main',
   },
-  sparkline: [{ build_order: 9, pass_rate: 90 }, { build_order: 10, pass_rate: 95 }],
+  sparkline: [
+    { build_order: 9, pass_rate: 90 },
+    { build_order: 10, pass_rate: 95 },
+  ],
 }
 
 const noBuildsProject: DashboardProjectEntry = {

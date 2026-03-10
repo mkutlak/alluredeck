@@ -32,10 +32,9 @@ export async function updateProjectTags(
   projectId: string,
   tags: string[],
 ): Promise<ApiResponse<ProjectEntry>> {
-  const res = await apiClient.put<ApiResponse<ProjectEntry>>(
-    `/projects/${projectId}/tags`,
-    { tags },
-  )
+  const res = await apiClient.put<ApiResponse<ProjectEntry>>(`/projects/${projectId}/tags`, {
+    tags,
+  })
   return res.data
 }
 

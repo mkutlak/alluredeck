@@ -26,7 +26,7 @@ vi.mock('@/store/ui', () => ({
       clearLastProjectId: vi.fn(),
       projectViewMode: 'grid',
       setProjectViewMode: vi.fn(),
-    })
+    }),
   ),
 }))
 
@@ -52,31 +52,43 @@ function renderHookWithUrl(
   path: string,
   routePattern: string,
   onResult: (r: ActiveProjectResult) => void,
-  queryClient: QueryClient
+  queryClient: QueryClient,
 ) {
   return render(
-    createElement(QueryClientProvider, { client: queryClient },
-      createElement(MemoryRouter, { initialEntries: [path] },
-        createElement(Routes, null,
-          createElement(Route, { path: routePattern, element: createElement(TestHook, { onResult }) })
-        )
-      )
-    )
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(
+        MemoryRouter,
+        { initialEntries: [path] },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, {
+            path: routePattern,
+            element: createElement(TestHook, { onResult }),
+          }),
+        ),
+      ),
+    ),
   )
 }
 
-function renderHookNoUrl(
-  onResult: (r: ActiveProjectResult) => void,
-  queryClient: QueryClient
-) {
+function renderHookNoUrl(onResult: (r: ActiveProjectResult) => void, queryClient: QueryClient) {
   return render(
-    createElement(QueryClientProvider, { client: queryClient },
-      createElement(MemoryRouter, { initialEntries: ['/'] },
-        createElement(Routes, null,
-          createElement(Route, { path: '/', element: createElement(TestHook, { onResult }) })
-        )
-      )
-    )
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/'] },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, { path: '/', element: createElement(TestHook, { onResult }) }),
+        ),
+      ),
+    ),
   )
 }
 
@@ -95,7 +107,7 @@ describe('useActiveProject', () => {
         clearLastProjectId: vi.fn(),
         projectViewMode: 'grid',
         setProjectViewMode: vi.fn(),
-      })
+      }),
     )
   })
 
@@ -103,12 +115,7 @@ describe('useActiveProject', () => {
     const results: ActiveProjectResult[] = []
     const queryClient = makeQueryClient()
 
-    renderHookWithUrl(
-      '/projects/my-project',
-      '/projects/:id',
-      (r) => results.push(r),
-      queryClient
-    )
+    renderHookWithUrl('/projects/my-project', '/projects/:id', (r) => results.push(r), queryClient)
 
     await waitFor(() => {
       expect(results.length).toBeGreaterThan(0)
@@ -128,7 +135,7 @@ describe('useActiveProject', () => {
         clearLastProjectId: vi.fn(),
         projectViewMode: 'grid',
         setProjectViewMode: vi.fn(),
-      })
+      }),
     )
 
     const results: ActiveProjectResult[] = []
@@ -187,12 +194,7 @@ describe('useActiveProject', () => {
     const results: ActiveProjectResult[] = []
     const queryClient = makeQueryClient()
 
-    renderHookWithUrl(
-      '/projects/url-project',
-      '/projects/:id',
-      (r) => results.push(r),
-      queryClient
-    )
+    renderHookWithUrl('/projects/url-project', '/projects/:id', (r) => results.push(r), queryClient)
 
     await waitFor(() => {
       expect(results.length).toBeGreaterThan(0)

@@ -72,12 +72,15 @@ api-clean: ## Remove API build artifacts
 
 # ── UI (delegates to ui/Makefile) ────────────────────────────
 
-.PHONY: ui-install ui-dev ui-build ui-preview ui-typecheck ui-lint ui-format \
+.PHONY: ui-install ui-upgrade ui-dev ui-build ui-preview ui-typecheck ui-lint ui-format \
         ui-test ui-test-watch ui-test-allure ui-upload-allure-results ui-dogfood \
         ui-coverage ui-check ui-clean
 
 ui-install: ## Install UI dependencies (npm ci)
 	$(MAKE) -C ui install
+
+ui-upgrade: ## Upgrade all UI dependencies to latest versions
+	$(MAKE) -C ui upgrade
 
 ui-dev: ## Start UI dev server
 	$(MAKE) -C ui dev

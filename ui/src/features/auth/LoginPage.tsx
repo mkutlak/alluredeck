@@ -44,7 +44,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
+    <div className="bg-muted/30 flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 text-center">
           <div className="mb-2 flex justify-center">
@@ -81,7 +81,7 @@ export function LoginPage() {
             </div>
 
             {errorMsg && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="text-destructive text-sm">
                 {errorMsg}
               </p>
             )}

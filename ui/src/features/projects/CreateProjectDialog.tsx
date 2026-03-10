@@ -82,7 +82,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               disabled={mutation.isPending}
               autoFocus
             />
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-destructive text-sm">{error}</p>}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

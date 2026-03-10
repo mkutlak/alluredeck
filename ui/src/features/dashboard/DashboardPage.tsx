@@ -54,7 +54,7 @@ export function DashboardPage() {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
         <p className="text-lg font-medium">No projects yet</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           {isAdmin() ? 'Create a project to get started.' : 'Ask an admin to create a project.'}
         </p>
         {isAdmin() && (
@@ -75,7 +75,7 @@ export function DashboardPage() {
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Projects Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of all projects</p>
+          <p className="text-muted-foreground text-sm">Overview of all projects</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh">
@@ -101,7 +101,7 @@ export function DashboardPage() {
       {/* Tag filter bar */}
       {availableTags.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">Filter:</span>
+          <span className="text-muted-foreground text-sm">Filter:</span>
           <Badge
             variant={selectedTag === '' ? 'default' : 'outline'}
             className="cursor-pointer"
@@ -147,7 +147,7 @@ function SummaryCard({
     <Card>
       <CardContent className="flex flex-col items-center justify-center p-4 text-center">
         <span className={`text-3xl font-bold ${className ?? ''}`}>{value}</span>
-        <span className="mt-1 text-sm text-muted-foreground">{label}</span>
+        <span className="text-muted-foreground mt-1 text-sm">{label}</span>
       </CardContent>
     </Card>
   )

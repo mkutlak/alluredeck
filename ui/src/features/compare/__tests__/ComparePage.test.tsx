@@ -58,10 +58,9 @@ function makeCompareData(overrides: Partial<CompareData> = {}): CompareData {
 }
 
 function renderPage(search = '?a=1&b=2') {
-  const router = createMemoryRouter(
-    [{ path: '/projects/:id/compare', element: <ComparePage /> }],
-    { initialEntries: [`/projects/test-project/compare${search}`] },
-  )
+  const router = createMemoryRouter([{ path: '/projects/:id/compare', element: <ComparePage /> }], {
+    initialEntries: [`/projects/test-project/compare${search}`],
+  })
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>

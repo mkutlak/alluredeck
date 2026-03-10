@@ -1,5 +1,11 @@
 import { apiClient } from './client'
-import type { ApiResponse, AnalyticsResponse, ErrorCluster, SuitePassRate, LabelCount } from '@/types/api'
+import type {
+  ApiResponse,
+  AnalyticsResponse,
+  ErrorCluster,
+  SuitePassRate,
+  LabelCount,
+} from '@/types/api'
 
 export async function fetchTopErrors(
   projectId: string,
