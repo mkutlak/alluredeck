@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, Fragment } from 'react'
 import { Link, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
@@ -10,6 +10,7 @@ import {
   BarChart3,
   RefreshCw,
   GitBranch,
+  GitCommitHorizontal,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -187,8 +188,9 @@ interface ReportHistoryTableProps {
   onToggleBuild: (id: string) => void
 }
 
-interface CommitGroup {
-  sha: string
+interface ReportGroup {
+  key: string
+  label: string
   reports: ReportHistoryEntry[]
   latestDate: string | null
 }
@@ -354,27 +356,33 @@ function ReportHistoryTable({
   selectedBuilds,
   onToggleBuild,
 }: ReportHistoryTableProps) {
-  const [expandedShas, setExpandedShas] = useState<Set<string>>(new Set())
+  const [groupBy, setGroupBy] = useState<'none' | 'commit' | 'branch'>('none')
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
 
   const { groups, ungrouped } = useMemo(() => {
-    const shaMap = new Map<string, ReportHistoryEntry[]>()
+    if (groupBy === 'none') {
+      return { groups: [] as ReportGroup[], ungrouped: reports }
+    }
+
+    const keyMap = new Map<string, ReportHistoryEntry[]>()
     const ungroupedList: ReportHistoryEntry[] = []
 
     for (const r of reports) {
-      if (r.ci_commit_sha) {
-        const existing = shaMap.get(r.ci_commit_sha)
+      const key = groupBy === 'commit' ? r.ci_commit_sha : r.ci_branch
+      if (key) {
+        const existing = keyMap.get(key)
         if (existing) {
           existing.push(r)
         } else {
-          shaMap.set(r.ci_commit_sha, [r])
+          keyMap.set(key, [r])
         }
       } else {
         ungroupedList.push(r)
       }
     }
 
-    const groupList: CommitGroup[] = []
-    for (const [sha, groupReports] of shaMap.entries()) {
+    const groupList: ReportGroup[] = []
+    for (const [key, groupReports] of keyMap.entries()) {
       if (groupReports.length < 2) {
         ungroupedList.push(...groupReports)
       } else {
@@ -383,107 +391,157 @@ function ReportHistoryTable({
           if (!best) return r.generated_at
           return r.generated_at > best ? r.generated_at : best
         }, null)
-        groupList.push({ sha, reports: groupReports, latestDate })
+        const label = groupBy === 'commit' ? key.slice(0, 7) : key
+        groupList.push({ key, label, reports: groupReports, latestDate })
       }
     }
 
     return { groups: groupList, ungrouped: ungroupedList }
-  }, [reports])
+  }, [reports, groupBy])
 
-  const toggleSha = (sha: string) => {
-    setExpandedShas((prev) => {
+  // Expand all groups when grouping is activated or groups change
+  useEffect(() => {
+    if (groupBy !== 'none' && groups.length > 0) {
+      setExpandedKeys(new Set(groups.map((g) => g.key)))
+    }
+  }, [groups, groupBy])
+
+  const toggleKey = (key: string) => {
+    setExpandedKeys((prev) => {
       const next = new Set(prev)
-      if (next.has(sha)) {
-        next.delete(sha)
+      if (next.has(key)) {
+        next.delete(key)
       } else {
-        next.add(sha)
+        next.add(key)
       }
       return next
     })
   }
 
   return (
-    <div className="rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-10" />
-            <TableHead>Report</TableHead>
-            <TableHead>Generated</TableHead>
-            <TableHead className="text-center">Total</TableHead>
-            <TableHead className="text-center text-[#40a02b] dark:text-[#a6e3a1]">Passed</TableHead>
-            <TableHead className="text-center text-[#d20f39] dark:text-[#f38ba8]">Failed</TableHead>
-            <TableHead className="text-center text-[#fe640b] dark:text-[#fab387]">Broken</TableHead>
-            <TableHead className="text-center text-[#6c6f85] dark:text-[#a6adc8]">
-              Skipped
-            </TableHead>
-            <TableHead className="text-center">Pass rate</TableHead>
-            <TableHead className="text-center">Stability</TableHead>
-            <TableHead className="text-center">CI</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {groups.map(({ sha, reports: groupReports, latestDate }) => {
-            const isExpanded = expandedShas.has(sha)
-            return (
-              <>
-                <TableRow
-                  key={`group-${sha}`}
-                  className="bg-muted/30 hover:bg-muted/50 cursor-pointer"
-                  onClick={() => toggleSha(sha)}
-                  data-testid={`commit-group-${sha.slice(0, 7)}`}
-                >
-                  <TableCell colSpan={TABLE_COL_COUNT}>
-                    <div className="flex items-center gap-2 text-sm">
-                      <ChevronRight
-                        size={14}
-                        className={
-                          isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'
-                        }
+    <div className="space-y-2">
+      {/* Grouping toolbar */}
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">Group by:</span>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={groupBy === 'none' ? 'secondary' : 'outline'}
+            onClick={() => setGroupBy('none')}
+          >
+            None
+          </Button>
+          <Button
+            size="sm"
+            variant={groupBy === 'commit' ? 'secondary' : 'outline'}
+            onClick={() => setGroupBy('commit')}
+          >
+            <GitCommitHorizontal size={12} />
+            Commit
+          </Button>
+          <Button
+            size="sm"
+            variant={groupBy === 'branch' ? 'secondary' : 'outline'}
+            onClick={() => setGroupBy('branch')}
+          >
+            <GitBranch size={12} />
+            Branch
+          </Button>
+        </div>
+        {groupBy !== 'none' && (
+          <span className="text-muted-foreground text-xs">
+            Grouped by {groupBy === 'commit' ? 'commit' : 'branch'}
+          </span>
+        )}
+      </div>
+
+      {/* Table */}
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10" />
+              <TableHead>Report</TableHead>
+              <TableHead>Generated</TableHead>
+              <TableHead className="text-center">Total</TableHead>
+              <TableHead className="text-center text-[#40a02b] dark:text-[#a6e3a1]">Passed</TableHead>
+              <TableHead className="text-center text-[#d20f39] dark:text-[#f38ba8]">Failed</TableHead>
+              <TableHead className="text-center text-[#fe640b] dark:text-[#fab387]">Broken</TableHead>
+              <TableHead className="text-center text-[#6c6f85] dark:text-[#a6adc8]">
+                Skipped
+              </TableHead>
+              <TableHead className="text-center">Pass rate</TableHead>
+              <TableHead className="text-center">Stability</TableHead>
+              <TableHead className="text-center">CI</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {groups.map(({ key, label, reports: groupReports, latestDate }) => {
+              const isExpanded = expandedKeys.has(key)
+              return (
+                <Fragment key={`group-${key}`}>
+                  <TableRow
+                    className="bg-muted/20 hover:bg-muted/30 cursor-pointer"
+                    onClick={() => toggleKey(key)}
+                    data-testid={`${groupBy}-group-${label}`}
+                  >
+                    <TableCell colSpan={TABLE_COL_COUNT} className="py-0.5">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <ChevronRight
+                          size={12}
+                          className={
+                            isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'
+                          }
+                        />
+                        {groupBy === 'commit' ? (
+                          <span className="text-muted-foreground font-mono text-xs">{label}</span>
+                        ) : (
+                          <span className="text-muted-foreground flex items-center gap-1 text-xs">
+                            <GitBranch size={10} />
+                            {label}
+                          </span>
+                        )}
+                        {latestDate && (
+                          <span className="text-muted-foreground text-xs">
+                            {formatDate(latestDate)}
+                          </span>
+                        )}
+                        <Badge variant="secondary" className="text-xs">
+                          {groupReports.length} builds
+                        </Badge>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {isExpanded &&
+                    groupReports.map((r) => (
+                      <ReportRow
+                        key={r.report_id}
+                        projectId={projectId}
+                        r={r}
+                        isAdmin={isAdmin}
+                        onDeleteReport={onDeleteReport}
+                        selectedBuilds={selectedBuilds}
+                        onToggleBuild={onToggleBuild}
                       />
-                      <span className="text-muted-foreground font-mono text-xs">
-                        {sha.slice(0, 7)}
-                      </span>
-                      {latestDate && (
-                        <span className="text-muted-foreground text-xs">
-                          {formatDate(latestDate)}
-                        </span>
-                      )}
-                      <Badge variant="secondary" className="text-xs">
-                        {groupReports.length} builds
-                      </Badge>
-                    </div>
-                  </TableCell>
-                </TableRow>
-                {isExpanded &&
-                  groupReports.map((r) => (
-                    <ReportRow
-                      key={r.report_id}
-                      projectId={projectId}
-                      r={r}
-                      isAdmin={isAdmin}
-                      onDeleteReport={onDeleteReport}
-                      selectedBuilds={selectedBuilds}
-                      onToggleBuild={onToggleBuild}
-                    />
-                  ))}
-              </>
-            )
-          })}
-          {ungrouped.map((r) => (
-            <ReportRow
-              key={r.report_id}
-              projectId={projectId}
-              r={r}
-              isAdmin={isAdmin}
-              onDeleteReport={onDeleteReport}
-              selectedBuilds={selectedBuilds}
-              onToggleBuild={onToggleBuild}
-            />
-          ))}
-        </TableBody>
-      </Table>
+                    ))}
+                </Fragment>
+              )
+            })}
+            {ungrouped.map((r) => (
+              <ReportRow
+                key={r.report_id}
+                projectId={projectId}
+                r={r}
+                isAdmin={isAdmin}
+                onDeleteReport={onDeleteReport}
+                selectedBuilds={selectedBuilds}
+                onToggleBuild={onToggleBuild}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }

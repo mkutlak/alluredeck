@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/12-local-grid-light.png" alt="AllureDeck projects view" width="800"/>
+  <img src="docs/screenshots/dashboard.png" alt="AllureDeck projects view" width="800"/>
 </p>
 
 ## Features
@@ -51,6 +51,7 @@ See the [Helm Chart README](charts/alluredeck/README.md) for full configuration 
 
 ## Documentation
 
+- [Product Features](docs/features.md) — comprehensive feature guide with screenshots
 - [Deployment and Security](docs/deployment.md) — Docker Compose, Helm, JWT auth, RBAC, production checklist
 - [Configuration Reference](docs/configuration.md) — all environment variables and YAML config
 - [Storage](docs/storage.md) — local filesystem and S3/MinIO setup, IRSA on EKS

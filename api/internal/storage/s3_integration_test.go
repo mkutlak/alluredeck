@@ -16,7 +16,7 @@ import (
 )
 
 // Integration tests require a running MinIO instance.
-// Start with: docker run -p 9000:9000 -p 9001:9001 minio/minio server /data
+// Start with: docker run -p 9000:9000 -p 9001:9001 pgsty/minio server /data
 // Set env vars: S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY
 // Run with:    go test -tags=integration ./internal/storage/...
 

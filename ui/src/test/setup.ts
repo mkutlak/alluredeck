@@ -30,9 +30,17 @@ window.__env__ = {
   VITE_APP_TITLE: 'AllureDeck',
 }
 
-// ResizeObserver is used by cmdk and other UI libs but not available in jsdom
+// ResizeObserver is used by cmdk and other UI libs but not available in jsdom.
+// Recharts' ResponsiveContainer relies on ResizeObserver to get dimensions — call
+// the callback immediately with a non-zero rect so charts render without warnings.
 globalThis.ResizeObserver = class ResizeObserver {
-  observe() {}
+  constructor(private callback: ResizeObserverCallback) {}
+  observe(_target: Element) {
+    this.callback(
+      [{ contentRect: { width: 100, height: 100 } } as unknown as ResizeObserverEntry],
+      this,
+    )
+  }
   unobserve() {}
   disconnect() {}
 }
