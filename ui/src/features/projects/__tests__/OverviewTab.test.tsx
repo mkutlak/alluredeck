@@ -26,6 +26,14 @@ function makeReport(id: string, isLatest = false) {
   }
 }
 
+function makeReportWithSha(id: string, sha: string) {
+  return { ...makeReport(id), ci_commit_sha: sha }
+}
+
+function makeReportWithBranch(id: string, branch: string) {
+  return { ...makeReport(id), ci_branch: branch }
+}
+
 function makePaginated(
   reports: ReturnType<typeof makeReport>[],
   pagination: { page: number; per_page: number; total: number; total_pages: number },
@@ -387,13 +395,6 @@ describe('OverviewTab - report history pagination', () => {
   })
 
   it('groups builds by commit SHA', async () => {
-    function makeReportWithSha(id: string, sha: string) {
-      return {
-        ...makeReport(id),
-        ci_commit_sha: sha,
-      }
-    }
-
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated(
         [
@@ -410,15 +411,135 @@ describe('OverviewTab - report history pagination', () => {
     // Wait for data to load
     await waitFor(() => screen.getByText('#7'))
 
-    // The grouped commit header row should be visible (shows truncated SHA)
-    expect(screen.getByTestId('commit-group-abc1234')).toBeInTheDocument()
-    // The grouped builds count badge should show "2 builds"
-    expect(screen.getByText('2 builds')).toBeInTheDocument()
-    // The individual grouped report rows should NOT be visible until expanded
-    expect(screen.queryByText('#9')).not.toBeInTheDocument()
-    expect(screen.queryByText('#8')).not.toBeInTheDocument()
-    // The ungrouped report is visible
+    // Default groupBy is 'none' — all reports are shown as a flat list
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.getByText('#8')).toBeInTheDocument()
     expect(screen.getByText('#7')).toBeInTheDocument()
+    // No commit group header row should be present in flat mode
+    expect(screen.queryByTestId('commit-group-abc1234')).not.toBeInTheDocument()
+    // No "2 builds" badge in flat mode
+    expect(screen.queryByText('2 builds')).not.toBeInTheDocument()
+  })
+
+  it('shows flat list by default (no grouping)', async () => {
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [
+          makeReport('10', true),
+          makeReportWithSha('9', 'abc1234567890'),
+          makeReportWithSha('8', 'abc1234567890'),
+          makeReport('7'),
+        ],
+        { page: 1, per_page: 20, total: 3, total_pages: 1 },
+      ),
+    )
+    renderTab()
+
+    await waitFor(() => screen.getByText('#7'))
+
+    // All reports appear as flat rows — no group headers
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.getByText('#8')).toBeInTheDocument()
+    expect(screen.getByText('#7')).toBeInTheDocument()
+    expect(screen.queryByTestId('commit-group-abc1234')).not.toBeInTheDocument()
+  })
+
+  it('activates commit grouping when Commit button is clicked', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [
+          makeReport('10', true),
+          makeReportWithSha('9', 'abc1234567890'),
+          makeReportWithSha('8', 'abc1234567890'),
+          makeReport('7'),
+        ],
+        { page: 1, per_page: 20, total: 3, total_pages: 1 },
+      ),
+    )
+    renderTab()
+
+    await waitFor(() => screen.getByText('#7'))
+
+    await user.click(screen.getByRole('button', { name: /commit/i }))
+
+    await waitFor(() => {
+      // Commit group header row should appear
+      expect(screen.getByTestId('commit-group-abc1234')).toBeInTheDocument()
+      // Active grouping label should be visible
+      expect(screen.getByText(/grouped by commit/i)).toBeInTheDocument()
+      // Grouped reports are visible (groups expanded by default)
+      expect(screen.getByText('#9')).toBeInTheDocument()
+      expect(screen.getByText('#8')).toBeInTheDocument()
+      // Ungrouped report is still visible
+      expect(screen.getByText('#7')).toBeInTheDocument()
+    })
+  })
+
+  it('activates branch grouping when Branch button is clicked', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [
+          makeReport('10', true),
+          makeReportWithBranch('9', 'main'),
+          makeReportWithBranch('8', 'main'),
+          makeReport('7'),
+        ],
+        { page: 1, per_page: 20, total: 3, total_pages: 1 },
+      ),
+    )
+    renderTab()
+
+    await waitFor(() => screen.getByText('#7'))
+
+    await user.click(screen.getByRole('button', { name: /branch/i }))
+
+    await waitFor(() => {
+      // Some group element for branch 'main' should appear
+      expect(screen.getByTestId('branch-group-main')).toBeInTheDocument()
+      // Active grouping label should be visible
+      expect(screen.getByText(/grouped by branch/i)).toBeInTheDocument()
+      // Branch-grouped reports are visible (expanded by default)
+      expect(screen.getByText('#9')).toBeInTheDocument()
+      expect(screen.getByText('#8')).toBeInTheDocument()
+    })
+  })
+
+  it('returns to flat list when None button is clicked', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated(
+        [
+          makeReport('10', true),
+          makeReportWithSha('9', 'abc1234567890'),
+          makeReportWithSha('8', 'abc1234567890'),
+          makeReport('7'),
+        ],
+        { page: 1, per_page: 20, total: 3, total_pages: 1 },
+      ),
+    )
+    renderTab()
+
+    await waitFor(() => screen.getByText('#7'))
+
+    // Enable commit grouping first
+    await user.click(screen.getByRole('button', { name: /commit/i }))
+    await waitFor(() => {
+      expect(screen.getByTestId('commit-group-abc1234')).toBeInTheDocument()
+    })
+
+    // Now disable grouping via the None button
+    await user.click(screen.getByRole('button', { name: /none/i }))
+
+    await waitFor(() => {
+      // Group header row should be gone
+      expect(screen.queryByTestId('commit-group-abc1234')).not.toBeInTheDocument()
+      // All reports visible as flat rows again
+      expect(screen.getByText('#9')).toBeInTheDocument()
+      expect(screen.getByText('#8')).toBeInTheDocument()
+      expect(screen.getByText('#7')).toBeInTheDocument()
+    })
   })
 
   it('disables next button on the last page', async () => {

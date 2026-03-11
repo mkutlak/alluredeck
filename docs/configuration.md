@@ -42,6 +42,9 @@ export JWT_SECRET_KEY="<generated-via-openssl>"
 | `TLS` | `tls` | `false` | Enable TLS/HTTPS. Requires `TLS_CERT_FILE` and `TLS_KEY_FILE` environment variables |
 | `LOG_LEVEL` | `log_level` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
 | `CONFIG_FILE` | *(n/a)* | `/app/alluredeck/config.yaml` | Path to the YAML configuration file (environment variable only) |
+| `SWAGGER_ENABLED` | `swagger_enabled` | `false` | Enable Swagger UI at `/swagger/index.html` |
+| `SWAGGER_HOST` | `swagger_host` | `""` | Override the host shown in Swagger UI (auto-detected if empty) |
+| `MAX_UPLOAD_SIZE_MB` | `max_upload_size_mb` | `100` | Maximum upload size in MB for test result archives |
 | `GOMEMLIMIT` | *(n/a)* | *(not set)* | Go runtime memory limit (e.g., `1GiB`). Set to ~80% of your container memory limit to prevent OOM kills |
 
 ### Example
@@ -50,7 +53,7 @@ export JWT_SECRET_KEY="<generated-via-openssl>"
 # Run API on port 3000 in development mode
 export PORT="3000"
 export DEV_MODE="true"
-./api/bin/api
+./api/bin/alluredeck-api
 ```
 
 ## Security Configuration
@@ -89,7 +92,7 @@ openssl rand -hex 32
 # Example output: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6
 ```
 
-For details on roles, token types, CSRF protection, and the production security checklist, see [security.md](security.md).
+For details on roles, token types, CSRF protection, and the production security checklist, see [deployment.md](deployment.md#security).
 
 ## Storage Configuration (Local Filesystem)
 
@@ -98,6 +101,9 @@ For details on roles, token types, CSRF protection, and the production security 
 | `STORAGE_TYPE` | `storage_type` | `local` | Storage backend: `local` (filesystem) or `s3` (S3/MinIO) |
 | `PROJECTS_PATH` | `projects_path` | `/data/projects` | Directory where Allure project results and reports are stored. Must be readable and writable |
 | `DATABASE_URL` | `database_url` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
+| `DB_MAX_OPEN_CONNS` | `db_max_open_conns` | `25` | Maximum open database connections |
+| `DB_MAX_IDLE_CONNS` | `db_max_idle_conns` | `0` | Maximum idle database connections (0 = use Go default) |
+| `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `0` | Maximum connection lifetime (e.g., `30m`; 0 = no limit) |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
 | `KEEP_HISTORY_LATEST` | `keep_history_latest` | `20` | Maximum number of historical reports to keep per project (when `keep_history=true`) |
 
@@ -262,12 +268,20 @@ database_url: "postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmod
 keep_history: true
 keep_history_latest: 20
 
+# --- Database pool ---
+db_max_open_conns: 25
+# db_max_idle_conns: 10
+# db_conn_max_lifetime: "30m"
+
 # --- Report generation ---
 check_results_every_secs: "NONE"
 allure_version_path: "/app/version"
 
 # --- UI / API behaviour ---
 api_response_less_verbose: false
+max_upload_size_mb: 100
+swagger_enabled: false
+# swagger_host: ""
 
 # --- Storage Backend ---
 storage_type: "local"
@@ -319,12 +333,19 @@ database_url: "postgres://alluredeck:alluredeck@db:5432/alluredeck?sslmode=disab
 keep_history: true
 keep_history_latest: 100
 
+# --- Database pool ---
+db_max_open_conns: 25
+db_max_idle_conns: 10
+db_conn_max_lifetime: "30m"
+
 # --- Report generation ---
 check_results_every_secs: "60"
 allure_version_path: "/app/version"
 
 # --- UI / API behaviour ---
 api_response_less_verbose: true
+max_upload_size_mb: 100
+swagger_enabled: false
 cors_allowed_origins:
   - "https://alluredeck.example.com"
 
@@ -346,6 +367,6 @@ s3:
 
 ## Related Documentation
 
-- [security.md](security.md) — authentication, authorization, JWT tokens, CSRF protection, TLS, production security checklist
+- [deployment.md](deployment.md#security) — authentication, authorization, JWT tokens, CSRF protection, TLS, production security checklist
 - [storage.md](storage.md) — S3/MinIO setup guide and troubleshooting
-- [helm-chart.md](helm-chart.md) — Kubernetes/Helm configuration and secrets management
+- [Helm Chart README](../charts/alluredeck/README.md) — Kubernetes/Helm configuration and secrets management

@@ -10,7 +10,7 @@
 
 services:
   minio:
-    image: minio/minio:latest
+    image: pgsty/minio:latest
     container_name: allure-minio
     command: server /data --console-address ":9001"
     environment:
@@ -22,7 +22,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9000' 2>/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -97,6 +97,7 @@ services:
 
   postgres:
     image: postgres:18-alpine
+    container_name: alluredeck-pg
     environment:
       POSTGRES_DB: allure
       POSTGRES_USER: allure

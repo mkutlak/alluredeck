@@ -42,12 +42,11 @@ volumes:
 
 ### Kubernetes / Helm
 
-The Helm chart creates two persistent volume claims by default (when `storageType=local`):
+The Helm chart creates a persistent volume claim by default (when `storageType=local`):
 
 - `projects` — 10Gi for report data (`ReadWriteOnce`)
-- `database` — 10Gi for PostgreSQL data (`ReadWriteOnce`)
 
-See [helm-chart.md](helm-chart.md#persistence) for PVC configuration details.
+See the [Helm Chart README](../charts/alluredeck/README.md#storage) for PVC configuration details.
 
 ## S3 / MinIO Storage
 
@@ -171,5 +170,5 @@ api:
 ## Related
 
 - [configuration.md](configuration.md) — full environment variable reference
-- [helm-chart.md](helm-chart.md) — Helm persistence and S3 values
-- [security.md](security.md) — authentication and authorization
+- [Helm Chart README](../charts/alluredeck/README.md) — Helm persistence and S3 values
+- [deployment.md](deployment.md#security) — authentication and authorization
