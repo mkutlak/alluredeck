@@ -1,3 +1,9 @@
+## [0.6.0](https://github.com/mkutlak/alluredeck/compare/v0.5.0...v0.6.0) (2026-03-11)
+
+### Features
+
+* improve report history organization and update documentation ([a5ca81a](https://github.com/mkutlak/alluredeck/commit/a5ca81a5efe420edf8eefe0f06930b5ec04ffe13))
+
 ## [0.5.0](https://github.com/mkutlak/alluredeck/compare/v0.4.0...v0.5.0) (2026-03-10)
 
 ### Features
