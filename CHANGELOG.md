@@ -1,3 +1,9 @@
+## [0.7.0](https://github.com/mkutlak/alluredeck/compare/v0.6.0...v0.7.0) (2026-03-12)
+
+### Features
+
+* **ui:** refactor architecture and enhance report history management ([93c5db3](https://github.com/mkutlak/alluredeck/commit/93c5db3f685b0344ee484b54fba300bdf285f75d))
+
 ## [0.6.0](https://github.com/mkutlak/alluredeck/compare/v0.5.0...v0.6.0) (2026-03-11)
 
 ### Features
