@@ -9,7 +9,10 @@ vi.mock('recharts', () => ({
   Line: () => null,
 }))
 
-vi.mock('@/store/auth', () => ({ useAuthStore: vi.fn() }))
+vi.mock('@/store/auth', () => ({
+  useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
+}))
 vi.mock('@/features/projects/DeleteProjectDialog', () => ({
   DeleteProjectDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="delete-dialog" /> : null,
@@ -22,7 +25,9 @@ vi.mock('@/api/client', () => ({
 import { ProjectStatusCard } from '../ProjectStatusCard'
 import { useAuthStore } from '@/store/auth'
 
-type AuthSelector = (s: { isAdmin: () => boolean }) => unknown
+import type { AuthState } from '@/store/auth'
+
+type AuthSelector = (s: Partial<AuthState>) => unknown
 
 function renderCard(project: DashboardProjectEntry) {
   return render(
@@ -64,7 +69,7 @@ describe('ProjectStatusCard', () => {
     vi.clearAllMocks()
     // Default: non-admin user
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ isAdmin: () => false }),
+      (selector as AuthSelector)({ roles: [] }),
     )
   })
 
@@ -97,7 +102,7 @@ describe('ProjectStatusCard', () => {
 
   it('shows delete dropdown trigger for admin users', () => {
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ isAdmin: () => true }),
+      (selector as AuthSelector)({ roles: ['admin'] }),
     )
     renderCard(healthyProject)
     expect(screen.getByRole('button', { name: /project actions/i })).toBeInTheDocument()

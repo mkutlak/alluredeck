@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
 import { useSearchCommand } from '@/features/search'
@@ -23,7 +23,7 @@ import { CreateMenu } from './CreateMenu'
 export function TopBar() {
   const { theme, setTheme } = useTheme()
   const username = useAuthStore((s) => s.username)
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const clearAuth = useAuthStore((s) => s.clearAuth)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -32,12 +32,6 @@ export function TopBar() {
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
-      clearAuth()
-      queryClient.clear()
-      navigate('/login', { replace: true })
-    },
-    onError: () => {
-      // Still clear local state even if server logout fails
       clearAuth()
       queryClient.clear()
       navigate('/login', { replace: true })
@@ -98,7 +92,7 @@ export function TopBar() {
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium">{username ?? 'User'}</p>
               <p className="text-muted-foreground text-xs">
-                {isAdmin() ? 'Administrator' : 'Viewer'}
+                {isAdmin ? 'Administrator' : 'Viewer'}
               </p>
             </div>
           </DropdownMenuLabel>

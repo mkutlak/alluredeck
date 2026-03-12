@@ -16,7 +16,10 @@ vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
-vi.mock('@/store/auth', () => ({ useAuthStore: vi.fn() }))
+vi.mock('@/store/auth', () => ({
+  useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
+}))
 vi.mock('@/features/projects/CreateProjectDialog', () => ({
   CreateProjectDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="create-dialog" /> : null,
@@ -69,14 +72,16 @@ const mockData: DashboardData = {
   summary: { total_projects: 2, healthy: 1, degraded: 0, failing: 1 },
 }
 
-type AuthSelector = (s: { isAdmin: () => boolean }) => unknown
+import type { AuthState } from '@/store/auth'
+
+type AuthSelector = (s: Partial<AuthState>) => unknown
 
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Default: non-admin user
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ isAdmin: () => false }),
+      (selector as AuthSelector)({ roles: [] }),
     )
   })
 
@@ -126,7 +131,7 @@ describe('DashboardPage', () => {
 
   it('shows New project button for admin users', async () => {
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ isAdmin: () => true }),
+      (selector as AuthSelector)({ roles: ['admin'] }),
     )
     vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()

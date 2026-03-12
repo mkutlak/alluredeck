@@ -44,7 +44,7 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
         is_active: isActive,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId) })
       toast({ title: 'Known issue updated' })
       onOpenChange(false)
@@ -65,7 +65,7 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Edit Known Issue</DialogTitle>
         </DialogHeader>

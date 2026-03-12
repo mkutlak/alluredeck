@@ -12,13 +12,13 @@ export async function fetchAdminResults(): Promise<AdminResultsEntry[]> {
 }
 
 export async function cancelJob(jobId: string): Promise<void> {
-  await apiClient.post(`/admin/jobs/${jobId}/cancel`)
+  await apiClient.post(`/admin/jobs/${encodeURIComponent(jobId)}/cancel`)
 }
 
 export async function cleanAdminResults(projectId: string): Promise<void> {
-  await apiClient.delete(`/admin/results/${projectId}`)
+  await apiClient.delete(`/admin/results/${encodeURIComponent(projectId)}`)
 }
 
 export async function deleteJob(jobId: string): Promise<void> {
-  await apiClient.delete(`/admin/jobs/${jobId}`)
+  await apiClient.delete(`/admin/jobs/${encodeURIComponent(jobId)}`)
 }

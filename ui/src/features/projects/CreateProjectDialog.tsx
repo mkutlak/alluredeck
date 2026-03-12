@@ -31,7 +31,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     mutationFn: createProject,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       toast({ title: 'Project created', description: `"${projectId}" is ready.` })
       setProjectId('')
       onOpenChange(false)

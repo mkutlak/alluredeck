@@ -34,4 +34,14 @@ describe('search', () => {
 
     expect(mockGet).toHaveBeenCalledWith('/search', { params: { q: 'test', limit: 5 } })
   })
+
+  it('passes limit=0 correctly (not dropped by falsy check)', async () => {
+    await search({ q: 'test', limit: 0 })
+    expect(mockGet).toHaveBeenCalledWith('/search', { params: { q: 'test', limit: 0 } })
+  })
+
+  it('omits limit param when not provided', async () => {
+    await search({ q: 'test' })
+    expect(mockGet).toHaveBeenCalledWith('/search', { params: { q: 'test' } })
+  })
 })

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportStability } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,7 +11,7 @@ interface Props {
 
 export function FlakyTestsCard({ projectId }: Props) {
   const { data: stability, isLoading } = useQuery({
-    queryKey: ['report-stability', projectId],
+    queryKey: queryKeys.reportStability(projectId),
     queryFn: () => fetchReportStability(projectId),
     staleTime: 30_000,
   })

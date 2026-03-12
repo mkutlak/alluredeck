@@ -5,16 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+const _dateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 export function formatDate(dateStr: string | Date | number): string {
   const date =
     typeof dateStr === 'string' || typeof dateStr === 'number' ? new Date(dateStr) : dateStr
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return _dateFormatter.format(date)
 }
 
 export function formatDuration(ms: number): string {

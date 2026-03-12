@@ -7,14 +7,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
 
 export function CreateMenu() {
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const [createOpen, setCreateOpen] = useState(false)
 
-  if (!isAdmin()) return null
+  if (!isAdmin) return null
 
   return (
     <>

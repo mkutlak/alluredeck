@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router'
 import { AlertCircle, BarChart3, Clock, Gauge, LayoutDashboard, Shield } from 'lucide-react'
 import { useActiveProject } from '@/hooks/useActiveProject'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import {
   Sidebar,
   SidebarContent,
@@ -23,7 +23,7 @@ const navItems = [
 
 export function AppSidebar() {
   const { projectId } = useActiveProject()
-  const isAdmin = useAuthStore((s) => s.isAdmin())
+  const isAdmin = useAuthStore(selectIsAdmin)
 
   return (
     <Sidebar collapsible="icon">
