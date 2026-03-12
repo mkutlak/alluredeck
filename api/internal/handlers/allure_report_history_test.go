@@ -33,7 +33,7 @@ func TestGetReportHistory_EmptyDir(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj1"
 	// Create project dir but no reports subdir
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +134,7 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 	projectID := "proj3"
 	// Create a report dir without any summary.json
 	reportDir := filepath.Join(projectsDir, projectID, "reports", "1")
-	if err := os.MkdirAll(reportDir, 0o755); err != nil { //nolint:gosec // G301: test fixtures run in isolated t.TempDir(); relaxed permissions are acceptable
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,7 +174,7 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 func TestGetReportHistory_CancelledContext(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "proj-cancel"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -269,5 +269,74 @@ func TestGetReportHistory_InvalidProjectID(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid project_id, got %d", rr.Code)
+	}
+}
+
+func TestGetReportHistory_Allure3LatestWithTiming(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "allure3-timing"
+
+	// Allure 3 "latest" report: statistic.json only (no summary.json, no timing)
+	latestDir := filepath.Join(projectsDir, projectID, "reports", "latest")
+	widgetsDir := filepath.Join(latestDir, "widgets")
+	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(widgetsDir, "statistic.json"),
+		[]byte(`{"passed":3,"failed":1,"broken":0,"skipped":0,"unknown":0,"total":4}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test result files with start/stop epoch milliseconds
+	// min(start)=1700000000000, max(stop)=1700000005000 → duration=5000ms
+	testResultsDir := filepath.Join(latestDir, "data", "test-results")
+	if err := os.MkdirAll(testResultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(testResultsDir, "a.json"),
+		[]byte(`{"start":1700000000000,"stop":1700000002000}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(testResultsDir, "b.json"),
+		[]byte(`{"start":1700000001000,"stop":1700000005000}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := newTestAllureHandler(t, projectsDir)
+	rr := httptest.NewRecorder()
+	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected data map")
+	}
+	reports, ok := data["reports"].([]any)
+	if !ok || len(reports) == 0 {
+		t.Fatalf("expected at least one report, got: %v", reports)
+	}
+	entry, ok := reports[0].(map[string]any)
+	if !ok {
+		t.Fatal("expected entry map")
+	}
+	if entry["is_latest"] != true {
+		t.Errorf("expected is_latest=true for first entry")
+	}
+	// duration_ms = max(stop) - min(start) = 5000
+	durMs, ok := entry["duration_ms"].(float64)
+	if !ok || durMs != 5000 {
+		t.Errorf("duration_ms: got %v, want 5000", entry["duration_ms"])
+	}
+	// generated_at must be a non-empty RFC3339 string
+	genAt, ok := entry["generated_at"].(string)
+	if !ok || genAt == "" {
+		t.Errorf("expected non-empty generated_at, got %v", entry["generated_at"])
 	}
 }

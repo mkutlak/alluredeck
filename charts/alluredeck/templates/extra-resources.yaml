@@ -1,0 +1,4 @@
+{{- range .Values.extraResources }}
+---
+{{- toYaml . | nindent 0 }}
+{{- end }}

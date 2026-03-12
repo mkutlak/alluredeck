@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"net/url"
 	"strconv"
 )
 
@@ -37,24 +35,10 @@ type analyticsTestEntry struct {
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/analytics/low-performing [get]
 func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -64,10 +48,7 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 		sortBy = "duration"
 	}
 	if sortBy != "duration" && sortBy != "failure_rate" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "sort must be 'duration' or 'failure_rate'"},
-		})
+		writeError(w, http.StatusBadRequest, "sort must be 'duration' or 'failure_rate'")
 		return
 	}
 
@@ -88,7 +69,7 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 	}
 
 	if h.testResultStore == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"data": map[string]any{
 				"tests":  []analyticsTestEntry{},
 				"sort":   sortBy,
@@ -143,7 +124,7 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 		entries = []analyticsTestEntry{}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"tests":  entries,
 			"sort":   sortBy,

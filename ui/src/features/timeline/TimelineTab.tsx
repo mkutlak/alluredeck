@@ -1,6 +1,7 @@
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportTimeline } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TimelineChart } from './TimelineChart'
@@ -8,8 +9,8 @@ import { TimelineChart } from './TimelineChart'
 export function TimelineTab() {
   const { id: projectId } = useParams<{ id: string }>()
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['report-timeline', projectId],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: queryKeys.reportTimeline(projectId!),
     queryFn: () => fetchReportTimeline(projectId!),
     enabled: !!projectId,
     staleTime: 10_000,
@@ -26,6 +27,14 @@ export function TimelineTab() {
     )
   }
 
+  if (isError) {
+    return (
+      <div className="border-destructive/50 rounded-lg border p-4 text-center">
+        <p className="text-destructive text-sm">Failed to load timeline data. Please try again.</p>
+      </div>
+    )
+  }
+
   const testCases = data?.test_cases ?? []
   const summary = data?.summary
 
@@ -33,7 +42,7 @@ export function TimelineTab() {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
         <p className="font-medium">No timeline data yet</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Generate a report to see the test execution timeline here.
         </p>
       </div>
@@ -46,7 +55,7 @@ export function TimelineTab() {
     <div className="space-y-4">
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Test Timeline · {summary?.total ?? testCases.length} tests · {totalSec}s total
         </p>
       </div>

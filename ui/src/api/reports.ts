@@ -1,6 +1,20 @@
 import { apiClient } from './client'
-import type { ApiResponse, PaginatedResponse, AllureSummary, CategoryEntry, EnvironmentEntry, GenerateReportAccepted, GenerateReportParams, JobData, KnownFailuresData, LowPerformingData, ReportHistoryData, StabilityData, TimelineData } from '@/types/api'
-import { env } from '@/lib/env'
+import type {
+  ApiResponse,
+  PaginatedResponse,
+  AllureSummary,
+  CategoryEntry,
+  CompareData,
+  EnvironmentEntry,
+  GenerateReportAccepted,
+  GenerateReportParams,
+  JobData,
+  KnownFailuresData,
+  LowPerformingData,
+  ReportHistoryData,
+  StabilityData,
+  TimelineData,
+} from '@/types/api'
 
 export async function generateReport(
   params: GenerateReportParams,
@@ -84,10 +98,17 @@ export async function fetchReportHistory(
   projectId: string,
   page = 1,
   perPage = 20,
+  branch?: string,
 ): Promise<PaginatedResponse<ReportHistoryData>> {
   const res = await apiClient.get<PaginatedResponse<ReportHistoryData>>(
     `/projects/${encodeURIComponent(projectId)}/reports`,
-    { params: { page, per_page: perPage } },
+    {
+      params: {
+        page,
+        per_page: perPage,
+        ...(branch !== undefined ? { branch } : {}),
+      },
+    },
   )
   return res.data
 }
@@ -97,12 +118,11 @@ export async function fetchReportSummary(
   projectId: string,
   reportId: string,
 ): Promise<AllureSummary | null> {
-  // Allure stores widget data at widgets/summary.json inside the report directory
-  const url = `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/widgets/summary.json`
   try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    return (await res.json()) as AllureSummary
+    const res = await apiClient.get<AllureSummary>(
+      `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/widgets/summary.json`,
+    )
+    return res.data
   } catch {
     return null
   }
@@ -167,6 +187,18 @@ export async function fetchLowPerformingTests(
   const res = await apiClient.get<ApiResponse<LowPerformingData>>(
     `/projects/${encodeURIComponent(projectId)}/analytics/low-performing`,
     { params: { sort, builds, limit } },
+  )
+  return res.data.data
+}
+
+export async function fetchBuildComparison(
+  projectId: string,
+  buildA: number,
+  buildB: number,
+): Promise<CompareData> {
+  const res = await apiClient.get<ApiResponse<CompareData>>(
+    `/projects/${encodeURIComponent(projectId)}/compare`,
+    { params: { a: buildA, b: buildB } },
   )
   return res.data.data
 }

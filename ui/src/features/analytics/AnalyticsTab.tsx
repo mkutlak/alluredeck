@@ -1,10 +1,10 @@
+import { useMemo } from 'react'
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import {
-  toStatusTrendData,
-  toPassRateTrendData,
-  toDurationTrendData,
+  toAllTrendData,
   toStatusPieData,
   toCategoryBreakdownData,
 } from '@/lib/chart-utils'
@@ -16,27 +16,45 @@ import { DurationTrendChart } from './DurationTrendChart'
 import { StatusPieChart } from './StatusPieChart'
 import { CategoryBreakdownChart } from './CategoryBreakdownChart'
 import { LowPerformingCard } from './LowPerformingCard'
+import { ErrorClusterCard } from './ErrorClusterCard'
+import { SuitePassRateChart } from './SuitePassRateChart'
+import { LabelBreakdownCard } from './LabelBreakdownCard'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
 
-  const { data: historyData, isLoading } = useQuery({
-    queryKey: ['report-history-analytics', projectId],
-    queryFn: () => fetchReportHistory(projectId!, 1, 100),
+  const {
+    data: historyData,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: queryKeys.reportHistoryAnalytics(projectId ?? ''),
+    queryFn: () => fetchReportHistory(projectId ?? '', 1, 100),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
-    queryKey: ['report-categories', projectId, 'latest'],
-    queryFn: () => fetchReportCategories(projectId!),
+    queryKey: queryKeys.reportCategoriesLatest(projectId ?? ''),
+    queryFn: () => fetchReportCategories(projectId ?? ''),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
-  if (!projectId) return null
+  const reports = useMemo(() => historyData?.data.reports ?? [], [historyData])
 
-  const reports = historyData?.data.reports ?? []
+  const { status: statusTrend, passRate: passRateTrend, duration: durationTrend } = useMemo(
+    () => toAllTrendData(reports),
+    [reports],
+  )
+  const pieData = useMemo(() => toStatusPieData(reports), [reports])
+  const total = reports[0]?.statistic?.total ?? 0
+  const categoryData = useMemo(
+    () => toCategoryBreakdownData(categoriesData ?? []),
+    [categoriesData],
+  )
+
+  if (!projectId) return null
 
   if (isLoading) {
     return (
@@ -48,29 +66,30 @@ export function AnalyticsTab() {
     )
   }
 
+  if (isError) {
+    return (
+      <div className="border-destructive/50 rounded-lg border p-4 text-center">
+        <p className="text-destructive text-sm">Failed to load analytics data. Please try again.</p>
+      </div>
+    )
+  }
+
   if (reports.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
         <p className="font-medium">No report data yet</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Generate a report to see analytics charts here.
         </p>
       </div>
     )
   }
 
-  const statusTrend = toStatusTrendData(reports)
-  const passRateTrend = toPassRateTrendData(reports)
-  const durationTrend = toDurationTrendData(reports)
-  const pieData = toStatusPieData(reports)
-  const total = reports[0]?.statistic?.total ?? 0
-  const categoryData = toCategoryBreakdownData(categoriesData ?? [])
-
   return (
     <div className="space-y-4">
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
-        <p className="text-sm text-muted-foreground">Analytics</p>
+        <p className="text-muted-foreground text-sm">Analytics</p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -125,6 +144,12 @@ export function AnalyticsTab() {
       </div>
 
       <LowPerformingCard projectId={projectId} />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ErrorClusterCard projectId={projectId} />
+        <SuitePassRateChart projectId={projectId} />
+        <LabelBreakdownCard projectId={projectId} />
+      </div>
     </div>
   )
 }

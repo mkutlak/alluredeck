@@ -1,13 +1,12 @@
 name: CI — Helm Chart
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
       - "charts/**"
       - ".github/workflows/ci-chart.yml"
-  push:
-    branches: [main]
 
 permissions:
   contents: read

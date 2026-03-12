@@ -11,14 +11,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 
 interface ProjectCardProps {
   projectId: string
 }
 
 export function ProjectCard({ projectId }: ProjectCardProps) {
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   return (
@@ -26,11 +26,11 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
       <Card className="group relative transition-shadow hover:shadow-md">
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <FolderOpen size={16} className="shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 items-center gap-2">
+              <FolderOpen size={16} className="text-muted-foreground shrink-0" />
               <CardTitle className="truncate text-sm font-medium">{projectId}</CardTitle>
             </div>
-            {isAdmin() && (
+            {isAdmin && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -67,12 +67,8 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
         </CardContent>
       </Card>
 
-      {isAdmin() && (
-        <DeleteProjectDialog
-          projectId={projectId}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
+      {isAdmin && (
+        <DeleteProjectDialog projectId={projectId} open={deleteOpen} onOpenChange={setDeleteOpen} />
       )}
     </>
   )

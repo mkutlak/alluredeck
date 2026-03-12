@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -43,12 +44,17 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
         is_active: isActive,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId) })
       toast({ title: 'Known issue updated' })
       onOpenChange(false)
     },
     onError: (err) => {
-      toast({ title: 'Update failed', description: extractErrorMessage(err), variant: 'destructive' })
+      toast({
+        title: 'Update failed',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -59,13 +65,13 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Edit Known Issue</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Test Name (read-only)</Label>
+            <Label className="text-muted-foreground text-xs">Test Name (read-only)</Label>
             <p className="font-mono text-sm">{issue.test_name}</p>
           </div>
           <div className="space-y-2">

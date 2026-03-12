@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertTriangle } from 'lucide-react'
-import { extractErrorMessage, apiClient } from '@/api/client'
+import { extractErrorMessage } from '@/api/client'
+import { deleteProject } from '@/api/projects'
+import { queryKeys, removeProjectQueries } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,15 +17,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/use-toast'
+import { useUIStore } from '@/store/ui'
 
 interface DeleteProjectDialogProps {
   projectId: string
   open: boolean
   onOpenChange: (open: boolean) => void
-}
-
-async function deleteProject(projectId: string): Promise<void> {
-  await apiClient.delete(`/projects/${encodeURIComponent(projectId)}`)
 }
 
 export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeleteProjectDialogProps) {
@@ -35,8 +34,13 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
   const mutation = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      const { lastProjectId, clearLastProjectId } = useUIStore.getState()
+      if (lastProjectId === projectId) {
+        clearLastProjectId()
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
+      removeProjectQueries(queryClient, projectId)
       toast({ title: 'Project deleted', description: `"${projectId}" has been removed.` })
       onOpenChange(false)
       navigate('/', { replace: true })
@@ -67,7 +71,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
+          <DialogTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle size={18} />
             Delete project
           </DialogTitle>
@@ -87,7 +91,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
             onChange={(e) => setConfirmText(e.target.value)}
             disabled={mutation.isPending}
           />
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

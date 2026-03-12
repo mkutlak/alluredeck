@@ -20,14 +20,10 @@ definitions:
         type: integer
       make_viewer_endpoints_public:
         type: boolean
-      optimize_storage:
-        type: boolean
       security_enabled:
         type: boolean
       tls:
         type: boolean
-      url_prefix:
-        type: string
       version:
         type: string
     type: object
@@ -67,6 +63,13 @@ definitions:
       metadata:
         $ref: '#/definitions/internal_handlers.VersionMetaData'
     type: object
+  internal_handlers.updateTagsRequest:
+    properties:
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -74,6 +77,124 @@ info:
   title: AllureDeck API
   version: 2.0.0
 paths:
+  /admin/jobs:
+    get:
+      description: Returns all known async report generation jobs (active and recent).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List all jobs
+      tags:
+      - admin
+  /admin/jobs/{job_id}:
+    delete:
+      description: Permanently removes a completed, failed, or cancelled job record.
+      parameters:
+      - description: Job ID
+        in: path
+        name: job_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete a terminal job
+      tags:
+      - admin
+  /admin/jobs/{job_id}/cancel:
+    post:
+      description: Cancels a pending or running async report generation job.
+      parameters:
+      - description: Job ID
+        in: path
+        name: job_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Cancel a job
+      tags:
+      - admin
+  /admin/results:
+    get:
+      description: Scans all projects and returns those with pending result files.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List projects with unprocessed result files
+      tags:
+      - admin
+  /admin/results/{project_id}:
+    delete:
+      description: Removes all unprocessed result files from a project's results directory.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete pending result files for a project
+      tags:
+      - admin
   /config:
     get:
       description: Returns the current AllureDeck service configuration.
@@ -87,6 +208,26 @@ paths:
       summary: Get service configuration
       tags:
       - system
+  /dashboard:
+    get:
+      description: Returns all projects with their latest build status and pass rate
+        sparklines.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get cross-project dashboard data
+      tags:
+      - dashboard
   /health:
     get:
       description: Returns 200 OK with no dependency checks.
@@ -288,6 +429,138 @@ paths:
       summary: Get low-performing tests
       tags:
       - analytics
+  /projects/{project_id}/branches:
+    get:
+      description: Returns all branches for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List branches
+      tags:
+      - branches
+  /projects/{project_id}/branches/{branch_id}:
+    delete:
+      description: Deletes a non-default branch from the project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Branch ID
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete branch
+      tags:
+      - branches
+  /projects/{project_id}/branches/{branch_id}/default:
+    put:
+      description: Sets the specified branch as the default for the project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Branch ID
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Set default branch
+      tags:
+      - branches
+  /projects/{project_id}/compare:
+    get:
+      description: Returns a diff of test statuses between two builds within a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Build order A (baseline)
+        in: query
+        name: a
+        required: true
+        type: integer
+      - description: Build order B (target)
+        in: query
+        name: b
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Compare two builds
+      tags:
+      - compare
   /projects/{project_id}/jobs/{job_id}:
     get:
       description: Returns the current status of an async report generation job.
@@ -893,6 +1166,89 @@ paths:
       summary: Upload test results
       tags:
       - results
+  /projects/{project_id}/tags:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the tags on a project. Admin only.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Tags payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.updateTagsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Set project tags
+      tags:
+      - projects
+  /projects/{project_id}/test-history:
+    get:
+      description: Returns the run history for a specific test (identified by history_id)
+        within a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Test history ID
+        in: query
+        name: history_id
+        required: true
+        type: string
+      - description: Branch name filter
+        in: query
+        name: branch
+        type: string
+      - default: 50
+        description: Max entries
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get test history
+      tags:
+      - tests
   /ready:
     get:
       description: Returns 200 when the database is reachable, 503 otherwise.
@@ -914,6 +1270,25 @@ paths:
       summary: Readiness probe
       tags:
       - infrastructure
+  /tags:
+    get:
+      description: Returns all distinct tags across all projects, sorted alphabetically.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List all distinct tags
+      tags:
+      - projects
   /version:
     get:
       description: Returns the installed Allure CLI version.

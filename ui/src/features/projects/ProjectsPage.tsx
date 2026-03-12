@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, LayoutGrid, List, RefreshCw, FolderX } from 'lucide-react'
 import { getProjects } from '@/api/projects'
-import { useAuthStore } from '@/store/auth'
+import { queryKeys } from '@/lib/query-keys'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,13 +11,13 @@ import { ProjectCard } from './ProjectCard'
 import { CreateProjectDialog } from './CreateProjectDialog'
 
 export function ProjectsPage() {
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const viewMode = useUIStore((s) => s.projectViewMode)
   const setViewMode = useUIStore((s) => s.setProjectViewMode)
   const [createOpen, setCreateOpen] = useState(false)
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['projects'],
+    queryKey: queryKeys.projects,
     queryFn: () => getProjects(),
     staleTime: 30_000,
   })
@@ -29,8 +30,10 @@ export function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground">
-            {isLoading ? 'Loading…' : `${projects.length} project${projects.length !== 1 ? 's' : ''}`}
+          <p className="text-muted-foreground text-sm">
+            {isLoading
+              ? 'Loading…'
+              : `${projects.length} project${projects.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -63,7 +66,7 @@ export function ProjectsPage() {
               <List size={14} />
             </Button>
           </div>
-          {isAdmin() && (
+          {isAdmin && (
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus size={14} />
               New project
@@ -74,7 +77,7 @@ export function ProjectsPage() {
 
       {/* Error state */}
       {isError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+        <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border p-4 text-sm">
           Failed to load projects. Check the API connection and try again.
         </div>
       )}
@@ -94,13 +97,13 @@ export function ProjectsPage() {
           <FolderX size={40} className="text-muted-foreground/50" />
           <div>
             <p className="font-medium">No projects yet</p>
-            <p className="text-sm text-muted-foreground">
-              {isAdmin()
+            <p className="text-muted-foreground text-sm">
+              {isAdmin
                 ? 'Create a project to start collecting Allure results.'
                 : 'Ask an administrator to create a project.'}
             </p>
           </div>
-          {isAdmin() && (
+          {isAdmin && (
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus size={14} />
               Create first project
@@ -134,9 +137,7 @@ export function ProjectsPage() {
         </div>
       )}
 
-      {isAdmin() && (
-        <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
-      )}
+      {isAdmin && <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />}
     </div>
   )
 }

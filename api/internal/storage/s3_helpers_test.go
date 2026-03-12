@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"go.uber.org/zap"
@@ -32,6 +33,7 @@ func buildListResponse(keys []string) *s3.ListObjectsV2Output {
 }
 
 func TestDownloadPrefix_Parallel_MultipleObjects(t *testing.T) {
+	t.Parallel()
 	const n = 20
 	const concurrency = 5
 	prefix := "test-prefix/"
@@ -81,6 +83,7 @@ func TestDownloadPrefix_Parallel_MultipleObjects(t *testing.T) {
 }
 
 func TestDownloadPrefix_EmptyPrefix(t *testing.T) {
+	t.Parallel()
 	var getObjectCalled bool
 	mock := &mockS3Client{
 		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -102,6 +105,7 @@ func TestDownloadPrefix_EmptyPrefix(t *testing.T) {
 }
 
 func TestDownloadPrefix_SingleObject(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	key := prefix + "result.json"
 	content := `{"status":"passed"}`
@@ -134,6 +138,7 @@ func TestDownloadPrefix_SingleObject(t *testing.T) {
 }
 
 func TestDownloadPrefix_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	keys := []string{prefix + "a.json", prefix + "b.json", prefix + "c.json"}
 
@@ -163,6 +168,7 @@ func TestDownloadPrefix_ContextCancellation(t *testing.T) {
 }
 
 func TestDownloadPrefix_SizeWarning(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	content600 := strings.Repeat("x", 600)
 	keys := []string{prefix + "a.bin", prefix + "b.bin"}
@@ -198,6 +204,7 @@ func TestDownloadPrefix_SizeWarning(t *testing.T) {
 }
 
 func TestDownloadPrefix_ErrorInOneObject(t *testing.T) {
+	t.Parallel()
 	prefix := "results/"
 	keys := []string{prefix + "ok.json", prefix + "fail.json"}
 	failKey := prefix + "fail.json"
@@ -222,13 +229,14 @@ func TestDownloadPrefix_ErrorInOneObject(t *testing.T) {
 }
 
 func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
+	t.Parallel()
 	const n = 15
 	const concurrency = 4
 
 	tmpDir := t.TempDir()
 	for i := range n {
 		path := filepath.Join(tmpDir, fmt.Sprintf("file%02d.json", i))
-		if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil { //nolint:gosec
+		if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 	}
@@ -236,8 +244,8 @@ func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
 	var inflight atomic.Int32
 	var peak atomic.Int32
 
-	mock := &mockS3Client{
-		PutObjectFn: func(_ context.Context, _ *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	mock := &mockS3Uploader{
+		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
 			cur := inflight.Add(1)
 			for {
 				p := peak.Load()
@@ -246,7 +254,7 @@ func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
 				}
 			}
 			defer inflight.Add(-1)
-			return &s3.PutObjectOutput{}, nil
+			return &transfermanager.UploadObjectOutput{}, nil
 		},
 	}
 
@@ -259,11 +267,12 @@ func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
 }
 
 func TestUploadDir_EmptyDir(t *testing.T) {
-	var putObjectCalled bool
-	mock := &mockS3Client{
-		PutObjectFn: func(_ context.Context, _ *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
-			putObjectCalled = true
-			return &s3.PutObjectOutput{}, nil
+	t.Parallel()
+	var uploadCalled bool
+	mock := &mockS3Uploader{
+		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
+			uploadCalled = true
+			return &transfermanager.UploadObjectOutput{}, nil
 		},
 	}
 
@@ -271,16 +280,17 @@ func TestUploadDir_EmptyDir(t *testing.T) {
 	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", 10); err != nil {
 		t.Fatalf("uploadDir: %v", err)
 	}
-	if putObjectCalled {
-		t.Error("PutObject should not be called for empty directory")
+	if uploadCalled {
+		t.Error("Upload should not be called for empty directory")
 	}
 }
 
 func TestUploadDir_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	for i := range 5 {
 		path := filepath.Join(tmpDir, fmt.Sprintf("file%d.json", i))
-		if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil { //nolint:gosec
+		if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 	}
@@ -288,15 +298,15 @@ func TestUploadDir_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var callCount atomic.Int32
 
-	mock := &mockS3Client{
-		PutObjectFn: func(ctx context.Context, _ *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	mock := &mockS3Uploader{
+		UploadObjectFn: func(ctx context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
 			if callCount.Add(1) == 1 {
 				cancel()
 			}
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			return &s3.PutObjectOutput{}, nil
+			return &transfermanager.UploadObjectOutput{}, nil
 		},
 	}
 

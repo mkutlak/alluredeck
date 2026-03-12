@@ -5,16 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+const _dateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 export function formatDate(dateStr: string | Date | number): string {
   const date =
     typeof dateStr === 'string' || typeof dateStr === 'number' ? new Date(dateStr) : dateStr
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return _dateFormatter.format(date)
 }
 
 export function formatDuration(ms: number): string {
@@ -52,4 +54,12 @@ export function getStatusVariant(
 
 export function truncate(str: string, maxLen = 40): string {
   return str.length > maxLen ? str.slice(0, maxLen - 1) + '…' : str
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const value = bytes / Math.pow(1024, i)
+  return `${value % 1 === 0 ? value : value.toFixed(1)} ${units[i]}`
 }

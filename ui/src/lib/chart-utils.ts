@@ -27,13 +27,8 @@ export const sparklineChartConfig = {
   passRate: { label: 'Pass Rate', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig
 
-// Keep STATUS_COLORS for non-chart usage (TimelineChart, CategoryBreakdown summary dots)
-export const STATUS_COLORS = {
-  passed: '#16a34a',  // green-600
-  failed: '#dc2626',  // red-600
-  broken: '#d97706',  // amber-600
-  skipped: '#6b7280', // gray-500
-} as const
+import { STATUS_COLORS, CATEGORY_COLORS, CATEGORY_DEFAULT_COLOR } from '@/lib/status-colors'
+export { STATUS_COLORS, CATEGORY_COLORS, CATEGORY_DEFAULT_COLOR }
 
 export interface StatusTrendPoint {
   name: string
@@ -59,39 +54,6 @@ export interface StatusPiePoint {
   color: string
 }
 
-function sorted(entries: ReportHistoryEntry[]): ReportHistoryEntry[] {
-  return [...entries].reverse()
-}
-
-export function toStatusTrendData(entries: ReportHistoryEntry[]): StatusTrendPoint[] {
-  return sorted(entries)
-    .filter((e) => e.statistic !== null)
-    .map((e) => ({
-      name: `#${e.report_id}`,
-      passed: e.statistic!.passed,
-      failed: e.statistic!.failed,
-      broken: e.statistic!.broken,
-      skipped: e.statistic!.skipped,
-    }))
-}
-
-export function toPassRateTrendData(entries: ReportHistoryEntry[]): PassRateTrendPoint[] {
-  return sorted(entries)
-    .filter((e) => e.statistic !== null)
-    .map((e) => ({
-      name: `#${e.report_id}`,
-      passRate: calcPassRate(e.statistic!.passed, e.statistic!.total),
-    }))
-}
-
-export function toDurationTrendData(entries: ReportHistoryEntry[]): DurationTrendPoint[] {
-  return sorted(entries)
-    .filter((e) => e.duration_ms !== null)
-    .map((e) => ({
-      name: `#${e.report_id}`,
-      durationSec: Math.round(e.duration_ms! / 1000),
-    }))
-}
 
 export function toStatusPieData(entries: ReportHistoryEntry[]): StatusPiePoint[] {
   if (entries.length === 0) return []
@@ -118,13 +80,6 @@ export interface CategoryBreakdownPoint {
   color: string
 }
 
-export const CATEGORY_COLORS: Record<string, string> = {
-  'Product defects': '#dc2626', // red-600
-  'Test defects': '#d97706',    // amber-600
-} as const
-
-const CATEGORY_DEFAULT_COLOR = '#6b7280' // gray-500
-
 export function toCategoryBreakdownData(entries: CategoryEntry[]): CategoryBreakdownPoint[] {
   return entries
     .filter((e) => e.matchedStatistic && e.matchedStatistic.total > 0)
@@ -135,6 +90,38 @@ export function toCategoryBreakdownData(entries: CategoryEntry[]): CategoryBreak
       total: e.matchedStatistic!.total,
       color: CATEGORY_COLORS[e.name] ?? CATEGORY_DEFAULT_COLOR,
     }))
+}
+
+export interface AllTrendData {
+  status: StatusTrendPoint[]
+  passRate: PassRateTrendPoint[]
+  duration: DurationTrendPoint[]
+}
+
+export function toAllTrendData(entries: ReportHistoryEntry[]): AllTrendData {
+  const reversed = [...entries].reverse()
+  const status: StatusTrendPoint[] = []
+  const passRate: PassRateTrendPoint[] = []
+  const duration: DurationTrendPoint[] = []
+
+  for (const e of reversed) {
+    const name = `#${e.report_id}`
+    if (e.statistic !== null) {
+      status.push({
+        name,
+        passed: e.statistic!.passed,
+        failed: e.statistic!.failed,
+        broken: e.statistic!.broken,
+        skipped: e.statistic!.skipped,
+      })
+      passRate.push({ name, passRate: calcPassRate(e.statistic!.passed, e.statistic!.total) })
+    }
+    if (e.duration_ms !== null) {
+      duration.push({ name, durationSec: Math.round(e.duration_ms! / 1000) })
+    }
+  }
+
+  return { status, passRate, duration }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +141,10 @@ export function detectLaneStrategy(testCases: TimelineTestCase[]): LaneStrategy 
   return 'default'
 }
 
-export function toTimelineLanes(testCases: TimelineTestCase[], strategy: LaneStrategy): TimelineLane[] {
+export function toTimelineLanes(
+  testCases: TimelineTestCase[],
+  strategy: LaneStrategy,
+): TimelineLane[] {
   if (strategy === 'default') return [{ id: 'default', label: 'Tests' }]
   const seen = new Set<string>()
   const lanes: TimelineLane[] = []

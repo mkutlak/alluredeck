@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
 export type Role = 'admin' | 'viewer'
 
-interface AuthState {
+export interface AuthState {
   isAuthenticated: boolean
   roles: Role[]
   username: string | null
@@ -11,13 +11,11 @@ interface AuthState {
 
   setAuth: (roles: Role[], username: string, expiresIn: number) => void
   clearAuth: () => void
-  isAdmin: () => boolean
-  isSessionValid: () => boolean
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       isAuthenticated: false,
       roles: [],
       username: null,
@@ -35,22 +33,21 @@ export const useAuthStore = create<AuthState>()(
       clearAuth() {
         set({ isAuthenticated: false, roles: [], username: null, expiresAt: null })
       },
-
-      isAdmin: () => get().roles.includes('admin'),
-
-      isSessionValid() {
-        const { isAuthenticated, expiresAt } = get()
-        return isAuthenticated && (expiresAt === null || expiresAt > Date.now())
-      },
     }),
     {
       name: 'allure-auth',
+      storage: createJSONStorage(() => sessionStorage),
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
-        roles: s.roles,
+        // roles intentionally excluded — re-derived from server; client state is UI-only
         username: s.username,
         expiresAt: s.expiresAt,
       }),
     },
   ),
 )
+
+export const selectIsAdmin = (s: AuthState) => s.roles.includes('admin')
+
+export const selectIsSessionValid = (s: AuthState) =>
+  s.isAuthenticated && (s.expiresAt === null || s.expiresAt > Date.now())

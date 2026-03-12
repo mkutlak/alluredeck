@@ -62,7 +62,7 @@ func (m *JWTManager) GenerateTokens(username, role string) (accessToken, refresh
 		"role": role,
 		"type": "access",
 		"jti":  accessJTI,
-		"exp":  jwt.NewNumericDate(now.Add(m.cfg.AccessTokenExpiry)),
+		"exp":  jwt.NewNumericDate(now.Add(m.cfg.AccessTokenExpiry.Duration())),
 		"iat":  jwt.NewNumericDate(now),
 	}
 
@@ -76,7 +76,7 @@ func (m *JWTManager) GenerateTokens(username, role string) (accessToken, refresh
 		"sub":  username,
 		"type": "refresh",
 		"jti":  refreshJTI,
-		"exp":  jwt.NewNumericDate(now.Add(m.cfg.RefreshTokenExpiry)),
+		"exp":  jwt.NewNumericDate(now.Add(m.cfg.RefreshTokenExpiry.Duration())),
 		"iat":  jwt.NewNumericDate(now),
 	}
 

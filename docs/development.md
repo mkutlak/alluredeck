@@ -19,12 +19,15 @@ alluredeck/
       config/               # configuration loading
       handlers/             # HTTP request handlers
       logging/              # Zap logger setup
-      middleware/           # auth, CSRF, CORS, rate limiting
-      runner/               # Allure CLI execution
-      security/             # JWT management
-      store/                # SQLite metadata store
-      storage/              # local & S3 storage backends
-      version/              # version info
+      middleware/           # auth, CORS, CSRF, logging, rate limiting
+      parser/               # Allure result parser
+      runner/               # report generation orchestration (River job queue)
+      security/             # JWT generation/validation, bcrypt
+      store/                # store interfaces + PostgreSQL (pg/) impl
+      storage/              # local filesystem & S3 (aws-sdk-go-v2)
+      swagger/              # generated Swagger/OpenAPI docs
+      testutil/             # shared test helpers / mocks
+      version/              # build metadata (version, date, ref)
     static/                 # embedded static assets + Swagger UI
     go.mod
   ui/                       # React + TypeScript frontend
@@ -80,7 +83,7 @@ Install dependencies (first time only):
 make ui-install
 ```
 
-Start the Vite dev server on `http://localhost:5173`:
+Start the Vite dev server on `http://localhost:7474`:
 
 ```bash
 make ui-dev
@@ -259,11 +262,13 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 
 ### API (Go backend)
 
-- **Language**: Go 1.25.7 (module: `github.com/mkutlak/alluredeck/api`)
+- **Language**: Go 1.25 (module: `github.com/mkutlak/alluredeck/api`)
 - **HTTP**: `net/http` stdlib (no third-party router)
 - **Auth**: `golang-jwt/jwt/v5` + bcrypt passwords
-- **Config**: environment variables + optional YAML (`go.yaml.in/yaml/v3`)
-- **Database**: SQLite via `modernc.org/sqlite` (pure Go, `CGO_ENABLED=0`)
+- **Config**: environment variables + optional YAML (`go.yaml.in/yaml/v3`, `kelseyhightower/envconfig`)
+- **Database**: PostgreSQL via `jackc/pgx/v5` + goose v3 migrations
+- **Job queue**: River v0.31 (PostgreSQL-backed)
+- **Storage**: local filesystem or S3 (`aws-sdk-go-v2`)
 - **Logging**: Uber Zap (`go.uber.org/zap`) — JSON in production, console in development
 - **Documentation**: Swagger/OpenAPI via `swaggo/swag`
 - **Linting**: golangci-lint v2
@@ -273,8 +278,8 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 - **Framework**: React 19 + React Router v7
 - **State Management**: Zustand (global state), TanStack Query v5 (server state)
 - **UI Components**: Radix UI primitives + Tailwind CSS 4 + shadcn-style components
-- **Charts**: Recharts
-- **Build Tool**: Vite 6
+- **Charts**: Recharts 3
+- **Build Tool**: Vite 7
 - **Testing**: Vitest + Testing Library (jsdom)
 - **Type Checking**: TypeScript 5 (strict mode)
 - **Linting**: ESLint 10 (flat config)
@@ -376,7 +381,7 @@ Always ask before downgrading versions or introducing new dependencies.
 
 - Clear node_modules and reinstall: `make ui-clean && make ui-install`
 - Verify Node.js version: `node --version`
-- Check if port 5173 is in use: `lsof -i :5173`
+- Check if port 7474 is in use: `lsof -i :7474`
 
 ### Tests fail locally but pass in CI
 
@@ -393,5 +398,4 @@ Always ask before downgrading versions or introducing new dependencies.
 ## Related Documentation
 
 - [configuration.md](configuration.md) — environment variables and configuration reference
-- [deployment.md](deployment.md) — Docker and Helm deployment guide
-- [security.md](security.md) — security considerations and best practices
+- [deployment.md](deployment.md) — Docker, Helm, and security guide

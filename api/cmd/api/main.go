@@ -22,7 +22,8 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
-	_ "github.com/mkutlak/alluredeck/api/internal/swagger"
+	"github.com/mkutlak/alluredeck/api/internal/store/pg"
+	swaggerDocs "github.com/mkutlak/alluredeck/api/internal/swagger"
 )
 
 // @title           AllureDeck API
@@ -53,38 +54,65 @@ func main() {
 		}
 	}
 
-	// Open SQLite metadata store.
-	db, err := store.Open(cfg.DatabasePath)
-	if err != nil {
-		logger.Fatal("failed to open database", zap.String("path", cfg.DatabasePath), zap.Error(err))
-	}
-	defer func() { _ = db.Close() }()
-
-	projectStore := store.NewProjectStore(db, logger)
-	buildStore := store.NewBuildStore(db, logger)
-	blacklistStore := store.NewBlacklistStore(db)
-	lockManager := store.NewLockManager()
+	// Declare metadata store interfaces — populated below by the PostgreSQL backend.
+	var (
+		projectStore    store.ProjectStorer
+		buildStore      store.BuildStorer
+		blacklistStore  store.BlacklistStorer
+		testResultStore store.TestResultStorer
+		branchStore     store.BranchStorer
+		knownIssueStore store.KnownIssueStorer
+		searchStore     store.SearchStorer
+		analyticsStore  store.AnalyticsStorer
+	)
 
 	dataStore, err := createDataStore(cfg, logger)
 	if err != nil {
-		logger.Fatal("failed to initialize storage", zap.Error(err)) //nolint:gocritic // exitAfterDefer: in-process SQLite; OS cleans up on exit
+		logger.Fatal("failed to initialize storage", zap.Error(err))
 	}
 
-	// Import existing filesystem projects and builds into the database on startup.
-	if err := store.SyncMetadata(context.Background(), dataStore, db, logger); err != nil {
+	initCtx := context.Background()
+
+	pgDB, err := pg.Open(initCtx, cfg)
+	if err != nil {
+		logger.Fatal("failed to open PostgreSQL database", zap.String("url", cfg.DatabaseURL), zap.Error(err))
+	}
+	defer func() { _ = pgDB.Close() }()
+
+	pgProj := pg.NewProjectStore(pgDB, logger)
+	pgBuild := pg.NewBuildStore(pgDB, logger)
+	projectStore = pgProj
+	buildStore = pgBuild
+	blacklistStore = pg.NewBlacklistStore(pgDB)
+	testResultStore = pg.NewTestResultStore(pgDB, logger)
+	branchStore = pg.NewBranchStore(pgDB)
+	knownIssueStore = pg.NewKnownIssueStore(pgDB)
+	searchStore = pg.NewSearchStore(pgDB, logger)
+	analyticsStore = pg.NewAnalyticsStore(pgDB)
+	sqlDB := pgDB.DB()
+	var locker store.Locker = pgDB
+
+	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
 		logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
 	}
 
 	jwtManager := security.NewJWTManager(cfg, blacklistStore)
-	systemHandler := handlers.NewSystemHandler(cfg, db.DB())
+	systemHandler := handlers.NewSystemHandler(cfg, sqlDB)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
+	allureCore := runner.NewAllure(cfg, dataStore, buildStore, locker, testResultStore, branchStore, logger)
 
-	testResultStore := store.NewTestResultStore(db, logger)
-	allureCore := runner.NewAllure(cfg, dataStore, buildStore, lockManager, testResultStore, logger)
-	knownIssueStore := store.NewKnownIssueStore(db)
-	searchStore := store.NewSearchStore(db, logger)
-	jobManager := runner.NewJobManager(allureCore, 2, logger)
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, 2, logger)
+	if err != nil {
+		logger.Fatal("failed to create River job manager", zap.Error(err))
+	}
+	var jobManager runner.JobQueuer = rjm
+
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore)
+	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, logger)
+	branchHandler := handlers.NewBranchHandler(branchStore, buildStore)
+	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
+	allureHandler.SetBranchStore(branchStore)
+	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, logger)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -96,10 +124,16 @@ func main() {
 	mux.HandleFunc("GET /ready", systemHandler.Ready)
 	mux.HandleFunc("GET /readyz", systemHandler.Ready)
 
+	// Override Swagger host: empty string = use browser's current host (works for all environments).
+	swaggerDocs.SwaggerInfo.Host = cfg.SwaggerHost
+	swaggerDocs.SwaggerInfo.Schemes = []string{}
+
 	// Swagger UI
-	mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
-		httpSwagger.URL("/swagger/doc.json"),
-	))
+	if cfg.SwaggerEnabled {
+		mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
+			httpSwagger.URL("/swagger/doc.json"),
+		))
+	}
 
 	// Overlay file server — serves generated Allure HTML reports.
 	// Numbered build dirs contain only variable content (data/, widgets/, history/).
@@ -109,7 +143,7 @@ func main() {
 	if cfg.StorageType == "s3" {
 		overlayFS = newS3ReportHandler(dataStore)
 	} else {
-		overlayFS = newOverlayHandler(cfg.ProjectsDirectory)
+		overlayFS = newOverlayHandler(cfg.ProjectsPath)
 	}
 	// Allure report pages are third-party static content requiring inline scripts/styles.
 	// Override the strict API CSP with a permissive one for report routes.
@@ -135,7 +169,7 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -186,7 +220,7 @@ func main() {
 
 // awaitShutdown waits for the context to be cancelled then drains the HTTP
 // server, stops the background watcher, and waits for in-flight jobs before returning.
-func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, jobManager *runner.JobManager, cfg *config.Config, limiterDone chan struct{}, logger *zap.Logger) {
+func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, jobManager runner.JobQueuer, cfg *config.Config, limiterDone chan struct{}, logger *zap.Logger) {
 	<-ctx.Done()
 	logger.Info("shutdown signal received, draining connections")
 
@@ -230,6 +264,10 @@ func registerRoutes(
 	system *handlers.SystemHandler,
 	authHandler *handlers.AuthHandler,
 	allure *handlers.AllureHandler,
+	admin *handlers.AdminHandler,
+	branchHandler *handlers.BranchHandler,
+	testHistoryHandler *handlers.TestHistoryHandler,
+	analyticsHandler *handlers.AnalyticsHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false)(h)
@@ -240,9 +278,9 @@ func registerRoutes(
 	adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
 		return auth(middleware.RequireRole("admin")(h))
 	}
-	// viewerUp: when MakeViewerEndptsPub is true, these endpoints are public (no auth).
+	// viewerUp: when MakeViewerEndpointsPublic is true, these endpoints are public (no auth).
 	viewerUp := func(h http.HandlerFunc) http.HandlerFunc {
-		if cfg.MakeViewerEndptsPub {
+		if cfg.MakeViewerEndpointsPublic {
 			return h
 		}
 		return auth(middleware.RequireRole("viewer")(h))
@@ -262,7 +300,7 @@ func registerRoutes(
 	// Auth only (no specific role required)
 	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(authHandler.Logout)))
 
-	// Viewer+ endpoints (public when MakeViewerEndptsPub=true) — mutable cache.
+	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(mutableCache(allure.GetProjects)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))
@@ -294,6 +332,37 @@ func registerRoutes(
 	// Analytics — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(allure.GetLowPerformingTests)))
 
+	// Compare — short-lived cache.
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(allure.CompareBuilds)))
+
 	// Dashboard — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(shortCache(allure.GetDashboard)))
+
+	// Project tags — admin write, viewer read.
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/tags", adminOnly(noStore(allure.UpdateProjectTags)))
+	mux.HandleFunc("GET "+prefix+"/tags", viewerUp(mutableCache(allure.ListTags)))
+
+	// Admin system monitor endpoints.
+	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(admin.ListJobs)))
+	mux.HandleFunc("GET "+prefix+"/admin/results", adminOnly(noStore(admin.ListPendingResults)))
+	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(admin.CancelJob)))
+	mux.HandleFunc("DELETE "+prefix+"/admin/jobs/{job_id}", adminOnly(noStore(admin.DeleteJob)))
+	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(admin.CleanProjectResults)))
+
+	// Branch management endpoints.
+	if branchHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/branches", viewerUp(mutableCache(branchHandler.ListBranches)))
+		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/branches/{branch_id}/default", adminOnly(noStore(branchHandler.SetDefaultBranch)))
+		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/branches/{branch_id}", adminOnly(noStore(branchHandler.DeleteBranch)))
+	}
+
+	// Per-test history endpoint.
+	if testHistoryHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/tests/history", viewerUp(shortCache(testHistoryHandler.GetTestHistory)))
+	}
+
+	// Expanded analytics endpoints (PostgreSQL-backed analytics).
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/errors", viewerUp(shortCache(analyticsHandler.GetTopErrors)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(analyticsHandler.GetSuitePassRates)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(analyticsHandler.GetLabelBreakdown)))
 }

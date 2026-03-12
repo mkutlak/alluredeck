@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportCategories } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,10 +11,14 @@ interface Props {
 
 export function CategoriesCard({ projectId }: Props) {
   const { data: categories, isLoading } = useQuery({
-    queryKey: ['report-categories', projectId],
+    queryKey: queryKeys.reportCategories(projectId),
     queryFn: () => fetchReportCategories(projectId),
     staleTime: 30_000,
   })
+
+  if (!isLoading && (!categories || categories.length === 0)) {
+    return null
+  }
 
   return (
     <Card>
@@ -27,11 +32,9 @@ export function CategoriesCard({ projectId }: Props) {
               <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
-        ) : !categories || categories.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No defect categories</p>
         ) : (
           <div className="space-y-2">
-            {categories.map((cat) => (
+            {(categories ?? []).map((cat) => (
               <div key={cat.name} className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm">{cat.name}</span>
                 <div className="flex shrink-0 gap-1">
@@ -41,7 +44,7 @@ export function CategoriesCard({ projectId }: Props) {
                     </Badge>
                   )}
                   {cat.matchedStatistic && cat.matchedStatistic.broken > 0 && (
-                    <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+                    <Badge variant="broken" className="text-xs">
                       {cat.matchedStatistic.broken}b
                     </Badge>
                   )}

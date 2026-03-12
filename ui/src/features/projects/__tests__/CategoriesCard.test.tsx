@@ -50,11 +50,11 @@ describe('CategoriesCard', () => {
     })
   })
 
-  it('shows empty state when no categories', async () => {
+  it('renders nothing when no categories', async () => {
     vi.mocked(reportsApi.fetchReportCategories).mockResolvedValue([])
-    renderCard()
+    const { container } = renderCard()
     await waitFor(() => {
-      expect(screen.getByText('No defect categories')).toBeInTheDocument()
+      expect(container.firstChild).toBeNull()
     })
   })
 })

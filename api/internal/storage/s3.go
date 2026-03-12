@@ -3,10 +3,12 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -28,10 +31,11 @@ const defaultSizeWarnBytes int64 = 1 << 30
 
 // S3Store implements Store backed by S3/MinIO.
 type S3Store struct {
-	cfg    *config.Config
-	client s3API
-	bucket string
-	logger *zap.Logger
+	cfg      *config.Config
+	client   s3API
+	uploader s3Uploader
+	bucket   string
+	logger   *zap.Logger
 }
 
 // NewS3Store creates an S3Store from configuration.
@@ -43,6 +47,15 @@ func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 		opts = append(opts, awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
 		))
+	}
+	if cfg.S3.TLSInsecureSkipVerify {
+		opts = append(opts, awsconfig.WithHTTPClient(&http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true, //nolint:gosec // G402: intentional — user opted in via S3_TLS_INSECURESKIPVERIFY
+				},
+			},
+		}))
 	}
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)
@@ -61,16 +74,17 @@ func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 
 	client := s3.NewFromConfig(awsCfg, clientOpts...)
 	return &S3Store{
-		cfg:    cfg,
-		client: client,
-		bucket: cfg.S3.Bucket,
-		logger: logger,
+		cfg:      cfg,
+		client:   client,
+		uploader: transfermanager.New(client),
+		bucket:   cfg.S3.Bucket,
+		logger:   logger,
 	}, nil
 }
 
-// newS3StoreWithClient creates an S3Store with a pre-built client (for testing).
-func newS3StoreWithClient(cfg *config.Config, client s3API, logger *zap.Logger) *S3Store {
-	return &S3Store{cfg: cfg, client: client, bucket: cfg.S3.Bucket, logger: logger}
+// newS3StoreWithClient creates an S3Store with a pre-built client and uploader (for testing).
+func newS3StoreWithClient(cfg *config.Config, client s3API, uploader s3Uploader, logger *zap.Logger) *S3Store {
+	return &S3Store{cfg: cfg, client: client, uploader: uploader, bucket: cfg.S3.Bucket, logger: logger}
 }
 
 // s3Key builds the S3 key from parts joined by "/".
@@ -83,7 +97,7 @@ func (s *S3Store) s3Key(parts ...string) string {
 // that have not yet had any results uploaded.  Without this marker, an empty
 // project has no S3 objects and ProjectExists would return false, causing
 // SendResults to 404.  The marker also allows SyncMetadata to rediscover the
-// project from S3 after a SQLite wipe.
+// project from S3 after a database reset.
 func (s *S3Store) CreateProject(ctx context.Context, projectID string) error {
 	key := s.s3Key("projects", projectID, ".keep")
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
@@ -159,18 +173,15 @@ func (s *S3Store) ListProjects(ctx context.Context) ([]string, error) {
 }
 
 // WriteResultFile uploads a result file to S3.
+// transfermanager.Client automatically uses multipart upload for large files
+// and falls back to a single PutObject for small ones, eliminating the need to
+// buffer the entire body in memory.
 func (s *S3Store) WriteResultFile(ctx context.Context, projectID, filename string, r io.Reader) error {
-	// S3 PutObject requires Content-Length for streaming; buffer the content.
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return fmt.Errorf("read result file %q: %w", filename, err)
-	}
 	key := s.s3Key("projects", projectID, "results", filename)
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(s.bucket),
-		Key:           aws.String(key),
-		Body:          bytes.NewReader(data),
-		ContentLength: aws.Int64(int64(len(data))),
+	_, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Body:   r,
 	})
 	if err != nil {
 		return fmt.Errorf("put result file %q: %w", filename, err)
@@ -280,7 +291,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 	if err := deletePrefix(ctx, s.client, s.bucket, latestPrefix); err != nil {
 		return fmt.Errorf("clear latest: %w", err)
 	}
-	if err := uploadDir(ctx, s.client, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency); err != nil {
+	if err := uploadDir(ctx, s.uploader, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency); err != nil {
 		return fmt.Errorf("upload to latest: %w", err)
 	}
 
@@ -292,7 +303,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 			continue
 		}
 		dirPrefix := buildPrefix + dir + "/"
-		if err := uploadDir(ctx, s.client, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
+		if err := uploadDir(ctx, s.uploader, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
 			return fmt.Errorf("upload %s to build %d: %w", dir, buildOrder, err)
 		}
 	}
@@ -452,14 +463,18 @@ func (s *S3Store) ReadBuildStats(ctx context.Context, projectID string, buildOrd
 			Total   int `json:"total"`
 		}
 		if json.Unmarshal(data, &stat) == nil && stat.Total > 0 {
-			return BuildStats{
+			stats := BuildStats{
 				Passed:  stat.Passed,
 				Failed:  stat.Failed,
 				Broken:  stat.Broken,
 				Skipped: stat.Skipped,
 				Unknown: stat.Unknown,
 				Total:   stat.Total,
-			}, nil
+			}
+			// Allure 3 statistic.json has no timing; derive from test result files.
+			testResultsRelPath := "reports/" + strconv.Itoa(buildOrder) + "/data/test-results"
+			stats.DurationMs = s.durationFromTestResults(ctx, projectID, testResultsRelPath)
+			return stats, nil
 		}
 	}
 
@@ -607,6 +622,43 @@ func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error
 		return nil, fmt.Errorf("read object %q: %w", key, err)
 	}
 	return data, nil
+}
+
+// durationFromTestResults computes wall-clock duration (ms) from Allure test result JSON files in S3.
+// It lists *.json files under relPath, parses "start"/"stop" epoch-millisecond fields, and
+// returns max(stop) - min(start). Returns 0 when no valid timing data is found.
+func (s *S3Store) durationFromTestResults(ctx context.Context, projectID, relPath string) int64 {
+	entries, err := s.ReadDir(ctx, projectID, relPath)
+	if err != nil {
+		return 0
+	}
+	var minStart, maxStop int64
+	for _, e := range entries {
+		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
+			continue
+		}
+		data, err := s.ReadFile(ctx, projectID, relPath+"/"+e.Name)
+		if err != nil {
+			continue
+		}
+		var tr struct {
+			Start int64 `json:"start"`
+			Stop  int64 `json:"stop"`
+		}
+		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
+			continue
+		}
+		if minStart == 0 || tr.Start < minStart {
+			minStart = tr.Start
+		}
+		if tr.Stop > maxStop {
+			maxStop = tr.Stop
+		}
+	}
+	if maxStop > 0 && minStart > 0 && maxStop > minStart {
+		return maxStop - minStart
+	}
+	return 0
 }
 
 // Ensure S3Store implements Store at compile time.

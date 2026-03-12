@@ -9,6 +9,7 @@ import (
 )
 
 func TestGenerateCSRFToken(t *testing.T) {
+	t.Parallel()
 	token, err := GenerateCSRFToken()
 	if err != nil {
 		t.Fatalf("GenerateCSRFToken failed: %v", err)
@@ -26,6 +27,7 @@ func TestGenerateCSRFToken(t *testing.T) {
 }
 
 func TestCSRFMiddleware_GETPassesWithoutToken(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -41,6 +43,7 @@ func TestCSRFMiddleware_GETPassesWithoutToken(t *testing.T) {
 }
 
 func TestCSRFMiddleware_HEADPassesWithoutToken(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -56,6 +59,7 @@ func TestCSRFMiddleware_HEADPassesWithoutToken(t *testing.T) {
 }
 
 func TestCSRFMiddleware_OPTIONSPassesWithoutToken(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -71,6 +75,7 @@ func TestCSRFMiddleware_OPTIONSPassesWithoutToken(t *testing.T) {
 }
 
 func TestCSRFMiddleware_POSTBlockedWithoutToken(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -86,6 +91,7 @@ func TestCSRFMiddleware_POSTBlockedWithoutToken(t *testing.T) {
 }
 
 func TestCSRFMiddleware_POSTAllowedWithMatchingTokens(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -105,6 +111,7 @@ func TestCSRFMiddleware_POSTAllowedWithMatchingTokens(t *testing.T) {
 }
 
 func TestCSRFMiddleware_MismatchedTokensBlocked(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -125,6 +132,7 @@ func TestCSRFMiddleware_MismatchedTokensBlocked(t *testing.T) {
 }
 
 func TestCSRFMiddleware_SecurityDisabledSkips(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: false}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -140,6 +148,7 @@ func TestCSRFMiddleware_SecurityDisabledSkips(t *testing.T) {
 }
 
 func TestCSRFMiddleware_LoginPathExempt(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -158,6 +167,7 @@ func TestCSRFMiddleware_LoginPathExempt(t *testing.T) {
 }
 
 func TestCSRFMiddleware_DELETEBlockedWithoutToken(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{SecurityEnabled: true}
 	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

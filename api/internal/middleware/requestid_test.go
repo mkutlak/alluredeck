@@ -7,6 +7,7 @@ import (
 )
 
 func TestRequestID_GeneratesWhenMissing(t *testing.T) {
+	t.Parallel()
 	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify the ID is available in the request context
 		id := RequestIDFromContext(r.Context())
@@ -35,6 +36,7 @@ func TestRequestID_GeneratesWhenMissing(t *testing.T) {
 }
 
 func TestRequestID_PropagatesExisting(t *testing.T) {
+	t.Parallel()
 	const clientID = "test-correlation-123"
 
 	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +63,7 @@ func TestRequestID_PropagatesExisting(t *testing.T) {
 }
 
 func TestRequestID_UniquePerRequest(t *testing.T) {
+	t.Parallel()
 	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

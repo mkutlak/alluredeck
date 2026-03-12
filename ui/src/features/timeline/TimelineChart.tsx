@@ -1,13 +1,9 @@
+import { useMemo } from 'react'
 import type { TimelineTestCase } from '@/types/api'
 import { STATUS_COLORS, detectLaneStrategy, toTimelineLanes } from '@/lib/chart-utils'
 import { formatDuration, getStatusVariant } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { computeTicks, computeBar, stackBarsIntoRows } from './timelineHelpers'
 
 // ---------------------------------------------------------------------------
@@ -48,19 +44,24 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
   const strategy = detectLaneStrategy(testCases)
   const lanes = toTimelineLanes(testCases, strategy)
 
-  const laneData = lanes.map((lane) => {
-    const laneTcs = testCases.filter((tc) => {
-      if (strategy === 'thread') return (tc.thread || 'default') === lane.id
-      if (strategy === 'host') return (tc.host || 'default') === lane.id
-      return true
-    })
-    const bars = laneTcs.map((tc) => computeBar(tc, minStart, totalMs))
-    const rows = stackBarsIntoRows(bars)
-    return { lane, rows }
-  })
+  const laneData = useMemo(
+    () =>
+      lanes.map((lane) => {
+        const laneTcs = testCases.filter((tc) => {
+          if (strategy === 'thread') return (tc.thread || 'default') === lane.id
+          if (strategy === 'host') return (tc.host || 'default') === lane.id
+          return true
+        })
+        const bars = laneTcs.map((tc) => computeBar(tc, minStart, totalMs))
+        const rows = stackBarsIntoRows(bars)
+        return { lane, rows }
+      }),
+    [lanes, testCases, strategy, minStart, totalMs],
+  )
 
-  const presentStatuses = LEGEND_ITEMS.filter(({ status }) =>
-    testCases.some((tc) => tc.status === status),
+  const presentStatuses = useMemo(
+    () => LEGEND_ITEMS.filter(({ status }) => testCases.some((tc) => tc.status === status)),
+    [testCases],
   )
 
   return (
@@ -75,11 +76,11 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
           {/* gutter */}
           <div />
           {/* tick labels */}
-          <div className="relative h-5 border-b border-border">
+          <div className="border-border relative h-5 border-b">
             {ticks.map((tick) => (
               <span
                 key={tick.ms}
-                className="absolute top-0 text-[11px] leading-none text-muted-foreground whitespace-nowrap"
+                className="text-muted-foreground absolute top-0 text-[11px] leading-none whitespace-nowrap"
                 style={{ left: `${(tick.ms / totalMs) * 100}%` }}
               >
                 {tick.label}
@@ -92,12 +93,12 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
         {laneData.map(({ lane, rows }) => (
           <div
             key={lane.id}
-            className="grid border-b border-border/50 last:border-b-0"
+            className="border-border/50 grid border-b last:border-b-0"
             style={{ gridTemplateColumns: `${LABEL_WIDTH} 1fr` }}
           >
             {/* Lane label */}
             <div className="flex items-start pt-1 pr-2">
-              <span className="truncate text-xs font-medium text-muted-foreground">
+              <span className="text-muted-foreground truncate text-xs font-medium">
                 {lane.label}
               </span>
             </div>
@@ -119,15 +120,13 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
                           }}
                         />
                       </TooltipTrigger>
-                      <TooltipContent className="max-w-[260px] border bg-popover p-2 text-popover-foreground">
-                        <p className="max-w-[240px] truncate text-xs font-medium">
-                          {bar.tc.name}
-                        </p>
+                      <TooltipContent className="bg-popover text-popover-foreground max-w-[260px] border p-2">
+                        <p className="max-w-[240px] truncate text-xs font-medium">{bar.tc.name}</p>
                         <div className="mt-1 flex items-center gap-2">
                           <Badge variant={getStatusVariant(bar.tc.status)} className="text-xs">
                             {bar.tc.status}
                           </Badge>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-muted-foreground text-xs">
                             {formatDuration(bar.tc.duration)}
                           </span>
                         </div>
@@ -148,7 +147,7 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
                 className="inline-block h-3 w-3 rounded-sm"
                 style={{ backgroundColor: statusColor(status) }}
               />
-              <span className="text-xs text-muted-foreground">{label}</span>
+              <span className="text-muted-foreground text-xs">{label}</span>
             </div>
           ))}
         </div>

@@ -32,10 +32,10 @@ func TestDeleteProject_OK(t *testing.T) {
 	projectID := "myproject"
 
 	// Create project directory structure.
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,6 +78,35 @@ func TestDeleteProject_NotFound(t *testing.T) {
 	}
 }
 
+// TestDeleteProject_StaleDBRecord_Cleaned verifies that a project which exists
+// in the database but not on the filesystem (half-synced state) is cleaned up
+// and a 200 is returned rather than a 404 that leaves the stale DB record.
+func TestDeleteProject_StaleDBRecord_Cleaned(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "stale-proj"
+
+	// Project is in DB but NOT on filesystem — the half-synced state.
+	h, mocks := newTestAllureHandlerAndMocks(t, projectsDir)
+	if err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	h.DeleteProject(rr, makeDeleteProjectReq(t, projectID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	exists, err := mocks.Projects.ProjectExists(context.Background(), projectID)
+	if err != nil {
+		t.Fatalf("unexpected error checking projectStore: %v", err)
+	}
+	if exists {
+		t.Error("stale DB record was not cleaned up by DeleteProject")
+	}
+}
+
 func TestDeleteProject_InvalidID(t *testing.T) {
 	projectsDir := t.TempDir()
 	h := newTestAllureHandler(t, projectsDir)
@@ -113,7 +142,7 @@ func TestDeleteReport_OK(t *testing.T) {
 	projectID := "myproject"
 
 	// Create project with a numbered report directory.
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports", "3"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports", "3"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,7 +177,7 @@ func TestDeleteReport_NotFound(t *testing.T) {
 	projectID := "myproject"
 
 	// Create project dir but no report "999".
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,7 +194,7 @@ func TestDeleteReport_InvalidID(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "myproject"
 
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +211,7 @@ func TestDeleteReport_MissingReportID(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "myproject"
 
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil { //nolint:gosec // G301: test fixture
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

@@ -10,32 +10,26 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
-	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// newTestAllure constructs an Allure instance pointed at projectsDir.
+// newTestAllure constructs an Allure instance pointed at projectsDir using mock stores.
 // Pass t.TempDir() when no specific project directory is needed.
 func newTestAllure(t *testing.T, projectsDir string) *Allure {
 	t.Helper()
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
+	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
-	s, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	bs := store.NewBuildStore(s, zap.NewNop())
-	lm := store.NewLockManager()
-	return NewAllure(cfg, st, bs, lm, nil, zap.NewNop())
+	mocks := testutil.New()
+	return NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
 }
 
 // mustWriteFile creates parent dirs and writes content to path.
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // G301: test helper needs 0o755 to create temp directories
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper uses standard file permissions
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }

@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -105,25 +103,11 @@ func pct(count, total int) float64 {
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/summary [get]
 func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	// Validate project_id.
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -133,12 +117,10 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 		reportID = "latest"
 	}
 	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var err error
 	var build store.Build
 
 	if reportID == "latest" {
@@ -146,10 +128,7 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	} else {
 		buildOrder, parseErr := strconv.Atoi(reportID)
 		if parseErr != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "report_id must be a number or 'latest'"},
-			})
+			writeError(w, http.StatusBadRequest, "report_id must be a number or 'latest'")
 			return
 		}
 		build, err = h.buildStore.GetBuildByOrder(ctx, projectID, buildOrder)
@@ -157,16 +136,10 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 
 	if err != nil {
 		if errors.Is(err, store.ErrBuildNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "build not found"},
-			})
+			writeError(w, http.StatusNotFound, "build not found")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "internal error"},
-		})
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -219,14 +192,14 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	if h.testResultStore != nil {
 		results, err := h.testResultStore.ListFailedByBuild(ctx, projectID, build.ID, topFailuresLimit)
 		if err == nil {
-			for _, r := range results {
+			for i := range results {
 				topFailures = append(topFailures, summaryFailure{
-					TestName:   r.TestName,
-					FullName:   r.FullName,
-					Status:     r.Status,
-					DurationMs: r.DurationMs,
-					NewFailed:  r.NewFailed,
-					Flaky:      r.Flaky,
+					TestName:   results[i].TestName,
+					FullName:   results[i].FullName,
+					Status:     results[i].Status,
+					DurationMs: results[i].DurationMs,
+					NewFailed:  results[i].NewFailed,
+					Flaky:      results[i].Flaky,
 				})
 			}
 		}
@@ -250,7 +223,7 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"build":        buildMeta,
 			"statistics":   stats,

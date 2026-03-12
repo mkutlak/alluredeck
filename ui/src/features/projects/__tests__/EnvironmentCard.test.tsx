@@ -43,11 +43,11 @@ describe('EnvironmentCard', () => {
     })
   })
 
-  it('shows empty state when no entries', async () => {
+  it('renders nothing when no entries', async () => {
     vi.mocked(reportsApi.fetchReportEnvironment).mockResolvedValue([])
-    renderCard()
+    const { container } = renderCard()
     await waitFor(() => {
-      expect(screen.getByText('No environment info available')).toBeInTheDocument()
+      expect(container.firstChild).toBeNull()
     })
   })
 })

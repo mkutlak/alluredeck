@@ -20,7 +20,7 @@ import (
 type Watcher struct {
 	cfg          *config.Config
 	allureCore   *Allure
-	projectStore *store.ProjectStore
+	projectStore store.ProjectStorer
 	store        storage.Store
 	stop         chan struct{}
 	wg           sync.WaitGroup
@@ -28,7 +28,7 @@ type Watcher struct {
 }
 
 // NewWatcher creates a new Watcher
-func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore *store.ProjectStore, st storage.Store, logger *zap.Logger) *Watcher {
+func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore store.ProjectStorer, st storage.Store, logger *zap.Logger) *Watcher {
 	return &Watcher{
 		cfg:          cfg,
 		allureCore:   allureCore,
@@ -41,7 +41,7 @@ func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore *store.Proj
 
 // Start begins the polling loop in a background goroutine
 func (w *Watcher) Start() {
-	checkSecsStr := w.cfg.CheckResultsSecs
+	checkSecsStr := w.cfg.CheckResultsEverySeconds
 	if strings.EqualFold(checkSecsStr, "NONE") || checkSecsStr == "" {
 		w.logger.Info("background file watcher is disabled", zap.String("reason", "CHECK_RESULTS_EVERY_SECONDS=NONE"))
 		return

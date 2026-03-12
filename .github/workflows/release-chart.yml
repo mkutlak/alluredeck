@@ -1,6 +1,7 @@
 name: Release Helm Chart
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -8,30 +9,72 @@ on:
 
 permissions:
   contents: write
-  pages: write
+  packages: write
 
 jobs:
   release-chart:
     name: Release Helm chart
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - uses: azure/setup-helm@v4
 
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Install yq
+        uses: mikefarah/yq@v4
 
-      - name: Release chart to GitHub Pages
-        uses: helm/chart-releaser-action@v1.7.0
-        with:
-          charts_dir: charts
-          skip_existing: true
+      - name: Read chart version
+        id: version
+        run: |
+          VERSION=$(yq '.version' charts/alluredeck/Chart.yaml)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: tag-check
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          TAG: "helm-v${{ steps.version.outputs.version }}"
+        run: |
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists, skipping release"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        if: steps.tag-check.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "${GITHUB_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
+
+      - name: Package and push Helm chart
+        if: steps.tag-check.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          helm package charts/alluredeck
+          helm push alluredeck-${VERSION}.tgz oci://ghcr.io/mkutlak/charts
+
+      - name: Install oras
+        if: steps.tag-check.outputs.exists == 'false'
+        uses: oras-project/setup-oras@v1
+
+      - name: Push ArtifactHub metadata
+        if: steps.tag-check.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "${GITHUB_TOKEN}" | oras login ghcr.io -u "${ACTOR}" --password-stdin
+          oras push ghcr.io/mkutlak/charts/alluredeck:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+
+      - name: Create helm tag
+        if: steps.tag-check.outputs.exists == 'false'
+        env:
+          TAG: "helm-v${{ steps.version.outputs.version }}"
+        run: |
+          git tag "${TAG}"
+          git push origin "${TAG}"

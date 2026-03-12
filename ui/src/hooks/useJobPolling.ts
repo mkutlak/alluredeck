@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getJobStatus } from '@/api/reports'
+import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import type { JobStatus } from '@/types/api'
 
 const TERMINAL_STATUSES: JobStatus[] = ['completed', 'failed']
@@ -14,14 +15,11 @@ interface UseJobPollingResult {
   isFailed: boolean
 }
 
-export function useJobPolling(
-  projectId: string,
-  jobId: string | null,
-): UseJobPollingResult {
+export function useJobPolling(projectId: string, jobId: string | null): UseJobPollingResult {
   const queryClient = useQueryClient()
 
   const query = useQuery({
-    queryKey: ['job-status', projectId, jobId],
+    queryKey: queryKeys.jobStatus(projectId, jobId!),
     queryFn: () => getJobStatus(projectId, jobId!).then((r) => r.data),
     enabled: jobId !== null,
     refetchInterval: (query) => {
@@ -36,10 +34,10 @@ export function useJobPolling(
   const isFailed = status === 'failed'
   const isPolling = jobId !== null && !isCompleted && !isFailed
 
-  // Invalidate report history when job completes
+  // Invalidate all project queries when job completes
   useEffect(() => {
     if (isCompleted) {
-      void queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
+      void invalidateProjectQueries(queryClient, projectId)
     }
   }, [isCompleted, projectId, queryClient])
 

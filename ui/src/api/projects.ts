@@ -4,6 +4,7 @@ import type {
   CreateProjectData,
   CreateProjectRequest,
   PaginatedResponse,
+  ProjectEntry,
   ProjectsData,
 } from '@/types/api'
 
@@ -13,8 +14,8 @@ export async function getProjects(
 ): Promise<PaginatedResponse<ProjectsData>> {
   const res = await apiClient.get<PaginatedResponse<ProjectsData>>('/projects', {
     params: {
-      ...(page ? { page } : {}),
-      ...(perPage ? { per_page: perPage } : {}),
+      ...(page !== undefined ? { page } : {}),
+      ...(perPage !== undefined ? { per_page: perPage } : {}),
     },
   })
   return res.data
@@ -25,4 +26,23 @@ export async function createProject(
 ): Promise<ApiResponse<CreateProjectData>> {
   const res = await apiClient.post<ApiResponse<CreateProjectData>>('/projects', payload)
   return res.data
+}
+
+export async function updateProjectTags(
+  projectId: string,
+  tags: string[],
+): Promise<ApiResponse<ProjectEntry>> {
+  const res = await apiClient.put<ApiResponse<ProjectEntry>>(`/projects/${encodeURIComponent(projectId)}/tags`, {
+    tags,
+  })
+  return res.data
+}
+
+export async function getTags(): Promise<ApiResponse<string[]>> {
+  const res = await apiClient.get<ApiResponse<string[]>>('/tags')
+  return res.data
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await apiClient.delete(`/projects/${encodeURIComponent(projectId)}`)
 }

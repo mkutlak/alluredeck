@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -46,11 +47,11 @@ func TestSearch_QueryTooShort(t *testing.T) {
 func TestSearch_QueryTooLong(t *testing.T) {
 	h := newTestAllureHandler(t, t.TempDir())
 	rr := httptest.NewRecorder()
-	longQ := ""
+	var longQ strings.Builder
 	for range 101 {
-		longQ += "x"
+		longQ.WriteString("x")
 	}
-	h.Search(rr, makeSearchReq(t, "?q="+longQ))
+	h.Search(rr, makeSearchReq(t, "?q="+longQ.String()))
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for too-long query, got %d", rr.Code)

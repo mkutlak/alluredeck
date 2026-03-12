@@ -2,7 +2,7 @@
 AllureDeck has been deployed successfully!
 
 Components:
-  - API:  {{ include "alluredeck.api.fullname" . }}
+  - API:  {{ include "alluredeck.api.fullname" . }} ({{ .Values.api.kind | default "Deployment" }})
   - UI:   {{ include "alluredeck.ui.fullname" . }}
 
 Storage mode: {{ .Values.api.config.storageType }}
@@ -11,14 +11,12 @@ Storage mode: {{ .Values.api.config.storageType }}
   S3 bucket:   {{ .Values.api.s3.bucket }}
 {{- end }}
 
-{{- if or .Values.ui.ingress.enabled .Values.api.ingress.enabled }}
+{{- if .Values.ingress.enabled }}
 
 Access the application:
-{{- if and .Values.ui.ingress.enabled .Values.ui.ingress.host }}
-  UI:  {{ if .Values.ui.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ui.ingress.host }}
-{{- end }}
-{{- if and .Values.api.ingress.enabled .Values.api.ingress.host }}
-  API: {{ if .Values.api.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.api.ingress.host }}
+{{- if .Values.ingress.host }}
+  URL: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}
+  API: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.api.path }}
 {{- end }}
 {{- else }}
 
@@ -36,13 +34,13 @@ Access via port-forward:
 Run Helm tests:
   helm test {{ .Release.Name }}
 
-{{- if not .Values.api.existingSecret }}
+{{- if not .Values.api.security.existingSecret }}
 {{- if not .Values.api.security.jwtSecretKey }}
 
 ⚠  IMPORTANT — Secrets are auto-generated on first install.
    They are preserved on upgrade using Helm lookup, but are NOT portable
    across clusters or Helm releases. For production use, supply a pre-created
-   Secret and reference it with api.existingSecret:
+   Secret and reference it with api.security.existingSecret:
 
    kubectl create secret generic alluredeck-credentials \
      --namespace {{ .Release.Namespace }} \
@@ -56,12 +54,13 @@ Run Helm tests:
 
    Then set in your values file:
      api:
-       existingSecret: alluredeck-credentials
+       security:
+         existingSecret: alluredeck-credentials
 {{- end }}
 {{- else }}
 
-NOTE: Using existingSecret={{ .Values.api.existingSecret | quote }}.
+NOTE: Using existingSecret={{ .Values.api.security.existingSecret | quote }}.
    After rotating that Secret, force a pod restart by bumping:
      api.secretRevision: "v2"   # increment on each rotation
-   Or run: kubectl rollout restart deployment/{{ include "alluredeck.api.fullname" . }} -n {{ .Release.Namespace }}
+   Or run: kubectl rollout restart {{ .Values.api.kind | default "Deployment" | lower }}/{{ include "alluredeck.api.fullname" . }} -n {{ .Release.Namespace }}
 {{- end }}

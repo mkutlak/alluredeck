@@ -93,10 +93,10 @@ app.kubernetes.io/component: ui
 Create the name of the API service account to use.
 */}}
 {{- define "alluredeck.api.serviceAccountName" -}}
-{{- if .Values.serviceAccount.api.create }}
-{{- default (printf "%s-api" (include "alluredeck.fullname" .)) .Values.serviceAccount.api.name }}
+{{- if .Values.api.serviceAccount.create }}
+{{- default (printf "%s-api" (include "alluredeck.fullname" .)) .Values.api.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.api.name }}
+{{- default "default" .Values.api.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
@@ -104,10 +104,10 @@ Create the name of the API service account to use.
 Create the name of the UI service account to use.
 */}}
 {{- define "alluredeck.ui.serviceAccountName" -}}
-{{- if .Values.serviceAccount.ui.create }}
-{{- default (printf "%s-ui" (include "alluredeck.fullname" .)) .Values.serviceAccount.ui.name }}
+{{- if .Values.ui.serviceAccount.create }}
+{{- default (printf "%s-ui" (include "alluredeck.fullname" .)) .Values.ui.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.ui.name }}
+{{- default "default" .Values.ui.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
@@ -115,8 +115,8 @@ Create the name of the UI service account to use.
 API Secret name — use existingSecret if set, otherwise generate name.
 */}}
 {{- define "alluredeck.api.secretName" -}}
-{{- if .Values.api.existingSecret }}
-{{- .Values.api.existingSecret }}
+{{- if .Values.api.security.existingSecret }}
+{{- .Values.api.security.existingSecret }}
 {{- else }}
 {{- include "alluredeck.api.fullname" . }}
 {{- end }}
@@ -126,7 +126,7 @@ API Secret name — use existingSecret if set, otherwise generate name.
 Render the full API config.yaml content for the ConfigMap.
 Non-secret settings only; secrets are injected as env vars from the Secret.
 CORS: uses api.config.corsAllowedOrigins list if set, otherwise auto-derives
-a single origin from ui.ingress.host.
+a single origin from ingress.host.
 */}}
 {{- define "alluredeck.api.configYAML" -}}
 port: {{ .Values.api.service.port | quote }}
@@ -134,18 +134,22 @@ dev_mode: {{ .Values.api.config.devMode }}
 security_enabled: {{ .Values.api.security.enabled }}
 log_level: {{ .Values.api.config.logLevel | quote }}
 storage_type: {{ .Values.api.config.storageType | quote }}
-check_results_secs: {{ .Values.api.config.checkResultsEverySeconds | quote }}
+check_results_every_secs: {{ .Values.api.config.checkResultsEverySeconds | quote }}
 keep_history: {{ .Values.api.config.keepHistory }}
 keep_history_latest: {{ .Values.api.config.keepHistoryLatest | int }}
 api_response_less_verbose: {{ .Values.api.config.apiResponseLessVerbose }}
 trust_forwarded_for: {{ .Values.api.config.trustXForwardedFor }}
+swagger_enabled: {{ .Values.api.config.swaggerEnabled }}
 make_viewer_endpoints_public: {{ .Values.api.config.makeViewerEndpointsPublic }}
-projects_directory: {{ .Values.api.config.staticContentProjects | quote }}
-database_path: {{ .Values.api.config.databasePath | quote }}
+projects_path: {{ .Values.api.config.staticContentProjects | quote }}
+{{- if .Values.api.config.databaseURL }}
+database_url: {{ .Values.api.config.databaseURL | quote }}
+{{- end }}
+max_upload_size_mb: {{ .Values.api.config.maxUploadSizeMb | int }}
 {{- $corsOrigins := .Values.api.config.corsAllowedOrigins }}
-{{- if and (empty $corsOrigins) .Values.ui.ingress.enabled .Values.ui.ingress.host }}
-{{- $scheme := ternary "https" "http" (not (empty .Values.ui.ingress.tls)) }}
-{{- $corsOrigins = list (printf "%s://%s" $scheme .Values.ui.ingress.host) }}
+{{- if and (empty $corsOrigins) .Values.ingress.enabled .Values.ingress.host }}
+{{- $scheme := ternary "https" "http" (not (empty .Values.ingress.tls)) }}
+{{- $corsOrigins = list (printf "%s://%s" $scheme .Values.ingress.host) }}
 {{- end }}
 {{- if $corsOrigins }}
 cors_allowed_origins:
@@ -154,23 +158,28 @@ cors_allowed_origins:
 {{- end }}
 {{- end }}
 {{- if eq .Values.api.config.storageType "s3" }}
-s3_endpoint: {{ .Values.api.s3.endpoint | quote }}
-s3_bucket: {{ .Values.api.s3.bucket | quote }}
-s3_region: {{ .Values.api.s3.region | quote }}
-s3_use_ssl: {{ .Values.api.s3.useSSL }}
-s3_path_style: {{ .Values.api.s3.pathStyle }}
-s3_concurrency: {{ .Values.api.s3.concurrency | int }}
+s3:
+  endpoint: {{ .Values.api.s3.endpoint | quote }}
+  bucket: {{ .Values.api.s3.bucket | quote }}
+  region: {{ .Values.api.s3.region | quote }}
+  tls_insecureskipverify: {{ .Values.api.s3.tlsInsecureSkipVerify }}
+  path_style: {{ .Values.api.s3.pathStyle }}
+  concurrency: {{ .Values.api.s3.concurrency | int }}
 {{- end }}
 {{- end }}
 
 {{/*
 Auto-compute VITE_API_URL.
-If ui.config.apiUrl is explicitly set, use that.
-Otherwise, default to the internal API service name so traffic stays in-cluster.
+Priority:
+  1. Explicit ui.config.apiUrl — use as-is.
+  2. Unified ingress enabled with a host — use relative "/api/v1" (same origin, no CORS).
+  3. Fallback — in-cluster service URL.
 */}}
 {{- define "alluredeck.ui.apiUrl" -}}
 {{- if .Values.ui.config.apiUrl }}
 {{- .Values.ui.config.apiUrl }}
+{{- else if and .Values.ingress.enabled .Values.ingress.host }}
+{{- print "/api/v1" }}
 {{- else }}
 {{- printf "http://%s.%s.svc.cluster.local:%d/api/v1" (include "alluredeck.api.fullname" .) .Release.Namespace (.Values.api.service.port | int) }}
 {{- end }}

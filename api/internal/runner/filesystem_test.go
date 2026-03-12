@@ -16,8 +16,8 @@ func TestFileSystem(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := &config.Config{
-		ProjectsDirectory: tmpDir,
-		KeepHistory:       true,
+		ProjectsPath: tmpDir,
+		KeepHistory:  true,
 	}
 	fs := NewFileSystem(cfg)
 
@@ -27,16 +27,16 @@ func TestFileSystem(t *testing.T) {
 	reportsDir := filepath.Join(projectDir, "reports")
 	latestDir := filepath.Join(reportsDir, "latest")
 
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(latestDir, 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+	if err := os.MkdirAll(latestDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("CleanResults", func(t *testing.T) {
 		testFile := filepath.Join(resultsDir, "test-result.json")
-		if err := os.WriteFile(testFile, []byte("{}"), 0o644); err != nil { //nolint:gosec // G306: test setup uses standard file permissions
+		if err := os.WriteFile(testFile, []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -51,10 +51,10 @@ func TestFileSystem(t *testing.T) {
 
 	t.Run("KeepHistory", func(t *testing.T) {
 		historyDir := filepath.Join(latestDir, "history")
-		if err := os.MkdirAll(historyDir, 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+		if err := os.MkdirAll(historyDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(historyDir, "history.json"), []byte("{}"), 0o644); err != nil { //nolint:gosec // G306: test setup uses standard file permissions
+		if err := os.WriteFile(filepath.Join(historyDir, "history.json"), []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -71,12 +71,12 @@ func TestFileSystem(t *testing.T) {
 	t.Run("CleanHistory", func(t *testing.T) {
 		// Setup more complex structure
 		oldReportDir := filepath.Join(reportsDir, "old-report")
-		if err := os.MkdirAll(oldReportDir, 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+		if err := os.MkdirAll(oldReportDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 
 		historyDir := filepath.Join(resultsDir, "history")
-		if err := os.MkdirAll(historyDir, 0o755); err != nil { //nolint:gosec // G301: test setup needs readable temp directory
+		if err := os.MkdirAll(historyDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 

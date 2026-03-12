@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { Moon, Sun, LogOut, User } from 'lucide-react'
+import { Moon, Sun, LogOut, User, Search } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -13,26 +13,25 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
-import { env } from '@/lib/env'
+import { useSearchCommand } from '@/features/search'
+import { ProjectSwitcher } from './ProjectSwitcher'
+import { CreateMenu } from './CreateMenu'
 
 export function TopBar() {
   const { theme, setTheme } = useTheme()
-  const { username, isAdmin, clearAuth } = useAuthStore()
+  const username = useAuthStore((s) => s.username)
+  const isAdmin = useAuthStore(selectIsAdmin)
+  const clearAuth = useAuthStore((s) => s.clearAuth)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { setOpen: setSearchOpen } = useSearchCommand()
 
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
-      clearAuth()
-      queryClient.clear()
-      navigate('/login', { replace: true })
-    },
-    onError: () => {
-      // Still clear local state even if server logout fails
       clearAuth()
       queryClient.clear()
       navigate('/login', { replace: true })
@@ -44,25 +43,40 @@ export function TopBar() {
   }
 
   return (
-    <header className="z-50 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
+    <header className="bg-background z-50 flex h-12 shrink-0 items-center gap-2 border-b px-4">
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="h-4" />
 
-      {/* Logo / brand */}
-      <Link to="/" className="flex items-center gap-2 font-semibold">
+      {/* Favicon only — no app title text */}
+      <Link to="/">
         <img src="/favicon.svg" alt="Allure" className="h-5 w-5" />
-        <span className="text-sm">{env.appTitle}</span>
       </Link>
+      <Separator orientation="vertical" className="h-4" />
+
+      {/* Project switcher */}
+      <ProjectSwitcher />
 
       <div className="flex-1" />
 
-      {/* Theme toggle */}
+      {/* Search trigger */}
       <Button
         variant="ghost"
-        size="icon"
-        onClick={handleThemeToggle}
-        aria-label="Toggle theme"
+        className="text-muted-foreground h-8 gap-2 px-3 text-sm"
+        onClick={() => setSearchOpen(true)}
+        aria-label="Search"
       >
+        <Search size={16} />
+        <span className="hidden sm:inline">Search...</span>
+        <kbd className="bg-muted pointer-events-none hidden rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium select-none sm:inline">
+          ⌘K
+        </kbd>
+      </Button>
+
+      {/* Create menu (admin only) */}
+      <CreateMenu />
+
+      {/* Theme toggle */}
+      <Button variant="ghost" size="icon" onClick={handleThemeToggle} aria-label="Toggle theme">
         {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
       </Button>
 
@@ -77,8 +91,8 @@ export function TopBar() {
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium">{username ?? 'User'}</p>
-              <p className="text-xs text-muted-foreground">
-                {isAdmin() ? 'Administrator' : 'Viewer'}
+              <p className="text-muted-foreground text-xs">
+                {isAdmin ? 'Administrator' : 'Viewer'}
               </p>
             </div>
           </DropdownMenuLabel>

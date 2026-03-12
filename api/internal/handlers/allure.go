@@ -70,17 +70,18 @@ var (
 type AllureHandler struct {
 	cfg             *config.Config
 	runner          *runner.Allure
-	jobManager      *runner.JobManager
-	projectStore    *store.ProjectStore
-	buildStore      *store.BuildStore
-	knownIssueStore *store.KnownIssueStore
-	testResultStore *store.TestResultStore
-	searchStore     *store.SearchStore
+	jobManager      runner.JobQueuer
+	projectStore    store.ProjectStorer
+	buildStore      store.BuildStorer
+	knownIssueStore store.KnownIssueStorer
+	testResultStore store.TestResultStorer
+	searchStore     store.SearchStorer
 	store           storage.Store
+	branchStore     store.BranchStorer
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
-func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.JobManager, projectStore *store.ProjectStore, buildStore *store.BuildStore, knownIssueStore *store.KnownIssueStore, testResultStore *store.TestResultStore, searchStore *store.SearchStore, st storage.Store) *AllureHandler {
+func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager runner.JobQueuer, projectStore store.ProjectStorer, buildStore store.BuildStorer, knownIssueStore store.KnownIssueStorer, testResultStore store.TestResultStorer, searchStore store.SearchStorer, st storage.Store) *AllureHandler {
 	return &AllureHandler{
 		cfg:             cfg,
 		runner:          r,
@@ -94,10 +95,16 @@ func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager *runner.J
 	}
 }
 
+// SetBranchStore configures an optional branch store for branch-aware filtering.
+func (h *AllureHandler) SetBranchStore(bs store.BranchStorer) {
+	h.branchStore = bs
+}
+
 // ProjectEntry holds a single project in the paginated project listing.
 type ProjectEntry struct {
-	ProjectID string `json:"project_id"`
-	CreatedAt string `json:"created_at"`
+	ProjectID string   `json:"project_id"`
+	CreatedAt string   `json:"created_at"`
+	Tags      []string `json:"tags"`
 }
 
 // reservedProjectNames lists names that clash with API route segments
@@ -183,6 +190,34 @@ func validateTicketURL(rawURL string) error {
 	}
 }
 
+// extractProjectID extracts, unescapes, and validates the "project_id" path
+// parameter. On failure it writes a 400 response and returns ("", false).
+func (h *AllureHandler) extractProjectID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	raw := r.PathValue("project_id")
+	unescaped, err := url.PathUnescape(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project_id encoding")
+		return "", false
+	}
+	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	return projectID, true
+}
+
+// extractReportID extracts and validates the "report_id" path parameter.
+// On failure it writes a 400 response and returns ("", false).
+func extractReportID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	reportID := r.PathValue("report_id")
+	if err := validateReportID(reportID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	return reportID, true
+}
+
 // GetProjects godoc
 // @Summary      List projects
 // @Description  Returns a paginated list of all existing projects.
@@ -194,28 +229,29 @@ func validateTicketURL(rawURL string) error {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects [get]
 func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	pg := parsePagination(r)
+	tag := r.URL.Query().Get("tag")
 
-	dbProjects, total, err := h.projectStore.ListProjectsPaginated(r.Context(), pg.Page, pg.PerPage)
+	dbProjects, total, err := h.projectStore.ListProjectsPaginated(r.Context(), pg.Page, pg.PerPage, tag)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error listing projects: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing projects: %v", err))
 		return
 	}
 
 	entries := make([]ProjectEntry, 0, len(dbProjects))
 	for _, p := range dbProjects {
+		tags := p.Tags
+		if tags == nil {
+			tags = []string{}
+		}
 		entries = append(entries, ProjectEntry{
 			ProjectID: p.ID,
 			CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
+			Tags:      tags,
 		})
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":       entries,
 		"metadata":   map[string]string{"message": "Projects successfully obtained"},
 		"pagination": newPaginationMeta(pg.Page, pg.PerPage, total),
@@ -234,42 +270,28 @@ func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 // @Failure      409   {object}  map[string]any
 // @Router       /projects [post]
 func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var reqBody struct {
 		ID string `json:"id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Invalid JSON payload"},
-		})
+		writeError(w, http.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
 
 	projectID := strings.TrimSpace(reqBody.ID)
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	err := h.runner.CreateProject(r.Context(), projectID)
 	if err != nil {
 		if errors.Is(err, runner.ErrProjectExists) {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": err.Error()},
-			})
+			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error creating project: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error creating project: %v", err))
 		return
 	}
 
@@ -281,8 +303,7 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"data":     ProjectEntry{ProjectID: projectID},
 		"metadata": map[string]string{"message": "Project successfully created"},
 	})
@@ -305,23 +326,8 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports [post]
 func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -348,8 +354,7 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		CICommitSHA:  ciCommitSHA,
 	}
 	job := h.jobManager.Submit(projectID, params)
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusAccepted, map[string]any{
 		"data":     map[string]string{"job_id": job.ID},
 		"metadata": map[string]string{"message": "Report generation queued"},
 	})
@@ -367,37 +372,19 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/jobs/{job_id} [get]
 func (h *AllureHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	jobID := r.PathValue("job_id")
 	job := h.jobManager.Get(jobID)
 	if job == nil || job.ProjectID != projectID {
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "job not found"},
-		})
+		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     job,
 		"metadata": map[string]string{"message": "Job status retrieved"},
 	})
@@ -414,34 +401,17 @@ func (h *AllureHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/history [delete]
 func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	projectID, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	if err := h.runner.CleanHistory(r.Context(), projectID); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error cleaning history: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error cleaning history: %v", err))
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     map[string]string{"output": ""},
 		"metadata": map[string]string{"message": "History successfully cleaned"},
 	})
@@ -458,34 +428,17 @@ func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/results [delete]
 func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	projectID, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	if err := h.runner.CleanResults(r.Context(), projectID); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error cleaning results: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error cleaning results: %v", err))
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     map[string]string{"output": ""},
 		"metadata": map[string]string{"message": "Results successfully cleaned"},
 	})
@@ -505,66 +458,43 @@ func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 // @Failure      413  {object}  map[string]any
 // @Router       /projects/{project_id}/results [post]
 func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	// Ensure project exists (auto-create if requested)
 	exists, err := h.store.ProjectExists(r.Context(), projectID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Failed to check project: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to check project: %v", err))
 		return
 	}
 	if !exists {
 		if r.URL.Query().Get("force_project_creation") == "true" {
 			if err := h.runner.CreateProject(r.Context(), projectID); err != nil && !errors.Is(err, runner.ErrProjectExists) {
-				w.WriteHeader(http.StatusInternalServerError)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": fmt.Sprintf("Failed to create project: %v", err)},
-				})
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create project: %v", err))
 				return
 			}
+			// Register in database so downstream jobs (River) can reference the project.
+			if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
+				if !errors.Is(dbErr, store.ErrProjectExists) {
+					_ = dbErr
+				}
+			}
 		} else {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": fmt.Sprintf("project_id '%s' not found", projectID)},
-			})
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id '%s' not found", projectID))
 			return
 		}
 	}
 
-	// Limit request body to 200 MB to prevent memory exhaustion (AUDIT 2.2).
-	// Raised from 100 MB to accommodate compressed tar.gz archives.
-	const maxBodyBytes = 200 << 20 // 200 MB
+	// Limit request body to prevent memory exhaustion (AUDIT 2.2).
+	// Configurable via MAX_UPLOAD_SIZE_MB env var or max_upload_size_mb YAML key (default 100 MB).
+	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 	processedFiles, failedFiles, err := h.parseResultsBody(r, projectID)
 	if errors.Is(err, errUnsupportedContentType) {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{
-				"message": "Content-Type must be application/json, multipart/form-data, or application/gzip",
-			},
-		})
+		writeError(w, http.StatusBadRequest, "Content-Type must be application/json, multipart/form-data, or application/gzip")
 		return
 	}
 
@@ -576,23 +506,17 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusRequestEntityTooLarge
 			msg = "request body too large"
 		}
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": msg},
-		})
+		writeError(w, code, msg)
 		return
 	}
 
 	if len(failedFiles) > 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Problems with files: %v", failedFiles)},
-		})
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Problems with files: %v", failedFiles))
 		return
 	}
 
-	if h.cfg.APIRespLessVerbose {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+	if h.cfg.APIResponseLessVerbose {
+		writeJSON(w, http.StatusOK, map[string]any{
 			"metadata": map[string]string{"message": fmt.Sprintf("Results successfully sent for project_id '%s'", projectID)},
 		})
 		return
@@ -600,7 +524,7 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 
 	currentFileNames, _ := h.store.ListResultFiles(r.Context(), projectID)
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"current_files":         currentFileNames,
 			"current_files_count":   len(currentFileNames),
@@ -754,7 +678,7 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 	if err != nil {
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir) //nolint:errcheck // best-effort cleanup
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	seen := make(map[string]bool)
 	var fileNames []string
@@ -804,7 +728,7 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 
 		// Write to temp dir.
 		tmpPath := filepath.Join(tmpDir, safeName)
-		f, err := os.Create(tmpPath) //nolint:gosec // G305: safeName is sanitized via secureFilename (filepath.Base)
+		f, err := os.Create(tmpPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create temp file %q: %w", safeName, err)
 		}
@@ -832,7 +756,7 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 	// Write validated files to storage.
 	for _, name := range fileNames {
 		tmpPath := filepath.Join(tmpDir, name)
-		f, err := os.Open(tmpPath) //nolint:gosec // G304: tmpPath constructed from sanitized safeName in controlled tmpDir
+		f, err := os.Open(tmpPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("reopen temp file %q: %w", name, err)
 		}
@@ -904,35 +828,25 @@ type allureSummaryFile struct {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports [get]
 func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	pg := parsePagination(r)
 
+	// Resolve optional branch filter.
+	var branchID *int64
+	if branchName := r.URL.Query().Get("branch"); branchName != "" && h.branchStore != nil {
+		if br, err := h.branchStore.GetByName(r.Context(), projectID, branchName); err == nil {
+			branchID = &br.ID
+		}
+	}
+
 	// Fetch numbered builds from DB (sorted descending by build_order).
-	builds, total, err := h.buildStore.ListBuildsPaginated(r.Context(), projectID, pg.Page, pg.PerPage)
+	builds, total, err := h.buildStore.ListBuildsPaginatedBranch(r.Context(), projectID, pg.Page, pg.PerPage, branchID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error reading report history: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error reading report history: %v", err))
 		return
 	}
 
@@ -952,7 +866,7 @@ func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 		reports = append(reports, buildEntryFromDB(&builds[i]))
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"project_id": projectID,
 			"reports":    reports,
@@ -1029,50 +943,29 @@ type EnvironmentEntry struct {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/environment [get]
 func (h *AllureHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
-	reportID := r.PathValue("report_id")
-	if reportID == "" {
-		reportID = "latest"
-	}
-	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	reportID, ok := extractReportID(w, r)
+	if !ok {
 		return
 	}
 
 	relPath := "reports/" + reportID + "/widgets/environment.json"
 	entries := make([]EnvironmentEntry, 0)
 	if !h.readJSONViaStore(ctx, projectID, relPath, &entries) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"data":     entries,
 			"metadata": map[string]string{"message": "No environment data available"},
 		})
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     entries,
 		"metadata": map[string]string{"message": "Environment info successfully obtained"},
 	})
@@ -1098,6 +991,48 @@ func (h *AllureHandler) applySummaryFile(ctx context.Context, projectID string, 
 	return true
 }
 
+// testResultTiming holds the start/stop epoch milliseconds from an Allure test result file.
+type testResultTiming struct {
+	Start int64 `json:"start"`
+	Stop  int64 `json:"stop"`
+}
+
+// applyTimingFromTestResults scans data/test-results/*.json to derive timing for Allure 3 reports.
+// It sets entry.DurationMs = max(stop) - min(start) and entry.GeneratedAt = RFC3339 of max(stop).
+// When no valid timing is found the entry fields are left unchanged.
+func (h *AllureHandler) applyTimingFromTestResults(ctx context.Context, projectID string, entry *ReportHistoryEntry, dataRelPath string) {
+	entries, err := h.store.ReadDir(ctx, projectID, dataRelPath)
+	if err != nil {
+		return
+	}
+	var minStart, maxStop int64
+	for _, e := range entries {
+		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
+			continue
+		}
+		data, err := h.store.ReadFile(ctx, projectID, dataRelPath+"/"+e.Name)
+		if err != nil {
+			continue
+		}
+		var tr testResultTiming
+		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
+			continue
+		}
+		if minStart == 0 || tr.Start < minStart {
+			minStart = tr.Start
+		}
+		if tr.Stop > maxStop {
+			maxStop = tr.Stop
+		}
+	}
+	if maxStop > 0 && minStart > 0 && maxStop > minStart {
+		d := maxStop - minStart
+		entry.DurationMs = &d
+		t := time.Unix(0, maxStop*int64(time.Millisecond)).UTC().Format(time.RFC3339)
+		entry.GeneratedAt = &t
+	}
+}
+
 // buildReportEntry reads report metadata from widget files via the store.
 // Tries widgets/summary.json first (Allure 2), then widgets/statistic.json (Allure 3).
 func (h *AllureHandler) buildReportEntry(ctx context.Context, projectID, name string) ReportHistoryEntry {
@@ -1114,6 +1049,8 @@ func (h *AllureHandler) buildReportEntry(ctx context.Context, projectID, name st
 	if h.readJSONViaStore(ctx, projectID, widgetsRelPath+"/statistic.json", &stat) && stat.Total > 0 {
 		entry.Statistic = &stat
 	}
+	// Allure 3 has no timing in statistic.json; derive from test result files.
+	h.applyTimingFromTestResults(ctx, projectID, &entry, "reports/"+name+"/data/test-results")
 	return entry
 }
 
@@ -1144,50 +1081,29 @@ type CategoryEntry struct {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/categories [get]
 func (h *AllureHandler) GetReportCategories(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
-	reportID := r.PathValue("report_id")
-	if reportID == "" {
-		reportID = "latest"
-	}
-	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	reportID, ok := extractReportID(w, r)
+	if !ok {
 		return
 	}
 
 	relPath := "reports/" + reportID + "/widgets/categories.json"
 	entries := make([]CategoryEntry, 0)
 	if !h.readJSONViaStore(ctx, projectID, relPath, &entries) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"data":     entries,
 			"metadata": map[string]string{"message": "No categories data available"},
 		})
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     entries,
 		"metadata": map[string]string{"message": "Categories successfully obtained"},
 	})
@@ -1205,49 +1121,38 @@ func (h *AllureHandler) GetReportCategories(w http.ResponseWriter, r *http.Reque
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id} [delete]
 func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	projectID, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-
-	if err := validateProjectID(h.cfg.ProjectsDirectory, projectID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	if err := h.runner.DeleteProject(r.Context(), projectID); err != nil {
 		if errors.Is(err, storage.ErrProjectNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": fmt.Sprintf("project_id %q not found", projectID)},
-			})
+			// Filesystem missing — attempt DB cleanup for half-synced state
+			// (project exists in DB but was never on disk, or disk was removed externally).
+			if dbErr := h.projectStore.DeleteProject(r.Context(), projectID); dbErr == nil {
+				// Stale DB record removed; surface as success so the UI clears it.
+				writeJSON(w, http.StatusOK, map[string]any{
+					"data":     map[string]string{"project_id": projectID},
+					"metadata": map[string]string{"message": "Project successfully deleted"},
+				})
+				return
+			}
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id %q not found", projectID))
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error deleting project: %v", err)},
-		})
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error deleting project: %v", err))
 		return
 	}
 
-	// Remove from database. Non-fatal: project may not be in DB (pre-SQLite projects).
+	// Remove from database. Non-fatal: project may not be in DB.
 	if dbErr := h.projectStore.DeleteProject(r.Context(), projectID); dbErr != nil {
 		if !errors.Is(dbErr, store.ErrProjectNotFound) {
 			_ = dbErr // log-only; filesystem delete already succeeded
 		}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     map[string]string{"project_id": projectID},
 		"metadata": map[string]string{"message": "Project successfully deleted"},
 	})
@@ -1266,39 +1171,13 @@ func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id} [delete]
 func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
-	reportID := r.PathValue("report_id")
-	if reportID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "report_id is required"},
-		})
-		return
-	}
-	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	reportID, ok := extractReportID(w, r)
+	if !ok {
 		return
 	}
 
@@ -1309,19 +1188,16 @@ func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, storage.ErrReportIDEmpty) || errors.Is(err, storage.ErrReportIDInvalid) {
 			status = http.StatusBadRequest
 		}
-		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Error deleting report: %v", err)},
-		})
+		writeError(w, status, fmt.Sprintf("Error deleting report: %v", err))
 		return
 	}
 
-	// Remove build record from database. Non-fatal if not found (pre-SQLite report).
+	// Remove build record from database. Non-fatal if not found.
 	if buildOrder, err := strconv.Atoi(reportID); err == nil {
 		_ = h.buildStore.DeleteBuild(r.Context(), projectID, buildOrder)
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     map[string]string{"report_id": reportID, "project_id": projectID},
 		"metadata": map[string]string{"message": fmt.Sprintf("Report %q successfully deleted", reportID)},
 	})

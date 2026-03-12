@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { PieChart, Pie, Tooltip } from 'recharts'
 import type { StatusPiePoint } from '@/lib/chart-utils'
 import { statusChartConfig } from '@/lib/chart-utils'
@@ -10,10 +11,14 @@ interface Props {
 
 export function StatusPieChart({ data, total }: Props) {
   // In recharts v3, Cell is deprecated; pass fill directly in each data entry
-  const coloredData = data.map((entry) => ({
-    ...entry,
-    fill: `var(--color-${entry.name.toLowerCase()})`,
-  }))
+  const coloredData = useMemo(
+    () =>
+      data.map((entry) => ({
+        ...entry,
+        fill: `var(--color-${entry.name.toLowerCase()})`,
+      })),
+    [data],
+  )
 
   return (
     <div className="relative">
@@ -34,7 +39,7 @@ export function StatusPieChart({ data, total }: Props) {
       {/* Center label */}
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-2xl font-bold tabular-nums">{total}</span>
-        <span className="text-xs text-muted-foreground">total</span>
+        <span className="text-muted-foreground text-xs">total</span>
       </div>
     </div>
   )

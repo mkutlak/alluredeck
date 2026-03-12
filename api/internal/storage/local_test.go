@@ -20,8 +20,8 @@ func newTestConfig(t *testing.T) (*config.Config, string) {
 	t.Helper()
 	dir := t.TempDir()
 	return &config.Config{
-		ProjectsDirectory: dir,
-		KeepHistory:       false,
+		ProjectsPath: dir,
+		KeepHistory:  false,
 	}, dir
 }
 
@@ -35,7 +35,7 @@ func makeLocalStore(t *testing.T) (*LocalStore, string) {
 // mkdirAll creates dirs inside the temp root, ignoring errors in tests.
 func mkdirAll(t *testing.T, path string) {
 	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil { //nolint:gosec // G301: test helper
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mkdirAll %q: %v", path, err)
 	}
 }
@@ -44,7 +44,7 @@ func mkdirAll(t *testing.T, path string) {
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	mkdirAll(t, filepath.Dir(path))
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: test helper
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writeFile %q: %v", path, err)
 	}
 }
@@ -52,6 +52,7 @@ func writeFile(t *testing.T, path, content string) {
 // --- CreateProject ---
 
 func TestLocalStore_CreateProject(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -74,6 +75,7 @@ func TestLocalStore_CreateProject(t *testing.T) {
 // --- ProjectExists ---
 
 func TestLocalStore_ProjectExists(t *testing.T) {
+	t.Parallel()
 	ls, _ := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -100,6 +102,7 @@ func TestLocalStore_ProjectExists(t *testing.T) {
 // --- ListProjects ---
 
 func TestLocalStore_ListProjects(t *testing.T) {
+	t.Parallel()
 	ls, _ := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -135,6 +138,7 @@ func TestLocalStore_ListProjects(t *testing.T) {
 // --- WriteResultFile ---
 
 func TestLocalStore_WriteResultFile(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -159,6 +163,7 @@ func TestLocalStore_WriteResultFile(t *testing.T) {
 // --- ListResultFiles ---
 
 func TestLocalStore_ListResultFiles(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -199,6 +204,7 @@ func TestLocalStore_ListResultFiles(t *testing.T) {
 // --- CleanResults ---
 
 func TestLocalStore_CleanResults(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -231,6 +237,7 @@ func TestLocalStore_CleanResults(t *testing.T) {
 // --- PrepareLocal ---
 
 func TestLocalStore_PrepareLocal(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -254,6 +261,7 @@ func TestLocalStore_PrepareLocal(t *testing.T) {
 // --- CleanupLocal ---
 
 func TestLocalStore_CleanupLocal(t *testing.T) {
+	t.Parallel()
 	ls, _ := makeLocalStore(t)
 	if err := ls.CleanupLocal("/any/path"); err != nil {
 		t.Fatalf("CleanupLocal: %v", err)
@@ -263,6 +271,7 @@ func TestLocalStore_CleanupLocal(t *testing.T) {
 // --- PublishReport ---
 
 func TestLocalStore_PublishReport(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -302,6 +311,7 @@ func TestLocalStore_PublishReport(t *testing.T) {
 }
 
 func TestLocalStore_PublishReport_EmptyLatest(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -322,6 +332,7 @@ func TestLocalStore_PublishReport_EmptyLatest(t *testing.T) {
 }
 
 func TestLocalStore_PublishReport_MissingLatest(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -338,6 +349,7 @@ func TestLocalStore_PublishReport_MissingLatest(t *testing.T) {
 // --- DeleteReport ---
 
 func TestLocalStore_DeleteReport(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -378,6 +390,7 @@ func TestLocalStore_DeleteReport(t *testing.T) {
 // --- PruneReportDirs ---
 
 func TestLocalStore_PruneReportDirs(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -408,6 +421,7 @@ func TestLocalStore_PruneReportDirs(t *testing.T) {
 // --- KeepHistory ---
 
 func TestLocalStore_KeepHistory_Enabled(t *testing.T) {
+	t.Parallel()
 	cfg, root := newTestConfig(t)
 	cfg.KeepHistory = true
 	ls := NewLocalStore(cfg)
@@ -432,6 +446,7 @@ func TestLocalStore_KeepHistory_Enabled(t *testing.T) {
 }
 
 func TestLocalStore_KeepHistory_Disabled(t *testing.T) {
+	t.Parallel()
 	cfg, root := newTestConfig(t)
 	cfg.KeepHistory = false
 	ls := NewLocalStore(cfg)
@@ -459,6 +474,7 @@ func TestLocalStore_KeepHistory_Disabled(t *testing.T) {
 // --- CleanHistory ---
 
 func TestLocalStore_CleanHistory(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -533,6 +549,7 @@ func TestLocalStore_CleanHistory(t *testing.T) {
 // --- ReadBuildStats ---
 
 func TestLocalStore_ReadBuildStats_Summary(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -566,6 +583,7 @@ func TestLocalStore_ReadBuildStats_Summary(t *testing.T) {
 }
 
 func TestLocalStore_ReadBuildStats_Statistic(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -596,6 +614,7 @@ func TestLocalStore_ReadBuildStats_Statistic(t *testing.T) {
 }
 
 func TestLocalStore_ReadBuildStats_NotFound(t *testing.T) {
+	t.Parallel()
 	ls, _ := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -605,9 +624,44 @@ func TestLocalStore_ReadBuildStats_NotFound(t *testing.T) {
 	}
 }
 
+func TestLocalStore_ReadBuildStats_Allure3Timing(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	if err := ls.CreateProject(ctx, "proj"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Allure 3: statistic.json (no timing fields)
+	widgetsDir := filepath.Join(root, "proj", "reports", "1", "widgets")
+	stat := map[string]any{"passed": 3, "failed": 1, "broken": 0, "skipped": 0, "unknown": 0, "total": 4}
+	data, _ := json.Marshal(stat)
+	writeFile(t, filepath.Join(widgetsDir, "statistic.json"), string(data))
+
+	// Test result files with start/stop epoch milliseconds
+	// min(start)=1700000000000, max(stop)=1700000005000 → duration=5000ms
+	testResultsDir := filepath.Join(root, "proj", "reports", "1", "data", "test-results")
+	writeFile(t, filepath.Join(testResultsDir, "a.json"), `{"start":1700000000000,"stop":1700000002000}`)
+	writeFile(t, filepath.Join(testResultsDir, "b.json"), `{"start":1700000001000,"stop":1700000005000}`)
+
+	stats, err := ls.ReadBuildStats(ctx, "proj", 1)
+	if err != nil {
+		t.Fatalf("ReadBuildStats: %v", err)
+	}
+	if stats.Total != 4 {
+		t.Errorf("Total: got %d, want 4", stats.Total)
+	}
+	// Duration = max(stop) - min(start) = 1700000005000 - 1700000000000 = 5000
+	if stats.DurationMs != 5000 {
+		t.Errorf("DurationMs: got %d, want 5000", stats.DurationMs)
+	}
+}
+
 // --- ReadFile ---
 
 func TestLocalStore_ReadFile(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -630,6 +684,7 @@ func TestLocalStore_ReadFile(t *testing.T) {
 // --- ReadDir ---
 
 func TestLocalStore_ReadDir(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -666,6 +721,7 @@ func TestLocalStore_ReadDir(t *testing.T) {
 // --- OpenReportFile ---
 
 func TestLocalStore_OpenReportFile(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -697,6 +753,7 @@ func TestLocalStore_OpenReportFile(t *testing.T) {
 // --- ListReportBuilds ---
 
 func TestLocalStore_ListReportBuilds(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -729,6 +786,7 @@ func TestLocalStore_ListReportBuilds(t *testing.T) {
 // --- LatestReportExists ---
 
 func TestLocalStore_LatestReportExists(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -757,6 +815,7 @@ func TestLocalStore_LatestReportExists(t *testing.T) {
 // --- DeleteProject ---
 
 func TestLocalStore_DeleteProject(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
@@ -784,6 +843,7 @@ func TestLocalStore_DeleteProject(t *testing.T) {
 // --- ResultsDirHash ---
 
 func TestLocalStore_ResultsDirHash(t *testing.T) {
+	t.Parallel()
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 

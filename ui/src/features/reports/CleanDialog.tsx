@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertTriangle } from 'lucide-react'
 import { cleanHistory, cleanResults } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
+import { invalidateProjectQueries } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -49,7 +50,7 @@ export function CleanDialog({ projectId, mode, open, onOpenChange }: CleanDialog
   const mutation = useMutation({
     mutationFn: () => (mode === 'history' ? cleanHistory(projectId) : cleanResults(projectId)),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['report-history', projectId] })
+      void invalidateProjectQueries(queryClient, projectId)
       toast({ title: msg.successTitle, description: msg.successDesc(projectId) })
       onOpenChange(false)
     },
@@ -59,16 +60,22 @@ export function CleanDialog({ projectId, mode, open, onOpenChange }: CleanDialog
   })
 
   return (
-    <AlertDialog open={open} onOpenChange={(v) => { if (!v) setError(''); onOpenChange(v) }}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) setError('')
+        onOpenChange(v)
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+          <AlertDialogTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle size={18} />
             {msg.title}
           </AlertDialogTitle>
           <AlertDialogDescription>{msg.description} This cannot be undone.</AlertDialogDescription>
         </AlertDialogHeader>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-destructive text-sm">{error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button

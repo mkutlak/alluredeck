@@ -28,6 +28,11 @@ export interface LoginData {
 export interface ProjectEntry {
   project_id: string
   created_at?: string
+  tags?: string[]
+}
+
+export interface UpdateTagsRequest {
+  tags: string[]
 }
 
 export type ProjectsData = ProjectEntry[]
@@ -331,6 +336,61 @@ export interface TimelineData {
 }
 
 // ---------------------------------------------------------------------------
+// Build Comparison (Diff View)
+// ---------------------------------------------------------------------------
+export type DiffCategory = 'regressed' | 'fixed' | 'added' | 'removed'
+
+export interface CompareDiffEntry {
+  test_name: string
+  full_name: string
+  history_id: string
+  status_a: string
+  status_b: string
+  duration_a: number
+  duration_b: number
+  duration_delta: number
+  category: DiffCategory
+}
+
+export interface CompareSummary {
+  regressed: number
+  fixed: number
+  added: number
+  removed: number
+  total: number
+}
+
+export interface CompareData {
+  build_a: number
+  build_b: number
+  summary: CompareSummary
+  tests: CompareDiffEntry[]
+}
+
+// ---------------------------------------------------------------------------
+// Admin System Monitor
+// ---------------------------------------------------------------------------
+export type AdminJobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface AdminJobEntry {
+  job_id: string
+  project_id: string
+  status: AdminJobStatus
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  output: string
+  error: string
+}
+
+export interface AdminResultsEntry {
+  project_id: string
+  file_count: number
+  total_size: number
+  last_modified: string
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard (cross-project overview)
 // ---------------------------------------------------------------------------
 export interface DashboardLatestBuild {
@@ -353,6 +413,7 @@ export interface DashboardSparklinePoint {
 export interface DashboardProjectEntry {
   project_id: string
   created_at: string
+  tags?: string[]
   latest_build: DashboardLatestBuild | null
   sparkline: DashboardSparklinePoint[]
 }
@@ -367,4 +428,58 @@ export interface DashboardSummary {
 export interface DashboardData {
   projects: DashboardProjectEntry[]
   summary: DashboardSummary
+}
+
+// ---------------------------------------------------------------------------
+// Branches
+// ---------------------------------------------------------------------------
+export interface Branch {
+  id: number
+  project_id: string
+  name: string
+  is_default: boolean
+  created_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Test history
+// ---------------------------------------------------------------------------
+export interface TestHistoryEntry {
+  build_order: number
+  build_id: number
+  status: string
+  duration_ms: number
+  created_at: string
+  ci_commit_sha?: string
+}
+
+export interface TestHistoryData {
+  history: TestHistoryEntry[]
+  history_id: string
+  branch_name?: string
+}
+
+// ---------------------------------------------------------------------------
+// Analytics (Phase 8 — PostgreSQL analytics dashboards)
+// ---------------------------------------------------------------------------
+export interface ErrorCluster {
+  message: string
+  count: number
+}
+
+export interface SuitePassRate {
+  suite: string
+  total: number
+  passed: number
+  pass_rate: number
+}
+
+export interface LabelCount {
+  value: string
+  count: number
+}
+
+export interface AnalyticsResponse<T> {
+  data: T[]
+  project_id: string
 }

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportStability } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,13 +11,17 @@ interface Props {
 
 export function FlakyTestsCard({ projectId }: Props) {
   const { data: stability, isLoading } = useQuery({
-    queryKey: ['report-stability', projectId],
+    queryKey: queryKeys.reportStability(projectId),
     queryFn: () => fetchReportStability(projectId),
     staleTime: 30_000,
   })
 
   const flakyTests = stability?.flaky_tests ?? []
   const summary = stability?.summary
+
+  if (!isLoading && flakyTests.length === 0) {
+    return null
+  }
 
   return (
     <Card>
@@ -37,8 +42,6 @@ export function FlakyTestsCard({ projectId }: Props) {
               <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
-        ) : flakyTests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No flaky tests detected</p>
         ) : (
           <div className="space-y-2">
             {flakyTests.map((test, i) => (
@@ -48,7 +51,7 @@ export function FlakyTestsCard({ projectId }: Props) {
                 </span>
                 <div className="flex shrink-0 gap-1">
                   {test.retries_count > 0 && (
-                    <Badge className="bg-amber-500 text-xs text-white hover:bg-amber-600">
+                    <Badge variant="broken" className="text-xs">
                       {test.retries_count}x
                     </Badge>
                   )}

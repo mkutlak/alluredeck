@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"go.uber.org/zap"
-
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
+
+func intPtr(v int) *int       { return &v }
+func int64Ptr(v int64) *int64 { return &v }
+func ptr(v string) *string    { return &v }
 
 func TestGetReportSummary_NumericReportID(t *testing.T) {
 	projectsDir := t.TempDir()
@@ -21,32 +24,40 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db := openTestStore(t)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ts := store.NewTestResultStore(db, zap.NewNop())
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		if pid == projectID && buildOrder == 3 {
+			return store.Build{
+				ID:             100,
+				ProjectID:      projectID,
+				BuildOrder:     3,
+				IsLatest:       true,
+				CIProvider:     ptr("GitHub Actions"),
+				StatPassed:     intPtr(85),
+				StatFailed:     intPtr(10),
+				StatBroken:     intPtr(3),
+				StatSkipped:    intPtr(2),
+				StatTotal:      intPtr(100),
+				DurationMs:     int64Ptr(45000),
+				FlakyCount:     intPtr(2),
+				NewFailedCount: intPtr(3),
+				NewPassedCount: intPtr(1),
+			}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid string, buildID int64, limit int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{TestName: "Login timeout", Status: "failed", DurationMs: 30000, NewFailed: true},
+			{TestName: "API broken", Status: "broken", DurationMs: 5000, Flaky: true},
+		}, nil
+	}
 
-	_ = ps.CreateProject(ctx, projectID)
-	_ = bs.InsertBuild(ctx, projectID, 3)
-	_ = bs.UpdateBuildStats(ctx, projectID, 3, store.BuildStats{
-		Passed: 85, Failed: 10, Broken: 3, Skipped: 2, Unknown: 0, Total: 100,
-		DurationMs: 45000, FlakyCount: 2, RetriedCount: 1, NewFailedCount: 3, NewPassedCount: 1,
-	})
-	_ = bs.SetLatest(ctx, projectID, 3)
-	_ = bs.UpdateBuildCIMetadata(ctx, projectID, 3, store.CIMetadata{
-		Provider: "GitHub Actions", BuildURL: "https://github.com/org/repo/actions/runs/1", Branch: "main", CommitSHA: "abc1234",
-	})
-
-	buildID, _ := ts.GetBuildID(ctx, projectID, 3)
-	_ = ts.InsertBatch(ctx, []store.TestResult{
-		{BuildID: buildID, ProjectID: projectID, TestName: "Login timeout", FullName: "com.example.LoginTest#testTimeout", Status: "failed", DurationMs: 30000, HistoryID: "h1", NewFailed: true},
-		{BuildID: buildID, ProjectID: projectID, TestName: "API broken", FullName: "com.example.APITest#testBroken", Status: "broken", DurationMs: 5000, HistoryID: "h2", Flaky: true},
-		{BuildID: buildID, ProjectID: projectID, TestName: "Passing test", FullName: "com.example.PassTest#test", Status: "passed", DurationMs: 100, HistoryID: "h3"},
-	})
-
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/summary-proj/reports/3/summary", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -134,19 +145,23 @@ func TestGetReportSummary_Latest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db := openTestStore(t)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
+		return store.Build{
+			ID:         2,
+			ProjectID:  projectID,
+			BuildOrder: 2,
+			IsLatest:   true,
+			StatPassed: intPtr(50),
+			StatTotal:  intPtr(50),
+		}, nil
+	}
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		return store.Build{}, store.ErrBuildNotFound
+	}
 
-	_ = ps.CreateProject(ctx, projectID)
-	_ = bs.InsertBuild(ctx, projectID, 1)
-	_ = bs.InsertBuild(ctx, projectID, 2)
-	_ = bs.UpdateBuildStats(ctx, projectID, 2, store.BuildStats{Passed: 50, Total: 50})
-	_ = bs.SetLatest(ctx, projectID, 2)
-
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/latest-proj/reports/latest/summary", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -179,24 +194,39 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db := openTestStore(t)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		if buildOrder == 2 {
+			return store.Build{
+				ID:          2,
+				ProjectID:   projectID,
+				BuildOrder:  2,
+				StatPassed:  intPtr(85),
+				StatFailed:  intPtr(10),
+				StatBroken:  intPtr(3),
+				StatSkipped: intPtr(2),
+				StatTotal:   intPtr(100),
+				DurationMs:  int64Ptr(45000),
+			}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		return store.Build{
+			ID:          1,
+			ProjectID:   projectID,
+			BuildOrder:  1,
+			StatPassed:  intPtr(90),
+			StatFailed:  intPtr(5),
+			StatBroken:  intPtr(2),
+			StatSkipped: intPtr(3),
+			StatTotal:   intPtr(100),
+			DurationMs:  int64Ptr(40000),
+		}, nil
+	}
 
-	_ = ps.CreateProject(ctx, projectID)
-	_ = bs.InsertBuild(ctx, projectID, 1)
-	_ = bs.UpdateBuildStats(ctx, projectID, 1, store.BuildStats{
-		Passed: 90, Failed: 5, Broken: 2, Skipped: 3, Unknown: 0, Total: 100, DurationMs: 40000,
-	})
-	_ = bs.InsertBuild(ctx, projectID, 2)
-	_ = bs.UpdateBuildStats(ctx, projectID, 2, store.BuildStats{
-		Passed: 85, Failed: 10, Broken: 3, Skipped: 2, Unknown: 0, Total: 100, DurationMs: 45000,
-	})
-	_ = bs.SetLatest(ctx, projectID, 2)
-
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/trend-proj/reports/2/summary", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -241,13 +271,16 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db := openTestStore(t)
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ctx := context.Background()
-	_ = ps.CreateProject(ctx, projectID)
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		if buildOrder == 99 {
+			return store.Build{}, store.ErrBuildNotFound
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
 
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/notfound-proj/reports/99/summary", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -265,9 +298,8 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 
 func TestGetReportSummary_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
-	db := openTestStore(t)
 
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
+	h := newTestAllureHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/reports/1/summary", nil)
 	if err != nil {
@@ -291,32 +323,43 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db := openTestStore(t)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ts := store.NewTestResultStore(db, zap.NewNop())
-	ctx := context.Background()
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		if buildOrder == 1 {
+			return store.Build{
+				ID:         1,
+				ProjectID:  projectID,
+				BuildOrder: 1,
+				StatFailed: intPtr(15),
+				StatTotal:  intPtr(30),
+			}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+		return store.Build{}, store.ErrBuildNotFound
+	}
 
-	_ = ps.CreateProject(ctx, projectID)
-	_ = bs.InsertBuild(ctx, projectID, 1)
-	_ = bs.UpdateBuildStats(ctx, projectID, 1, store.BuildStats{Failed: 15, Total: 30})
-	_ = bs.SetLatest(ctx, projectID, 1)
-
-	buildID, _ := ts.GetBuildID(ctx, projectID, 1)
-
-	// Insert 15 failures.
+	// Return 15 failures; handler caps at topFailuresLimit (10).
 	var batch []store.TestResult
 	for i := range 15 {
 		batch = append(batch, store.TestResult{
-			BuildID: buildID, ProjectID: projectID,
-			TestName: "FailTest" + string(rune('A'+i)), FullName: "pkg.FailTest" + string(rune('A'+i)),
-			Status: "failed", DurationMs: int64((15 - i) * 1000), HistoryID: "h-" + string(rune('a'+i)),
+			TestName:   "FailTest" + string(rune('A'+i)),
+			FullName:   "pkg.FailTest" + string(rune('A'+i)),
+			Status:     "failed",
+			DurationMs: int64((15 - i) * 1000),
+			HistoryID:  "h-" + string(rune('a'+i)),
 		})
 	}
-	_ = ts.InsertBatch(ctx, batch)
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid string, buildID int64, limit int) ([]store.TestResult, error) {
+		if limit < len(batch) {
+			return batch[:limit], nil
+		}
+		return batch, nil
+	}
 
-	h := newTestAllureHandlerWithDB(t, projectsDir, db)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/limit-proj/reports/1/summary", nil)
 	if err != nil {
 		t.Fatal(err)

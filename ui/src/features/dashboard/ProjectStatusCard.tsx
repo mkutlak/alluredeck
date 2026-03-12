@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { MoreHorizontal, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Tags, Trash2 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,26 +11,24 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { formatDate, formatDuration } from '@/lib/utils'
+import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { PassRateSparkline } from './PassRateSparkline'
 import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
-import { useAuthStore } from '@/store/auth'
+import { EditTagsDialog } from '@/features/projects/EditTagsDialog'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import type { DashboardProjectEntry } from '@/types/api'
 
 interface Props {
   project: DashboardProjectEntry
 }
 
-function passRateBadgeVariant(rate: number): 'default' | 'secondary' | 'destructive' {
-  if (rate >= 90) return 'default'
-  if (rate >= 70) return 'secondary'
-  return 'destructive'
-}
-
 export function ProjectStatusCard({ project }: Props) {
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [editTagsOpen, setEditTagsOpen] = useState(false)
   const { latest_build, sparkline } = project
   const passRate = latest_build?.pass_rate ?? 0
+  const tags = project.tags ?? []
 
   return (
     <>
@@ -41,21 +39,15 @@ export function ProjectStatusCard({ project }: Props) {
             <div className="flex items-center gap-1">
               {latest_build ? (
                 <Badge
-                  variant={passRateBadgeVariant(passRate)}
-                  className={
-                    passRate >= 90
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : passRate >= 70
-                        ? 'bg-amber-500 text-white hover:bg-amber-600'
-                        : undefined
-                  }
+                  variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
+                  className={getPassRateBadgeClass(passRate)}
                 >
                   {passRate.toFixed(0)}%
                 </Badge>
               ) : (
                 <Badge variant="secondary">No builds</Badge>
               )}
-              {isAdmin() && (
+              {isAdmin && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -68,6 +60,10 @@ export function ProjectStatusCard({ project }: Props) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setEditTagsOpen(true)}>
+                      <Tags size={14} />
+                      Edit tags
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => setDeleteOpen(true)}
@@ -80,20 +76,29 @@ export function ProjectStatusCard({ project }: Props) {
               )}
             </div>
           </div>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {tags.map((tag) => (
+                <Badge key={tag} variant="outline" className="text-xs font-normal">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="flex flex-1 flex-col gap-3">
           {sparkline.length > 0 && <PassRateSparkline data={sparkline} />}
 
           {latest_build ? (
-            <div className="space-y-1 text-sm text-muted-foreground">
+            <div className="text-muted-foreground space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Tests</span>
-                <span className="font-medium text-foreground">{latest_build.statistics.total}</span>
+                <span className="text-foreground font-medium">{latest_build.statistics.total}</span>
               </div>
               {latest_build.statistics.failed + latest_build.statistics.broken > 0 && (
                 <div className="flex justify-between">
                   <span>Failures</span>
-                  <span className="font-medium text-destructive">
+                  <span className="text-destructive font-medium">
                     {latest_build.statistics.failed + latest_build.statistics.broken}
                   </span>
                 </div>
@@ -106,42 +111,52 @@ export function ProjectStatusCard({ project }: Props) {
               )}
               <div className="flex justify-between">
                 <span>Duration</span>
-                <span className="font-medium text-foreground">
+                <span className="text-foreground font-medium">
                   {formatDuration(latest_build.duration_ms)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Last run</span>
-                <span className="font-medium text-foreground">
+                <span className="text-foreground font-medium">
                   {formatDate(latest_build.created_at)}
                 </span>
               </div>
               {latest_build.ci_branch && (
                 <div className="flex justify-between">
                   <span>Branch</span>
-                  <span className="font-medium text-foreground">{latest_build.ci_branch}</span>
+                  <span className="text-foreground font-medium">{latest_build.ci_branch}</span>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No runs yet</p>
+            <p className="text-muted-foreground text-sm">No runs yet</p>
           )}
 
           <NavLink
             to={`/projects/${project.project_id}`}
-            className="mt-auto text-sm text-primary hover:underline"
+            className="text-primary mt-auto text-sm hover:underline"
           >
             View project
           </NavLink>
         </CardContent>
       </Card>
 
-      {isAdmin() && (
-        <DeleteProjectDialog
-          projectId={project.project_id}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
+      {isAdmin && (
+        <>
+          <DeleteProjectDialog
+            projectId={project.project_id}
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+          />
+          {editTagsOpen && (
+            <EditTagsDialog
+              projectId={project.project_id}
+              currentTags={tags}
+              open={editTagsOpen}
+              onOpenChange={setEditTagsOpen}
+            />
+          )}
+        </>
       )}
     </>
   )

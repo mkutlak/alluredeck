@@ -2,16 +2,16 @@
 
 AllureDeck supports two storage backends: local filesystem (default) and S3-compatible object storage (AWS S3 or MinIO). Select via the `STORAGE_TYPE` environment variable.
 
-The filesystem stores Allure report data. SQLite is used only as a metadata and index cache.
+The filesystem stores Allure report data. PostgreSQL is used for metadata and index storage.
 
 ## Local Storage (Default)
 
 `STORAGE_TYPE=local` (default)
 
-Allure project data is stored under `STATIC_CONTENT_PROJECTS` (default: `/app/projects`), with this structure:
+Allure project data is stored under `PROJECTS_PATH` (default: `/data/projects`), with this structure:
 
 ```
-/app/projects/
+/data/projects/
   {project-id}/
     results/      # uploaded Allure result files
     reports/
@@ -26,8 +26,8 @@ Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `STORAGE_TYPE` | `local` | Storage backend type |
-| `STATIC_CONTENT_PROJECTS` | `/app/projects` | Project data root directory |
-| `DATABASE_PATH` | `/app/allure.db` | SQLite metadata database |
+| `PROJECTS_PATH` | `/data/projects` | Project data root directory |
+| `DATABASE_URL` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
 | `KEEP_HISTORY` | `false` | Retain previous report builds |
 | `KEEP_HISTORY_LATEST` | `20` | Max historical builds per project |
 
@@ -37,17 +37,16 @@ In `docker/docker-compose.yml`, a named Docker volume persists data across conta
 
 ```yaml
 volumes:
-  - allure-projects:/app/projects
+  - allure-projects:/data/projects
 ```
 
 ### Kubernetes / Helm
 
-The Helm chart creates two persistent volume claims by default (when `storageType=local`):
+The Helm chart creates a persistent volume claim by default (when `storageType=local`):
 
 - `projects` — 10Gi for report data (`ReadWriteOnce`)
-- `database` — 1Gi for SQLite metadata (`ReadWriteOnce`)
 
-See [helm-chart.md](helm-chart.md#persistence) for PVC configuration details.
+See the [Helm Chart README](../charts/alluredeck/README.md#storage) for PVC configuration details.
 
 ## S3 / MinIO Storage
 
@@ -82,7 +81,7 @@ Startup fails if these are missing when `STORAGE_TYPE=s3`:
 | `S3_REGION` | `us-east-1` | AWS region |
 | `S3_ACCESS_KEY` | *(empty)* | Access key ID (omit for IRSA) |
 | `S3_SECRET_KEY` | *(empty)* | Secret access key (omit for IRSA) |
-| `S3_USE_SSL` | `false` | Enable TLS for S3 connections |
+| `S3_TLS_INSECURESKIPVERIFY` | `false` | Skip TLS certificate verification (e.g. self-signed certs) |
 | `S3_PATH_STYLE` | `false` | Path-style URLs — **required for MinIO** |
 | `S3_CONCURRENCY` | `10` | Max parallel upload/download operations |
 
@@ -113,7 +112,6 @@ S3_REGION=us-east-1
 S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin
 S3_PATH_STYLE=true     # required for MinIO
-S3_USE_SSL=false       # no TLS in local dev
 ```
 
 ### AWS S3
@@ -125,7 +123,6 @@ S3_BUCKET=my-allure-reports
 S3_REGION=eu-west-1
 S3_ACCESS_KEY=AKIA...
 S3_SECRET_KEY=...
-S3_USE_SSL=true
 S3_PATH_STYLE=false    # virtual-hosted style for AWS
 ```
 
@@ -149,7 +146,6 @@ api:
     endpoint: "https://s3.amazonaws.com"
     bucket: "my-allure-reports"
     region: "eu-west-1"
-    useSSL: "true"
     # Do not set S3_ACCESS_KEY or S3_SECRET_KEY
 ```
 
@@ -165,7 +161,6 @@ api:
     endpoint: "http://minio.minio.svc:9000"
     bucket: "allure-reports"
     region: "us-east-1"
-    useSSL: "false"
     pathStyle: "true"
     concurrency: "10"
     # Reference a pre-created Kubernetes Secret with keys: S3_ACCESS_KEY, S3_SECRET_KEY
@@ -175,5 +170,5 @@ api:
 ## Related
 
 - [configuration.md](configuration.md) — full environment variable reference
-- [helm-chart.md](helm-chart.md) — Helm persistence and S3 values
-- [security.md](security.md) — authentication and authorization
+- [Helm Chart README](../charts/alluredeck/README.md) — Helm persistence and S3 values
+- [deployment.md](deployment.md#security) — authentication and authorization

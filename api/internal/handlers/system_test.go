@@ -2,20 +2,40 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
 
+// openTestDB opens a *sql.DB for use in handler tests that require DB connectivity.
+// Skips if TEST_DATABASE_URL environment variable is not set.
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping postgres-dependent test")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open test DB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
 func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 	cfg := &config.Config{
-		Port:             "5050",
-		DevMode:          true,
-		SecurityEnabled:  false,
-		CheckResultsSecs: "5",
+		Port:                     "5050",
+		DevMode:                  true,
+		SecurityEnabled:          false,
+		CheckResultsEverySeconds: "5",
 	}
 
 	handler := NewSystemHandler(cfg, nil)

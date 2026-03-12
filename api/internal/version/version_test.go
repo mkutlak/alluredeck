@@ -7,6 +7,7 @@ import (
 )
 
 func TestDefaults(t *testing.T) {
+	t.Parallel()
 	if version.Version == "" {
 		t.Error("Version must not be empty")
 	}

@@ -1,27 +1,36 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SidebarProvider } from '@/components/ui/sidebar'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { useAuthStore } from '@/store/auth'
+import type { AuthState, Role } from '@/store/auth'
+import { useUIStore } from '@/store/ui'
+import type { UIState } from '@/store/ui'
+import { getProjects } from '@/api/projects'
 import { AppSidebar } from '../AppSidebar'
 
 vi.mock('@/api/projects', () => ({
   getProjects: vi.fn().mockResolvedValue({
     data: [{ project_id: 'project-alpha' }, { project_id: 'my-project' }],
-    metadata: { message: 'ok', total: 2, page: 1, per_page: 20, total_pages: 1 },
+    metadata: { message: 'ok' },
+    pagination: { total: 2, page: 1, per_page: 20, total_pages: 1 },
   }),
-}))
-
-vi.mock('@/features/search', () => ({
-  SearchTrigger: () => <div data-testid="search-trigger">SearchTrigger</div>,
-  SearchCommand: () => null,
-  GlobalSearch: () => null,
 }))
 
 vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+}))
+
+vi.mock('@/store/auth', () => ({
+  useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
+}))
+
+vi.mock('@/store/ui', () => ({
+  useUIStore: vi.fn(),
 }))
 
 beforeAll(() => {
@@ -40,128 +49,174 @@ beforeAll(() => {
   })
 })
 
-function renderSidebar(path: string) {
+function makeUIState(overrides: Partial<UIState> = {}): UIState {
+  return {
+    projectViewMode: 'grid',
+    lastProjectId: null,
+    setProjectViewMode: vi.fn(),
+    setLastProjectId: vi.fn(),
+    clearLastProjectId: vi.fn(),
+    ...overrides,
+  }
+}
+
+function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<UIState> = {}) {
+  vi.mocked(useAuthStore).mockImplementation((selector: (state: AuthState) => unknown) =>
+    selector({
+      isAuthenticated: false,
+      roles: isAdmin ? (['admin'] as Role[]) : [],
+      username: null,
+      expiresAt: null,
+      setAuth: vi.fn(),
+      clearAuth: vi.fn(),
+    }),
+  )
+  vi.mocked(useUIStore).mockImplementation((selector: (state: UIState) => unknown) =>
+    selector(makeUIState(uiStateOverrides)),
+  )
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MemoryRouter initialEntries={[path]}>
       <QueryClientProvider client={qc}>
-        <SidebarProvider>
-          <Routes>
-            <Route path="/" element={<AppSidebar />} />
-            <Route path="/dashboard" element={<AppSidebar />} />
-            <Route path="/projects/:id/*" element={<AppSidebar />} />
-          </Routes>
-        </SidebarProvider>
+        <TooltipProvider>
+          <SidebarProvider>
+            <Routes>
+              <Route path="/" element={<AppSidebar />} />
+              <Route path="/projects/:id/*" element={<AppSidebar />} />
+              <Route path="/admin" element={<AppSidebar />} />
+            </Routes>
+          </SidebarProvider>
+        </TooltipProvider>
       </QueryClientProvider>
     </MemoryRouter>,
   )
 }
 
 describe('AppSidebar', () => {
-  it('renders dashboard link', () => {
+  it('renders dashboard link with href "/"', () => {
     renderSidebar('/')
     const link = screen.getByRole('link', { name: /projects dashboard/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', '/')
   })
 
-  it('renders search trigger', () => {
+  it('does NOT render search trigger', () => {
     renderSidebar('/')
-    expect(screen.getByTestId('search-trigger')).toBeInTheDocument()
+    expect(screen.queryByTestId('search-trigger')).not.toBeInTheDocument()
   })
 
-  it('renders collapsible Projects trigger button', () => {
+  it('does NOT render project list items in sidebar', () => {
     renderSidebar('/')
-    expect(screen.getByRole('button', { name: /projects/i })).toBeInTheDocument()
-  })
-
-  it('shows project list when collapsible is open by default', async () => {
-    renderSidebar('/')
-    await waitFor(() => {
-      expect(screen.getByText('project-alpha')).toBeInTheDocument()
-      expect(screen.getByText('my-project')).toBeInTheDocument()
-    })
-  })
-
-  it('collapses and expands project list on trigger click', async () => {
-    const user = userEvent.setup()
-    renderSidebar('/')
-    await waitFor(() => expect(screen.getByText('project-alpha')).toBeInTheDocument())
-
-    const trigger = screen.getByRole('button', { name: /projects/i })
-    await user.click(trigger)
     expect(screen.queryByText('project-alpha')).not.toBeInTheDocument()
-
-    await user.click(trigger)
-    expect(screen.getByText('project-alpha')).toBeInTheDocument()
+    expect(screen.queryByText('my-project')).not.toBeInTheDocument()
   })
 
-  it('highlights active project with data-active', async () => {
+  it('shows "Projects" collapsible section header', () => {
+    renderSidebar('/')
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+  })
+
+  it('shows project sub-nav when project is in URL', () => {
     renderSidebar('/projects/my-project')
+    expect(screen.getByText('Overview')).toBeInTheDocument()
+    expect(screen.getByText('Known Issues')).toBeInTheDocument()
+    expect(screen.getByText('Timeline')).toBeInTheDocument()
+    expect(screen.getByText('Analytics')).toBeInTheDocument()
+  })
+
+  it('hides project sub-nav when no project is in URL', async () => {
+    vi.mocked(getProjects).mockResolvedValueOnce({
+      data: [],
+      metadata: { message: 'ok' },
+      pagination: { total: 0, page: 1, per_page: 20, total_pages: 0 },
+    })
+    renderSidebar('/', false, { lastProjectId: null })
     await waitFor(() => {
-      // "my-project" appears in both the project list link and the section label;
-      // only the project list link carries data-active="true"
-      const allMatches = screen.getAllByText('my-project')
-      const activeEl = allMatches.find((el) => el.closest('[data-active="true"]'))
-      expect(activeEl).toBeInTheDocument()
+      expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+      expect(screen.queryByText('Known Issues')).not.toBeInTheDocument()
+      expect(screen.queryByText('Timeline')).not.toBeInTheDocument()
+      expect(screen.queryByText('Analytics')).not.toBeInTheDocument()
     })
   })
 
-  it('shows nav items under active project', async () => {
+  it('nav items link to correct project paths', () => {
     renderSidebar('/projects/my-project')
+    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
+      'href',
+      '/projects/my-project',
+    )
+    expect(screen.getByRole('link', { name: /known issues/i })).toHaveAttribute(
+      'href',
+      '/projects/my-project/known-issues',
+    )
+    expect(screen.getByRole('link', { name: /timeline/i })).toHaveAttribute(
+      'href',
+      '/projects/my-project/timeline',
+    )
+    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute(
+      'href',
+      '/projects/my-project/analytics',
+    )
+  })
+
+  it('shows "Administration" section and "System Monitor" link for admin users', () => {
+    renderSidebar('/', true)
+    expect(screen.getByText('Administration')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /system monitor/i })).toBeInTheDocument()
+  })
+
+  it('hides "Administration" section for non-admin users', () => {
+    renderSidebar('/', false)
+    expect(screen.queryByText('Administration')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /system monitor/i })).not.toBeInTheDocument()
+  })
+
+  it('displays version in footer', () => {
+    renderSidebar('/')
+    // In test env VITE_APP_VERSION is unset → falls back to 'dev'
+    expect(screen.getByText('vdev')).toBeInTheDocument()
+  })
+
+  it('shows project sub-nav using stored lastProjectId when not on project page', () => {
+    renderSidebar('/', false, { lastProjectId: 'stored-project' })
+    expect(screen.getByText('Overview')).toBeInTheDocument()
+    expect(screen.getByText('Known Issues')).toBeInTheDocument()
+    expect(screen.getByText('Timeline')).toBeInTheDocument()
+    expect(screen.getByText('Analytics')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
+      'href',
+      '/projects/stored-project',
+    )
+    expect(screen.getByRole('link', { name: /known issues/i })).toHaveAttribute(
+      'href',
+      '/projects/stored-project/known-issues',
+    )
+    expect(screen.getByRole('link', { name: /timeline/i })).toHaveAttribute(
+      'href',
+      '/projects/stored-project/timeline',
+    )
+    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute(
+      'href',
+      '/projects/stored-project/analytics',
+    )
+  })
+
+  it('auto-selects first project when no stored project', async () => {
+    vi.mocked(getProjects).mockResolvedValueOnce({
+      data: [{ project_id: 'first-project' }],
+      metadata: { message: 'ok' },
+      pagination: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+    })
+    renderSidebar('/', false, { lastProjectId: null })
     await waitFor(() => {
       expect(screen.getByText('Overview')).toBeInTheDocument()
       expect(screen.getByText('Known Issues')).toBeInTheDocument()
       expect(screen.getByText('Timeline')).toBeInTheDocument()
       expect(screen.getByText('Analytics')).toBeInTheDocument()
     })
-  })
-
-  it('hides nav items when no project is selected', async () => {
-    renderSidebar('/')
-    await waitFor(() => expect(screen.getByText('project-alpha')).toBeInTheDocument())
-    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
-    expect(screen.queryByText('Known Issues')).not.toBeInTheDocument()
-    expect(screen.queryByText('Timeline')).not.toBeInTheDocument()
-    expect(screen.queryByText('Analytics')).not.toBeInTheDocument()
-  })
-
-  it('nav items link to correct project paths', async () => {
-    renderSidebar('/projects/my-project')
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
-        'href',
-        '/projects/my-project',
-      )
-      expect(screen.getByRole('link', { name: /known issues/i })).toHaveAttribute(
-        'href',
-        '/projects/my-project/known-issues',
-      )
-      expect(screen.getByRole('link', { name: /timeline/i })).toHaveAttribute(
-        'href',
-        '/projects/my-project/timeline',
-      )
-      expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute(
-        'href',
-        '/projects/my-project/analytics',
-      )
-    })
-  })
-
-  it('shows project sub-nav as separate section when project is selected', async () => {
-    renderSidebar('/projects/my-project')
-    await waitFor(() => {
-      expect(screen.getByText('Overview')).toBeInTheDocument()
-    })
-    const overviewLink = screen.getByRole('link', { name: /overview/i })
-    // Nav items must NOT be nested inside the collapsible project list (menu-sub)
-    // They live in their own separate SidebarGroup (Section 4)
-    expect(overviewLink.closest('[data-sidebar="menu-sub"]')).toBeNull()
-  })
-
-  it('displays app version in sidebar footer', () => {
-    renderSidebar('/')
-    // In test env VITE_APP_VERSION is unset → falls back to 'dev'
-    expect(screen.getByText('vdev')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
+      'href',
+      '/projects/first-project',
+    )
   })
 })

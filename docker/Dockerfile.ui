@@ -27,7 +27,7 @@ RUN npm run build
 # ============================================================
 # Stage 2 — serve
 # ============================================================
-FROM nginx:1.29-alpine AS runner
+FROM nginxinc/nginx-unprivileged:1.29-alpine AS runner
 
 ARG BUILD_DATE
 ARG BUILD_VERSION
@@ -42,15 +42,22 @@ LABEL org.opencontainers.image.created=${BUILD_DATE} \
     org.opencontainers.image.source="https://github.com/mkutlak/alluredeck" \
     org.opencontainers.image.url="https://github.com/mkutlak/alluredeck"
 
+# Switch to root for file operations (nginx-unprivileged defaults to UID 101)
+USER root
+
 # Remove default nginx config and copy ours
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Copy built assets
+# Copy built assets and rename env.js to template (read-only source for envsubst)
 COPY --from=builder /app/dist /usr/share/nginx/html
+RUN mv /usr/share/nginx/html/env.js /usr/share/nginx/html/env.js.template
 
 # Copy entrypoint script
 COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
+
+# Switch back to non-root user
+USER nginx
 
 EXPOSE 8080
 

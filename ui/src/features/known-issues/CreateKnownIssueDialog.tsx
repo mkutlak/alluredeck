@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -36,7 +37,8 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
         description: description || undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId) })
       toast({ title: 'Known issue added' })
       setTestName('')
       setTicketUrl('')
@@ -45,7 +47,11 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
       onOpenChange(false)
     },
     onError: (err) => {
-      toast({ title: 'Failed to create', description: extractErrorMessage(err), variant: 'destructive' })
+      toast({
+        title: 'Failed to create',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -87,7 +93,7 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
               value={testName}
               onChange={(e) => setTestName(e.target.value)}
             />
-            {nameError && <p className="text-xs text-destructive">{nameError}</p>}
+            {nameError && <p className="text-destructive text-xs">{nameError}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="ticket_url">Ticket URL</Label>

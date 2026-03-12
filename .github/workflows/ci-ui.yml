@@ -1,14 +1,13 @@
 name: CI — UI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
       - "ui/**"
       - "Makefile"
       - ".github/workflows/ci-ui.yml"
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -17,6 +16,7 @@ jobs:
   ui-check:
     name: UI quality gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: ui
@@ -25,7 +25,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: ui/package.json
+          node-version: 25
           cache: npm
           cache-dependency-path: ui/package-lock.json
 

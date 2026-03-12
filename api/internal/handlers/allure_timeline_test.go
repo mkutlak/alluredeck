@@ -10,12 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"go.uber.org/zap"
-
-	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 func TestGetReportTimeline_LatestReport(t *testing.T) {
@@ -218,46 +214,32 @@ func TestGetReportTimeline_MissingDir(t *testing.T) {
 	}
 }
 
-func TestGetReportTimeline_SQLiteFastPath(t *testing.T) {
+func TestGetReportTimeline_DBFastPath(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "sqliteproj"
+	projectID := "dbproj"
 
-	// Create project dir (no report files — SQLite should serve data).
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
-		t.Fatal(err)
+	mocks := testutil.New()
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
+		if pid == projectID && buildOrder == 5 {
+			return int64(100), nil
+		}
+		return 0, nil
+	}
+	mocks.TestResults.ListTimelineFn = func(_ context.Context, pid string, buildID int64, _ int) ([]store.TimelineRow, error) {
+		if pid == projectID && buildID == int64(100) {
+			return []store.TimelineRow{
+				{TestName: "Login", FullName: "com.Login", Status: "passed", StartMs: 1700000000000, StopMs: 1700000005000, Thread: "t-1", Host: "node-1"},
+				{TestName: "Logout", FullName: "com.Logout", Status: "failed", StartMs: 1700000001000, StopMs: 1700000003000, Thread: "t-2", Host: "node-1"},
+			}, nil
+		}
+		return nil, nil
 	}
 
-	cfg := &config.Config{ProjectsDirectory: projectsDir}
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
 
-	st := storage.NewLocalStore(cfg)
-	bs := store.NewBuildStore(db, zap.NewNop())
-	ps := store.NewProjectStore(db, zap.NewNop())
-	ts := store.NewTestResultStore(db, zap.NewNop())
-	ctx := context.Background()
-
-	_ = ps.CreateProject(ctx, projectID)
-	_ = bs.InsertBuild(ctx, projectID, 5)
-	buildID, _ := ts.GetBuildID(ctx, projectID, 5)
-
-	start1, stop1 := int64(1700000000000), int64(1700000005000)
-	start2, stop2 := int64(1700000001000), int64(1700000003000)
-	_ = ts.InsertBatch(ctx, []store.TestResult{
-		{BuildID: buildID, ProjectID: projectID, TestName: "Login", FullName: "com.Login", Status: "passed", DurationMs: 5000, HistoryID: "h1", StartMs: &start1, StopMs: &stop1, Thread: "t-1", Host: "node-1"},
-		{BuildID: buildID, ProjectID: projectID, TestName: "Logout", FullName: "com.Logout", Status: "failed", DurationMs: 2000, HistoryID: "h2", StartMs: &start2, StopMs: &stop2, Thread: "t-2", Host: "node-1"},
-	})
-
-	lockManager := store.NewLockManager()
-	r := runner.NewAllure(cfg, st, bs, lockManager, ts, zap.NewNop())
-	h := NewAllureHandler(cfg, r, nil, ps, bs, store.NewKnownIssueStore(db), ts, nil, st)
-
-	// Request with numeric report_id "5" — should hit SQLite fast path.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"/api/v1/projects/sqliteproj/reports/5/timeline", nil)
+	// Request with numeric report_id "5" — should hit DB fast path.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/dbproj/reports/5/timeline", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,10 +259,10 @@ func TestGetReportTimeline_SQLiteFastPath(t *testing.T) {
 	data := resp["data"].(map[string]any)
 	testCases := data["test_cases"].([]any)
 	if len(testCases) != 2 {
-		t.Fatalf("expected 2 test cases from SQLite, got %d", len(testCases))
+		t.Fatalf("expected 2 test cases from DB, got %d", len(testCases))
 	}
 
-	// Verify ordering: Logout (start=1700000001000) after Login (start=1700000000000).
+	// Verify ordering: Login before Logout (ordered by start time ascending).
 	tc0 := testCases[0].(map[string]any)
 	tc1 := testCases[1].(map[string]any)
 	if tc0["name"] != "Login" {
@@ -290,7 +272,7 @@ func TestGetReportTimeline_SQLiteFastPath(t *testing.T) {
 		t.Errorf("second test should be Logout, got %v", tc1["name"])
 	}
 
-	// Verify timeline fields.
+	// Verify thread/host fields.
 	if thread, _ := tc0["thread"].(string); thread != "t-1" {
 		t.Errorf("thread = %q, want %q", thread, "t-1")
 	}
@@ -304,13 +286,13 @@ func TestGetReportTimeline_SQLiteFastPath(t *testing.T) {
 		t.Errorf("expected total=2, got %v", summary["total"])
 	}
 
-	// Verify duration is computed.
+	// Verify duration is computed from stop - start.
 	if dur, _ := tc0["duration"].(float64); int64(dur) != 5000 {
 		t.Errorf("expected duration=5000, got %v", dur)
 	}
 }
 
-func TestGetReportTimeline_SQLiteFallbackToS3(t *testing.T) {
+func TestGetReportTimeline_FallbackToS3(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "fallbackproj"
 
@@ -360,7 +342,7 @@ func TestGetReportTimeline_Truncation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Create 5001 test result files to trigger truncation
-	for i := 0; i < 5001; i++ {
+	for i := range 5001 {
 		content := fmt.Sprintf(
 			`{"name":"Test %d","status":"passed","time":{"start":%d,"stop":%d,"duration":1000}}`,
 			i, 1700000000000+int64(i)*1000, 1700000001000+int64(i)*1000,

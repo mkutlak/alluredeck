@@ -75,7 +75,11 @@ describe('useJobPolling', () => {
 
   it('isPolling is false and isCompleted is true when status is completed', async () => {
     vi.mocked(reportsApi.getJobStatus).mockResolvedValue({
-      data: makeJobData({ status: 'completed', output: 'report-id-xyz', completed_at: '2026-01-01T00:01:00Z' }),
+      data: makeJobData({
+        status: 'completed',
+        output: 'report-id-xyz',
+        completed_at: '2026-01-01T00:01:00Z',
+      }),
       metadata: { message: 'ok' },
     })
 

@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -49,34 +47,17 @@ func kiToResponse(ki *store.KnownIssue) knownIssueResponse {
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues [get]
 func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	activeOnly := r.URL.Query().Get("active_only") == "true"
 	issues, err := h.knownIssueStore.List(ctx, projectID, activeOnly)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Error listing known issues"},
-		})
+		writeError(w, http.StatusInternalServerError, "Error listing known issues")
 		return
 	}
 
@@ -84,7 +65,7 @@ func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) 
 	for i := range issues {
 		resp = append(resp, kiToResponse(&issues[i]))
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     resp,
 		"metadata": map[string]string{"message": "Known issues successfully obtained"},
 	})
@@ -102,24 +83,10 @@ func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) 
 // @Failure      409  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues [post]
 func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -130,45 +97,33 @@ func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request)
 		Description string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid request body"},
-		})
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.TestName == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "test_name is required"},
-		})
+		writeError(w, http.StatusBadRequest, "test_name is required")
 		return
 	}
 	if err := validateTicketURL(req.TicketURL); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	issue, err := h.knownIssueStore.Create(ctx, projectID, req.TestName, req.Pattern, req.TicketURL, req.Description)
 	if err != nil {
 		if isUniqueConstraintError(err) {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "known issue with this test_name already exists"},
-			})
+			writeError(w, http.StatusConflict, "known issue with this test_name already exists")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Error creating known issue"},
-		})
+		writeError(w, http.StatusInternalServerError, "Error creating known issue")
+		return
+	}
+	if issue == nil {
+		writeError(w, http.StatusInternalServerError, "Error creating known issue")
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"data":     kiToResponse(issue),
 		"metadata": map[string]string{"message": "Known issue created"},
 	})
@@ -187,33 +142,16 @@ func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request)
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues/{issue_id} [put]
 func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	issueID, err := strconv.ParseInt(r.PathValue("issue_id"), 10, 64)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid issue_id"},
-		})
+		writeError(w, http.StatusBadRequest, "invalid issue_id")
 		return
 	}
 
@@ -223,18 +161,12 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 		IsActive    *bool  `json:"is_active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid request body"},
-		})
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := validateTicketURL(req.TicketURL); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -246,29 +178,20 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 
 	if err := h.knownIssueStore.Update(ctx, issueID, projectID, req.TicketURL, req.Description, isActive); err != nil {
 		if errors.Is(err, store.ErrKnownIssueNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "known issue not found"},
-			})
+			writeError(w, http.StatusNotFound, "known issue not found")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Error updating known issue"},
-		})
+		writeError(w, http.StatusInternalServerError, "Error updating known issue")
 		return
 	}
 
 	issue, err := h.knownIssueStore.Get(ctx, issueID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Error fetching updated known issue"},
-		})
+		writeError(w, http.StatusInternalServerError, "Error fetching updated known issue")
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     kiToResponse(issue),
 		"metadata": map[string]string{"message": "Known issue updated"},
 	})
@@ -286,52 +209,29 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues/{issue_id} [delete]
 func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
 	issueID, err := strconv.ParseInt(r.PathValue("issue_id"), 10, 64)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid issue_id"},
-		})
+		writeError(w, http.StatusBadRequest, "invalid issue_id")
 		return
 	}
 
 	if err := h.knownIssueStore.Delete(ctx, issueID, projectID); err != nil {
 		if errors.Is(err, store.ErrKnownIssueNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "known issue not found"},
-			})
+			writeError(w, http.StatusNotFound, "known issue not found")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Error deleting known issue"},
-		})
+		writeError(w, http.StatusInternalServerError, "Error deleting known issue")
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     map[string]any{"id": issueID},
 		"metadata": map[string]string{"message": "Known issue deleted"},
 	})
@@ -348,24 +248,10 @@ func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request)
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/known-failures [get]
 func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid project_id encoding"},
-		})
-		return
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsDirectory, unescaped)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
 		return
 	}
 
@@ -374,20 +260,14 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 		reportID = "latest"
 	}
 	if err := validateReportID(reportID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// List active known issues for this project.
 	knownIssues, err := h.knownIssueStore.List(ctx, projectID, true)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "Error loading known issues"},
-		})
+		writeError(w, http.StatusInternalServerError, "Error loading known issues")
 		return
 	}
 
@@ -403,8 +283,8 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 	if len(knownIssues) > 0 {
 		// Build lookup map: testName -> bool
 		knownMap := make(map[string]bool, len(knownIssues))
-		for _, ki := range knownIssues {
-			knownMap[ki.TestName] = true
+		for i := range knownIssues {
+			knownMap[knownIssues[i].TestName] = true
 		}
 
 		relBase := "reports/" + reportID + "/data/test-results"
@@ -438,7 +318,7 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"known_failures": knownFailures,
 			"new_failures":   newFailures,
@@ -452,10 +332,7 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// isUniqueConstraintError returns true when err is a SQLite unique constraint violation.
+// isUniqueConstraintError returns true when err wraps store.ErrDuplicateEntry.
 func isUniqueConstraintError(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+	return errors.Is(err, store.ErrDuplicateEntry)
 }
