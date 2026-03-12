@@ -14,8 +14,12 @@ describe('queryKeys', () => {
     expect(queryKeys.projects).toEqual(['projects'])
   })
 
-  it('dashboard is a static key', () => {
-    expect(queryKeys.dashboard).toEqual(['dashboard'])
+  it('dashboard returns base key when called without arg', () => {
+    expect(queryKeys.dashboard()).toEqual(['dashboard'])
+  })
+
+  it('dashboard returns tagged key when called with a tag', () => {
+    expect(queryKeys.dashboard('prod')).toEqual(['dashboard', 'prod'])
   })
 
   it('reportHistory without page returns prefix key', () => {
@@ -75,7 +79,7 @@ describe('invalidateProjectQueries', () => {
   it('invalidates dashboard', async () => {
     const qc = makeMockQueryClient()
     await invalidateProjectQueries(qc, 'proj')
-    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: queryKeys.dashboard })
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: queryKeys.dashboard() })
   })
 
   it('invalidates all project-scoped query prefixes', async () => {
@@ -137,7 +141,7 @@ describe('removeProjectQueries', () => {
   it('does not remove global keys (dashboard, projects)', () => {
     const qc = makeMockQueryClient()
     removeProjectQueries(qc, 'proj')
-    expect(qc.removeQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.dashboard })
+    expect(qc.removeQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.dashboard() })
     expect(qc.removeQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.projects })
   })
 

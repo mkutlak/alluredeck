@@ -6,7 +6,7 @@ import { listKnownIssues, deleteKnownIssue, updateKnownIssue } from '@/api/known
 import { extractErrorMessage } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { isSafeUrl } from '@/lib/url'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -38,7 +38,7 @@ import { EditKnownIssueDialog } from './EditKnownIssueDialog'
 
 export function KnownIssuesTab() {
   const { id: projectId } = useParams<{ id: string }>()
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const queryClient = useQueryClient()
 
   const [showResolved, setShowResolved] = useState(false)
@@ -118,7 +118,7 @@ export function KnownIssuesTab() {
             Show resolved
           </Label>
         </div>
-        {isAdmin() && (
+        {isAdmin && (
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus size={14} />
             Add Known Issue
@@ -139,7 +139,7 @@ export function KnownIssuesTab() {
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No known issues tracked for this project</p>
-          {isAdmin() && (
+          {isAdmin && (
             <p className="text-muted-foreground text-sm">
               Add known issues to separate them from new failures in reports.
             </p>
@@ -155,7 +155,7 @@ export function KnownIssuesTab() {
                 <TableHead>Description</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead>Created</TableHead>
-                {isAdmin() && <TableHead className="text-right">Actions</TableHead>}
+                {isAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -181,7 +181,7 @@ export function KnownIssuesTab() {
                     {issue.description || '—'}
                   </TableCell>
                   <TableCell className="text-center">
-                    {isAdmin() ? (
+                    {isAdmin ? (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -202,7 +202,7 @@ export function KnownIssuesTab() {
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(issue.created_at)}
                   </TableCell>
-                  {isAdmin() && (
+                  {isAdmin && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button
@@ -232,7 +232,7 @@ export function KnownIssuesTab() {
         </div>
       )}
 
-      {isAdmin() && (
+      {isAdmin && (
         <>
           <CreateKnownIssueDialog
             projectId={projectId}

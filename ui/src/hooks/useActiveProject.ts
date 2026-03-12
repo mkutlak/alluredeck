@@ -3,6 +3,7 @@ import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { getProjects } from '@/api/projects'
 import { useUIStore } from '@/store/ui'
+import { queryKeys } from '@/lib/query-keys'
 
 interface ActiveProjectResult {
   projectId: string | null
@@ -16,7 +17,7 @@ export function useActiveProject(): ActiveProjectResult {
   const setLastProjectId = useUIStore((s) => s.setLastProjectId)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['projects'],
+    queryKey: queryKeys.projects,
     queryFn: () => getProjects(),
     staleTime: 30_000,
     enabled: !urlProjectId,

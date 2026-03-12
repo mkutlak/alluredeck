@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchLowPerformingTests } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { LineChart, Line } from 'recharts'
-import { ChartContainer } from '@/components/ui/chart'
 
 interface Props {
   projectId: string
@@ -22,26 +22,21 @@ function formatMetric(value: number, sort: SortMode): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
-// Minimal config — no themed colors needed; sparkline uses currentColor
-const miniConfig = {}
-
-function MiniSparkline({ data }: { data: number[] }) {
+const MiniSparkline = React.memo(function MiniSparkline({ data }: { data: number[] }) {
   if (!data || data.length < 2) return <span className="text-muted-foreground text-xs">—</span>
   const chartData = data.map((v, i) => ({ i, v }))
   return (
-    <ChartContainer config={miniConfig} className="h-6 w-[60px]">
-      <LineChart data={chartData}>
-        <Line type="monotone" dataKey="v" dot={false} strokeWidth={1.5} stroke="currentColor" />
-      </LineChart>
-    </ChartContainer>
+    <LineChart data={chartData} width={60} height={24}>
+      <Line type="monotone" dataKey="v" dot={false} strokeWidth={1.5} stroke="currentColor" />
+    </LineChart>
   )
-}
+})
 
 export function LowPerformingCard({ projectId }: Props) {
   const [sort, setSort] = useState<SortMode>('duration')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['low-performing-tests', projectId, sort],
+    queryKey: queryKeys.lowPerforming(projectId, sort),
     queryFn: () => fetchLowPerformingTests(projectId, sort),
     staleTime: 60_000,
   })

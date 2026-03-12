@@ -11,24 +11,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { formatDate, formatDuration } from '@/lib/utils'
+import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { PassRateSparkline } from './PassRateSparkline'
 import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
 import { EditTagsDialog } from '@/features/projects/EditTagsDialog'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import type { DashboardProjectEntry } from '@/types/api'
 
 interface Props {
   project: DashboardProjectEntry
 }
 
-function passRateBadgeVariant(rate: number): 'default' | 'secondary' | 'destructive' {
-  if (rate >= 90) return 'default'
-  if (rate >= 70) return 'secondary'
-  return 'destructive'
-}
-
 export function ProjectStatusCard({ project }: Props) {
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [editTagsOpen, setEditTagsOpen] = useState(false)
   const { latest_build, sparkline } = project
@@ -44,21 +39,15 @@ export function ProjectStatusCard({ project }: Props) {
             <div className="flex items-center gap-1">
               {latest_build ? (
                 <Badge
-                  variant={passRateBadgeVariant(passRate)}
-                  className={
-                    passRate >= 90
-                      ? 'bg-[#40a02b] text-white hover:bg-[#40a02b]/90 dark:bg-[#a6e3a1] dark:text-[#1e1e2e] dark:hover:bg-[#a6e3a1]/90'
-                      : passRate >= 70
-                        ? 'bg-[#fe640b] text-white hover:bg-[#fe640b]/90 dark:bg-[#fab387] dark:text-[#1e1e2e] dark:hover:bg-[#fab387]/90'
-                        : undefined
-                  }
+                  variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
+                  className={getPassRateBadgeClass(passRate)}
                 >
                   {passRate.toFixed(0)}%
                 </Badge>
               ) : (
                 <Badge variant="secondary">No builds</Badge>
               )}
-              {isAdmin() && (
+              {isAdmin && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -152,7 +141,7 @@ export function ProjectStatusCard({ project }: Props) {
         </CardContent>
       </Card>
 
-      {isAdmin() && (
+      {isAdmin && (
         <>
           <DeleteProjectDialog
             projectId={project.project_id}

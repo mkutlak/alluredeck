@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/command'
 import { useDebounce } from '@/hooks/useDebounce'
 import { search } from '@/api/search'
+import { queryKeys } from '@/lib/query-keys'
 
 type SearchCommandContextValue = {
   open: boolean
@@ -38,7 +39,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
   const debouncedQuery = useDebounce(query, 300)
 
   const { data, isFetching } = useQuery({
-    queryKey: ['search', debouncedQuery],
+    queryKey: queryKeys.search(debouncedQuery),
     queryFn: () => search({ q: debouncedQuery }),
     enabled: debouncedQuery.length >= 2,
     staleTime: 10_000,

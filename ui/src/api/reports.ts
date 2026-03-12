@@ -15,7 +15,6 @@ import type {
   StabilityData,
   TimelineData,
 } from '@/types/api'
-import { env } from '@/lib/env'
 
 export async function generateReport(
   params: GenerateReportParams,
@@ -119,12 +118,11 @@ export async function fetchReportSummary(
   projectId: string,
   reportId: string,
 ): Promise<AllureSummary | null> {
-  // Allure stores widget data at widgets/summary.json inside the report directory
-  const url = `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/widgets/summary.json`
   try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    return (await res.json()) as AllureSummary
+    const res = await apiClient.get<AllureSummary>(
+      `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/widgets/summary.json`,
+    )
+    return res.data
   } catch {
     return null
   }

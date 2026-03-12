@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchBuildComparison } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
 import { formatDuration, getStatusVariant } from '@/lib/utils'
+import { STATUS_TEXT_CLASSES, STATUS_BG_CLASSES } from '@/lib/status-colors'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -29,8 +30,8 @@ const CATEGORY_LABELS: Record<DiffCategory, string> = {
 }
 
 const CATEGORY_VARIANTS: Record<DiffCategory, string> = {
-  regressed: 'bg-[#d20f39]/15 text-[#d20f39] dark:bg-[#f38ba8]/15 dark:text-[#f38ba8]',
-  fixed: 'bg-[#40a02b]/15 text-[#40a02b] dark:bg-[#a6e3a1]/15 dark:text-[#a6e3a1]',
+  regressed: `${STATUS_BG_CLASSES.failed} ${STATUS_TEXT_CLASSES.failed}`,
+  fixed: `${STATUS_BG_CLASSES.passed} ${STATUS_TEXT_CLASSES.passed}`,
   added: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
   removed: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400',
 }
@@ -48,8 +49,7 @@ function DiffCategoryBadge({ category }: { category: DiffCategory }) {
 function DurationDelta({ delta }: { delta: number }) {
   if (delta === 0) return <span className="text-muted-foreground">—</span>
   const sign = delta > 0 ? '+' : ''
-  const cls =
-    delta > 0 ? 'text-[#d20f39] dark:text-[#f38ba8]' : 'text-[#40a02b] dark:text-[#a6e3a1]'
+  const cls = delta > 0 ? STATUS_TEXT_CLASSES.failed : STATUS_TEXT_CLASSES.passed
   return (
     <span className={cls}>
       {sign}
