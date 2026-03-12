@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAuthStore } from './auth'
+import { useAuthStore, selectIsAdmin, selectIsSessionValid } from './auth'
 
 // Mock the API client module — no more setAccessToken
 vi.mock('@/api/client', () => ({
@@ -51,37 +51,39 @@ describe('useAuthStore', () => {
   describe('isAdmin', () => {
     it('returns true for admin role', () => {
       useAuthStore.getState().setAuth(['admin'], 'alice', 3600)
-      expect(useAuthStore.getState().isAdmin()).toBe(true)
+      expect(selectIsAdmin(useAuthStore.getState())).toBe(true)
     })
 
     it('returns false for viewer role', () => {
       useAuthStore.getState().setAuth(['viewer'], 'bob', 3600)
-      expect(useAuthStore.getState().isAdmin()).toBe(false)
+      expect(selectIsAdmin(useAuthStore.getState())).toBe(false)
     })
 
     it('returns false when not authenticated', () => {
-      expect(useAuthStore.getState().isAdmin()).toBe(false)
+      expect(selectIsAdmin(useAuthStore.getState())).toBe(false)
     })
   })
 
   describe('isSessionValid', () => {
     it('returns false when not authenticated', () => {
-      expect(useAuthStore.getState().isSessionValid()).toBe(false)
+      expect(selectIsSessionValid(useAuthStore.getState())).toBe(false)
     })
 
     it('returns true when authenticated and token not expired', () => {
       useAuthStore.getState().setAuth(['admin'], 'alice', 3600)
-      expect(useAuthStore.getState().isSessionValid()).toBe(true)
+      expect(selectIsSessionValid(useAuthStore.getState())).toBe(true)
     })
 
     it('returns false when token is expired', () => {
-      useAuthStore.setState({
-        isAuthenticated: true,
-        roles: ['admin'],
-        username: 'alice',
-        expiresAt: Date.now() - 1000, // already expired
-      })
-      expect(useAuthStore.getState().isSessionValid()).toBe(false)
+      expect(
+        selectIsSessionValid({
+          ...useAuthStore.getState(),
+          isAuthenticated: true,
+          roles: ['admin'],
+          username: 'alice',
+          expiresAt: Date.now() - 1000, // already expired
+        }),
+      ).toBe(false)
     })
   })
 })

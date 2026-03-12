@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { sendResultsMultipart } from './reports'
+import { sendResultsMultipart, fetchReportSummary } from './reports'
 import { apiClient } from './client'
 
 vi.mock('@/lib/env', () => ({
@@ -9,6 +9,7 @@ vi.mock('@/lib/env', () => ({
 vi.mock('./client', () => ({
   apiClient: {
     post: vi.fn().mockResolvedValue({ data: {} }),
+    get: vi.fn(),
   },
 }))
 
@@ -72,5 +73,44 @@ describe('sendResultsMultipart', () => {
     const [, body, config] = mockedPost.mock.calls[0]
     expect(body).toBeInstanceOf(FormData)
     expect(config?.headers?.['Content-Type']).toBe('multipart/form-data')
+  })
+})
+
+describe('fetchReportSummary', () => {
+  const mockGet = vi.mocked(apiClient.get)
+
+  beforeEach(() => {
+    mockGet.mockClear()
+  })
+
+  it('calls apiClient.get with encoded path and returns summary data', async () => {
+    const summary = { statistic: { passed: 5, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 5 } }
+    mockGet.mockResolvedValueOnce({ data: summary })
+
+    const result = await fetchReportSummary('my-project', 'report-42')
+
+    expect(mockGet).toHaveBeenCalledWith(
+      '/projects/my-project/reports/report-42/widgets/summary.json',
+    )
+    expect(result).toEqual(summary)
+  })
+
+  it('encodes special characters in projectId and reportId', async () => {
+    const summary = { statistic: { passed: 1, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 1 } }
+    mockGet.mockResolvedValueOnce({ data: summary })
+
+    await fetchReportSummary('project/x', 'report#1')
+
+    expect(mockGet).toHaveBeenCalledWith(
+      `/projects/${encodeURIComponent('project/x')}/reports/${encodeURIComponent('report#1')}/widgets/summary.json`,
+    )
+  })
+
+  it('returns null when apiClient throws', async () => {
+    mockGet.mockRejectedValueOnce(new Error('Network error'))
+
+    const result = await fetchReportSummary('my-project', 'missing-report')
+
+    expect(result).toBeNull()
   })
 })

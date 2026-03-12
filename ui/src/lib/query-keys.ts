@@ -2,7 +2,9 @@ import type { QueryClient } from '@tanstack/react-query'
 
 export const queryKeys = {
   projects: ['projects'] as const,
-  dashboard: ['dashboard'] as const,
+  tags: ['tags'] as const,
+  dashboard: (tag?: string) =>
+    tag !== undefined ? (['dashboard', tag] as const) : (['dashboard'] as const),
   search: (query: string) => ['search', query] as const,
   // Project-scoped
   reportHistory: (pid: string, page?: number, branch?: string) =>
@@ -18,7 +20,10 @@ export const queryKeys = {
   reportKnownFailures: (pid: string) => ['report-known-failures', pid] as const,
   reportTimeline: (pid: string) => ['report-timeline', pid] as const,
   reportHistoryAnalytics: (pid: string) => ['report-history-analytics', pid] as const,
-  lowPerforming: (pid: string) => ['low-performing-tests', pid] as const,
+  lowPerforming: (pid: string, sort?: string) =>
+    sort !== undefined
+      ? (['low-performing-tests', pid, sort] as const)
+      : (['low-performing-tests', pid] as const),
   knownIssues: (pid: string) => ['known-issues', pid] as const,
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
   buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
@@ -66,7 +71,7 @@ export async function invalidateProjectQueries(
   projectId: string,
 ): Promise<void> {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() }),
     ...projectScopedKeys(projectId).map((key) => queryClient.invalidateQueries({ queryKey: key })),
   ])
 }

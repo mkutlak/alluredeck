@@ -37,7 +37,7 @@ export function CreateKnownIssueDialog({ projectId, open, onOpenChange }: Props)
         description: description || undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['known-issues', projectId] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId) })
       toast({ title: 'Known issue added' })
       setTestName('')

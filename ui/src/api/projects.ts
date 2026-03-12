@@ -14,8 +14,8 @@ export async function getProjects(
 ): Promise<PaginatedResponse<ProjectsData>> {
   const res = await apiClient.get<PaginatedResponse<ProjectsData>>('/projects', {
     params: {
-      ...(page ? { page } : {}),
-      ...(perPage ? { per_page: perPage } : {}),
+      ...(page !== undefined ? { page } : {}),
+      ...(perPage !== undefined ? { per_page: perPage } : {}),
     },
   })
   return res.data
@@ -32,7 +32,7 @@ export async function updateProjectTags(
   projectId: string,
   tags: string[],
 ): Promise<ApiResponse<ProjectEntry>> {
-  const res = await apiClient.put<ApiResponse<ProjectEntry>>(`/projects/${projectId}/tags`, {
+  const res = await apiClient.put<ApiResponse<ProjectEntry>>(`/projects/${encodeURIComponent(projectId)}/tags`, {
     tags,
   })
   return res.data

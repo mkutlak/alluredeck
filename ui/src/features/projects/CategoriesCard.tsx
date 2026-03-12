@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportCategories } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,7 +11,7 @@ interface Props {
 
 export function CategoriesCard({ projectId }: Props) {
   const { data: categories, isLoading } = useQuery({
-    queryKey: ['report-categories', projectId],
+    queryKey: queryKeys.reportCategories(projectId),
     queryFn: () => fetchReportCategories(projectId),
     staleTime: 30_000,
   })

@@ -3,21 +3,22 @@ import { Plus, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchDashboard } from '@/api/dashboard'
 import { getTags } from '@/api/projects'
+import { queryKeys } from '@/lib/query-keys'
 import { ProjectStatusCard } from './ProjectStatusCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
 
 export function DashboardPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedTag, setSelectedTag] = useState('')
-  const isAdmin = useAuthStore((s) => s.isAdmin)
+  const isAdmin = useAuthStore(selectIsAdmin)
 
   const { data: tagsResp } = useQuery({
-    queryKey: ['tags'],
+    queryKey: queryKeys.tags,
     queryFn: getTags,
     staleTime: 60_000,
   })
@@ -25,7 +26,7 @@ export function DashboardPage() {
 
   const tag = selectedTag || undefined
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['dashboard', selectedTag],
+    queryKey: queryKeys.dashboard(selectedTag),
     queryFn: () => fetchDashboard(tag),
     staleTime: 30_000,
   })
@@ -55,9 +56,9 @@ export function DashboardPage() {
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
         <p className="text-lg font-medium">No projects yet</p>
         <p className="text-muted-foreground text-sm">
-          {isAdmin() ? 'Create a project to get started.' : 'Ask an admin to create a project.'}
+          {isAdmin ? 'Create a project to get started.' : 'Ask an admin to create a project.'}
         </p>
-        {isAdmin() && (
+        {isAdmin && (
           <Button onClick={() => setCreateOpen(true)}>
             <Plus />
             Create first project
@@ -81,7 +82,7 @@ export function DashboardPage() {
           <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh">
             <RefreshCw className={isFetching ? 'animate-spin' : ''} />
           </Button>
-          {isAdmin() && (
+          {isAdmin && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus />
               New project

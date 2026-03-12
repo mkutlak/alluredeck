@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Tooltip, Legend } from 'recharts'
 import { fetchLabelBreakdown } from '@/api/analytics'
@@ -57,15 +57,19 @@ export function LabelBreakdownCard({ projectId }: Props) {
     staleTime: 60_000,
   })
 
-  const labels = data?.data ?? []
-  const chartConfig = buildChartConfig(labels)
+  const labels = useMemo(() => data?.data ?? [], [data?.data])
+  const chartConfig = useMemo(() => buildChartConfig(labels), [labels])
 
   // In recharts v3, Cell is deprecated; pass fill directly in each data entry
-  const coloredData = labels.map((entry, i) => ({
-    ...entry,
-    name: entry.value,
-    fill: SLICE_COLORS[i % SLICE_COLORS.length],
-  }))
+  const coloredData = useMemo(
+    () =>
+      labels.map((entry, i) => ({
+        ...entry,
+        name: entry.value,
+        fill: SLICE_COLORS[i % SLICE_COLORS.length],
+      })),
+    [labels],
+  )
 
   return (
     <Card>

@@ -8,7 +8,7 @@ export async function search(params: {
   const res = await apiClient.get<ApiResponse<SearchData>>('/search', {
     params: {
       q: params.q,
-      ...(params.limit ? { limit: params.limit } : {}),
+      ...(params.limit !== undefined ? { limit: params.limit } : {}),
     },
   })
   return res.data

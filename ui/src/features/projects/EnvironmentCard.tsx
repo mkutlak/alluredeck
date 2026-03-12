@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportEnvironment } from '@/api/reports'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -17,7 +18,7 @@ interface Props {
 
 export function EnvironmentCard({ projectId }: Props) {
   const { data: entries, isLoading } = useQuery({
-    queryKey: ['report-environment', projectId],
+    queryKey: queryKeys.reportEnvironment(projectId),
     queryFn: () => fetchReportEnvironment(projectId),
     staleTime: 30_000,
   })

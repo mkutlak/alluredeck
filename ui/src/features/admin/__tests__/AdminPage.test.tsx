@@ -8,14 +8,19 @@ import * as adminApi from '@/api/admin'
 import { useAuthStore } from '@/store/auth'
 import type { AdminJobEntry, AdminResultsEntry } from '@/types/api'
 
-vi.mock('@/store/auth', () => ({ useAuthStore: vi.fn() }))
+vi.mock('@/store/auth', () => ({
+  useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
+}))
 vi.mock('@/api/admin')
 vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
 
-type AuthSelector = (s: { isAdmin: () => boolean }) => unknown
+import type { AuthState } from '@/store/auth'
+
+type AuthSelector = (s: Partial<AuthState>) => unknown
 
 function renderPage(initialPath = '/admin') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -59,13 +64,13 @@ describe('AdminPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ isAdmin: () => true }),
+      (selector as AuthSelector)({ roles: ['admin'] }),
     )
   })
 
   it('redirects non-admin to dashboard', () => {
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ isAdmin: () => false }),
+      (selector as AuthSelector)({ roles: [] }),
     )
     vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])

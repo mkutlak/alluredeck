@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import type { DurationTrendPoint } from '@/lib/chart-utils'
 import { durationChartConfig } from '@/lib/chart-utils'
@@ -9,11 +10,13 @@ interface Props {
 }
 
 export function DurationTrendChart({ data }: Props) {
+  const id = useId()
+  const gradientId = `durationGrad${id.replace(/:/g, '')}`
   return (
     <ChartContainer config={durationChartConfig} className="h-[240px] w-full">
       <AreaChart accessibilityLayer data={data} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
         <defs>
-          <linearGradient id="durationGrad" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="var(--color-durationSec)" stopOpacity={0.3} />
             <stop offset="95%" stopColor="var(--color-durationSec)" stopOpacity={0} />
           </linearGradient>
@@ -34,7 +37,7 @@ export function DurationTrendChart({ data }: Props) {
           name="Duration"
           stroke="var(--color-durationSec)"
           strokeWidth={2}
-          fill="url(#durationGrad)"
+          fill={`url(#${gradientId})`}
           dot={{ r: 3 }}
         />
       </AreaChart>

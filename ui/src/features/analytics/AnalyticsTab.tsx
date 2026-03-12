@@ -4,9 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
 import {
-  toStatusTrendData,
-  toPassRateTrendData,
-  toDurationTrendData,
+  toAllTrendData,
   toStatusPieData,
   toCategoryBreakdownData,
 } from '@/lib/chart-utils'
@@ -30,24 +28,25 @@ export function AnalyticsTab() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: queryKeys.reportHistoryAnalytics(projectId!),
-    queryFn: () => fetchReportHistory(projectId!, 1, 100),
+    queryKey: queryKeys.reportHistoryAnalytics(projectId ?? ''),
+    queryFn: () => fetchReportHistory(projectId ?? '', 1, 100),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
-    queryKey: queryKeys.reportCategoriesLatest(projectId!),
-    queryFn: () => fetchReportCategories(projectId!),
+    queryKey: queryKeys.reportCategoriesLatest(projectId ?? ''),
+    queryFn: () => fetchReportCategories(projectId ?? ''),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
   const reports = useMemo(() => historyData?.data.reports ?? [], [historyData])
 
-  const statusTrend = useMemo(() => toStatusTrendData(reports), [reports])
-  const passRateTrend = useMemo(() => toPassRateTrendData(reports), [reports])
-  const durationTrend = useMemo(() => toDurationTrendData(reports), [reports])
+  const { status: statusTrend, passRate: passRateTrend, duration: durationTrend } = useMemo(
+    () => toAllTrendData(reports),
+    [reports],
+  )
   const pieData = useMemo(() => toStatusPieData(reports), [reports])
   const total = reports[0]?.statistic?.total ?? 0
   const categoryData = useMemo(

@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getJobStatus } from '@/api/reports'
-import { invalidateProjectQueries } from '@/lib/query-keys'
+import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import type { JobStatus } from '@/types/api'
 
 const TERMINAL_STATUSES: JobStatus[] = ['completed', 'failed']
@@ -19,7 +19,7 @@ export function useJobPolling(projectId: string, jobId: string | null): UseJobPo
   const queryClient = useQueryClient()
 
   const query = useQuery({
-    queryKey: ['job-status', projectId, jobId],
+    queryKey: queryKeys.jobStatus(projectId, jobId!),
     queryFn: () => getJobStatus(projectId, jobId!).then((r) => r.data),
     enabled: jobId !== null,
     refetchInterval: (query) => {
