@@ -26,6 +26,7 @@ vi.mock('@/api/client', () => ({
 
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
 }))
 
 vi.mock('@/store/ui', () => ({
@@ -68,8 +69,6 @@ function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<
       expiresAt: null,
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
-      isAdmin: () => isAdmin,
-      isSessionValid: () => true,
     }),
   )
   vi.mocked(useUIStore).mockImplementation((selector: (state: UIState) => unknown) =>

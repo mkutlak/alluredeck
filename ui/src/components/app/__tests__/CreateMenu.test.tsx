@@ -7,6 +7,7 @@ import { CreateMenu } from '../CreateMenu'
 
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
 }))
 
 vi.mock('@/features/projects/CreateProjectDialog', () => ({
@@ -40,8 +41,6 @@ function mockAdmin(isAdminResult: boolean) {
       expiresAt: null,
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
-      isAdmin: () => isAdminResult,
-      isSessionValid: () => true,
     }),
   )
 }

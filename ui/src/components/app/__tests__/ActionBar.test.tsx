@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAuthStore } from '@/store/auth'
 import type { AuthState, Role } from '@/store/auth'
 import { ActionBar } from '../ActionBar'
 
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
+  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
 }))
 
 vi.mock('@/features/reports/SendResultsDialog', () => ({
@@ -37,18 +39,18 @@ function renderActionBar(path: string, isAdminResult = true) {
       expiresAt: null,
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
-      isAdmin: () => isAdminResult,
-      isSessionValid: () => true,
     }),
   )
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/" element={<ActionBar />} />
-        <Route path="/projects/:id" element={<ActionBar />} />
-        <Route path="/projects/:id/*" element={<ActionBar />} />
-      </Routes>
-    </MemoryRouter>,
+    <TooltipProvider>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/" element={<ActionBar />} />
+          <Route path="/projects/:id" element={<ActionBar />} />
+          <Route path="/projects/:id/*" element={<ActionBar />} />
+        </Routes>
+      </MemoryRouter>
+    </TooltipProvider>,
   )
 }
 

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { updateProjectTags, getTags } from '@/api/projects'
 import { extractErrorMessage } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 
 interface Props {
   projectId: string
@@ -30,7 +31,7 @@ export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: P
   const qc = useQueryClient()
 
   const { data: allTagsResp } = useQuery({
-    queryKey: ['tags'],
+    queryKey: queryKeys.tags,
     queryFn: getTags,
     staleTime: 60_000,
   })
@@ -40,8 +41,8 @@ export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: P
   const { mutate, isPending } = useMutation({
     mutationFn: () => updateProjectTags(projectId, tags),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['dashboard'] })
-      void qc.invalidateQueries({ queryKey: ['tags'] })
+      void qc.invalidateQueries({ queryKey: queryKeys.dashboard() })
+      void qc.invalidateQueries({ queryKey: queryKeys.tags })
       onOpenChange(false)
     },
     onError: (e) => setError(extractErrorMessage(e)),

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, Link } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { queryKeys } from '@/lib/query-keys'
 import { formatDate, formatBytes } from '@/lib/utils'
 import {
@@ -78,7 +78,10 @@ function JobsCard() {
 
   const { mutate: doDeleteSelected } = useMutation({
     mutationFn: async (jobIds: string[]) => {
-      await Promise.all(jobIds.map((id) => deleteJob(id)))
+      const BATCH_SIZE = 5
+      for (let i = 0; i < jobIds.length; i += BATCH_SIZE) {
+        await Promise.all(jobIds.slice(i, i + BATCH_SIZE).map((id) => deleteJob(id)))
+      }
     },
     onSuccess: () => {
       setSelectedIds(new Set())
@@ -320,7 +323,7 @@ function ResultsCard() {
 }
 
 export function AdminPage() {
-  const isAdmin = useAuthStore((s) => s.isAdmin())
+  const isAdmin = useAuthStore(selectIsAdmin)
 
   if (!isAdmin) {
     return <Navigate to="/" replace />

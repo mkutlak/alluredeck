@@ -39,7 +39,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
         clearLastProjectId()
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       removeProjectQueries(queryClient, projectId)
       toast({ title: 'Project deleted', description: `"${projectId}" has been removed.` })
       onOpenChange(false)
