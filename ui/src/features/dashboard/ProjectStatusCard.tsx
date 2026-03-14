@@ -143,11 +143,13 @@ export function ProjectStatusCard({ project }: Props) {
 
       {isAdmin && (
         <>
-          <DeleteProjectDialog
-            projectId={project.project_id}
-            open={deleteOpen}
-            onOpenChange={setDeleteOpen}
-          />
+          {deleteOpen && (
+            <DeleteProjectDialog
+              projectId={project.project_id}
+              open={deleteOpen}
+              onOpenChange={setDeleteOpen}
+            />
+          )}
           {editTagsOpen && (
             <EditTagsDialog
               projectId={project.project_id}

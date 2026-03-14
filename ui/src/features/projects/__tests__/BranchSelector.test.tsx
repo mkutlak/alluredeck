@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { BranchSelector } from '../BranchSelector'
 import * as branchesApi from '@/api/branches'
 import type { Branch } from '@/types/api'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/branches')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function makeBranch(overrides: Partial<Branch> = {}): Branch {
   return {
@@ -31,11 +31,10 @@ function renderSelector(
   } = {},
 ) {
   const onBranchChange = props.onBranchChange ?? vi.fn()
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return {
     onBranchChange,
     ...render(
-      <QueryClientProvider client={qc}>
+      <QueryClientProvider client={createTestQueryClient()}>
         <BranchSelector
           projectId={props.projectId ?? 'myproject'}
           selectedBranch={props.selectedBranch}

@@ -1,20 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { createMemoryRouter } from 'react-router'
+import { renderWithProviders } from '@/test/render'
 import { OverviewTab } from '../OverviewTab'
 import * as reportsApi from '@/api/reports'
 import { useAuthStore } from '@/store/auth'
+
+import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/reports')
 vi.mock('@/api/branches', () => ({
   fetchBranches: vi.fn().mockResolvedValue([]),
 }))
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function makeReport(id: string, isLatest = false) {
   return {
@@ -77,12 +76,7 @@ function renderTab(isAdminUser = false) {
     initialEntries: ['/projects/test-project'],
   })
 
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={qc}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
+  return renderWithProviders(<></>, { router })
 }
 
 describe('OverviewTab - report history pagination', () => {

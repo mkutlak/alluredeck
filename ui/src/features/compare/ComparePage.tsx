@@ -63,8 +63,10 @@ export function ComparePage() {
   const [searchParams] = useSearchParams()
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all')
 
-  const buildA = parseInt(searchParams.get('a') ?? '', 10)
-  const buildB = parseInt(searchParams.get('b') ?? '', 10)
+  const rawA = searchParams.get('a') ?? ''
+  const rawB = searchParams.get('b') ?? ''
+  const buildA = /^\d+$/.test(rawA) ? Number(rawA) : NaN
+  const buildB = /^\d+$/.test(rawB) ? Number(rawB) : NaN
   const paramsValid = !isNaN(buildA) && !isNaN(buildB) && buildA > 0 && buildB > 0
 
   const { data, isLoading } = useQuery({

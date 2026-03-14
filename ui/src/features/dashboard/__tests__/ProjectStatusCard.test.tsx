@@ -17,10 +17,8 @@ vi.mock('@/features/projects/DeleteProjectDialog', () => ({
   DeleteProjectDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="delete-dialog" /> : null,
 }))
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+import { mockApiClient } from '@/test/mocks/api-client'
+mockApiClient()
 
 import { ProjectStatusCard } from '../ProjectStatusCard'
 import { useAuthStore } from '@/store/auth'
@@ -111,5 +109,13 @@ describe('ProjectStatusCard', () => {
   it('hides delete dropdown for non-admin users', () => {
     renderCard(healthyProject)
     expect(screen.queryByRole('button', { name: /project actions/i })).not.toBeInTheDocument()
+  })
+
+  it('does not mount DeleteProjectDialog when deleteOpen is false', () => {
+    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
+      (selector as AuthSelector)({ roles: ['admin'] }),
+    )
+    renderCard(healthyProject)
+    expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
   })
 })

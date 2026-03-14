@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { EditKnownIssueDialog } from '../EditKnownIssueDialog'
 import * as kiApi from '@/api/known-issues'
 import type { KnownIssue } from '@/types/api'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/known-issues')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
   return {
@@ -28,9 +28,8 @@ function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
 }
 
 function renderDialog(issue: KnownIssue, onOpenChange = vi.fn()) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
+    <QueryClientProvider client={createTestQueryClient()}>
       <EditKnownIssueDialog
         projectId="myproject"
         issue={issue}

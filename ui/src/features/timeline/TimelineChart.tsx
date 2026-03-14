@@ -44,20 +44,26 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
   const strategy = detectLaneStrategy(testCases)
   const lanes = toTimelineLanes(testCases, strategy)
 
-  const laneData = useMemo(
-    () =>
-      lanes.map((lane) => {
-        const laneTcs = testCases.filter((tc) => {
-          if (strategy === 'thread') return (tc.thread || 'default') === lane.id
-          if (strategy === 'host') return (tc.host || 'default') === lane.id
-          return true
-        })
-        const bars = laneTcs.map((tc) => computeBar(tc, minStart, totalMs))
-        const rows = stackBarsIntoRows(bars)
-        return { lane, rows }
-      }),
-    [lanes, testCases, strategy, minStart, totalMs],
-  )
+  const laneData = useMemo(() => {
+    const index = new Map<string, TimelineTestCase[]>()
+    for (const tc of testCases) {
+      const key =
+        strategy === 'thread'
+          ? (tc.thread || 'default')
+          : strategy === 'host'
+            ? (tc.host || 'default')
+            : 'default'
+      const arr = index.get(key)
+      if (arr) arr.push(tc)
+      else index.set(key, [tc])
+    }
+    return lanes.map((lane) => {
+      const laneTcs = index.get(lane.id) ?? []
+      const bars = laneTcs.map((tc) => computeBar(tc, minStart, totalMs))
+      const rows = stackBarsIntoRows(bars)
+      return { lane, rows }
+    })
+  }, [lanes, testCases, strategy, minStart, totalMs])
 
   const presentStatuses = useMemo(
     () => LEGEND_ITEMS.filter(({ status }) => testCases.some((tc) => tc.status === status)),

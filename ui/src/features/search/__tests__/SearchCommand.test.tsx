@@ -1,26 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router'
+import { renderWithProviders } from '@/test/render'
 import * as searchApi from '@/api/search'
 import { SearchCommand } from '../SearchCommand'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/search')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function renderSearch() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <MemoryRouter>
-      <QueryClientProvider client={qc}>
-        <SearchCommand />
-      </QueryClientProvider>
-    </MemoryRouter>,
-  )
+  return renderWithProviders(<SearchCommand />)
 }
 
 describe('SearchCommand', () => {

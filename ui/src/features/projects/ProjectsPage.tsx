@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, LayoutGrid, List, RefreshCw, FolderX } from 'lucide-react'
 import { getProjects } from '@/api/projects'
@@ -130,7 +131,7 @@ export function ProjectsPage() {
             >
               <span className="font-mono text-sm">{p.project_id}</span>
               <Button asChild size="sm" variant="ghost">
-                <a href={`/projects/${p.project_id}`}>View reports →</a>
+                <Link to={`/projects/${p.project_id}`}>View reports →</Link>
               </Button>
             </div>
           ))}

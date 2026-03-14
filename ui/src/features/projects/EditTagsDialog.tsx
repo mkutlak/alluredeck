@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -26,6 +26,7 @@ interface Props {
 export function EditTagsDialog({ projectId, currentTags, open, onOpenChange }: Props) {
   const [tags, setTags] = useState<string[]>(currentTags)
   const [input, setInput] = useState('')
+  useEffect(() => { setTags(currentTags) }, [currentTags])
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const qc = useQueryClient()

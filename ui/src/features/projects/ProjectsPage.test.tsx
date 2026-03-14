@@ -1,17 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router'
+import { renderWithProviders } from '@/test/render'
 import { ProjectsPage } from './ProjectsPage'
 import * as projectsApi from '@/api/projects'
 import { useAuthStore } from '@/store/auth'
+import { useUIStore } from '@/store/ui'
+
+import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/projects')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function renderPage(isAdminUser = true) {
   useAuthStore.setState({
@@ -21,19 +20,13 @@ function renderPage(isAdminUser = true) {
     expiresAt: Date.now() + 3_600_000,
   })
 
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <ProjectsPage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  )
+  return renderWithProviders(<ProjectsPage />)
 }
 
 describe('ProjectsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useUIStore.setState({ projectViewMode: 'grid' })
   })
 
   it('shows loading skeletons initially', () => {
@@ -103,6 +96,20 @@ describe('ProjectsPage', () => {
     renderPage()
     await waitFor(() => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows View reports Link with correct href in table view', async () => {
+    useUIStore.setState({ projectViewMode: 'table' })
+    vi.mocked(projectsApi.getProjects).mockResolvedValue({
+      data: [{ project_id: 'my-project' }],
+      metadata: { message: 'ok' },
+      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    })
+    renderPage()
+    await waitFor(() => {
+      const link = screen.getByRole('link', { name: /view reports/i })
+      expect(link).toHaveAttribute('href', '/projects/my-project')
     })
   })
 

@@ -1,19 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { ErrorClusterCard } from '../ErrorClusterCard'
 import * as analyticsApi from '@/api/analytics'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/analytics')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function renderCard(projectId = 'myproject') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
+    <QueryClientProvider client={createTestQueryClient()}>
       <ErrorClusterCard projectId={projectId} />
     </QueryClientProvider>,
   )

@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { LabelBreakdownCard } from '../LabelBreakdownCard'
 import * as analyticsApi from '@/api/analytics'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/analytics')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 // Recharts uses ResizeObserver + SVG layout; stub it out in jsdom
 vi.mock('recharts', async () => {
@@ -23,9 +23,8 @@ vi.mock('recharts', async () => {
 })
 
 function renderCard(projectId = 'myproject') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
+    <QueryClientProvider client={createTestQueryClient()}>
       <LabelBreakdownCard projectId={projectId} />
     </QueryClientProvider>,
   )

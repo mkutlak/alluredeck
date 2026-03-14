@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mockApiClient } from '@/test/mocks/api-client'
 
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-}))
+mockApiClient()
 
 import { apiClient } from '@/api/client'
 import { cancelJob, cleanAdminResults, deleteJob } from './admin'

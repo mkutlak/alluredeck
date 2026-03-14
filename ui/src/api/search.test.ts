@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ApiResponse, SearchData } from '@/types/api'
+import { mockApiClient } from '@/test/mocks/api-client'
 
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 import { apiClient } from '@/api/client'
 import { search } from './search'

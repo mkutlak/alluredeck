@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cn, formatDate, formatDuration, calcPassRate, getStatusVariant, truncate } from './utils'
+import { cn, formatDate, formatDuration, calcPassRate, getStatusVariant, truncate, formatBytes } from './utils'
 
 describe('cn', () => {
   it('merges class names', () => {
@@ -102,5 +102,21 @@ describe('formatDate', () => {
   it('formats a date string', () => {
     const result = formatDate('2025-06-01T00:00:00Z')
     expect(result).toMatch(/Jun/)
+  })
+})
+
+describe('formatBytes', () => {
+  it('returns "0 B" for negative input', () => {
+    expect(formatBytes(-1)).toBe('0 B')
+  })
+
+  it('returns "0 B" for large negative input', () => {
+    expect(formatBytes(-100)).toBe('0 B')
+  })
+
+  it('clamps to last unit instead of returning undefined for very large input', () => {
+    const result = formatBytes(1099511627776)
+    expect(result).not.toContain('undefined')
+    expect(result).toMatch(/\d/)
   })
 })

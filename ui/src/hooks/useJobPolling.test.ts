@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
+import { createTestQueryClient } from '@/test/render'
 import type { JobData } from '@/types/api'
 import * as reportsApi from '@/api/reports'
 import { useJobPolling } from './useJobPolling'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/reports')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function makeJobData(overrides: Partial<JobData> = {}): JobData {
   return {
@@ -27,11 +27,7 @@ function makeJobData(overrides: Partial<JobData> = {}): JobData {
 }
 
 function makeWrapper() {
-  const qc = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  })
+  const qc = createTestQueryClient()
   return ({ children }: { children: React.ReactNode }) =>
     createElement(QueryClientProvider, { client: qc }, children)
 }

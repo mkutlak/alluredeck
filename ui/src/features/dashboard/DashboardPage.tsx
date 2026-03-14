@@ -26,7 +26,7 @@ export function DashboardPage() {
 
   const tag = selectedTag || undefined
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: queryKeys.dashboard(selectedTag),
+    queryKey: queryKeys.dashboard(tag),
     queryFn: () => fetchDashboard(tag),
     staleTime: 30_000,
   })

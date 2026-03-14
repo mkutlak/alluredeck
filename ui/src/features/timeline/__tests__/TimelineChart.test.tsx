@@ -113,4 +113,25 @@ describe('TimelineChart', () => {
     expect(screen.getByTestId('bar-a')).toBeInTheDocument()
     expect(screen.getByTestId('bar-b')).toBeInTheDocument()
   })
+
+  it('correctly distributes many test cases across multiple lanes via Map indexing', () => {
+    const NUM_LANES = 5
+    const TESTS_PER_LANE = 4
+    const testCases = Array.from({ length: NUM_LANES * TESTS_PER_LANE }, (_, i) => {
+      const lane = (i % NUM_LANES) + 1
+      return makeTestCase({
+        name: `tc-${i}`,
+        thread: `worker-${lane}`,
+        start: MIN_START + i * 500,
+        stop: MIN_START + i * 500 + 400,
+      })
+    })
+    render(<TimelineChart testCases={testCases} minStart={MIN_START} maxStop={MIN_START + 30000} />)
+    for (let lane = 1; lane <= NUM_LANES; lane++) {
+      expect(screen.getByText(`worker-${lane}`)).toBeInTheDocument()
+    }
+    for (let i = 0; i < NUM_LANES * TESTS_PER_LANE; i++) {
+      expect(screen.getByTestId(`bar-tc-${i}`)).toBeInTheDocument()
+    }
+  })
 })

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { screen, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '@/test/render'
 import * as dashboardApi from '@/api/dashboard'
 
 // Mock recharts to avoid SVG rendering issues in jsdom
@@ -12,10 +11,8 @@ vi.mock('recharts', () => ({
 }))
 
 vi.mock('@/api/dashboard')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+import { mockApiClient } from '@/test/mocks/api-client'
+mockApiClient()
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
   selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
@@ -26,14 +23,7 @@ vi.mock('@/features/projects/CreateProjectDialog', () => ({
 }))
 
 function renderPage() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  )
+  return renderWithProviders(<DashboardPage />)
 }
 
 // Import AFTER mocks
@@ -147,5 +137,14 @@ describe('DashboardPage', () => {
       expect(screen.getByText('proj-alpha')).toBeInTheDocument()
     })
     expect(screen.queryByRole('button', { name: /new project/i })).not.toBeInTheDocument()
+  })
+
+  it('calls fetchDashboard with undefined when no tag is selected', async () => {
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('proj-alpha')).toBeInTheDocument()
+    })
+    expect(vi.mocked(dashboardApi.fetchDashboard)).toHaveBeenCalledWith(undefined)
   })
 })

@@ -1,11 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAuthStore, selectIsAdmin, selectIsSessionValid } from './auth'
+import { mockApiClient } from '@/test/mocks/api-client'
 
 // Mock the API client module — no more setAccessToken
-vi.mock('@/api/client', () => ({
-  apiClient: {},
-  extractErrorMessage: vi.fn(),
-}))
+mockApiClient()
 
 describe('useAuthStore', () => {
   beforeEach(() => {

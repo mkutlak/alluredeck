@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { useUIStore } from '@/store/ui'
 import type { UIState } from '@/store/ui'
@@ -16,10 +17,8 @@ vi.mock('@/api/projects', () => ({
   }),
 }))
 
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+import { mockApiClient } from '@/test/mocks/api-client'
+mockApiClient()
 
 vi.mock('@/store/ui', () => ({
   useUIStore: vi.fn(),
@@ -66,10 +65,9 @@ function renderSwitcher(path: string, lastProjectId: string | null = null) {
       setProjectViewMode: vi.fn(),
     }),
   )
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <QueryClientProvider client={qc}>
+      <QueryClientProvider client={createTestQueryClient()}>
         <SidebarProvider>
           <Routes>
             <Route path="/" element={<ProjectSwitcher />} />

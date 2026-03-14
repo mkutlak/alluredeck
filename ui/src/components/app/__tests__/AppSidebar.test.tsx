@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAuthStore } from '@/store/auth'
@@ -19,10 +20,8 @@ vi.mock('@/api/projects', () => ({
   }),
 }))
 
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+import { mockApiClient } from '@/test/mocks/api-client'
+mockApiClient()
 
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
@@ -74,10 +73,9 @@ function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<
   vi.mocked(useUIStore).mockImplementation((selector: (state: UIState) => unknown) =>
     selector(makeUIState(uiStateOverrides)),
   )
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <QueryClientProvider client={qc}>
+      <QueryClientProvider client={createTestQueryClient()}>
         <TooltipProvider>
           <SidebarProvider>
             <Routes>

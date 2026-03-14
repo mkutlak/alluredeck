@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import type { TimelineData } from '@/types/api'
 
 // Mock the API module before importing the component
@@ -24,7 +25,7 @@ import { fetchReportTimeline } from '@/api/reports'
 import { TimelineTab } from '../TimelineTab'
 
 function makeClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return createTestQueryClient()
 }
 
 function renderTab(projectId = 'proj1') {

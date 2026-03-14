@@ -3,6 +3,7 @@ import { render, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
+import { createTestQueryClient } from '@/test/render'
 import { useActiveProject } from './useActiveProject'
 import type { UIState } from '@/store/ui'
 
@@ -37,9 +38,7 @@ const mockGetProjects = vi.mocked(getProjects)
 const mockUseUIStore = vi.mocked(useUIStore)
 
 function makeQueryClient() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
+  return createTestQueryClient()
 }
 
 function TestHook({ onResult }: { onResult: (r: ActiveProjectResult) => void }) {

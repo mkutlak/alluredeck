@@ -1,31 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { AdminPage } from '../AdminPage'
 import * as adminApi from '@/api/admin'
 import { useAuthStore } from '@/store/auth'
 import type { AdminJobEntry, AdminResultsEntry } from '@/types/api'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
   selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
 }))
 vi.mock('@/api/admin')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 import type { AuthState } from '@/store/auth'
 
 type AuthSelector = (s: Partial<AuthState>) => unknown
 
 function renderPage(initialPath = '/admin') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
+    <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/admin" element={<AdminPage />} />

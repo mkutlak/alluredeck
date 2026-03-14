@@ -1,16 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { screen, waitFor } from '@testing-library/react'
+import { createMemoryRouter } from 'react-router'
+import { renderWithProviders } from '@/test/render'
 import { TestHistoryPage } from '../TestHistoryPage'
 import * as testHistoryApi from '@/api/test-history'
 import type { TestHistoryData } from '@/types/api'
 
+import { mockApiClient } from '@/test/mocks/api-client'
+
 vi.mock('@/api/test-history')
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 function makeHistoryData(overrides: Partial<TestHistoryData> = {}): TestHistoryData {
   return {
@@ -51,12 +50,7 @@ function renderPage(search = '?history_id=abc123fullhashvalue') {
     [{ path: '/projects/:id/tests', element: <TestHistoryPage /> }],
     { initialEntries: [`/projects/my-project/tests${search}`] },
   )
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={qc}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
+  return renderWithProviders(<></>, { router })
 }
 
 describe('TestHistoryPage', () => {

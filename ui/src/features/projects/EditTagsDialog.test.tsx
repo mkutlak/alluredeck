@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { createTestQueryClient } from '@/test/render'
+
+import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/projects', () => ({
   updateProjectTags: vi.fn(),
   getTags: vi.fn(),
 }))
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
-  extractErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+mockApiClient()
 
 import { EditTagsDialog } from './EditTagsDialog'
 import * as projectsApi from '@/api/projects'
@@ -21,7 +21,7 @@ function renderDialog(props: {
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const qc = createTestQueryClient()
   vi.mocked(projectsApi.getTags).mockResolvedValue({
     data: ['backend', 'nightly', 'frontend'],
     metadata: { message: '' },
@@ -100,5 +100,33 @@ describe('EditTagsDialog', () => {
     const cancelBtn = screen.getByRole('button', { name: /cancel/i })
     await user.click(cancelBtn)
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('syncs tags when currentTags prop changes', () => {
+    vi.mocked(projectsApi.getTags).mockResolvedValue({ data: [], metadata: { message: '' } })
+    const qc = createTestQueryClient()
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <EditTagsDialog
+          projectId="test-proj"
+          currentTags={['old-tag']}
+          open={true}
+          onOpenChange={onOpenChange}
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByText('old-tag')).toBeInTheDocument()
+    rerender(
+      <QueryClientProvider client={qc}>
+        <EditTagsDialog
+          projectId="test-proj"
+          currentTags={['new-tag']}
+          open={true}
+          onOpenChange={onOpenChange}
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByText('new-tag')).toBeInTheDocument()
   })
 })

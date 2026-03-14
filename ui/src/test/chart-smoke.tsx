@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 /**
  * Parameterized smoke-test factory for recharts-based chart components.
@@ -43,9 +43,9 @@ export interface ChartSmokeOptions {
 
 export function describeChartSmoke(componentName: string, opts: ChartSmokeOptions): void {
   describe(`${componentName} — smoke`, () => {
-    it('renders a [data-chart] element when given data', () => {
+    it('renders a chart container when given data', () => {
       render(opts.renderWithData())
-      expect(document.querySelector('[data-chart]')).not.toBeNull()
+      expect(screen.getByTestId('chart-container')).toBeInTheDocument()
     })
 
     it('renders without crashing when data is empty', () => {
