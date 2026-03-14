@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
@@ -224,14 +224,10 @@ func parseTags(raw []byte) []string {
 	return tags
 }
 
-// isUniqueViolation returns true if err is a PostgreSQL unique constraint violation.
+// isUniqueViolation returns true if err is a PostgreSQL unique constraint violation (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "unique constraint") ||
-		strings.Contains(err.Error(), "duplicate key") ||
-		strings.Contains(err.Error(), "SQLSTATE 23505")
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // Compile-time interface check.

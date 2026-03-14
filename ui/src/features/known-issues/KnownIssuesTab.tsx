@@ -6,7 +6,7 @@ import { listKnownIssues, deleteKnownIssue, updateKnownIssue } from '@/api/known
 import { extractErrorMessage } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { isSafeUrl } from '@/lib/url'
-import { useAuthStore, selectIsAdmin } from '@/store/auth'
+import { useAuthStore, selectIsEditor } from '@/store/auth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -38,7 +38,7 @@ import { EditKnownIssueDialog } from './EditKnownIssueDialog'
 
 export function KnownIssuesTab() {
   const { id: projectId } = useParams<{ id: string }>()
-  const isAdmin = useAuthStore(selectIsAdmin)
+  const isEditor = useAuthStore(selectIsEditor)
   const queryClient = useQueryClient()
 
   const [showResolved, setShowResolved] = useState(false)
@@ -51,8 +51,8 @@ export function KnownIssuesTab() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: queryKeys.knownIssues(projectId!),
-    queryFn: () => listKnownIssues(projectId!, false),
+    queryKey: queryKeys.knownIssues(projectId!, showResolved),
+    queryFn: () => listKnownIssues(projectId!, !showResolved),
     enabled: !!projectId,
     staleTime: 15_000,
   })
@@ -98,7 +98,7 @@ export function KnownIssuesTab() {
 
   if (!projectId) return null
 
-  const filtered = (issues ?? []).filter((i) => showResolved || i.is_active)
+  const filtered = issues ?? []
 
   return (
     <div className="space-y-4">
@@ -118,7 +118,7 @@ export function KnownIssuesTab() {
             Show resolved
           </Label>
         </div>
-        {isAdmin && (
+        {isEditor && (
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus size={14} />
             Add Known Issue
@@ -139,7 +139,7 @@ export function KnownIssuesTab() {
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No known issues tracked for this project</p>
-          {isAdmin && (
+          {isEditor && (
             <p className="text-muted-foreground text-sm">
               Add known issues to separate them from new failures in reports.
             </p>
@@ -155,7 +155,7 @@ export function KnownIssuesTab() {
                 <TableHead>Description</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead>Created</TableHead>
-                {isAdmin && <TableHead className="text-right">Actions</TableHead>}
+                {isEditor && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -181,7 +181,7 @@ export function KnownIssuesTab() {
                     {issue.description || '—'}
                   </TableCell>
                   <TableCell className="text-center">
-                    {isAdmin ? (
+                    {isEditor ? (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -202,7 +202,7 @@ export function KnownIssuesTab() {
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(issue.created_at)}
                   </TableCell>
-                  {isAdmin && (
+                  {isEditor && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button
@@ -232,7 +232,7 @@ export function KnownIssuesTab() {
         </div>
       )}
 
-      {isAdmin && (
+      {isEditor && (
         <>
           <CreateKnownIssueDialog
             projectId={projectId}

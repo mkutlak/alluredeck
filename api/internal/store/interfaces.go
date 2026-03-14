@@ -19,6 +19,7 @@ var (
 	ErrKnownIssueNotFound        = errors.New("known issue not found")
 	ErrDuplicateEntry            = errors.New("unique constraint violation")
 	ErrAPIKeyNotFound            = errors.New("api key not found")
+	ErrUserNotFound              = errors.New("user not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -148,4 +149,15 @@ type APIKeyStorer interface {
 // for multi-instance safety. Implemented by *pg.PGStore.
 type Locker interface {
 	AcquireLock(ctx context.Context, key string) (func(), error)
+}
+
+// UserStorer manages user records for authentication and JIT provisioning.
+type UserStorer interface {
+	// UpsertByOIDC inserts or updates a user record using the OIDC subject claim as the key.
+	// On conflict (same provider + provider_sub), updates email, name, role, last_login, updated_at.
+	UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*User, error)
+	GetByID(ctx context.Context, id int64) (*User, error)
+	GetByEmail(ctx context.Context, email string) (*User, error)
+	List(ctx context.Context) ([]User, error)
+	Deactivate(ctx context.Context, id int64) error
 }

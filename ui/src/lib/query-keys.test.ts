@@ -22,19 +22,37 @@ describe('queryKeys', () => {
     expect(queryKeys.dashboard('prod')).toEqual(['dashboard', 'prod'])
   })
 
-  it('reportHistory without page returns prefix key', () => {
-    expect(queryKeys.reportHistory('p1')).toEqual(['report-history', 'p1'])
+  it('reportHistory without page returns fixed-length key with undefined slots', () => {
+    expect(queryKeys.reportHistory('p1')).toEqual([
+      'report-history',
+      'p1',
+      undefined,
+      undefined,
+      undefined,
+    ])
   })
 
-  it('reportHistory with page includes page number', () => {
-    expect(queryKeys.reportHistory('p1', 3)).toEqual(['report-history', 'p1', 3])
+  it('reportHistory with page includes page number and undefined for absent params', () => {
+    expect(queryKeys.reportHistory('p1', 3)).toEqual([
+      'report-history',
+      'p1',
+      3,
+      undefined,
+      undefined,
+    ])
   })
 
-  it('reportHistory with page and branch returns 4-element key', () => {
-    expect(queryKeys.reportHistory('p1', 3, 'main')).toEqual(['report-history', 'p1', 3, 'main'])
+  it('reportHistory with page and branch returns fixed-length key', () => {
+    expect(queryKeys.reportHistory('p1', 3, 'main')).toEqual([
+      'report-history',
+      'p1',
+      3,
+      'main',
+      undefined,
+    ])
   })
 
-  it('reportHistory with page, branch, and perPage returns 5-element key', () => {
+  it('reportHistory with page, branch, and perPage returns full 5-element key', () => {
     expect(queryKeys.reportHistory('p1', 3, 'main', 50)).toEqual([
       'report-history',
       'p1',
@@ -44,8 +62,14 @@ describe('queryKeys', () => {
     ])
   })
 
-  it('reportHistory with page, undefined branch, and perPage omits branch slot', () => {
-    expect(queryKeys.reportHistory('p1', 3, undefined, 50)).toEqual(['report-history', 'p1', 3, 50])
+  it('reportHistory with page, undefined branch, and perPage keeps undefined branch slot', () => {
+    expect(queryKeys.reportHistory('p1', 3, undefined, 50)).toEqual([
+      'report-history',
+      'p1',
+      3,
+      undefined,
+      50,
+    ])
   })
 
   it('reportCategories', () => {
@@ -80,8 +104,16 @@ describe('queryKeys', () => {
     expect(queryKeys.lowPerforming('p1')).toEqual(['low-performing-tests', 'p1'])
   })
 
-  it('knownIssues', () => {
-    expect(queryKeys.knownIssues('p1')).toEqual(['known-issues', 'p1'])
+  it('knownIssues without showResolved returns key with undefined slot', () => {
+    expect(queryKeys.knownIssues('p1')).toEqual(['known-issues', 'p1', undefined])
+  })
+
+  it('knownIssues with showResolved=true includes the flag', () => {
+    expect(queryKeys.knownIssues('p1', true)).toEqual(['known-issues', 'p1', true])
+  })
+
+  it('knownIssues with showResolved=false includes the flag', () => {
+    expect(queryKeys.knownIssues('p1', false)).toEqual(['known-issues', 'p1', false])
   })
 
   it('jobStatus', () => {

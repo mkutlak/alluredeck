@@ -21,6 +21,7 @@ function setupStore(overrides: { expiresAt: number | null; isAuthenticated?: boo
         clearAuth: mockClearAuth,
         roles: [],
         username: null,
+        provider: null,
         setAuth: vi.fn(),
       }),
   )

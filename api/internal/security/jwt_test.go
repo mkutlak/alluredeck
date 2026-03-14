@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -18,7 +20,7 @@ func testJWTConfig() *config.Config {
 
 func TestJWTManager_GenerateAndValidate(t *testing.T) {
 	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
+	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
 
 	access, refresh, err := manager.GenerateTokens("testuser", "admin")
 	if err != nil {
@@ -59,7 +61,7 @@ func TestJWTManager_GenerateAndValidate(t *testing.T) {
 
 func TestGenerateTokensWithRole(t *testing.T) {
 	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
+	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
 
 	t.Run("AdminRole", func(t *testing.T) {
 		t.Parallel()
@@ -96,7 +98,7 @@ func TestGenerateTokensWithRole(t *testing.T) {
 
 func TestJWTManager_Blacklist(t *testing.T) {
 	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
+	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
 	jti := "test-jti-123"
 
 	if manager.IsBlacklisted(jti) {
@@ -112,7 +114,7 @@ func TestJWTManager_Blacklist(t *testing.T) {
 
 func TestJWTManager_BlacklistedTokenRejected(t *testing.T) {
 	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist())
+	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
 
 	access, _, err := manager.GenerateTokens("testuser", "admin")
 	if err != nil {

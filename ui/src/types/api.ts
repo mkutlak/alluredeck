@@ -20,6 +20,14 @@ export interface LoginData {
   csrf_token?: string
   expires_in: number
   roles: string[]
+  provider?: 'local' | 'oidc'
+}
+
+export interface SessionData {
+  username: string
+  roles: string[]
+  expires_in: number
+  provider: 'local' | 'oidc'
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +85,7 @@ export interface ConfigData {
   api_response_less_verbose: boolean
   optimize_storage: boolean
   make_viewer_endpoints_public: boolean
+  oidc_enabled: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +471,7 @@ export interface TestHistoryData {
 // ---------------------------------------------------------------------------
 // API Keys
 // ---------------------------------------------------------------------------
-export type Role = 'admin' | 'viewer'
+export type Role = 'admin' | 'editor' | 'viewer'
 
 export interface APIKey {
   id: number

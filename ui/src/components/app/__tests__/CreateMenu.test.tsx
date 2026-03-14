@@ -39,6 +39,7 @@ function mockAdmin(isAdminResult: boolean) {
       roles: isAdminResult ? (['admin'] as Role[]) : [],
       username: null,
       expiresAt: null,
+      provider: null,
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
     }),

@@ -32,6 +32,19 @@ services:
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
       GOMEMLIMIT: "1GiB"
       DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
+      # OIDC SSO (optional)
+      # OIDC_ENABLED: "false"
+      # OIDC_ISSUER_URL: ""
+      # OIDC_CLIENT_ID: ""
+      # OIDC_CLIENT_SECRET: ""
+      # OIDC_REDIRECT_URL: ""
+      # OIDC_SCOPES: "openid,profile,email"
+      # OIDC_GROUPS_CLAIM: "groups"
+      # OIDC_ADMIN_GROUPS: ""
+      # OIDC_EDITOR_GROUPS: ""
+      # OIDC_DEFAULT_ROLE: "viewer"
+      # OIDC_STATE_COOKIE_SECRET: ""
+      # OIDC_POST_LOGIN_REDIRECT: "/"
     ports:
       - "5050:8080"
     volumes:

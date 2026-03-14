@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -63,16 +62,12 @@ type dashboardSummaryResp struct {
 // @Failure      500  {object}  map[string]any
 // @Router       /dashboard [get]
 func (h *AllureHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	tag := r.URL.Query().Get("tag")
 	projects, err := h.buildStore.GetDashboardData(ctx, 10, tag)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "internal error"},
-		})
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -110,7 +105,7 @@ func (h *AllureHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		projectResps = append(projectResps, pr)
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"projects": projectResps,
 			"summary":  summary,

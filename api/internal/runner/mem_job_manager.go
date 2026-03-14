@@ -84,7 +84,7 @@ func (m *MemJobManager) Cancel(jobID string) error {
 	j, ok := m.jobs[jobID]
 	if !ok {
 		m.mu.Unlock()
-		return fmt.Errorf("job %q not found", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
 	status := j.Status
 	cancel := m.cancels[jobID]
@@ -113,10 +113,10 @@ func (m *MemJobManager) Delete(jobID string) error {
 
 	j, ok := m.jobs[jobID]
 	if !ok {
-		return fmt.Errorf("job %q not found", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
 	if j.Status != JobStatusCompleted && j.Status != JobStatusFailed && j.Status != JobStatusCancelled {
-		return fmt.Errorf("job %q is not in a terminal state", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotTerminal)
 	}
 	delete(m.jobs, jobID)
 	return nil

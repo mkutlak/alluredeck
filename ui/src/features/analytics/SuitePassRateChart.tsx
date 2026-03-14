@@ -49,7 +49,6 @@ export function SuitePassRateChart({ projectId }: Props) {
               <XAxis
                 dataKey="suite"
                 tick={{ fontSize: 11 }}
-                interval={0}
                 angle={-30}
                 textAnchor="end"
                 height={60}

@@ -33,6 +33,9 @@ window.__env__ = {
 // ResizeObserver is used by cmdk and other UI libs but not available in jsdom.
 // Recharts' ResponsiveContainer relies on ResizeObserver to get dimensions — call
 // the callback immediately with a non-zero rect so charts render without warnings.
+// NOTE: This mock calls the callback synchronously on observe(), unlike real browsers
+// which batch and fire callbacks asynchronously. This is acceptable for smoke tests.
+// For tests that verify resize-dependent behavior, consider using @juggle/resize-observer.
 globalThis.ResizeObserver = class ResizeObserver {
   constructor(private callback: ResizeObserverCallback) {}
   observe(_target: Element) {

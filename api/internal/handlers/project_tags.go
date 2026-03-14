@@ -35,24 +35,17 @@ type updateTagsRequest struct {
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/tags [put]
 func (h *AllureHandler) UpdateProjectTags(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	projectID := r.PathValue("project_id")
 	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": err.Error()},
-		})
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var req updateTagsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "invalid JSON body"},
-		})
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
@@ -62,10 +55,7 @@ func (h *AllureHandler) UpdateProjectTags(w http.ResponseWriter, r *http.Request
 
 	// Validate tags.
 	if len(req.Tags) > maxTagCount {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "too many tags: maximum 20 allowed"},
-		})
+		writeError(w, http.StatusBadRequest, "too many tags: maximum 20 allowed")
 		return
 	}
 
@@ -77,17 +67,11 @@ func (h *AllureHandler) UpdateProjectTags(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		if len(tag) > maxTagLength {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "tag too long: maximum 50 characters"},
-			})
+			writeError(w, http.StatusBadRequest, "tag too long: maximum 50 characters")
 			return
 		}
 		if !tagPattern.MatchString(tag) {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "tag contains invalid characters: only alphanumeric, hyphens, and underscores allowed"},
-			})
+			writeError(w, http.StatusBadRequest, "tag contains invalid characters: only alphanumeric, hyphens, and underscores allowed")
 			return
 		}
 		if _, dup := seen[tag]; dup {
@@ -99,20 +83,14 @@ func (h *AllureHandler) UpdateProjectTags(w http.ResponseWriter, r *http.Request
 
 	if err := h.projectStore.SetTags(ctx, projectID, cleaned); err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "project not found"},
-			})
+			writeError(w, http.StatusNotFound, "project not found")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to update tags"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to update tags")
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"project_id": projectID,
 			"tags":       cleaned,
@@ -130,15 +108,11 @@ func (h *AllureHandler) UpdateProjectTags(w http.ResponseWriter, r *http.Request
 // @Failure      500  {object}  map[string]any
 // @Router       /tags [get]
 func (h *AllureHandler) ListTags(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	tags, err := h.projectStore.ListAllTags(ctx)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to list tags"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to list tags")
 		return
 	}
 
@@ -146,7 +120,7 @@ func (h *AllureHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 		tags = []string{}
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     tags,
 		"metadata": map[string]string{"message": "Tags successfully obtained"},
 	})

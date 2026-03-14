@@ -239,64 +239,13 @@ func (bs *PGBuildStore) ListBuilds(ctx context.Context, projectID string) ([]sto
 
 // ListBuildsPaginated returns a page of builds for a project in descending build_order, plus the total count.
 func (bs *PGBuildStore) ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]store.Build, int, error) {
-	var totalCount int
-	if err := bs.pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM builds WHERE project_id=$1", projectID,
-	).Scan(&totalCount); err != nil {
-		return nil, 0, fmt.Errorf("count builds: %w", err)
-	}
-
-	offset := (page - 1) * perPage
-	rows, err := bs.pool.Query(ctx, buildSelectCols+`
-		WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2 OFFSET $3`,
-		projectID, perPage, offset)
-	if err != nil {
-		return nil, 0, fmt.Errorf("list builds paginated: %w", err)
-	}
-	defer rows.Close()
-
-	builds, err := scanBuildRowsAll(rows)
-	if err != nil {
-		return nil, 0, err
-	}
-	return builds, totalCount, nil
+	return bs.ListBuildsPaginatedBranch(ctx, projectID, page, perPage, nil)
 }
 
 // PruneBuilds removes the oldest builds exceeding `keep` count.
 // Returns the build_orders of removed builds.
 func (bs *PGBuildStore) PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error) {
-	if keep <= 0 {
-		return nil, nil
-	}
-	rows, err := bs.pool.Query(ctx, `
-		SELECT build_order FROM builds
-		WHERE project_id=$1
-		ORDER BY build_order DESC
-		LIMIT ALL OFFSET $2`, projectID, keep)
-	if err != nil {
-		return nil, fmt.Errorf("prune builds query: %w", err)
-	}
-	defer rows.Close()
-
-	var toRemove []int
-	for rows.Next() {
-		var bo int
-		if err := rows.Scan(&bo); err != nil {
-			return nil, fmt.Errorf("scan build_order: %w", err)
-		}
-		toRemove = append(toRemove, bo)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate prune rows: %w", err)
-	}
-
-	for _, bo := range toRemove {
-		if _, err := bs.pool.Exec(ctx,
-			"DELETE FROM builds WHERE project_id=$1 AND build_order=$2", projectID, bo); err != nil {
-			return nil, fmt.Errorf("delete build %d: %w", bo, err)
-		}
-	}
-	return toRemove, nil
+	return bs.PruneBuildsBranch(ctx, projectID, keep, nil)
 }
 
 // SetLatest marks the given build_order as latest and clears the flag on all others.
@@ -333,36 +282,23 @@ func (bs *PGBuildStore) DeleteAllBuilds(ctx context.Context, projectID string) e
 
 // GetDashboardData returns all projects with their latest build and sparkline data.
 func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+	query := `
+		SELECT DISTINCT ON (p.id)
+		    p.id, p.created_at, p.tags,
+		    b.id, b.project_id, b.build_order, b.created_at,
+		    b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
+		    b.duration_ms, b.is_latest,
+		    b.flaky_count, b.retried_count, b.new_failed_count, b.new_passed_count,
+		    b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
+		FROM projects p
+		LEFT JOIN builds b ON b.project_id=p.id AND b.is_latest=TRUE`
 	var qArgs []any
-	var query string
 	if tag != "" {
 		tagJSON, _ := json.Marshal([]string{tag})
-		query = `
-		SELECT DISTINCT ON (p.id)
-		    p.id, p.created_at, p.tags,
-		    b.id, b.project_id, b.build_order, b.created_at,
-		    b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
-		    b.duration_ms, b.is_latest,
-		    b.flaky_count, b.retried_count, b.new_failed_count, b.new_passed_count,
-		    b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
-		FROM projects p
-		LEFT JOIN builds b ON b.project_id=p.id AND b.is_latest=TRUE
-		WHERE p.tags @> $1::jsonb
-		ORDER BY p.id, b.build_order DESC NULLS LAST`
+		query += "\n\t\tWHERE p.tags @> $1::jsonb"
 		qArgs = []any{string(tagJSON)}
-	} else {
-		query = `
-		SELECT DISTINCT ON (p.id)
-		    p.id, p.created_at, p.tags,
-		    b.id, b.project_id, b.build_order, b.created_at,
-		    b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
-		    b.duration_ms, b.is_latest,
-		    b.flaky_count, b.retried_count, b.new_failed_count, b.new_passed_count,
-		    b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
-		FROM projects p
-		LEFT JOIN builds b ON b.project_id=p.id AND b.is_latest=TRUE
-		ORDER BY p.id, b.build_order DESC NULLS LAST`
 	}
+	query += "\n\t\tORDER BY p.id, b.build_order DESC NULLS LAST"
 
 	rows, err := bs.pool.Query(ctx, query, qArgs...)
 	if err != nil {

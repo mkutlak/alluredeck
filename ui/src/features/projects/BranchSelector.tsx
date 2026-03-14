@@ -39,6 +39,9 @@ export function BranchSelector({
   // Notify parent once when branches load and there is a default to auto-select
   const notifiedRef = useRef(false)
   useEffect(() => {
+    notifiedRef.current = false
+  }, [projectId])
+  useEffect(() => {
     if (notifiedRef.current) return
     if (defaultBranchName === undefined) return
     if (selectedBranch !== undefined) return

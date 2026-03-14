@@ -2,6 +2,7 @@ package runner_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -126,9 +127,8 @@ func TestRiverJobManager_CancelUnknownID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error cancelling unknown job, got nil")
 	}
-	// Error must end with "not found" — required by admin.isJobNotFound.
-	msg := err.Error()
-	if len(msg) < 9 || msg[len(msg)-9:] != "not found" {
-		t.Errorf("expected error ending in 'not found', got: %q", msg)
+	// Error must wrap ErrJobNotFound — required by admin to return 404.
+	if !errors.Is(err, runner.ErrJobNotFound) {
+		t.Errorf("expected error wrapping ErrJobNotFound, got: %q", err)
 	}
 }

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -53,16 +52,12 @@ type testHistoryEntryJSON struct {
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/test-history [get]
 func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	projectID := r.PathValue("project_id")
 	historyID := r.URL.Query().Get("history_id")
 	if historyID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "history_id query parameter is required"},
-		})
+		writeError(w, http.StatusBadRequest, "history_id query parameter is required")
 		return
 	}
 
@@ -84,16 +79,10 @@ func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Reque
 		branch, err := h.branchStore.GetByName(ctx, projectID, branchName)
 		if err != nil {
 			if errors.Is(err, store.ErrBranchNotFound) {
-				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": "branch not found"},
-				})
+				writeError(w, http.StatusNotFound, "branch not found")
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "failed to resolve branch"},
-			})
+			writeError(w, http.StatusInternalServerError, "failed to resolve branch")
 			return
 		}
 		branchID = &branch.ID
@@ -102,10 +91,7 @@ func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Reque
 
 	entries, err := h.testResultStore.GetTestHistory(ctx, projectID, historyID, branchID, limit)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to fetch test history"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to fetch test history")
 		return
 	}
 
@@ -129,7 +115,7 @@ func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Reque
 		data["branch_name"] = resolvedBranchName
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     data,
 		"metadata": map[string]string{"message": "Test history successfully obtained"},
 	})

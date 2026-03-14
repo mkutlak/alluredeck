@@ -57,10 +57,10 @@ export function ErrorClusterCard({ projectId }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {errors.map((error, i) => {
+                  {errors.map((error) => {
                     const { text, truncated } = truncateMessage(error.message)
                     return (
-                      <tr key={i} className="border-b last:border-0">
+                      <tr key={error.message} className="border-b last:border-0">
                         <td className="py-1.5 pr-2">
                           {truncated ? (
                             <Tooltip>

@@ -529,6 +529,194 @@ func TestSwaggerHostFromEnv(t *testing.T) {
 	}
 }
 
+func TestOIDCConfig_Defaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.OIDC.Enabled {
+		t.Errorf("default OIDC.Enabled: want false, got true")
+	}
+	if len(cfg.OIDC.Scopes) != 3 || cfg.OIDC.Scopes[0] != "openid" || cfg.OIDC.Scopes[1] != "profile" || cfg.OIDC.Scopes[2] != "email" {
+		t.Errorf("default OIDC.Scopes: want [openid profile email], got %v", cfg.OIDC.Scopes)
+	}
+	if cfg.OIDC.GroupsClaim != "groups" {
+		t.Errorf("default OIDC.GroupsClaim: want %q, got %q", "groups", cfg.OIDC.GroupsClaim)
+	}
+	if cfg.OIDC.DefaultRole != "viewer" {
+		t.Errorf("default OIDC.DefaultRole: want %q, got %q", "viewer", cfg.OIDC.DefaultRole)
+	}
+	if cfg.OIDC.PostLoginRedirect != "/" {
+		t.Errorf("default OIDC.PostLoginRedirect: want %q, got %q", "/", cfg.OIDC.PostLoginRedirect)
+	}
+}
+
+func TestOIDCConfig_EnvVars(t *testing.T) {
+	t.Setenv("OIDC_ENABLED", "true")
+	t.Setenv("OIDC_ISSUER_URL", "https://idp.example.com")
+	t.Setenv("OIDC_CLIENT_ID", "my-client-id")
+	t.Setenv("OIDC_CLIENT_SECRET", "my-client-secret")
+	t.Setenv("OIDC_REDIRECT_URL", "https://app.example.com/callback")
+	t.Setenv("OIDC_GROUPS_CLAIM", "roles")
+	t.Setenv("OIDC_DEFAULT_ROLE", "viewer")
+	t.Setenv("OIDC_STATE_COOKIE_SECRET", "12345678901234567890123456789012")
+	t.Setenv("OIDC_POST_LOGIN_REDIRECT", "/dashboard")
+	t.Setenv("OIDC_END_SESSION_URL", "https://idp.example.com/logout")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	checks := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"OIDC.Enabled", cfg.OIDC.Enabled, true},
+		{"OIDC.IssuerURL", cfg.OIDC.IssuerURL, "https://idp.example.com"},
+		{"OIDC.ClientID", cfg.OIDC.ClientID, "my-client-id"},
+		{"OIDC.ClientSecret", cfg.OIDC.ClientSecret, "my-client-secret"},
+		{"OIDC.RedirectURL", cfg.OIDC.RedirectURL, "https://app.example.com/callback"},
+		{"OIDC.GroupsClaim", cfg.OIDC.GroupsClaim, "roles"},
+		{"OIDC.DefaultRole", cfg.OIDC.DefaultRole, "viewer"},
+		{"OIDC.StateCookieSecret", cfg.OIDC.StateCookieSecret, "12345678901234567890123456789012"},
+		{"OIDC.PostLoginRedirect", cfg.OIDC.PostLoginRedirect, "/dashboard"},
+		{"OIDC.EndSessionURL", cfg.OIDC.EndSessionURL, "https://idp.example.com/logout"},
+	}
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if c.got != c.want {
+				t.Errorf("want %v, got %v", c.want, c.got)
+			}
+		})
+	}
+}
+
+func TestOIDCConfig_Validate_Disabled(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC:      OIDCConfig{Enabled: false},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error when OIDC disabled, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_MissingIssuer(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled: true,
+		},
+	}
+	if err := cfg.Validate(); !errors.Is(err, ErrOIDCIssuerRequired) {
+		t.Errorf("expected ErrOIDCIssuerRequired, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_MissingClientID(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled:   true,
+			IssuerURL: "https://idp.example.com",
+		},
+	}
+	if err := cfg.Validate(); !errors.Is(err, ErrOIDCClientIDRequired) {
+		t.Errorf("expected ErrOIDCClientIDRequired, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_MissingClientSecret(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled:   true,
+			IssuerURL: "https://idp.example.com",
+			ClientID:  "my-client-id",
+		},
+	}
+	if err := cfg.Validate(); !errors.Is(err, ErrOIDCClientSecretRequired) {
+		t.Errorf("expected ErrOIDCClientSecretRequired, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_MissingRedirectURL(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled:      true,
+			IssuerURL:    "https://idp.example.com",
+			ClientID:     "my-client-id",
+			ClientSecret: "my-client-secret",
+		},
+	}
+	if err := cfg.Validate(); !errors.Is(err, ErrOIDCRedirectURLRequired) {
+		t.Errorf("expected ErrOIDCRedirectURLRequired, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_MissingStateCookieSecret(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled:      true,
+			IssuerURL:    "https://idp.example.com",
+			ClientID:     "my-client-id",
+			ClientSecret: "my-client-secret",
+			RedirectURL:  "https://app.example.com/callback",
+		},
+	}
+	if err := cfg.Validate(); !errors.Is(err, ErrOIDCStateCookieSecretRequired) {
+		t.Errorf("expected ErrOIDCStateCookieSecretRequired, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_BadSecretLength(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled:           true,
+			IssuerURL:         "https://idp.example.com",
+			ClientID:          "my-client-id",
+			ClientSecret:      "my-client-secret",
+			RedirectURL:       "https://app.example.com/callback",
+			StateCookieSecret: "tooshort",
+		},
+	}
+	if err := cfg.Validate(); !errors.Is(err, ErrOIDCStateCookieSecretLength) {
+		t.Errorf("expected ErrOIDCStateCookieSecretLength, got %v", err)
+	}
+}
+
+func TestOIDCConfig_Validate_ValidConfig(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret: "some-safe-secret",
+		OIDC: OIDCConfig{
+			Enabled:           true,
+			IssuerURL:         "https://idp.example.com",
+			ClientID:          "my-client-id",
+			ClientSecret:      "my-client-secret",
+			RedirectURL:       "https://app.example.com/callback",
+			StateCookieSecret: "12345678901234567890123456789012", // 32 bytes
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error for valid OIDC config, got %v", err)
+	}
+}
+
 func TestDurationSeconds_IntegerSeconds(t *testing.T) {
 	t.Parallel()
 	var d DurationSeconds

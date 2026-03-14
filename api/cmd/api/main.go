@@ -91,6 +91,7 @@ func main() {
 	searchStore = pg.NewSearchStore(pgDB, logger)
 	analyticsStore = pg.NewAnalyticsStore(pgDB)
 	apiKeyStore = pg.NewAPIKeyStore(pgDB)
+	userStore := pg.NewUserStore(pgDB)
 	sqlDB := pgDB.DB()
 	var locker store.Locker = pgDB
 
@@ -98,7 +99,7 @@ func main() {
 		logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
 	}
 
-	jwtManager := security.NewJWTManager(cfg, blacklistStore)
+	jwtManager := security.NewJWTManager(cfg, blacklistStore, logger)
 	systemHandler := handlers.NewSystemHandler(cfg, sqlDB)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	allureCore := runner.NewAllure(cfg, dataStore, buildStore, locker, testResultStore, branchStore, logger)
@@ -109,13 +110,24 @@ func main() {
 	}
 	var jobManager runner.JobQueuer = rjm
 
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore)
+	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore, logger)
 	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, logger)
 	branchHandler := handlers.NewBranchHandler(branchStore, buildStore)
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
 	allureHandler.SetBranchStore(branchStore)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, logger)
 	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
+
+	// Conditionally construct OIDC provider and handler (Stage 2 SSO).
+	var oidcHandler *handlers.OIDCHandler
+	if cfg.OIDC.Enabled {
+		oidcProv, oidcErr := security.NewOIDCProvider(initCtx, &cfg.OIDC, logger)
+		if oidcErr != nil {
+			logger.Fatal("OIDC discovery failed", zap.Error(oidcErr))
+		}
+		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, userStore, logger)
+		logger.Info("OIDC SSO enabled", zap.String("issuer", cfg.OIDC.IssuerURL))
+	}
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -172,7 +184,7 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, apiKeyHandler, apiKeyStore)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, apiKeyHandler, apiKeyStore, oidcHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -273,6 +285,7 @@ func registerRoutes(
 	analyticsHandler *handlers.AnalyticsHandler,
 	apiKeyHandler *handlers.APIKeyHandler,
 	apiKeyStore store.APIKeyStorer,
+	oidcHandler *handlers.OIDCHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
@@ -282,6 +295,9 @@ func registerRoutes(
 	// RBAC wrappers (REVIEW #9): auth + role enforcement.
 	adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
 		return auth(middleware.RequireRole("admin")(h))
+	}
+	editorUp := func(h http.HandlerFunc) http.HandlerFunc {
+		return auth(middleware.RequireRole("editor")(h))
 	}
 	// viewerUp: when MakeViewerEndpointsPublic is true, these endpoints are public (no auth).
 	viewerUp := func(h http.HandlerFunc) http.HandlerFunc {
@@ -313,11 +329,11 @@ func registerRoutes(
 	// Admin write endpoints — no-store.
 	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(allure.CreateProject)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(allure.DeleteProject)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", adminOnly(noStore(allure.GenerateReport)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(allure.GenerateReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(allure.GetJobStatus)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(allure.CleanHistory)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.CleanResults)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.SendResults)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(allure.SendResults)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(allure.DeleteReport)))
 
 	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
@@ -330,9 +346,9 @@ func registerRoutes(
 
 	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(allure.ListKnownIssues)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", adminOnly(noStore(allure.CreateKnownIssue)))
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(noStore(allure.UpdateKnownIssue)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", adminOnly(noStore(allure.DeleteKnownIssue)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", editorUp(noStore(allure.CreateKnownIssue)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(allure.UpdateKnownIssue)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(allure.DeleteKnownIssue)))
 
 	// Analytics — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(allure.GetLowPerformingTests)))
@@ -357,7 +373,7 @@ func registerRoutes(
 	// Branch management endpoints.
 	if branchHandler != nil {
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/branches", viewerUp(mutableCache(branchHandler.ListBranches)))
-		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/branches/{branch_id}/default", adminOnly(noStore(branchHandler.SetDefaultBranch)))
+		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/branches/{branch_id}/default", editorUp(noStore(branchHandler.SetDefaultBranch)))
 		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/branches/{branch_id}", adminOnly(noStore(branchHandler.DeleteBranch)))
 	}
 
@@ -376,5 +392,14 @@ func registerRoutes(
 		mux.HandleFunc("GET "+prefix+"/api-keys", auth(noStore(apiKeyHandler.List)))
 		mux.HandleFunc("POST "+prefix+"/api-keys", auth(noStore(apiKeyHandler.Create)))
 		mux.HandleFunc("DELETE "+prefix+"/api-keys/{id}", auth(noStore(apiKeyHandler.Delete)))
+	}
+
+	// Session endpoint (auth-required).
+	mux.HandleFunc("GET "+prefix+"/auth/session", auth(noStore(authHandler.Session)))
+
+	// OIDC SSO routes (public, rate-limited).
+	if oidcHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/auth/oidc/login", noStore(rateLimit(oidcHandler.Login)))
+		mux.HandleFunc("GET "+prefix+"/auth/oidc/callback", noStore(rateLimit(oidcHandler.Callback)))
 	}
 }

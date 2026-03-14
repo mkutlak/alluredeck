@@ -66,7 +66,26 @@ api:
     #   jwtSecretKey           - HMAC signing key for JWTs
     #   jwtAccessTokenExpires  - access token TTL in seconds
     #   jwtRefreshTokenExpires - refresh token TTL in seconds
+    #   (if OIDC enabled):
+    #   oidcClientSecret       - OIDC client secret
+    #   oidcStateCookieSecret  - AES key for state cookie encryption (32 bytes)
     existingSecret: ""
+
+  # OIDC SSO (optional — disabled by default)
+  oidc:
+    enabled: false
+    issuerUrl: ""              # IdP discovery URL (e.g. https://login.microsoftonline.com/{tenant}/v2.0)
+    clientId: ""               # OIDC client ID
+    clientSecret: ""           # Confidential client secret; stored in Secret
+    redirectUrl: ""            # Callback URL (e.g. https://alluredeck.example.com/api/v1/auth/oidc/callback)
+    scopes: "openid,profile,email"
+    groupsClaim: "groups"      # Claim name containing group memberships
+    adminGroups: ""            # Comma-separated group IDs that map to admin role
+    editorGroups: ""           # Comma-separated group IDs that map to editor role
+    defaultRole: "viewer"      # Role for users not matching any group
+    stateCookieSecret: ""      # AES-GCM key (32 bytes); empty = auto-generated on install
+    postLoginRedirect: "/"     # Frontend URL after successful SSO login
+    endSessionUrl: ""          # Optional RP-initiated logout URL
 
   # Persistence
   persistence:

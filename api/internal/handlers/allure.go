@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
@@ -78,10 +80,11 @@ type AllureHandler struct {
 	searchStore     store.SearchStorer
 	store           storage.Store
 	branchStore     store.BranchStorer
+	logger          *zap.Logger
 }
 
 // NewAllureHandler creates and returns a new AllureHandler.
-func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager runner.JobQueuer, projectStore store.ProjectStorer, buildStore store.BuildStorer, knownIssueStore store.KnownIssueStorer, testResultStore store.TestResultStorer, searchStore store.SearchStorer, st storage.Store) *AllureHandler {
+func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager runner.JobQueuer, projectStore store.ProjectStorer, buildStore store.BuildStorer, knownIssueStore store.KnownIssueStorer, testResultStore store.TestResultStorer, searchStore store.SearchStorer, st storage.Store, logger *zap.Logger) *AllureHandler {
 	return &AllureHandler{
 		cfg:             cfg,
 		runner:          r,
@@ -92,6 +95,7 @@ func NewAllureHandler(cfg *config.Config, r *runner.Allure, jobManager runner.Jo
 		testResultStore: testResultStore,
 		searchStore:     searchStore,
 		store:           st,
+		logger:          logger,
 	}
 }
 
@@ -299,7 +303,7 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
 		if !errors.Is(dbErr, store.ErrProjectExists) {
 			// Log but don't fail — filesystem project was already created successfully.
-			_ = dbErr
+			h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
 		}
 	}
 
@@ -478,7 +482,7 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 			// Register in database so downstream jobs (River) can reference the project.
 			if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
 				if !errors.Is(dbErr, store.ErrProjectExists) {
-					_ = dbErr
+					h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
 				}
 			}
 		} else {
@@ -1148,7 +1152,7 @@ func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	// Remove from database. Non-fatal: project may not be in DB.
 	if dbErr := h.projectStore.DeleteProject(r.Context(), projectID); dbErr != nil {
 		if !errors.Is(dbErr, store.ErrProjectNotFound) {
-			_ = dbErr // log-only; filesystem delete already succeeded
+			h.logger.Error("db project cleanup failed", zap.String("project_id", projectID), zap.Error(dbErr))
 		}
 	}
 

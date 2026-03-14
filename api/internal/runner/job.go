@@ -2,7 +2,14 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+// Sentinel errors for job operations.
+var (
+	ErrJobNotFound    = errors.New("job not found")
+	ErrJobNotTerminal = errors.New("job is not in a terminal state")
 )
 
 // JobStatus represents the current state of an async report generation job.

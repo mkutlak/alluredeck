@@ -9,7 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -32,7 +36,7 @@ func testAuthConfig() *config.Config {
 
 func TestAuthHandler_Login(t *testing.T) {
 	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 	handler := NewAuthHandler(cfg, jwtManager)
 
 	reqBody := LoginRequest{
@@ -99,7 +103,7 @@ func TestAuthHandler_Login(t *testing.T) {
 
 func TestAuthHandler_Login_Unauthorized(t *testing.T) {
 	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 	handler := NewAuthHandler(cfg, jwtManager)
 
 	reqBody := LoginRequest{
@@ -119,5 +123,51 @@ func TestAuthHandler_Login_Unauthorized(t *testing.T) {
 
 	if status := rr.Code; status != http.StatusUnauthorized {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusUnauthorized)
+	}
+}
+
+func TestAuthHandler_Session_ValidToken(t *testing.T) {
+	cfg := testAuthConfig()
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+	handler := NewAuthHandler(cfg, jwtManager)
+
+	// Build a request with JWT claims already in context (as AuthMiddleware would set)
+	claims := jwt.MapClaims{
+		"sub":      "admin",
+		"role":     "admin",
+		"provider": "local",
+	}
+	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
+	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
+	rr := httptest.NewRecorder()
+	handler.Session(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Session() status = %d, want 200", rr.Code)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	data, _ := resp["data"].(map[string]any)
+	if data["username"] != "admin" {
+		t.Errorf("Session() username = %v, want 'admin'", data["username"])
+	}
+	if data["provider"] != "local" {
+		t.Errorf("Session() provider = %v, want 'local'", data["provider"])
+	}
+}
+
+func TestAuthHandler_Session_NoClaims(t *testing.T) {
+	cfg := testAuthConfig()
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+	handler := NewAuthHandler(cfg, jwtManager)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil)
+	rr := httptest.NewRecorder()
+	handler.Session(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Session() without claims status = %d, want 401", rr.Code)
 	}
 }

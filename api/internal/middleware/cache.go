@@ -36,7 +36,7 @@ func CacheControl(directive string) func(http.HandlerFunc) http.HandlerFunc {
 func ReportCache(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reportID := r.PathValue("report_id")
-		if isNumericID(reportID) {
+		if IsNumericID(reportID) {
 			w.Header().Set("Cache-Control", CacheImmutable)
 		} else {
 			w.Header().Set("Cache-Control", CacheShortLived)
@@ -45,8 +45,8 @@ func ReportCache(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// isNumericID returns true if s is a non-empty string of ASCII digits.
-func isNumericID(s string) bool {
+// IsNumericID returns true if s is a non-empty string of ASCII digits.
+func IsNumericID(s string) bool {
 	if s == "" {
 		return false
 	}

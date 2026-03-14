@@ -178,6 +178,7 @@ function ReportRow({
   )
 }
 
+// Must match <TableHead> count in ReportHistoryTable header
 const TABLE_COL_COUNT = 12
 
 export function ReportHistoryTable({

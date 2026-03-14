@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -22,7 +24,7 @@ func TestAuthMiddleware(t *testing.T) {
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
 	handler := AuthMiddleware(cfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -110,7 +112,7 @@ func TestAuthMiddleware(t *testing.T) {
 			AccessTokenExpiry:  config.DurationSeconds(1 * time.Millisecond),
 			RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 		}
-		shortMgr := security.NewJWTManager(shortCfg, testutil.NewMemBlacklist())
+		shortMgr := security.NewJWTManager(shortCfg, testutil.NewMemBlacklist(), zap.NewNop())
 		expiredToken, _, _ := shortMgr.GenerateTokens("testuser", "admin")
 
 		// Wait for the token to expire
@@ -152,7 +154,7 @@ func TestRequireRole(t *testing.T) {
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
 	// Helper: build a handler chain with auth + role requirement
 	makeHandler := func(requiredRole string) http.HandlerFunc {
@@ -223,6 +225,66 @@ func TestRequireRole(t *testing.T) {
 			t.Errorf("expected 403 when claims are missing, got %d", rr.Code)
 		}
 	})
+
+	t.Run("EditorAllowedOnEditorEndpoint", func(t *testing.T) {
+		t.Parallel()
+		token, _, _ := jwtMgr.GenerateTokens("editor-user", "editor")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		makeHandler("editor").ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200 for editor on editor endpoint, got %d", rr.Code)
+		}
+	})
+
+	t.Run("ViewerDeniedOnEditorEndpoint", func(t *testing.T) {
+		t.Parallel()
+		token, _, _ := jwtMgr.GenerateTokens("viewer-user", "viewer")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		makeHandler("editor").ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected 403 for viewer on editor endpoint, got %d", rr.Code)
+		}
+	})
+
+	t.Run("AdminAllowedOnEditorEndpoint", func(t *testing.T) {
+		t.Parallel()
+		token, _, _ := jwtMgr.GenerateTokens("admin-user", "admin")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		makeHandler("editor").ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200 for admin on editor endpoint (hierarchy), got %d", rr.Code)
+		}
+	})
+
+	t.Run("EditorDeniedOnAdminEndpoint", func(t *testing.T) {
+		t.Parallel()
+		token, _, _ := jwtMgr.GenerateTokens("editor-user", "editor")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		makeHandler("admin").ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected 403 for editor on admin endpoint, got %d", rr.Code)
+		}
+	})
+
+	t.Run("EditorAllowedOnViewerEndpoint", func(t *testing.T) {
+		t.Parallel()
+		token, _, _ := jwtMgr.GenerateTokens("editor-user", "editor")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		makeHandler("viewer").ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200 for editor on viewer endpoint (hierarchy), got %d", rr.Code)
+		}
+	})
 }
 
 func TestAuthMiddleware_APIKeyValid(t *testing.T) {
@@ -233,7 +295,7 @@ func TestAuthMiddleware_APIKeyValid(t *testing.T) {
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
 	now := time.Now().Add(time.Hour)
 	apiKeyStore := &testutil.MockAPIKeyStore{
@@ -253,7 +315,7 @@ func TestAuthMiddleware_APIKeyValid(t *testing.T) {
 	// Use a valid ald_ token — hash lookup is mocked so value doesn't matter
 	token := "ald_" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
 
-	var capturedClaims interface{}
+	var capturedClaims any
 	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, r *http.Request) {
 		capturedClaims, _ = ClaimsFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
@@ -280,7 +342,7 @@ func TestAuthMiddleware_APIKeyExpired(t *testing.T) {
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
 	past := time.Now().Add(-time.Hour)
 	apiKeyStore := &testutil.MockAPIKeyStore{
@@ -318,7 +380,7 @@ func TestAuthMiddleware_APIKeyInvalid(t *testing.T) {
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
 	apiKeyStore := &testutil.MockAPIKeyStore{
 		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
@@ -350,7 +412,7 @@ func TestAuthMiddleware_NonAldBearerUsesJWT(t *testing.T) {
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
 	// Provide an apiKeyStore that should NOT be called for a non-ald_ token
 	apiKeyStore := &testutil.MockAPIKeyStore{

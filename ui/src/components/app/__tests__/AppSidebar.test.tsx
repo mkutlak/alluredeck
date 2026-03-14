@@ -70,6 +70,7 @@ function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<
       roles: isAdmin ? (['admin'] as Role[]) : [],
       username: null,
       expiresAt: null,
+      provider: null,
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
     }),

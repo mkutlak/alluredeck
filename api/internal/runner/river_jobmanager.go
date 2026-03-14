@@ -159,27 +159,27 @@ func (jm *RiverJobManager) ListJobs() []*Job {
 }
 
 // Delete removes a terminal job (completed, failed, or cancelled) from River.
-// Returns an error ending with "not found" if the job does not exist,
-// or ending with "not in a terminal state" if the job is still active.
+// Returns ErrJobNotFound if the job does not exist,
+// or ErrJobNotTerminal if the job is still active.
 func (jm *RiverJobManager) Delete(jobID string) error {
 	id, err := strconv.ParseInt(jobID, 10, 64)
 	if err != nil {
-		return fmt.Errorf("job %q not found", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
 
 	row, err := jm.client.JobGet(jm.ctx, id)
 	if err != nil {
-		return fmt.Errorf("job %q not found", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
 
 	status := riverStateToJobStatus(row.State)
 	if status != JobStatusCompleted && status != JobStatusFailed && status != JobStatusCancelled {
-		return fmt.Errorf("job %q is not in a terminal state", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotTerminal)
 	}
 
 	if _, err := jm.client.JobDelete(jm.ctx, id); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
-			return fmt.Errorf("job %q not found", jobID)
+			return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 		}
 		return fmt.Errorf("delete job %q: %w", jobID, err)
 	}
@@ -187,17 +187,16 @@ func (jm *RiverJobManager) Delete(jobID string) error {
 }
 
 // Cancel cancels the River job with the given string ID.
-// Returns an error message ending with "not found" if the job does not exist,
-// matching the format expected by admin.isJobNotFound.
+// Returns ErrJobNotFound if the job does not exist.
 func (jm *RiverJobManager) Cancel(jobID string) error {
 	id, err := strconv.ParseInt(jobID, 10, 64)
 	if err != nil {
-		return fmt.Errorf("job %q not found", jobID)
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
 	_, err = jm.client.JobCancel(context.Background(), id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
-			return fmt.Errorf("job %q not found", jobID)
+			return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 		}
 		return fmt.Errorf("cancel job %q: %w", jobID, err)
 	}

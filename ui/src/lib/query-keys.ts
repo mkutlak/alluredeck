@@ -8,15 +8,7 @@ export const queryKeys = {
   search: (query: string) => ['search', query] as const,
   // Project-scoped
   reportHistory: (pid: string, page?: number, branch?: string, perPage?: number) =>
-    page != null
-      ? branch != null
-        ? perPage != null
-          ? (['report-history', pid, page, branch, perPage] as const)
-          : (['report-history', pid, page, branch] as const)
-        : perPage != null
-          ? (['report-history', pid, page, perPage] as const)
-          : (['report-history', pid, page] as const)
-      : (['report-history', pid] as const),
+    ['report-history', pid, page ?? undefined, branch ?? undefined, perPage ?? undefined] as const,
   reportCategories: (pid: string) => ['report-categories', pid] as const,
   reportCategoriesLatest: (pid: string) => ['report-categories', pid, 'latest'] as const,
   reportEnvironment: (pid: string) => ['report-environment', pid] as const,
@@ -28,7 +20,8 @@ export const queryKeys = {
     sort !== undefined
       ? (['low-performing-tests', pid, sort] as const)
       : (['low-performing-tests', pid] as const),
-  knownIssues: (pid: string) => ['known-issues', pid] as const,
+  knownIssues: (pid: string, showResolved?: boolean) =>
+    ['known-issues', pid, showResolved ?? undefined] as const,
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
   buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
   adminJobs: ['admin-jobs'] as const,

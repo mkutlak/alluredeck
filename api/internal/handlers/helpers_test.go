@@ -29,7 +29,7 @@ func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 	mocks := testutil.New()
 	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
 	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st)
+		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, logger)
 	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
 	return h
 }
@@ -109,7 +109,7 @@ func newTestAllureHandlerAndMocks(t *testing.T, projectsDir string) (*AllureHand
 	mocks := testutil.New()
 	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
 	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st)
+		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, logger)
 	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
 	return h, mocks
 }
@@ -123,7 +123,7 @@ func newTestAllureHandlerWithMocks(t *testing.T, projectsDir string, mocks *test
 	logger := zap.NewNop()
 	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, logger)
 	return NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.Builds, mocks.KnownIssues, mocks.TestResults, mocks.Search, st)
+		mocks.Projects, mocks.Builds, mocks.KnownIssues, mocks.TestResults, mocks.Search, st, logger)
 }
 
 // newTestAllureHandlerWithJobManager builds an AllureHandler with a real JobManager
@@ -142,7 +142,7 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 	t.Cleanup(func() { jm.Shutdown() })
 
 	return NewAllureHandler(cfg, r, jm,
-		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, st)
+		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, st, logger)
 }
 
 // writeSummaryJSON creates widgets/summary.json under the given report dir.

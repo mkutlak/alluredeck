@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 )
@@ -16,28 +15,17 @@ const (
 // Search handles GET /api/v1/search?q=<term>&limit=<n>.
 // Returns matching projects and test names from latest builds.
 func (h *AllureHandler) Search(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	q := r.URL.Query().Get("q")
 	if q == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "query parameter 'q' is required"},
-		})
+		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
 		return
 	}
 	if len(q) < searchMinLen {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "query must be at least 2 characters"},
-		})
+		writeError(w, http.StatusBadRequest, "query must be at least 2 characters")
 		return
 	}
 	if len(q) > searchMaxLen {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "query must not exceed 100 characters"},
-		})
+		writeError(w, http.StatusBadRequest, "query must not exceed 100 characters")
 		return
 	}
 
@@ -53,19 +41,13 @@ func (h *AllureHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := h.searchStore.SearchProjects(r.Context(), q, limit)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "search failed"},
-		})
+		writeError(w, http.StatusInternalServerError, "search failed")
 		return
 	}
 
 	tests, err := h.searchStore.SearchTests(r.Context(), q, limit)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "search failed"},
-		})
+		writeError(w, http.StatusInternalServerError, "search failed")
 		return
 	}
 
@@ -98,7 +80,7 @@ func (h *AllureHandler) Search(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"projects": pEntries,
 			"tests":    tEntries,

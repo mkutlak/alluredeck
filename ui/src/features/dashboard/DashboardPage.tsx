@@ -25,7 +25,7 @@ export function DashboardPage() {
   const availableTags = tagsResp?.data ?? []
 
   const tag = selectedTag || undefined
-  const { data, isLoading, isFetching, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: queryKeys.dashboard(tag),
     queryFn: () => fetchDashboard(tag),
     staleTime: 30_000,
@@ -47,6 +47,15 @@ export function DashboardPage() {
             <Skeleton key={i} className="h-56 animate-pulse rounded-lg" />
           ))}
         </div>
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+        <p className="text-lg font-medium">Failed to load dashboard.</p>
+        <Button onClick={() => refetch()}>Retry</Button>
       </div>
     )
   }

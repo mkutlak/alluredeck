@@ -19,6 +19,7 @@ var (
 	_ store.SearchStorer     = (*MockSearchStore)(nil)
 	_ store.Locker           = (*MockLocker)(nil)
 	_ store.APIKeyStorer     = (*MockAPIKeyStore)(nil)
+	_ store.UserStorer       = (*MockUserStore)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
@@ -33,6 +34,7 @@ type MockStores struct {
 	Search      *MockSearchStore
 	Locker      *MockLocker
 	APIKeys     *MemAPIKeyStore // stateful in-memory store for API key handler tests
+	Users       *MemUserStore   // stateful in-memory store for user handler tests
 }
 
 // New returns a MockStores with all fields initialised.
@@ -50,6 +52,7 @@ func New() *MockStores {
 		Search:      &MockSearchStore{},
 		Locker:      &MockLocker{},
 		APIKeys:     NewMemAPIKeyStore(),
+		Users:       NewMemUserStore(),
 	}
 }
 
@@ -622,4 +625,53 @@ func (m *MockAPIKeyStore) CountByUsername(ctx context.Context, username string) 
 		return m.CountByUsernameFn(ctx, username)
 	}
 	return 0, nil
+}
+
+// ---------------------------------------------------------------------------
+// MockUserStore
+// ---------------------------------------------------------------------------
+
+// MockUserStore is a test double for store.UserStorer.
+// Set function fields to control behaviour; unset fields return zero values.
+type MockUserStore struct {
+	UpsertByOIDCFn func(ctx context.Context, provider, sub, email, name, role string) (*store.User, error)
+	GetByIDFn      func(ctx context.Context, id int64) (*store.User, error)
+	GetByEmailFn   func(ctx context.Context, email string) (*store.User, error)
+	ListFn         func(ctx context.Context) ([]store.User, error)
+	DeactivateFn   func(ctx context.Context, id int64) error
+}
+
+func (m *MockUserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
+	if m.UpsertByOIDCFn != nil {
+		return m.UpsertByOIDCFn(ctx, provider, sub, email, name, role)
+	}
+	return nil, nil
+}
+
+func (m *MockUserStore) GetByID(ctx context.Context, id int64) (*store.User, error) {
+	if m.GetByIDFn != nil {
+		return m.GetByIDFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *MockUserStore) GetByEmail(ctx context.Context, email string) (*store.User, error) {
+	if m.GetByEmailFn != nil {
+		return m.GetByEmailFn(ctx, email)
+	}
+	return nil, nil
+}
+
+func (m *MockUserStore) List(ctx context.Context) ([]store.User, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *MockUserStore) Deactivate(ctx context.Context, id int64) error {
+	if m.DeactivateFn != nil {
+		return m.DeactivateFn(ctx, id)
+	}
+	return nil
 }

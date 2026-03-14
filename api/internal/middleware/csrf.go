@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -80,9 +79,5 @@ func CSRFMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 }
 
 func csrfForbidden(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"metadata": map[string]string{"message": "CSRF token missing or invalid"},
-	})
+	writeMiddlewareError(w, http.StatusForbidden, "CSRF token missing or invalid")
 }

@@ -210,6 +210,44 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Session godoc
+// @Summary      Get current session info
+// @Description  Returns the authenticated user's session information from JWT claims.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  map[string]any
+// @Failure      401  {object}  map[string]any
+// @Router       /auth/session [get]
+func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.ClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "No active session")
+		return
+	}
+
+	username, _ := claims["sub"].(string)
+	role, _ := claims["role"].(string)
+	provider, _ := claims["provider"].(string)
+	if provider == "" {
+		provider = "local"
+	}
+
+	var roles []string
+	if role != "" {
+		roles = []string{role}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"username":   username,
+			"roles":      roles,
+			"expires_in": int(h.cfg.AccessTokenExpiry.Seconds()),
+			"provider":   provider,
+		},
+		"metadata": map[string]string{"message": "Session successfully obtained"},
+	})
+}
+
 func extractBearerToken(r *http.Request) string {
 	authHeader := r.Header.Get("Authorization")
 	if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {

@@ -127,6 +127,18 @@ spec:
                   name: {{ .Values.api.s3.existingSecret }}
                   key: S3_SECRET_KEY
             {{- end }}
+            {{- if .Values.api.oidc.enabled }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oidcClientSecret
+            - name: OIDC_STATE_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: oidcStateCookieSecret
+            {{- end }}
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

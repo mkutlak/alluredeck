@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"encoding/json"
 	"net"
 	"net/http"
 	"strings"
@@ -126,12 +125,8 @@ func RateLimitMiddleware(rl *IPRateLimiter) func(http.HandlerFunc) http.HandlerF
 		return func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r, rl.trustForwardedFor)
 			if !rl.Allow(ip) {
-				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "1")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": "Too many requests, please try again later"},
-				})
+				writeMiddlewareError(w, http.StatusTooManyRequests, "Too many requests, please try again later")
 				return
 			}
 			next(w, r)

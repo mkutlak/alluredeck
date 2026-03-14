@@ -166,6 +166,22 @@ s3:
   path_style: {{ .Values.api.s3.pathStyle }}
   concurrency: {{ .Values.api.s3.concurrency | int }}
 {{- end }}
+{{- if .Values.api.oidc.enabled }}
+oidc:
+  enabled: true
+  issuer_url: {{ .Values.api.oidc.issuerUrl | quote }}
+  client_id: {{ .Values.api.oidc.clientId | quote }}
+  redirect_url: {{ .Values.api.oidc.redirectUrl | quote }}
+  scopes: {{ .Values.api.oidc.scopes | quote }}
+  groups_claim: {{ .Values.api.oidc.groupsClaim | quote }}
+  admin_groups: {{ .Values.api.oidc.adminGroups | quote }}
+  editor_groups: {{ .Values.api.oidc.editorGroups | quote }}
+  default_role: {{ .Values.api.oidc.defaultRole | quote }}
+  post_login_redirect: {{ .Values.api.oidc.postLoginRedirect | quote }}
+  {{- if .Values.api.oidc.endSessionUrl }}
+  end_session_url: {{ .Values.api.oidc.endSessionUrl | quote }}
+  {{- end }}
+{{- end }}
 {{- end }}
 
 {{/*

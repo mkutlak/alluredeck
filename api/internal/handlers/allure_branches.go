@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -53,17 +52,13 @@ func branchToJSON(b store.Branch) branchJSON {
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/branches [get]
 func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	projectID := r.PathValue("project_id")
 
 	branches, err := h.branchStore.List(ctx, projectID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to list branches"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to list branches")
 		return
 	}
 
@@ -72,7 +67,7 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 		out = append(out, branchToJSON(b))
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"branches": out,
 		},
@@ -92,7 +87,6 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/branches/{branch_id}/default [put]
 func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	projectID := r.PathValue("project_id")
@@ -100,29 +94,20 @@ func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request)
 	branchIDStr := r.PathValue("branch_id")
 	branchID, err := strconv.ParseInt(branchIDStr, 10, 64)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "branch_id must be a positive integer"},
-		})
+		writeError(w, http.StatusBadRequest, "branch_id must be a positive integer")
 		return
 	}
 
 	if err := h.branchStore.SetDefault(ctx, projectID, branchID); err != nil {
 		if errors.Is(err, store.ErrBranchNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "branch not found"},
-			})
+			writeError(w, http.StatusNotFound, "branch not found")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to set default branch"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to set default branch")
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"metadata": map[string]string{"message": "Default branch successfully updated"},
 	})
 }
@@ -140,7 +125,6 @@ func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request)
 // @Failure      409  {object}  map[string]any
 // @Router       /projects/{project_id}/branches/{branch_id} [delete]
 func (h *BranchHandler) DeleteBranch(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	ctx := r.Context()
 
 	projectID := r.PathValue("project_id")
@@ -148,32 +132,20 @@ func (h *BranchHandler) DeleteBranch(w http.ResponseWriter, r *http.Request) {
 	branchIDStr := r.PathValue("branch_id")
 	branchID, err := strconv.ParseInt(branchIDStr, 10, 64)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "branch_id must be a positive integer"},
-		})
+		writeError(w, http.StatusBadRequest, "branch_id must be a positive integer")
 		return
 	}
 
 	if err := h.branchStore.Delete(ctx, projectID, branchID); err != nil {
 		if errors.Is(err, store.ErrCannotDeleteDefaultBranch) {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "cannot delete default branch"},
-			})
+			writeError(w, http.StatusConflict, "cannot delete default branch")
 			return
 		}
 		if errors.Is(err, store.ErrBranchNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"metadata": map[string]string{"message": "branch not found"},
-			})
+			writeError(w, http.StatusNotFound, "branch not found")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"metadata": map[string]string{"message": "failed to delete branch"},
-		})
+		writeError(w, http.StatusInternalServerError, "failed to delete branch")
 		return
 	}
 

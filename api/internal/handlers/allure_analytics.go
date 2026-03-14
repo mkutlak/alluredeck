@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -84,39 +86,45 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 	var entries []analyticsTestEntry
 	if sortBy == "duration" {
 		results, err := h.testResultStore.ListSlowest(ctx, projectID, buildsParam, limitParam)
-		if err == nil {
-			for _, t := range results {
-				trend := t.Trend
-				if trend == nil {
-					trend = []float64{}
-				}
-				entries = append(entries, analyticsTestEntry{
-					TestName:   t.TestName,
-					FullName:   t.FullName,
-					HistoryID:  t.HistoryID,
-					Metric:     t.Metric,
-					BuildCount: t.BuildCount,
-					Trend:      trend,
-				})
+		if err != nil {
+			h.logger.Error("analytics: list slowest failed", zap.String("project_id", projectID), zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "failed to retrieve analytics data")
+			return
+		}
+		for _, t := range results {
+			trend := t.Trend
+			if trend == nil {
+				trend = []float64{}
 			}
+			entries = append(entries, analyticsTestEntry{
+				TestName:   t.TestName,
+				FullName:   t.FullName,
+				HistoryID:  t.HistoryID,
+				Metric:     t.Metric,
+				BuildCount: t.BuildCount,
+				Trend:      trend,
+			})
 		}
 	} else {
 		results, err := h.testResultStore.ListLeastReliable(ctx, projectID, buildsParam, limitParam)
-		if err == nil {
-			for _, t := range results {
-				trend := t.Trend
-				if trend == nil {
-					trend = []float64{}
-				}
-				entries = append(entries, analyticsTestEntry{
-					TestName:   t.TestName,
-					FullName:   t.FullName,
-					HistoryID:  t.HistoryID,
-					Metric:     t.Metric,
-					BuildCount: t.BuildCount,
-					Trend:      trend,
-				})
+		if err != nil {
+			h.logger.Error("analytics: list least reliable failed", zap.String("project_id", projectID), zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "failed to retrieve analytics data")
+			return
+		}
+		for _, t := range results {
+			trend := t.Trend
+			if trend == nil {
+				trend = []float64{}
 			}
+			entries = append(entries, analyticsTestEntry{
+				TestName:   t.TestName,
+				FullName:   t.FullName,
+				HistoryID:  t.HistoryID,
+				Metric:     t.Metric,
+				BuildCount: t.BuildCount,
+				Trend:      trend,
+			})
 		}
 	}
 

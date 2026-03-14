@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
@@ -33,19 +34,28 @@ type BlacklistStore interface {
 type JWTManager struct {
 	cfg       *config.Config
 	blacklist BlacklistStore
+	logger    *zap.Logger
 }
 
 // NewJWTManager creates a new JWTManager backed by the given config and persistent blacklist store.
-func NewJWTManager(cfg *config.Config, blacklist BlacklistStore) *JWTManager {
+func NewJWTManager(cfg *config.Config, blacklist BlacklistStore, logger *zap.Logger) *JWTManager {
 	return &JWTManager{
 		cfg:       cfg,
 		blacklist: blacklist,
+		logger:    logger,
 	}
 }
 
 // GenerateTokens creates access and refresh tokens with JTI claims for revocation support.
 // The role is embedded in the access token claims for RBAC enforcement (REVIEW #9).
-func (m *JWTManager) GenerateTokens(username, role string) (accessToken, refreshToken string, err error) {
+// The optional provider parameter (default "local") is embedded as the "provider" claim
+// so the Session endpoint can report the authentication source.
+func (m *JWTManager) GenerateTokens(username, role string, provider ...string) (accessToken, refreshToken string, err error) {
+	prov := "local"
+	if len(provider) > 0 && provider[0] != "" {
+		prov = provider[0]
+	}
+
 	accessJTI, err := generateJTI()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate access token JTI: %w", err)
@@ -58,12 +68,13 @@ func (m *JWTManager) GenerateTokens(username, role string) (accessToken, refresh
 	now := time.Now()
 
 	accessClaims := jwt.MapClaims{
-		"sub":  username,
-		"role": role,
-		"type": "access",
-		"jti":  accessJTI,
-		"exp":  jwt.NewNumericDate(now.Add(m.cfg.AccessTokenExpiry.Duration())),
-		"iat":  jwt.NewNumericDate(now),
+		"sub":      username,
+		"role":     role,
+		"provider": prov,
+		"type":     "access",
+		"jti":      accessJTI,
+		"exp":      jwt.NewNumericDate(now.Add(m.cfg.AccessTokenExpiry.Duration())),
+		"iat":      jwt.NewNumericDate(now),
 	}
 
 	accessJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
@@ -127,7 +138,7 @@ func (m *JWTManager) AddToBlacklist(jti string, expiry time.Time) {
 	if err := m.blacklist.AddToBlacklist(context.Background(), jti, expiry); err != nil {
 		// Log but don't fail — a missed blacklist entry is a security issue but not a crash condition.
 		// The token will expire naturally.
-		_ = err
+		m.logger.Error("failed to blacklist token", zap.String("jti", jti), zap.Error(err))
 	}
 }
 
@@ -153,7 +164,7 @@ func (m *JWTManager) StartCleanup(ctx context.Context, interval time.Duration) {
 				return
 			case <-ticker.C:
 				if _, err := m.blacklist.PruneExpired(ctx); err != nil {
-					_ = err // non-fatal
+					m.logger.Error("failed to prune expired tokens", zap.Error(err))
 				}
 			}
 		}

@@ -68,6 +68,23 @@ type S3Config struct {
 	Concurrency           int    `yaml:"concurrency" envconfig:"CONCURRENCY"`
 }
 
+// OIDCConfig holds OpenID Connect / SSO configuration.
+type OIDCConfig struct {
+	Enabled           bool     `yaml:"enabled" envconfig:"OIDC_ENABLED"`
+	IssuerURL         string   `yaml:"issuer_url" envconfig:"OIDC_ISSUER_URL"`
+	ClientID          string   `yaml:"client_id" envconfig:"OIDC_CLIENT_ID"`
+	ClientSecret      string   `yaml:"client_secret" envconfig:"OIDC_CLIENT_SECRET"` //nolint:gosec // field name is intentional, not a leaked secret
+	RedirectURL       string   `yaml:"redirect_url" envconfig:"OIDC_REDIRECT_URL"`
+	Scopes            []string `yaml:"scopes" envconfig:"OIDC_SCOPES"`
+	GroupsClaim       string   `yaml:"groups_claim" envconfig:"OIDC_GROUPS_CLAIM"`
+	AdminGroups       []string `yaml:"admin_groups" envconfig:"OIDC_ADMIN_GROUPS"`
+	EditorGroups      []string `yaml:"editor_groups" envconfig:"OIDC_EDITOR_GROUPS"`
+	DefaultRole       string   `yaml:"default_role" envconfig:"OIDC_DEFAULT_ROLE"`
+	StateCookieSecret string   `yaml:"state_cookie_secret" envconfig:"OIDC_STATE_COOKIE_SECRET"` //nolint:gosec // field name is intentional
+	PostLoginRedirect string   `yaml:"post_login_redirect" envconfig:"OIDC_POST_LOGIN_REDIRECT"`
+	EndSessionURL     string   `yaml:"end_session_url" envconfig:"OIDC_END_SESSION_URL"`
+}
+
 // Config holds the application configuration loaded from environment variables
 // and an optional YAML configuration file.
 // Precedence (highest to lowest): env vars > YAML file > hardcoded defaults.
@@ -102,6 +119,7 @@ type Config struct {
 	DBConnMaxLifetime time.Duration `yaml:"db_conn_max_lifetime" envconfig:"DB_CONN_MAX_LIFETIME"`
 	StorageType       string        `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
 	S3                S3Config      `yaml:"s3"`
+	OIDC              OIDCConfig    `yaml:"oidc"`
 	LogLevel          string        `yaml:"log_level" envconfig:"LOG_LEVEL"`
 	MaxUploadSizeMB   int           `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
 	SecurityPassHash  []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
@@ -135,6 +153,12 @@ func LoadConfig() (*Config, error) {
 		S3: S3Config{
 			Region:      "us-east-1",
 			Concurrency: 10,
+		},
+		OIDC: OIDCConfig{
+			Scopes:            []string{"openid", "profile", "email"},
+			GroupsClaim:       "groups",
+			DefaultRole:       "viewer",
+			PostLoginRedirect: "/",
 		},
 	}
 
@@ -173,6 +197,24 @@ var ErrS3EndpointRequired = errors.New("S3_ENDPOINT is required when STORAGE_TYP
 // ErrS3BucketRequired is returned when storage_type is "s3" but S3_BUCKET is not set.
 var ErrS3BucketRequired = errors.New("S3_BUCKET is required when STORAGE_TYPE=s3")
 
+// ErrOIDCIssuerRequired is returned when OIDC is enabled but IssuerURL is not set.
+var ErrOIDCIssuerRequired = errors.New("OIDC_ISSUER_URL is required when OIDC_ENABLED=true")
+
+// ErrOIDCClientIDRequired is returned when OIDC is enabled but ClientID is not set.
+var ErrOIDCClientIDRequired = errors.New("OIDC_CLIENT_ID is required when OIDC_ENABLED=true")
+
+// ErrOIDCClientSecretRequired is returned when OIDC is enabled but ClientSecret is not set.
+var ErrOIDCClientSecretRequired = errors.New("OIDC_CLIENT_SECRET is required when OIDC_ENABLED=true")
+
+// ErrOIDCRedirectURLRequired is returned when OIDC is enabled but RedirectURL is not set.
+var ErrOIDCRedirectURLRequired = errors.New("OIDC_REDIRECT_URL is required when OIDC_ENABLED=true")
+
+// ErrOIDCStateCookieSecretRequired is returned when OIDC is enabled but StateCookieSecret is not set.
+var ErrOIDCStateCookieSecretRequired = errors.New("OIDC_STATE_COOKIE_SECRET is required when OIDC_ENABLED=true")
+
+// ErrOIDCStateCookieSecretLength is returned when OIDC StateCookieSecret is not 16, 24, or 32 bytes.
+var ErrOIDCStateCookieSecretLength = errors.New("OIDC_STATE_COOKIE_SECRET must be exactly 16, 24, or 32 bytes for AES-128/192/256")
+
 // Validate checks that the configuration is safe to run in production.
 // Returns an error if security is enabled but the insecure default JWT secret is used,
 // or if S3 storage is selected but required fields are missing.
@@ -186,6 +228,27 @@ func (c *Config) Validate() error {
 		}
 		if c.S3.Bucket == "" {
 			return ErrS3BucketRequired
+		}
+	}
+	if c.OIDC.Enabled {
+		if c.OIDC.IssuerURL == "" {
+			return ErrOIDCIssuerRequired
+		}
+		if c.OIDC.ClientID == "" {
+			return ErrOIDCClientIDRequired
+		}
+		if c.OIDC.ClientSecret == "" {
+			return ErrOIDCClientSecretRequired
+		}
+		if c.OIDC.RedirectURL == "" {
+			return ErrOIDCRedirectURLRequired
+		}
+		if c.OIDC.StateCookieSecret == "" {
+			return ErrOIDCStateCookieSecretRequired
+		}
+		n := len(c.OIDC.StateCookieSecret)
+		if n != 16 && n != 24 && n != 32 {
+			return ErrOIDCStateCookieSecretLength
 		}
 	}
 	return nil

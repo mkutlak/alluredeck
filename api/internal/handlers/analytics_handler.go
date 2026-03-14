@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -36,7 +35,6 @@ func parseClampedInt(s string) int {
 
 // GetTopErrors returns the most common failure messages across recent builds.
 func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	projectID := r.PathValue("project_id")
 
 	q := r.URL.Query()
@@ -44,7 +42,7 @@ func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) 
 	limit := parseClampedInt(q.Get("limit"))
 
 	if h.analyticsStore == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": []store.ErrorCluster{}, "project_id": projectID})
+		writeJSON(w, http.StatusOK, map[string]any{"data": []store.ErrorCluster{}, "project_id": projectID})
 		return
 	}
 
@@ -56,18 +54,17 @@ func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) 
 	if data == nil {
 		data = []store.ErrorCluster{}
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "project_id": projectID})
+	writeJSON(w, http.StatusOK, map[string]any{"data": data, "project_id": projectID})
 }
 
 // GetSuitePassRates returns per-suite pass rates across recent builds.
 func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	projectID := r.PathValue("project_id")
 
 	builds := parseClampedInt(r.URL.Query().Get("builds"))
 
 	if h.analyticsStore == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": []store.SuitePassRate{}, "project_id": projectID})
+		writeJSON(w, http.StatusOK, map[string]any{"data": []store.SuitePassRate{}, "project_id": projectID})
 		return
 	}
 
@@ -79,12 +76,11 @@ func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Requ
 	if data == nil {
 		data = []store.SuitePassRate{}
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "project_id": projectID})
+	writeJSON(w, http.StatusOK, map[string]any{"data": data, "project_id": projectID})
 }
 
 // GetLabelBreakdown returns counts grouped by label value for a given label name.
 func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	projectID := r.PathValue("project_id")
 
 	q := r.URL.Query()
@@ -95,7 +91,7 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 	builds := parseClampedInt(q.Get("builds"))
 
 	if h.analyticsStore == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": []store.LabelCount{}, "project_id": projectID})
+		writeJSON(w, http.StatusOK, map[string]any{"data": []store.LabelCount{}, "project_id": projectID})
 		return
 	}
 
@@ -107,5 +103,5 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 	if data == nil {
 		data = []store.LabelCount{}
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "project_id": projectID})
+	writeJSON(w, http.StatusOK, map[string]any{"data": data, "project_id": projectID})
 }

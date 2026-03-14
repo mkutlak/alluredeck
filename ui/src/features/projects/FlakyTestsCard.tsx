@@ -44,8 +44,8 @@ export function FlakyTestsCard({ projectId }: Props) {
           </div>
         ) : (
           <div className="space-y-2">
-            {flakyTests.map((test, i) => (
-              <div key={i} className="flex items-center justify-between gap-2">
+            {flakyTests.map((test) => (
+              <div key={test.full_name} className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm" title={test.full_name}>
                   {test.name}
                 </span>

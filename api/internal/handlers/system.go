@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -31,8 +30,7 @@ func NewSystemHandler(cfg *config.Config, db *sql.DB) *SystemHandler {
 // @Success      200  {object}  map[string]string
 // @Router       /health [get]
 func (h *SystemHandler) Health(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Ready godoc
@@ -44,15 +42,12 @@ func (h *SystemHandler) Health(w http.ResponseWriter, _ *http.Request) {
 // @Failure      503  {object}  map[string]string
 // @Router       /ready [get]
 func (h *SystemHandler) Ready(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if h.db == nil || h.db.PingContext(r.Context()) != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unavailable", "db": "error"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "db": "error"})
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "db": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "db": "ok"})
 }
 
 // VersionResponse structures
@@ -81,14 +76,12 @@ type VersionMetaData struct {
 // @Success      200  {object}  VersionResponse
 // @Router       /version [get]
 func (h *SystemHandler) Version(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	versionStr := "Unknown"
 	if content, err := os.ReadFile(h.cfg.AllureVersionPath); err == nil {
 		versionStr = strings.TrimSpace(string(content))
 	}
 
-	_ = json.NewEncoder(w).Encode(VersionResponse{
+	writeJSON(w, http.StatusOK, VersionResponse{
 		Data:     VersionData{Version: versionStr},
 		MetaData: VersionMetaData{Message: "Version successfully obtained"},
 	})
@@ -114,6 +107,7 @@ type ConfigData struct {
 	AppVersion                string `json:"app_version"`
 	AppBuildDate              string `json:"app_build_date"`
 	AppBuildRef               string `json:"app_build_ref"`
+	OIDCEnabled               bool   `json:"oidc_enabled"`
 }
 
 // ConfigMetaData holds the response message for config responses.
@@ -129,14 +123,12 @@ type ConfigMetaData struct {
 // @Success      200  {object}  ConfigResponse
 // @Router       /config [get]
 func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	versionStr := "Unknown"
 	if content, err := os.ReadFile(h.cfg.AllureVersionPath); err == nil {
 		versionStr = strings.TrimSpace(string(content))
 	}
 
-	_ = json.NewEncoder(w).Encode(ConfigResponse{
+	writeJSON(w, http.StatusOK, ConfigResponse{
 		Data: ConfigData{
 			Version:                   versionStr,
 			DevMode:                   h.cfg.DevMode,
@@ -150,6 +142,7 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 			AppVersion:                version.Version,
 			AppBuildDate:              version.BuildDate,
 			AppBuildRef:               version.BuildRef,
+			OIDCEnabled:               h.cfg.OIDC.Enabled,
 		},
 		MetaData: ConfigMetaData{Message: "Config successfully obtained"},
 	})

@@ -193,9 +193,9 @@ func TestIsNumericID(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
 			t.Parallel()
-			got := isNumericID(tc.input)
+			got := IsNumericID(tc.input)
 			if got != tc.want {
-				t.Errorf("isNumericID(%q) = %v, want %v", tc.input, got, tc.want)
+				t.Errorf("IsNumericID(%q) = %v, want %v", tc.input, got, tc.want)
 			}
 		})
 	}

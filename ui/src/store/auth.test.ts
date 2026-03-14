@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAuthStore, selectIsAdmin, selectIsSessionValid } from './auth'
+import { useAuthStore, selectIsAdmin, selectIsEditor, selectIsSessionValid } from './auth'
 import { mockApiClient } from '@/test/mocks/api-client'
 
 // Mock the API client module — no more setAccessToken
@@ -59,6 +59,27 @@ describe('useAuthStore', () => {
 
     it('returns false when not authenticated', () => {
       expect(selectIsAdmin(useAuthStore.getState())).toBe(false)
+    })
+  })
+
+  describe('selectIsEditor', () => {
+    it('returns true for admin role', () => {
+      useAuthStore.getState().setAuth(['admin'], 'alice', 3600)
+      expect(selectIsEditor(useAuthStore.getState())).toBe(true)
+    })
+
+    it('returns true for editor role', () => {
+      useAuthStore.getState().setAuth(['editor'], 'bob', 3600)
+      expect(selectIsEditor(useAuthStore.getState())).toBe(true)
+    })
+
+    it('returns false for viewer role', () => {
+      useAuthStore.getState().setAuth(['viewer'], 'carol', 3600)
+      expect(selectIsEditor(useAuthStore.getState())).toBe(false)
+    })
+
+    it('returns false when not authenticated', () => {
+      expect(selectIsEditor(useAuthStore.getState())).toBe(false)
     })
   })
 

@@ -581,3 +581,118 @@ func (m *MemBuildStore) SetLatestBranch(_ context.Context, _ string, _ int, _ *i
 func (m *MemBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ *int64) ([]int, error) {
 	return nil, nil
 }
+
+// ---------------------------------------------------------------------------
+// MemUserStore
+// ---------------------------------------------------------------------------
+
+// MemUserStore is a thread-safe in-memory UserStorer for tests.
+type MemUserStore struct {
+	mu     sync.RWMutex
+	users  []*store.User
+	nextID int64
+}
+
+var _ store.UserStorer = (*MemUserStore)(nil)
+
+// NewMemUserStore returns an initialised MemUserStore.
+func NewMemUserStore() *MemUserStore {
+	return &MemUserStore{nextID: 1}
+}
+
+func (m *MemUserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	// Update existing record if provider+sub match.
+	for _, u := range m.users {
+		if u.Provider == provider && u.ProviderSub == sub && sub != "" {
+			u.Email = email
+			u.Name = name
+			u.Role = role
+			u.LastLogin = &now
+			u.UpdatedAt = now
+			cp := *u
+			return &cp, nil
+		}
+	}
+	// Insert new record.
+	u := &store.User{
+		ID:          m.nextID,
+		Email:       email,
+		Name:        name,
+		Provider:    provider,
+		ProviderSub: sub,
+		Role:        role,
+		IsActive:    true,
+		LastLogin:   &now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	m.nextID++
+	m.users = append(m.users, u)
+	cp := *u
+	return &cp, nil
+}
+
+func (m *MemUserStore) GetByID(ctx context.Context, id int64) (*store.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			cp := *u
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrUserNotFound
+}
+
+func (m *MemUserStore) GetByEmail(ctx context.Context, email string) (*store.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, u := range m.users {
+		if u.Email == email {
+			cp := *u
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrUserNotFound
+}
+
+func (m *MemUserStore) List(ctx context.Context) ([]store.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]store.User, 0, len(m.users))
+	for _, u := range m.users {
+		out = append(out, *u)
+	}
+	return out, nil
+}
+
+func (m *MemUserStore) Deactivate(ctx context.Context, id int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.IsActive = false
+			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}

@@ -64,7 +64,7 @@ alluredeck/
 - **State**: Zustand v5 (global), TanStack Query v5 (server state)
 - **UI**: Radix UI primitives + Tailwind CSS 4 + shadcn-style components
 - **Charts**: Recharts 3
-- **Build**: Vite 7
+- **Build**: Vite 8
 - **Test**: Vitest 4 + Testing Library (jsdom)
 - **Lint/Format**: ESLint 10 (flat config) + Prettier
 - **Types**: TypeScript 5 (strict)

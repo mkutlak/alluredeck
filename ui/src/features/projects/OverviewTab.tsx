@@ -5,7 +5,7 @@ import { RefreshCw, Clock, GitCommitHorizontal, GitBranch } from 'lucide-react'
 import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
-import { useAuthStore, selectIsAdmin } from '@/store/auth'
+import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { formatDuration, calcPassRate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,7 @@ import { ReportPagination } from './ReportPagination'
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore(selectIsAdmin)
+  const isEditor = useAuthStore(selectIsEditor)
   const queryClient = useQueryClient()
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -110,6 +111,25 @@ export function OverviewTab() {
 
   if (!projectId) return null
 
+  const compareBarContent =
+    selectedBuilds.size === 2
+      ? (() => {
+          const [a, b] = Array.from(selectedBuilds)
+          const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
+          return (
+            <div className="bg-muted/40 flex items-center gap-3 rounded-lg border px-4 py-2">
+              <span className="text-muted-foreground text-sm">2 builds selected</span>
+              <Button asChild size="sm">
+                <Link to={compareUrl}>Compare Selected</Link>
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedBuilds(new Set())}>
+                Clear
+              </Button>
+            </div>
+          )
+        })()
+      : null
+
   return (
     <div className="space-y-6">
       {/* Page title */}
@@ -137,22 +157,7 @@ export function OverviewTab() {
       </div>
 
       {/* Compare Selected bar */}
-      {selectedBuilds.size === 2 &&
-        (() => {
-          const [a, b] = Array.from(selectedBuilds)
-          const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
-          return (
-            <div className="bg-muted/40 flex items-center gap-3 rounded-lg border px-4 py-2">
-              <span className="text-muted-foreground text-sm">2 builds selected</span>
-              <Button asChild size="sm">
-                <Link to={compareUrl}>Compare Selected</Link>
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedBuilds(new Set())}>
-                Clear
-              </Button>
-            </div>
-          )
-        })()}
+      {compareBarContent}
 
       {/* Branch filter + Group by toolbar */}
       <div className="flex items-center gap-3">
@@ -207,7 +212,7 @@ export function OverviewTab() {
           <div>
             <p className="font-medium">No reports yet</p>
             <p className="text-muted-foreground text-sm">
-              {isAdmin
+              {isEditor
                 ? 'Send results and generate a report to get started.'
                 : 'No reports available for this project.'}
             </p>

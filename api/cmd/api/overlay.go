@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
 
@@ -53,7 +54,7 @@ func newOverlayHandler(projectsDir string) http.Handler {
 		// Expected structure (after leading "/"): {projectID}/reports/{N}/{rest}
 		trimmed := strings.TrimPrefix(cleanURL, "/")
 		parts := strings.SplitN(trimmed, "/", 4)
-		if len(parts) >= 3 && parts[1] == "reports" && isNumericID(parts[2]) {
+		if len(parts) >= 3 && parts[1] == "reports" && middleware.IsNumericID(parts[2]) {
 			rest := ""
 			if len(parts) == 4 {
 				rest = "/" + parts[3]
@@ -81,19 +82,6 @@ func stripIndexHTML(urlPath string) string {
 		return strings.TrimSuffix(urlPath, "index.html")
 	}
 	return urlPath
-}
-
-// isNumericID reports whether s is a non-empty string of ASCII decimal digits.
-func isNumericID(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 // newS3ReportHandler returns an HTTP handler that serves Allure report files from S3.
@@ -131,7 +119,7 @@ func newS3ReportHandler(st storage.Store) http.Handler {
 		}
 
 		// Overlay fallback: for numeric build IDs, try latest/
-		if isNumericID(reportID) {
+		if middleware.IsNumericID(reportID) {
 			rc, contentType, err = st.OpenReportFile(r.Context(), projectID, "latest", filePath)
 			if err == nil {
 				defer func() { _ = rc.Close() }()

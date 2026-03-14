@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -44,11 +43,7 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 			tokenStr := extractToken(r, cookieName)
 
 			if tokenStr == "" {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": "Missing authorization token"},
-				})
+				writeMiddlewareError(w, http.StatusUnauthorized, "Missing authorization token")
 				return
 			}
 
@@ -57,19 +52,11 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 				hash := security.HashAPIKey(tokenStr)
 				apiKey, err := apiKeyStore.GetByHash(r.Context(), hash)
 				if err != nil {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusUnauthorized)
-					_ = json.NewEncoder(w).Encode(map[string]any{
-						"metadata": map[string]string{"message": "Invalid API key"},
-					})
+					writeMiddlewareError(w, http.StatusUnauthorized, "Invalid API key")
 					return
 				}
 				if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusUnauthorized)
-					_ = json.NewEncoder(w).Encode(map[string]any{
-						"metadata": map[string]string{"message": "API key has expired"},
-					})
+					writeMiddlewareError(w, http.StatusUnauthorized, "API key has expired")
 					return
 				}
 				// Update last_used asynchronously — fire-and-forget
@@ -90,11 +77,7 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 			_, claims, err := jwtManager.ValidateToken(tokenStr, expectedType)
 			if err != nil {
 				logging.FromContext(r.Context()).Warn("auth: token validation failed", zap.Error(err))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": "Invalid token"},
-				})
+				writeMiddlewareError(w, http.StatusUnauthorized, "Invalid token")
 				return
 			}
 
@@ -128,7 +111,8 @@ func ClaimsFromContext(ctx context.Context) (jwt.MapClaims, bool) {
 // Higher values imply more permissions. Unknown roles get level 0.
 var roleLevel = map[string]int{
 	"viewer": 1,
-	"admin":  2,
+	"editor": 2,
+	"admin":  3,
 }
 
 // RequireRole returns middleware that enforces a minimum role level.
@@ -141,11 +125,7 @@ func RequireRole(required string) func(http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := ClaimsFromContext(r.Context())
 			if !ok {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": "Access denied: missing claims"},
-				})
+				writeMiddlewareError(w, http.StatusForbidden, "Access denied: missing claims")
 				return
 			}
 
@@ -153,11 +133,7 @@ func RequireRole(required string) func(http.HandlerFunc) http.HandlerFunc {
 			userLevel := roleLevel[userRole]
 
 			if userLevel < requiredLevel {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"metadata": map[string]string{"message": "Access denied: insufficient permissions"},
-				})
+				writeMiddlewareError(w, http.StatusForbidden, "Access denied: insufficient permissions")
 				return
 			}
 

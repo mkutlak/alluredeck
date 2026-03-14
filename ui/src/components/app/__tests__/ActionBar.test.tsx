@@ -10,6 +10,8 @@ import { ActionBar } from '../ActionBar'
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
   selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
+  selectIsEditor: (s: { roles?: string[] }) =>
+    (s.roles ?? []).includes('admin') || (s.roles ?? []).includes('editor'),
 }))
 
 vi.mock('@/features/reports/SendResultsDialog', () => ({
@@ -37,6 +39,7 @@ function renderActionBar(path: string, isAdminResult = true) {
       roles: isAdminResult ? (['admin'] as Role[]) : [],
       username: null,
       expiresAt: null,
+      provider: null,
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
     }),

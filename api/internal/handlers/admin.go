@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -65,7 +66,7 @@ func (h *AdminHandler) ListPendingResults(w http.ResponseWriter, r *http.Request
 	projects, err := h.store.ListProjects(ctx)
 	if err != nil {
 		h.logger.Error("admin: list projects failed", zap.Error(err))
-		http.Error(w, `{"error":"failed to list projects"}`, http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "failed to list projects")
 		return
 	}
 
@@ -141,7 +142,7 @@ func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Distinguish not-found vs already-terminal.
-	if isJobNotFound(err) {
+	if errors.Is(err, runner.ErrJobNotFound) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -215,36 +216,16 @@ func (h *AdminHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isJobNotFound(err) {
+	if errors.Is(err, runner.ErrJobNotFound) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	if isJobNotTerminal(err) {
+	if errors.Is(err, runner.ErrJobNotTerminal) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 
 	h.logger.Error("admin: delete job failed", zap.String("job_id", jobID), zap.Error(err))
 	writeError(w, http.StatusInternalServerError, "internal error")
-}
-
-// isJobNotFound returns true when the Cancel error indicates the job was not found.
-// runner.Cancel uses the suffix "not found" for missing IDs and "terminal state" for completed jobs.
-func isJobNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return len(msg) >= 9 && msg[len(msg)-9:] == "not found"
-}
-
-// isJobNotTerminal returns true when the Delete error indicates the job is still active.
-func isJobNotTerminal(err error) bool {
-	if err == nil {
-		return false
-	}
-	const suffix = "not in a terminal state"
-	msg := err.Error()
-	return len(msg) >= len(suffix) && msg[len(msg)-len(suffix):] == suffix
 }

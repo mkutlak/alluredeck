@@ -649,7 +649,7 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 	mocks := testutil.New()
 	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
 	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st)
+		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, zap.NewNop())
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
 	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
