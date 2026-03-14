@@ -279,7 +279,7 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 - **State Management**: Zustand (global state), TanStack Query v5 (server state)
 - **UI Components**: Radix UI primitives + Tailwind CSS 4 + shadcn-style components
 - **Charts**: Recharts 3
-- **Build Tool**: Vite 7
+- **Build Tool**: Vite 8
 - **Testing**: Vitest + Testing Library (jsdom)
 - **Type Checking**: TypeScript 5 (strict mode)
 - **Linting**: ESLint 10 (flat config)

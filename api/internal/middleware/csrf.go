@@ -48,6 +48,14 @@ func CSRFMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Skip CSRF for non-cookie-authenticated requests (API key / programmatic access).
+			// CSRF attacks exploit the browser's automatic cookie-sending. If there's no jwt
+			// session cookie, the request is not cookie-authenticated and CSRF doesn't apply.
+			if _, err := r.Cookie("jwt"); err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Double-submit validation: cookie vs header
 			cookie, err := r.Cookie("csrf_token")
 			if err != nil || cookie.Value == "" {

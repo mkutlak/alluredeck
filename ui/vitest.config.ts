@@ -1,9 +1,15 @@
 import { defineConfig, mergeConfig } from 'vitest/config'
+import { fileURLToPath, URL } from 'node:url'
 import viteConfig from './vite.config'
 
 export default mergeConfig(
   viteConfig,
   defineConfig({
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
     test: {
       globals: true,
       environment: 'jsdom',

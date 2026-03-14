@@ -9,7 +9,7 @@
 
 ## Key Versions
 - React 19, React Router v7, Zustand v5
-- Vite 7, Vitest 4, TypeScript 5 (strict)
+- Vite 8, Vitest 4, TypeScript 5 (strict)
 - ESLint 10 (flat config — `eslint.config.js`), Prettier 3
 - TanStack Query v5, Recharts 3, Tailwind CSS 4
 - Radix UI primitives, shadcn-style components

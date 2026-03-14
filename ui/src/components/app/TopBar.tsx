@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { Moon, Sun, LogOut, User, Search } from 'lucide-react'
+import { Moon, Sun, LogOut, User, Search, Key } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -96,6 +96,13 @@ export function TopBar() {
               </p>
             </div>
           </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link to="/settings/api-keys" className="flex cursor-pointer items-center gap-2">
+              <Key size={14} />
+              API Keys
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {

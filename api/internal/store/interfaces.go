@@ -18,6 +18,7 @@ var (
 	ErrCannotDeleteDefaultBranch = errors.New("cannot delete default branch")
 	ErrKnownIssueNotFound        = errors.New("known issue not found")
 	ErrDuplicateEntry            = errors.New("unique constraint violation")
+	ErrAPIKeyNotFound            = errors.New("api key not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -131,6 +132,16 @@ type AnalyticsStorer interface {
 	ListSuitePassRates(ctx context.Context, projectID string, builds int) ([]SuitePassRate, error)
 	// ListLabelBreakdown returns counts grouped by label value for a given label name.
 	ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int) ([]LabelCount, error)
+}
+
+// APIKeyStorer is the interface for API key operations.
+type APIKeyStorer interface {
+	Create(ctx context.Context, key *APIKey) (*APIKey, error)
+	ListByUsername(ctx context.Context, username string) ([]APIKey, error)
+	GetByHash(ctx context.Context, keyHash string) (*APIKey, error)
+	UpdateLastUsed(ctx context.Context, id int64) error
+	Delete(ctx context.Context, id int64, username string) error
+	CountByUsername(ctx context.Context, username string) (int, error)
 }
 
 // Locker serialises per-project operations using PostgreSQL advisory locks

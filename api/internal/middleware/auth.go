@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
@@ -12,6 +13,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 type contextKey string
@@ -22,7 +24,9 @@ const ClaimsKey contextKey = "jwt_claims"
 // AuthMiddleware protects routes using the JWT manager.
 // When security is disabled, the request passes through without validation.
 // On success, the parsed JWT claims are stored in the request context under ClaimsKey.
-func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefresh bool) func(http.HandlerFunc) http.HandlerFunc {
+// When apiKeyStore is non-nil and the token has the "ald_" prefix, API key authentication
+// is used instead of JWT validation.
+func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefresh bool, apiKeyStore store.APIKeyStorer) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !cfg.SecurityEnabled {
@@ -45,6 +49,41 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"metadata": map[string]string{"message": "Missing authorization token"},
 				})
+				return
+			}
+
+			// API key authentication path: ald_ prefix tokens
+			if !isRefresh && strings.HasPrefix(tokenStr, security.APIKeyPrefix) && apiKeyStore != nil {
+				hash := security.HashAPIKey(tokenStr)
+				apiKey, err := apiKeyStore.GetByHash(r.Context(), hash)
+				if err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"metadata": map[string]string{"message": "Invalid API key"},
+					})
+					return
+				}
+				if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"metadata": map[string]string{"message": "API key has expired"},
+					})
+					return
+				}
+				// Update last_used asynchronously — fire-and-forget
+				go func() {
+					_ = apiKeyStore.UpdateLastUsed(context.Background(), apiKey.ID)
+				}()
+				// Inject claims compatible with existing JWT claims structure
+				claims := jwt.MapClaims{
+					"sub":       apiKey.Username,
+					"role":      apiKey.Role,
+					"auth_type": "api_key",
+				}
+				ctx := context.WithValue(r.Context(), ClaimsKey, claims)
+				next(w, r.WithContext(ctx))
 				return
 			}
 

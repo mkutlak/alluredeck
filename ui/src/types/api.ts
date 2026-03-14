@@ -460,6 +460,30 @@ export interface TestHistoryData {
 }
 
 // ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+export type Role = 'admin' | 'viewer'
+
+export interface APIKey {
+  id: number
+  name: string
+  prefix: string
+  role: Role
+  expires_at: string | null
+  last_used: string | null
+  created_at: string
+}
+
+export interface APIKeyCreated extends APIKey {
+  key: string // full key, shown once at creation
+}
+
+export interface CreateAPIKeyRequest {
+  name: string
+  expires_at?: string
+}
+
+// ---------------------------------------------------------------------------
 // Analytics (Phase 8 — PostgreSQL analytics dashboards)
 // ---------------------------------------------------------------------------
 export interface ErrorCluster {

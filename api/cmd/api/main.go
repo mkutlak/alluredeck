@@ -64,6 +64,7 @@ func main() {
 		knownIssueStore store.KnownIssueStorer
 		searchStore     store.SearchStorer
 		analyticsStore  store.AnalyticsStorer
+		apiKeyStore     store.APIKeyStorer
 	)
 
 	dataStore, err := createDataStore(cfg, logger)
@@ -89,6 +90,7 @@ func main() {
 	knownIssueStore = pg.NewKnownIssueStore(pgDB)
 	searchStore = pg.NewSearchStore(pgDB, logger)
 	analyticsStore = pg.NewAnalyticsStore(pgDB)
+	apiKeyStore = pg.NewAPIKeyStore(pgDB)
 	sqlDB := pgDB.DB()
 	var locker store.Locker = pgDB
 
@@ -113,6 +115,7 @@ func main() {
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
 	allureHandler.SetBranchStore(branchStore)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, logger)
+	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
 
@@ -169,7 +172,7 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, apiKeyHandler, apiKeyStore)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -268,9 +271,11 @@ func registerRoutes(
 	branchHandler *handlers.BranchHandler,
 	testHistoryHandler *handlers.TestHistoryHandler,
 	analyticsHandler *handlers.AnalyticsHandler,
+	apiKeyHandler *handlers.APIKeyHandler,
+	apiKeyStore store.APIKeyStorer,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
-		return middleware.AuthMiddleware(cfg, jwtManager, false)(h)
+		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
 	}
 	rateLimit := middleware.RateLimitMiddleware(loginLimiter)
 
@@ -365,4 +370,11 @@ func registerRoutes(
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/errors", viewerUp(shortCache(analyticsHandler.GetTopErrors)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(analyticsHandler.GetSuitePassRates)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(analyticsHandler.GetLabelBreakdown)))
+
+	// API Keys (any authenticated user).
+	if apiKeyHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/api-keys", auth(noStore(apiKeyHandler.List)))
+		mux.HandleFunc("POST "+prefix+"/api-keys", auth(noStore(apiKeyHandler.Create)))
+		mux.HandleFunc("DELETE "+prefix+"/api-keys/{id}", auth(noStore(apiKeyHandler.Delete)))
+	}
 }

@@ -60,19 +60,18 @@ func (ss *PGSearchStore) SearchProjects(ctx context.Context, query string, limit
 	return results, nil
 }
 
-// SearchTests returns test results from latest builds whose test_name or
-// full_name contains the query substring (case-insensitive).
+// SearchTests returns test results from latest builds whose search_vector matches
+// the query using PostgreSQL full-text search (plainto_tsquery).
 func (ss *PGSearchStore) SearchTests(ctx context.Context, query string, limit int) ([]store.TestMatch, error) {
-	pattern := "%" + escapeLike(query) + "%"
 	rows, err := ss.pool.Query(ctx,
 		`SELECT DISTINCT tr.project_id, tr.test_name, tr.full_name, tr.status
 		 FROM test_results tr
 		 INNER JOIN builds b ON b.id = tr.build_id
 		 WHERE b.is_latest = TRUE
-		   AND (tr.test_name LIKE $1 ESCAPE '\' OR tr.full_name LIKE $2 ESCAPE '\')
+		   AND tr.search_vector @@ plainto_tsquery('english', $1)
 		 ORDER BY tr.project_id, tr.test_name
-		 LIMIT $3`,
-		pattern, pattern, limit)
+		 LIMIT $2`,
+		query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search tests: %w", err)
 	}

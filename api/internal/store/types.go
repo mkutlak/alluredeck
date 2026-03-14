@@ -2,6 +2,25 @@ package store
 
 import "time"
 
+// APIKey represents an API key for programmatic access.
+type APIKey struct {
+	ID        int64      `json:"id"`
+	Name      string     `json:"name"`
+	Prefix    string     `json:"prefix"`
+	KeyHash   string     `json:"-"`
+	Username  string     `json:"username"`
+	Role      string     `json:"role"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	LastUsed  *time.Time `json:"last_used"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// CreateAPIKeyRequest holds the fields needed to create an API key.
+type CreateAPIKeyRequest struct {
+	Name      string     `json:"name"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 // Project represents a registered allure project.
 type Project struct {
 	ID        string

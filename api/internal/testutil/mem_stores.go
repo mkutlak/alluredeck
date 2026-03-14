@@ -11,6 +11,120 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// MemAPIKeyStore
+// ---------------------------------------------------------------------------
+
+// MemAPIKeyStore is a thread-safe in-memory APIKeyStorer for tests.
+type MemAPIKeyStore struct {
+	mu     sync.RWMutex
+	keys   []*store.APIKey
+	nextID int64
+}
+
+var _ store.APIKeyStorer = (*MemAPIKeyStore)(nil)
+
+// NewMemAPIKeyStore returns an initialised MemAPIKeyStore.
+func NewMemAPIKeyStore() *MemAPIKeyStore {
+	return &MemAPIKeyStore{nextID: 1}
+}
+
+func (m *MemAPIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.APIKey, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	cp := *key
+	cp.ID = m.nextID
+	cp.CreatedAt = now
+	m.nextID++
+	m.keys = append(m.keys, &cp)
+	result := cp
+	return &result, nil
+}
+
+func (m *MemAPIKeyStore) ListByUsername(ctx context.Context, username string) ([]store.APIKey, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []store.APIKey
+	for _, k := range m.keys {
+		if k.Username == username {
+			out = append(out, *k)
+		}
+	}
+	// Sort newest first (descending created_at).
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
+func (m *MemAPIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.APIKey, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, k := range m.keys {
+		if k.KeyHash == keyHash {
+			cp := *k
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrAPIKeyNotFound
+}
+
+func (m *MemAPIKeyStore) UpdateLastUsed(ctx context.Context, id int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, k := range m.keys {
+		if k.ID == id {
+			now := time.Now()
+			k.LastUsed = &now
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *MemAPIKeyStore) Delete(ctx context.Context, id int64, username string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, k := range m.keys {
+		if k.ID == id && k.Username == username {
+			m.keys = slices.Delete(m.keys, i, i+1)
+			return nil
+		}
+	}
+	return store.ErrAPIKeyNotFound
+}
+
+func (m *MemAPIKeyStore) CountByUsername(ctx context.Context, username string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	count := 0
+	for _, k := range m.keys {
+		if k.Username == username {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// ---------------------------------------------------------------------------
 // MemProjectStore
 // ---------------------------------------------------------------------------
 

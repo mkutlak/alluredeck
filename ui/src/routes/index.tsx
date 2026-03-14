@@ -27,6 +27,9 @@ const ComparePage = lazy(() =>
   import('@/features/compare/ComparePage').then((m) => ({ default: m.ComparePage })),
 )
 const AdminPage = lazy(() => import('@/features/admin').then((m) => ({ default: m.AdminPage })))
+const APIKeysPage = lazy(() =>
+  import('@/features/settings/APIKeysPage').then((m) => ({ default: m.APIKeysPage })),
+)
 const TestHistoryPage = lazy(() =>
   import('@/features/tests/TestHistoryPage').then((m) => ({ default: m.TestHistoryPage })),
 )
@@ -131,6 +134,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <AdminPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings/api-keys"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <APIKeysPage />
               </Suspense>
             }
           />

@@ -29,6 +29,7 @@ export const queryKeys = {
   buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
   adminJobs: ['admin-jobs'] as const,
   adminResults: ['admin-results'] as const,
+  apiKeys: ['api-keys'] as const,
   branches: {
     list: (projectId: string) => ['branches', projectId] as const,
   },

@@ -19,9 +19,10 @@ help: ## Show available targets
 install: ## Install dependencies (npm ci)
 	npm ci
 
-upgrade: ## Upgrade all dependencies to latest versions (updates package.json + installs)
+upgrade: ## Upgrade all dependencies to latest versions (updates package.json + installs + audit)
 	npx npm-check-updates -u
 	npm install
+	npm audit
 
 # ── Dev ─────────────────────────────────────────────────────────
 

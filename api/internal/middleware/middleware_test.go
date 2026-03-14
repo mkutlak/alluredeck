@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
@@ -22,14 +24,14 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
 
-	handler := AuthMiddleware(cfg, jwtManager, false)(func(w http.ResponseWriter, _ *http.Request) {
+	handler := AuthMiddleware(cfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("SecurityDisabled", func(t *testing.T) {
 		t.Parallel()
 		disabledCfg := &config.Config{SecurityEnabled: false}
-		h := AuthMiddleware(disabledCfg, jwtManager, false)(func(w http.ResponseWriter, _ *http.Request) {
+		h := AuthMiddleware(disabledCfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -114,7 +116,7 @@ func TestAuthMiddleware(t *testing.T) {
 		// Wait for the token to expire
 		time.Sleep(5 * time.Millisecond)
 
-		expiredHandler := AuthMiddleware(cfg, jwtManager, false)(func(w http.ResponseWriter, _ *http.Request) {
+		expiredHandler := AuthMiddleware(cfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -157,7 +159,7 @@ func TestRequireRole(t *testing.T) {
 		inner := func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}
-		return AuthMiddleware(cfg, jwtMgr, false)(RequireRole(requiredRole)(inner))
+		return AuthMiddleware(cfg, jwtMgr, false, nil)(RequireRole(requiredRole)(inner))
 	}
 
 	t.Run("AdminAllowedOnAdminEndpoint", func(t *testing.T) {
@@ -221,6 +223,156 @@ func TestRequireRole(t *testing.T) {
 			t.Errorf("expected 403 when claims are missing, got %d", rr.Code)
 		}
 	})
+}
+
+func TestAuthMiddleware_APIKeyValid(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+
+	now := time.Now().Add(time.Hour)
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return &store.APIKey{
+				ID:        1,
+				Username:  "apiuser",
+				Role:      "admin",
+				ExpiresAt: &now,
+			}, nil
+		},
+		UpdateLastUsedFn: func(_ context.Context, _ int64) error {
+			return nil
+		},
+	}
+
+	// Use a valid ald_ token — hash lookup is mocked so value doesn't matter
+	token := "ald_" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+	var capturedClaims interface{}
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, r *http.Request) {
+		capturedClaims, _ = ClaimsFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for valid API key, got %d", rr.Code)
+	}
+	if capturedClaims == nil {
+		t.Error("expected claims to be injected in context")
+	}
+}
+
+func TestAuthMiddleware_APIKeyExpired(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+
+	past := time.Now().Add(-time.Hour)
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return &store.APIKey{
+				ID:        2,
+				Username:  "apiuser",
+				Role:      "viewer",
+				ExpiresAt: &past,
+			}, nil
+		},
+	}
+
+	token := "ald_" + "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"
+
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for expired API key, got %d", rr.Code)
+	}
+}
+
+func TestAuthMiddleware_APIKeyInvalid(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return nil, store.ErrAPIKeyNotFound
+		},
+	}
+
+	token := "ald_" + "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for invalid API key, got %d", rr.Code)
+	}
+}
+
+func TestAuthMiddleware_NonAldBearerUsesJWT(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist())
+
+	// Provide an apiKeyStore that should NOT be called for a non-ald_ token
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			panic("apiKeyStore.GetByHash should not be called for non-ald_ token")
+		},
+	}
+
+	accessToken, _, _ := jwtManager.GenerateTokens("jwtuser", "viewer")
+
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for valid JWT token (non-ald_), got %d", rr.Code)
+	}
 }
 
 func TestCORSMiddleware(t *testing.T) {

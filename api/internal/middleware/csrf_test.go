@@ -82,6 +82,7 @@ func TestCSRFMiddleware_POSTBlockedWithoutToken(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/generate-report", nil)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: "sometoken"})
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -100,6 +101,7 @@ func TestCSRFMiddleware_POSTAllowedWithMatchingTokens(t *testing.T) {
 	token, _ := GenerateCSRFToken()
 
 	req := httptest.NewRequest(http.MethodPost, "/generate-report", nil)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: "sometoken"})
 	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
 	req.Header.Set("X-CSRF-Token", token)
 	rr := httptest.NewRecorder()
@@ -121,6 +123,7 @@ func TestCSRFMiddleware_MismatchedTokensBlocked(t *testing.T) {
 	token2, _ := GenerateCSRFToken()
 
 	req := httptest.NewRequest(http.MethodPost, "/generate-report", nil)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: "sometoken"})
 	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token1})
 	req.Header.Set("X-CSRF-Token", token2)
 	rr := httptest.NewRecorder()
@@ -174,10 +177,68 @@ func TestCSRFMiddleware_DELETEBlockedWithoutToken(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: "sometoken"})
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("DELETE without CSRF token should be 403, got %d", rr.Code)
+	}
+}
+
+func TestCSRFMiddleware_NoJWTCookieBypassesCSRF(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{SecurityEnabled: true}
+	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// POST with no jwt cookie → 200 (bypassed, API key scenario)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/api-keys", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("POST without jwt cookie should bypass CSRF and get 200, got %d", rr.Code)
+	}
+}
+
+func TestCSRFMiddleware_WithJWTCookieEnforcesCSRF(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{SecurityEnabled: true}
+	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// POST with jwt cookie but no csrf_token → 403
+	req := httptest.NewRequest(http.MethodPost, "/generate-report", nil)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: "sometoken"})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("POST with jwt cookie but no csrf_token should be 403, got %d", rr.Code)
+	}
+}
+
+func TestCSRFMiddleware_WithJWTCookieAllowedWithMatchingCSRF(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{SecurityEnabled: true}
+	handler := CSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	token, _ := GenerateCSRFToken()
+
+	// POST with jwt cookie + matching csrf tokens → 200
+	req := httptest.NewRequest(http.MethodPost, "/generate-report", nil)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: "sometoken"})
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
+	req.Header.Set("X-CSRF-Token", token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("POST with jwt cookie + matching CSRF tokens should be 200, got %d", rr.Code)
 	}
 }

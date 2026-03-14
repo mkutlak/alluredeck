@@ -18,6 +18,7 @@ var (
 	_ store.BranchStorer     = (*MockBranchStore)(nil)
 	_ store.SearchStorer     = (*MockSearchStore)(nil)
 	_ store.Locker           = (*MockLocker)(nil)
+	_ store.APIKeyStorer     = (*MockAPIKeyStore)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
@@ -31,6 +32,7 @@ type MockStores struct {
 	Branches    *MockBranchStore
 	Search      *MockSearchStore
 	Locker      *MockLocker
+	APIKeys     *MemAPIKeyStore // stateful in-memory store for API key handler tests
 }
 
 // New returns a MockStores with all fields initialised.
@@ -47,6 +49,7 @@ func New() *MockStores {
 		Branches:    &MockBranchStore{},
 		Search:      &MockSearchStore{},
 		Locker:      &MockLocker{},
+		APIKeys:     NewMemAPIKeyStore(),
 	}
 }
 
@@ -562,4 +565,61 @@ func (m *MockLocker) AcquireLock(ctx context.Context, key string) (func(), error
 		return m.AcquireLockFn(ctx, key)
 	}
 	return func() {}, nil
+}
+
+// ---------------------------------------------------------------------------
+// MockAPIKeyStore
+// ---------------------------------------------------------------------------
+
+// MockAPIKeyStore is a test double for store.APIKeyStorer.
+// Set function fields to control behaviour; unset fields return zero values.
+type MockAPIKeyStore struct {
+	CreateFn          func(ctx context.Context, key *store.APIKey) (*store.APIKey, error)
+	ListByUsernameFn  func(ctx context.Context, username string) ([]store.APIKey, error)
+	GetByHashFn       func(ctx context.Context, keyHash string) (*store.APIKey, error)
+	UpdateLastUsedFn  func(ctx context.Context, id int64) error
+	DeleteFn          func(ctx context.Context, id int64, username string) error
+	CountByUsernameFn func(ctx context.Context, username string) (int, error)
+}
+
+func (m *MockAPIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.APIKey, error) {
+	if m.CreateFn != nil {
+		return m.CreateFn(ctx, key)
+	}
+	return nil, nil
+}
+
+func (m *MockAPIKeyStore) ListByUsername(ctx context.Context, username string) ([]store.APIKey, error) {
+	if m.ListByUsernameFn != nil {
+		return m.ListByUsernameFn(ctx, username)
+	}
+	return nil, nil
+}
+
+func (m *MockAPIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.APIKey, error) {
+	if m.GetByHashFn != nil {
+		return m.GetByHashFn(ctx, keyHash)
+	}
+	return nil, nil
+}
+
+func (m *MockAPIKeyStore) UpdateLastUsed(ctx context.Context, id int64) error {
+	if m.UpdateLastUsedFn != nil {
+		return m.UpdateLastUsedFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *MockAPIKeyStore) Delete(ctx context.Context, id int64, username string) error {
+	if m.DeleteFn != nil {
+		return m.DeleteFn(ctx, id, username)
+	}
+	return nil
+}
+
+func (m *MockAPIKeyStore) CountByUsername(ctx context.Context, username string) (int, error) {
+	if m.CountByUsernameFn != nil {
+		return m.CountByUsernameFn(ctx, username)
+	}
+	return 0, nil
 }
