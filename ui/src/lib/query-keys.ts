@@ -7,11 +7,15 @@ export const queryKeys = {
     tag !== undefined ? (['dashboard', tag] as const) : (['dashboard'] as const),
   search: (query: string) => ['search', query] as const,
   // Project-scoped
-  reportHistory: (pid: string, page?: number, branch?: string) =>
+  reportHistory: (pid: string, page?: number, branch?: string, perPage?: number) =>
     page != null
       ? branch != null
-        ? (['report-history', pid, page, branch] as const)
-        : (['report-history', pid, page] as const)
+        ? perPage != null
+          ? (['report-history', pid, page, branch, perPage] as const)
+          : (['report-history', pid, page, branch] as const)
+        : perPage != null
+          ? (['report-history', pid, page, perPage] as const)
+          : (['report-history', pid, page] as const)
       : (['report-history', pid] as const),
   reportCategories: (pid: string) => ['report-categories', pid] as const,
   reportCategoriesLatest: (pid: string) => ['report-categories', pid, 'latest'] as const,

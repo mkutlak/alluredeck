@@ -142,8 +142,8 @@ func TestPartialYAMLWithDefaults(t *testing.T) {
 		t.Errorf("partial YAML keep_history: want true, got false")
 	}
 	// Unset fields get hardcoded defaults
-	if cfg.KeepHistoryLatest != 20 {
-		t.Errorf("default KeepHistoryLatest: want 20, got %d", cfg.KeepHistoryLatest)
+	if cfg.KeepHistoryLatest != 100 {
+		t.Errorf("default KeepHistoryLatest: want 100, got %d", cfg.KeepHistoryLatest)
 	}
 }
 
@@ -200,8 +200,8 @@ func TestEmptyYAMLFile(t *testing.T) {
 	if cfg.Port != "8080" {
 		t.Errorf("empty YAML should use default port 8080, got %s", cfg.Port)
 	}
-	if cfg.KeepHistoryLatest != 20 {
-		t.Errorf("empty YAML should use default KeepHistoryLatest 20, got %d", cfg.KeepHistoryLatest)
+	if cfg.KeepHistoryLatest != 100 {
+		t.Errorf("empty YAML should use default KeepHistoryLatest 100, got %d", cfg.KeepHistoryLatest)
 	}
 }
 

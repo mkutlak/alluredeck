@@ -38,7 +38,7 @@ export function ReportViewerPage() {
         src={reportUrl}
         title={`Allure report #${reportId} — ${projectId}`}
         className="flex-1 border-0"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
       />
     </div>
   )

@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
 import { Link, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { RefreshCw, Clock } from 'lucide-react'
+import { RefreshCw, Clock, GitCommitHorizontal, GitBranch } from 'lucide-react'
 import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
+import { useUIStore } from '@/store/ui'
 import { formatDuration, calcPassRate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -28,8 +29,6 @@ import { ProjectStatCards } from './ProjectStatCards'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
 
-const PER_PAGE = 20
-
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore(selectIsAdmin)
@@ -38,6 +37,10 @@ export function OverviewTab() {
   const [page, setPage] = useState(1)
   const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
   const [selectedBuilds, setSelectedBuilds] = useState<Set<string>>(new Set())
+  const reportsPerPage = useUIStore((s) => s.reportsPerPage)
+  const setReportsPerPage = useUIStore((s) => s.setReportsPerPage)
+  const groupBy = useUIStore((s) => s.reportsGroupBy)
+  const setGroupBy = useUIStore((s) => s.setReportsGroupBy)
 
   const handleToggleBuild = (id: string) => {
     setSelectedBuilds((prev) => {
@@ -57,8 +60,8 @@ export function OverviewTab() {
   }
 
   const { data: historyData, isLoading } = useQuery({
-    queryKey: queryKeys.reportHistory(projectId ?? '', page, selectedBranch),
-    queryFn: () => fetchReportHistory(projectId ?? '', page, PER_PAGE, selectedBranch),
+    queryKey: queryKeys.reportHistory(projectId ?? '', page, selectedBranch, reportsPerPage),
+    queryFn: () => fetchReportHistory(projectId ?? '', page, reportsPerPage, selectedBranch),
     enabled: !!projectId,
     staleTime: 10_000,
     placeholderData: keepPreviousData,
@@ -151,12 +154,45 @@ export function OverviewTab() {
           )
         })()}
 
-      {/* Branch filter */}
-      <BranchSelector
-        projectId={projectId}
-        selectedBranch={selectedBranch}
-        onBranchChange={setSelectedBranch}
-      />
+      {/* Branch filter + Group by toolbar */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground text-xs">Choose branch:</span>
+          <BranchSelector
+            projectId={projectId}
+            selectedBranch={selectedBranch}
+            onBranchChange={setSelectedBranch}
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-muted-foreground text-xs">Group by:</span>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant={groupBy === 'none' ? 'secondary' : 'outline'}
+              onClick={() => setGroupBy('none')}
+            >
+              None
+            </Button>
+            <Button
+              size="sm"
+              variant={groupBy === 'commit' ? 'secondary' : 'outline'}
+              onClick={() => setGroupBy('commit')}
+            >
+              <GitCommitHorizontal size={12} />
+              Commit
+            </Button>
+            <Button
+              size="sm"
+              variant={groupBy === 'branch' ? 'secondary' : 'outline'}
+              onClick={() => setGroupBy('branch')}
+            >
+              <GitBranch size={12} />
+              Branch
+            </Button>
+          </div>
+        </div>
+      </div>
 
       {/* Report history table */}
       {isLoading ? (
@@ -185,12 +221,22 @@ export function OverviewTab() {
           onDeleteReport={setDeleteReportId}
           selectedBuilds={selectedBuilds}
           onToggleBuild={handleToggleBuild}
+          groupBy={groupBy}
         />
       )}
 
       {/* Pagination controls */}
-      {pagination && pagination.total_pages > 1 && (
-        <ReportPagination page={page} totalPages={pagination.total_pages} onPageChange={setPage} />
+      {tableReports.length > 0 && (
+        <ReportPagination
+          page={page}
+          totalPages={Math.max(1, pagination?.total_pages ?? 1)}
+          onPageChange={setPage}
+          perPage={reportsPerPage}
+          onPerPageChange={(n) => {
+            setReportsPerPage(n)
+            setPage(1)
+          }}
+        />
       )}
 
       {/* Duration summary */}

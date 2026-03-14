@@ -166,7 +166,7 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.config.storageType` | File storage backend (`local` or `s3`) | `"local"` |
 | `api.config.databaseURL` | PostgreSQL connection string | `""` |
 | `api.config.keepHistory` | Enable test history tracking | `"true"` |
-| `api.config.keepHistoryLatest` | Number of history entries to keep | `"20"` |
+| `api.config.keepHistoryLatest` | Number of history entries to keep | `"100"` |
 | `api.config.maxUploadSizeMb` | Max upload size in MB | `"100"` |
 | `api.config.goMemLimit` | Go memory limit (set to ~80% of memory limit) | `"768MiB"` |
 | `api.config.swaggerEnabled` | Enable Swagger UI | `"false"` |

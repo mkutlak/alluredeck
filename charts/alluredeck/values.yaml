@@ -24,7 +24,7 @@ api:
     storageType: "local"  # "local" or "s3"
     checkResultsEverySeconds: "NONE"
     keepHistory: "true"
-    keepHistoryLatest: "20"
+    keepHistoryLatest: "100"
     apiResponseLessVerbose: "false"
     trustXForwardedFor: "true"
     swaggerEnabled: "false"

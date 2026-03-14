@@ -86,8 +86,8 @@ db_conn_max_lifetime: 300
 keep_history: true
 
 # Number of historical reports to retain per project. Env var: KEEP_HISTORY_LATEST
-# Default: 20
-keep_history_latest: 20
+# Default: 100
+keep_history_latest: 100
 
 # --- Report generation ---
 

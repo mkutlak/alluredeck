@@ -12,11 +12,11 @@ export function Layout() {
       <SearchCommand>
         <SidebarProvider className="flex-col">
           <TopBar />
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1">
             <AppSidebar />
             <SidebarInset>
               <ActionBar />
-              <div className="flex-1 overflow-y-auto p-6">
+              <div className="flex-1 p-6">
                 <div className="mx-auto max-w-[1440px]">
                   <Outlet />
                 </div>

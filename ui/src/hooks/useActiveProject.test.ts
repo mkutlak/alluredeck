@@ -27,6 +27,10 @@ vi.mock('@/store/ui', () => ({
       clearLastProjectId: vi.fn(),
       projectViewMode: 'grid',
       setProjectViewMode: vi.fn(),
+      reportsPerPage: 20,
+      reportsGroupBy: 'none' as const,
+      setReportsPerPage: vi.fn(),
+      setReportsGroupBy: vi.fn(),
     }),
   ),
 }))
@@ -106,6 +110,10 @@ describe('useActiveProject', () => {
         clearLastProjectId: vi.fn(),
         projectViewMode: 'grid',
         setProjectViewMode: vi.fn(),
+        reportsPerPage: 20,
+        reportsGroupBy: 'none' as const,
+        setReportsPerPage: vi.fn(),
+        setReportsGroupBy: vi.fn(),
       }),
     )
   })
@@ -134,6 +142,10 @@ describe('useActiveProject', () => {
         clearLastProjectId: vi.fn(),
         projectViewMode: 'grid',
         setProjectViewMode: vi.fn(),
+        reportsPerPage: 20,
+        reportsGroupBy: 'none' as const,
+        setReportsPerPage: vi.fn(),
+        setReportsGroupBy: vi.fn(),
       }),
     )
 

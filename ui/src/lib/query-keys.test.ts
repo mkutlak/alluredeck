@@ -30,6 +30,24 @@ describe('queryKeys', () => {
     expect(queryKeys.reportHistory('p1', 3)).toEqual(['report-history', 'p1', 3])
   })
 
+  it('reportHistory with page and branch returns 4-element key', () => {
+    expect(queryKeys.reportHistory('p1', 3, 'main')).toEqual(['report-history', 'p1', 3, 'main'])
+  })
+
+  it('reportHistory with page, branch, and perPage returns 5-element key', () => {
+    expect(queryKeys.reportHistory('p1', 3, 'main', 50)).toEqual([
+      'report-history',
+      'p1',
+      3,
+      'main',
+      50,
+    ])
+  })
+
+  it('reportHistory with page, undefined branch, and perPage omits branch slot', () => {
+    expect(queryKeys.reportHistory('p1', 3, undefined, 50)).toEqual(['report-history', 'p1', 3, 50])
+  })
+
   it('reportCategories', () => {
     expect(queryKeys.reportCategories('p1')).toEqual(['report-categories', 'p1'])
   })

@@ -52,9 +52,13 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
   return {
     projectViewMode: 'grid',
     lastProjectId: null,
+    reportsPerPage: 20,
+    reportsGroupBy: 'none',
     setProjectViewMode: vi.fn(),
     setLastProjectId: vi.fn(),
     clearLastProjectId: vi.fn(),
+    setReportsPerPage: vi.fn(),
+    setReportsGroupBy: vi.fn(),
     ...overrides,
   }
 }

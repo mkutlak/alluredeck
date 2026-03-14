@@ -1,12 +1,6 @@
 import { useState, useMemo, Fragment } from 'react'
 import { Link } from 'react-router'
-import {
-  ExternalLink,
-  Trash2,
-  GitBranch,
-  GitCommitHorizontal,
-  ChevronRight,
-} from 'lucide-react'
+import { ExternalLink, Trash2, GitBranch, ChevronRight } from 'lucide-react'
 import { env } from '@/lib/env'
 import { isSafeUrl } from '@/lib/url'
 import { formatDate, calcPassRate } from '@/lib/utils'
@@ -31,6 +25,7 @@ export interface ReportHistoryTableProps {
   onDeleteReport: (reportId: string) => void
   selectedBuilds: Set<string>
   onToggleBuild: (id: string) => void
+  groupBy: 'none' | 'commit' | 'branch'
 }
 
 interface ReportGroup {
@@ -192,8 +187,8 @@ export function ReportHistoryTable({
   onDeleteReport,
   selectedBuilds,
   onToggleBuild,
+  groupBy,
 }: ReportHistoryTableProps) {
-  const [groupBy, setGroupBy] = useState<'none' | 'commit' | 'branch'>('none')
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const [prevGroupBy, setPrevGroupBy] = useState<'none' | 'commit' | 'branch'>('none')
 
@@ -258,41 +253,6 @@ export function ReportHistoryTable({
 
   return (
     <div className="space-y-2">
-      {/* Grouping toolbar */}
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-xs">Group by:</span>
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant={groupBy === 'none' ? 'secondary' : 'outline'}
-            onClick={() => setGroupBy('none')}
-          >
-            None
-          </Button>
-          <Button
-            size="sm"
-            variant={groupBy === 'commit' ? 'secondary' : 'outline'}
-            onClick={() => setGroupBy('commit')}
-          >
-            <GitCommitHorizontal size={12} />
-            Commit
-          </Button>
-          <Button
-            size="sm"
-            variant={groupBy === 'branch' ? 'secondary' : 'outline'}
-            onClick={() => setGroupBy('branch')}
-          >
-            <GitBranch size={12} />
-            Branch
-          </Button>
-        </div>
-        {groupBy !== 'none' && (
-          <span className="text-muted-foreground text-xs">
-            Grouped by {groupBy === 'commit' ? 'commit' : 'branch'}
-          </span>
-        )}
-      </div>
-
       {/* Table */}
       <div className="rounded-lg border">
         <Table>

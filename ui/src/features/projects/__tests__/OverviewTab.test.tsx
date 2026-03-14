@@ -6,6 +6,7 @@ import { renderWithProviders } from '@/test/render'
 import { OverviewTab } from '../OverviewTab'
 import * as reportsApi from '@/api/reports'
 import { useAuthStore } from '@/store/auth'
+import { useUIStore } from '@/store/ui'
 
 import { mockApiClient } from '@/test/mocks/api-client'
 
@@ -82,6 +83,7 @@ function renderTab(isAdminUser = false) {
 describe('OverviewTab - report history pagination', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useUIStore.setState({ reportsPerPage: 20, reportsGroupBy: 'none' })
   })
 
   it('filters the synthetic "latest" alias out of the history table', async () => {
@@ -131,7 +133,7 @@ describe('OverviewTab - report history pagination', () => {
     })
   })
 
-  it('hides pagination controls when total_pages <= 1', async () => {
+  it('shows pagination controls (with nav disabled) when total_pages <= 1', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated([makeReport('latest', true), makeReport('1')], {
         page: 1,
@@ -142,7 +144,9 @@ describe('OverviewTab - report history pagination', () => {
     )
     renderTab()
     await waitFor(() => screen.getByText('#1'))
-    expect(screen.queryByRole('navigation', { name: /pagination/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: /pagination/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
   })
 
   it('shows pagination controls when total_pages > 1', async () => {
@@ -460,8 +464,6 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => {
       // Commit group header row should appear
       expect(screen.getByTestId('commit-group-abc1234')).toBeInTheDocument()
-      // Active grouping label should be visible
-      expect(screen.getByText(/grouped by commit/i)).toBeInTheDocument()
       // Grouped reports are visible (groups expanded by default)
       expect(screen.getByText('#9')).toBeInTheDocument()
       expect(screen.getByText('#8')).toBeInTheDocument()
@@ -492,8 +494,6 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => {
       // Some group element for branch 'main' should appear
       expect(screen.getByTestId('branch-group-main')).toBeInTheDocument()
-      // Active grouping label should be visible
-      expect(screen.getByText(/grouped by branch/i)).toBeInTheDocument()
       // Branch-grouped reports are visible (expanded by default)
       expect(screen.getByText('#9')).toBeInTheDocument()
       expect(screen.getByText('#8')).toBeInTheDocument()

@@ -19,7 +19,7 @@ export function ActionBar() {
   if (!projectId || !isAdmin) return null
 
   return (
-    <div className="bg-muted/30 flex items-center gap-2 border-b px-6 py-2">
+    <div className="bg-muted/30 flex items-center justify-end gap-2 border-b px-6 py-2">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>

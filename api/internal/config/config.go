@@ -123,7 +123,7 @@ func LoadConfig() (*Config, error) {
 		ProjectsPath:             "/data/projects",
 		CheckResultsEverySeconds: "NONE",
 		KeepHistory:              true,
-		KeepHistoryLatest:        20,
+		KeepHistoryLatest:        100,
 		AccessTokenExpiry:        DurationSeconds(3600 * time.Second),
 		RefreshTokenExpiry:       DurationSeconds(2592000 * time.Second),
 		DBMaxOpenConns:           25,
