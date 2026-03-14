@@ -135,7 +135,7 @@ AllureDeck uses JWT (JSON Web Tokens) for stateless authentication.
 
 #### Token types
 
-- **Access token** — short-lived (default 15 min / 900s), contains username and role claim. Delivered as `jwt` cookie or `Authorization: Bearer` header.
+- **Access token** — short-lived (default 1 hour / 3600s), contains username and role claim. Delivered as `jwt` cookie or `Authorization: Bearer` header.
 - **Refresh token** — long-lived (default 30 days / 2592000s). Delivered as `refresh_jwt` cookie. Used to obtain new access tokens without re-login.
 
 #### Signing
@@ -161,7 +161,7 @@ Configure via env vars or YAML:
 
 | Setting | Variable | Default |
 | ------- | -------- | ------- |
-| Access token TTL | `JWT_ACCESS_TOKEN_EXPIRES` | `900` (15 min) |
+| Access token TTL | `JWT_ACCESS_TOKEN_EXPIRES` | `3600` (1 hour) |
 | Refresh token TTL | `JWT_REFRESH_TOKEN_EXPIRES` | `2592000` (30 days) |
 
 ### Authorization (RBAC)

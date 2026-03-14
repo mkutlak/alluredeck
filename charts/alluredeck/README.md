@@ -75,7 +75,7 @@ kubectl create secret generic alluredeck-credentials \
   --from-literal=viewerUser='viewer' \
   --from-literal=viewerPassword='<strong-password>' \
   --from-literal=jwtSecretKey='<64-char-random-string>' \
-  --from-literal=jwtAccessTokenExpires='900' \
+  --from-literal=jwtAccessTokenExpires='3600' \
   --from-literal=jwtRefreshTokenExpires='2592000' \
   --from-literal=databaseURL='postgres://alluredeck:secret@pg.example.com:5432/alluredeck?sslmode=require'
 ```
@@ -202,7 +202,7 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.security.viewerUser` | Viewer username | `"viewer"` |
 | `api.security.viewerPassword` | Viewer password (random if empty) | `""` |
 | `api.security.jwtSecretKey` | JWT HMAC signing key (random if empty) | `""` |
-| `api.security.jwtAccessTokenExpires` | Access token TTL in seconds | `"900"` |
+| `api.security.jwtAccessTokenExpires` | Access token TTL in seconds | `"3600"` |
 | `api.security.jwtRefreshTokenExpires` | Refresh token TTL in seconds | `"2592000"` |
 | `api.security.existingSecret` | Use a pre-created Secret | `""` |
 

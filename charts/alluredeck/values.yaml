@@ -55,7 +55,7 @@ api:
     viewerUser: "viewer"
     viewerPassword: ""    # generate a strong password; empty = random on install
     jwtSecretKey: ""      # REQUIRED in production; empty = random on install
-    jwtAccessTokenExpires: "900"
+    jwtAccessTokenExpires: "3600"
     jwtRefreshTokenExpires: "2592000"
     # Reference an existing Secret instead of creating one.
     # The Secret must contain the following keys:

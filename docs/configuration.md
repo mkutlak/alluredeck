@@ -68,7 +68,7 @@ export DEV_MODE="true"
 | `VIEWER_USER` | `viewer_user` | *(empty)* | Read-only viewer username |
 | `VIEWER_PASS` | `viewer_pass` | *(empty)* | Read-only viewer password |
 | `JWT_SECRET_KEY` | `jwt_secret_key` | `super-secret-key-for-dev` | HMAC-SHA256 signing key for JWT tokens. **Must be changed in production.** |
-| `JWT_ACCESS_TOKEN_EXPIRES` | `jwt_access_token_expires` | `900` | Access token lifetime in seconds (default: 15 minutes) |
+| `JWT_ACCESS_TOKEN_EXPIRES` | `jwt_access_token_expires` | `3600` | Access token lifetime in seconds (default: 1 hour) |
 | `JWT_REFRESH_TOKEN_EXPIRES` | `jwt_refresh_token_expires` | `2592000` | Refresh token lifetime in seconds (default: 30 days) |
 
 ### Advanced Security
@@ -254,7 +254,7 @@ admin_pass: ""
 viewer_user: ""
 viewer_pass: ""
 jwt_secret_key: ""
-jwt_access_token_expires: 900
+jwt_access_token_expires: 3600
 jwt_refresh_token_expires: 2592000
 make_viewer_endpoints_public: false
 trust_forwarded_for: false
@@ -319,7 +319,7 @@ admin_pass: ""
 viewer_user: ""
 viewer_pass: ""
 jwt_secret_key: ""
-jwt_access_token_expires: 900
+jwt_access_token_expires: 3600
 jwt_refresh_token_expires: 2592000
 make_viewer_endpoints_public: false
 trust_forwarded_for: true

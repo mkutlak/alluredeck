@@ -124,7 +124,7 @@ func LoadConfig() (*Config, error) {
 		CheckResultsEverySeconds: "NONE",
 		KeepHistory:              true,
 		KeepHistoryLatest:        20,
-		AccessTokenExpiry:        DurationSeconds(900 * time.Second),
+		AccessTokenExpiry:        DurationSeconds(3600 * time.Second),
 		RefreshTokenExpiry:       DurationSeconds(2592000 * time.Second),
 		DBMaxOpenConns:           25,
 		DBMaxIdleConns:           5,
