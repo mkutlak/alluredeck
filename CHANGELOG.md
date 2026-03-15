@@ -1,3 +1,14 @@
+## [0.8.0](https://github.com/mkutlak/alluredeck/compare/v0.7.0...v0.8.0) (2026-03-15)
+
+### Features
+
+* **analytics:** implement advanced analytics trends and build retention ([d1ee996](https://github.com/mkutlak/alluredeck/commit/d1ee99604c52cb0550de6d191e942d3dd087fd90))
+* **attachments:** implement report attachment viewer and browser ([a06e47c](https://github.com/mkutlak/alluredeck/commit/a06e47cfa0807b1b4d7d9ab44d041a2bbc11254c))
+* **auth:** implement API key management and authentication ([cc3888e](https://github.com/mkutlak/alluredeck/commit/cc3888e12baede94b6f717df0ae757ba4e1b15ee))
+* **auth:** implement OIDC SSO support and multi-role user management ([472084b](https://github.com/mkutlak/alluredeck/commit/472084bc978276d0860b62c0025ff59f9d012eac))
+* **auth:** increase default JWT access token expiration to 1 hour ([5572460](https://github.com/mkutlak/alluredeck/commit/557246006a83f15d690aa8bd1b5fe7c3247bc02d))
+* **ui:** implement report pagination settings and grouping ([76aaab6](https://github.com/mkutlak/alluredeck/commit/76aaab6e8648b973bc8611579f68e163690b3aed))
+
 ## [0.7.0](https://github.com/mkutlak/alluredeck/compare/v0.6.0...v0.7.0) (2026-03-12)
 
 ### Features
