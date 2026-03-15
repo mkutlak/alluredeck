@@ -166,14 +166,15 @@ Configure via env vars or YAML:
 
 ### Authorization (RBAC)
 
-Two roles are supported:
+Three roles are supported:
 
 | Role | Level | Capabilities |
 | ---- | ----- | ------------ |
-| `admin` | 2 | Full access: create/delete projects, generate reports, manage all data |
+| `admin` | 3 | Full access: create/delete projects, clean results/history, manage users, system settings, API keys |
+| `editor` | 2 | Upload results, generate reports, manage known issues, set default branches |
 | `viewer` | 1 | Read-only: view projects, reports, analytics, timeline |
 
-The role is embedded in the JWT access token claims and enforced per endpoint by `RequireRole` middleware.
+The role is embedded in the JWT access token claims and enforced per endpoint by `RequireRole` middleware. See [Authentication](authentication.md) for OIDC SSO and role mapping details.
 
 #### Public viewer endpoints
 
@@ -232,9 +233,12 @@ Before deploying to production:
 - [ ] Set `TRUST_FORWARDED_FOR=true` if running behind a reverse proxy
 - [ ] Use HTTPS — either via `TLS=true` on the API or at the ingress/load balancer layer
 - [ ] In Kubernetes: use `api.existingSecret` to supply credentials from a secrets manager, not plain Helm values
+- [ ] If using OIDC SSO: set `OIDC_STATE_COOKIE_SECRET` to exactly 32 bytes and store `OIDC_CLIENT_SECRET` in a Kubernetes Secret (see [Authentication](authentication.md))
+- [ ] Use [API keys](features.md#api-keys-for-cicd) instead of username/password for CI/CD pipelines
 
 ## Related
 
+- [authentication.md](authentication.md) — OIDC SSO, API keys, role mapping
 - [configuration.md](configuration.md) — all environment variables
 - [storage.md](storage.md) — S3/MinIO storage configuration
 - [Helm Chart README](../charts/alluredeck/README.md) — full Helm chart reference

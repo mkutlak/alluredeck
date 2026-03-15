@@ -28,8 +28,9 @@ Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per 
 | `STORAGE_TYPE` | `local` | Storage backend type |
 | `PROJECTS_PATH` | `/data/projects` | Project data root directory |
 | `DATABASE_URL` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
-| `KEEP_HISTORY` | `false` | Retain previous report builds |
+| `KEEP_HISTORY` | `true` | Retain previous report builds |
 | `KEEP_HISTORY_LATEST` | `20` | Max historical builds per project |
+| `KEEP_HISTORY_MAX_AGE_DAYS` | `0` | Delete reports older than N days (0 = disabled) |
 
 ### Docker Compose
 

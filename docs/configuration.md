@@ -105,7 +105,8 @@ For details on roles, token types, CSRF protection, and the production security 
 | `DB_MAX_IDLE_CONNS` | `db_max_idle_conns` | `0` | Maximum idle database connections (0 = use Go default) |
 | `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `0` | Maximum connection lifetime (e.g., `30m`; 0 = no limit) |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
-| `KEEP_HISTORY_LATEST` | `keep_history_latest` | `20` | Maximum number of historical reports to keep per project (when `keep_history=true`) |
+| `KEEP_HISTORY_LATEST` | `keep_history_latest` | `20` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning |
+| `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted |
 
 ### Example
 
@@ -115,7 +116,10 @@ export PROJECTS_PATH="/data/allure-projects"
 export DATABASE_URL="postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable"
 export KEEP_HISTORY="true"
 export KEEP_HISTORY_LATEST="50"
+export KEEP_HISTORY_MAX_AGE_DAYS="90"  # delete reports older than 90 days
 ```
+
+A **daily background scheduler** runs both retention strategies automatically for all projects on API startup.
 
 ## Storage Configuration (S3 / MinIO)
 
@@ -365,8 +369,13 @@ s3:
   concurrency: 20
 ```
 
+## OIDC SSO Configuration
+
+OIDC configuration is documented in the dedicated [Authentication](authentication.md) guide. Key variables include `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and role-mapping groups. See [Authentication — Configuration Reference](authentication.md#configuration-reference) for the full table.
+
 ## Related Documentation
 
+- [authentication.md](authentication.md) — OIDC SSO, role mapping, provider examples
 - [deployment.md](deployment.md#security) — authentication, authorization, JWT tokens, CSRF protection, TLS, production security checklist
 - [storage.md](storage.md) — S3/MinIO setup guide and troubleshooting
 - [Helm Chart README](../charts/alluredeck/README.md) — Kubernetes/Helm configuration and secrets management
