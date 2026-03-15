@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { AlertCircle, BarChart3, Clock, Gauge, LayoutDashboard, Shield } from 'lucide-react'
+import { AlertCircle, BarChart3, Clock, Gauge, LayoutDashboard, Paperclip, Shield } from 'lucide-react'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import {
@@ -18,6 +18,7 @@ const navItems = [
   { label: 'Overview', path: '', icon: LayoutDashboard, end: true },
   { label: 'Known Issues', path: '/known-issues', icon: AlertCircle, end: false },
   { label: 'Timeline', path: '/timeline', icon: Clock, end: false },
+  { label: 'Attachments', path: '/attachments', icon: Paperclip, end: false },
   { label: 'Analytics', path: '/analytics', icon: BarChart3, end: false },
 ]
 

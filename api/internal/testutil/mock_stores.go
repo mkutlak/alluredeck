@@ -20,6 +20,7 @@ var (
 	_ store.Locker           = (*MockLocker)(nil)
 	_ store.APIKeyStorer     = (*MockAPIKeyStore)(nil)
 	_ store.UserStorer       = (*MockUserStore)(nil)
+	_ store.AttachmentStorer = (*MockAttachmentStore)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
@@ -35,6 +36,7 @@ type MockStores struct {
 	Locker      *MockLocker
 	APIKeys     *MemAPIKeyStore // stateful in-memory store for API key handler tests
 	Users       *MemUserStore   // stateful in-memory store for user handler tests
+	Attachments *MockAttachmentStore
 }
 
 // New returns a MockStores with all fields initialised.
@@ -53,6 +55,7 @@ func New() *MockStores {
 		Locker:      &MockLocker{},
 		APIKeys:     NewMemAPIKeyStore(),
 		Users:       NewMemUserStore(),
+		Attachments: &MockAttachmentStore{},
 	}
 }
 
@@ -674,4 +677,29 @@ func (m *MockUserStore) Deactivate(ctx context.Context, id int64) error {
 		return m.DeactivateFn(ctx, id)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// MockAttachmentStore
+// ---------------------------------------------------------------------------
+
+// MockAttachmentStore is a test double for store.AttachmentStorer.
+// Set function fields to control behaviour; unset fields return zero values.
+type MockAttachmentStore struct {
+	ListByBuildFn func(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error)
+	GetBySourceFn func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
+}
+
+func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
+	if m.ListByBuildFn != nil {
+		return m.ListByBuildFn(ctx, projectID, buildID, mimeFilter, limit, offset)
+	}
+	return nil, 0, nil
+}
+
+func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error) {
+	if m.GetBySourceFn != nil {
+		return m.GetBySourceFn(ctx, buildID, source)
+	}
+	return nil, nil
 }

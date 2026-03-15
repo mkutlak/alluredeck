@@ -91,6 +91,7 @@ func main() {
 	searchStore = pg.NewSearchStore(pgDB, logger)
 	analyticsStore = pg.NewAnalyticsStore(pgDB)
 	apiKeyStore = pg.NewAPIKeyStore(pgDB)
+	attachmentStore := pg.NewAttachmentStore(pgDB)
 	userStore := pg.NewUserStore(pgDB)
 	sqlDB := pgDB.DB()
 	var locker store.Locker = pgDB
@@ -116,6 +117,7 @@ func main() {
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
 	allureHandler.SetBranchStore(branchStore)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, logger)
+	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, logger)
 	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
 
 	// Conditionally construct OIDC provider and handler (Stage 2 SSO).
@@ -184,7 +186,7 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, apiKeyHandler, apiKeyStore, oidcHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -283,6 +285,7 @@ func registerRoutes(
 	branchHandler *handlers.BranchHandler,
 	testHistoryHandler *handlers.TestHistoryHandler,
 	analyticsHandler *handlers.AnalyticsHandler,
+	attachmentHandler *handlers.AttachmentHandler,
 	apiKeyHandler *handlers.APIKeyHandler,
 	apiKeyStore store.APIKeyStorer,
 	oidcHandler *handlers.OIDCHandler,
@@ -386,6 +389,10 @@ func registerRoutes(
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/errors", viewerUp(shortCache(analyticsHandler.GetTopErrors)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(analyticsHandler.GetSuitePassRates)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(analyticsHandler.GetLabelBreakdown)))
+
+	// Attachment viewer endpoints.
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(attachmentHandler.ListAttachments)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments/{source}", viewerUp(reportCache(attachmentHandler.ServeAttachment)))
 
 	// API Keys (any authenticated user).
 	if apiKeyHandler != nil {

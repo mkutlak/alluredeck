@@ -516,3 +516,22 @@ export interface AnalyticsResponse<T> {
   data: T[]
   project_id: string
 }
+
+// ---------------------------------------------------------------------------
+// Attachments (D2)
+// ---------------------------------------------------------------------------
+export interface AttachmentEntry {
+  id: number
+  name: string
+  source: string
+  mime_type: string
+  size_bytes: number
+  url: string
+}
+
+export interface AttachmentsData {
+  attachments: AttachmentEntry[]
+  total: number
+  limit: number
+  offset: number
+}

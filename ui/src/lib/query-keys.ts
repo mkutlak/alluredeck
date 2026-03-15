@@ -42,6 +42,10 @@ export const queryKeys = {
     ['suite-pass-rates', projectId, builds] as const,
   labelBreakdown: (projectId: string, name: string, builds: number) =>
     ['label-breakdown', projectId, name, builds] as const,
+  attachments: (projectId: string, reportId: string, mimeType?: string) =>
+    mimeType != null
+      ? (['attachments', projectId, reportId, mimeType] as const)
+      : (['attachments', projectId, reportId] as const),
 }
 
 function projectScopedKeys(projectId: string) {
@@ -56,6 +60,7 @@ function projectScopedKeys(projectId: string) {
     queryKeys.reportHistoryAnalytics(projectId),
     queryKeys.lowPerforming(projectId),
     queryKeys.knownIssues(projectId),
+    queryKeys.attachments(projectId, 'latest'),
   ]
 }
 

@@ -125,6 +125,17 @@ type TestResult struct {
 	Host       string
 }
 
+// TestAttachment represents a file attachment associated with a test result.
+type TestAttachment struct {
+	ID           int64
+	TestResultID int64
+	TestStepID   *int64
+	Name         string
+	Source       string
+	MimeType     string
+	SizeBytes    int64
+}
+
 // LowPerformingTest holds aggregated metrics for a test that performs poorly.
 type LowPerformingTest struct {
 	TestName   string

@@ -20,6 +20,7 @@ var (
 	ErrDuplicateEntry            = errors.New("unique constraint violation")
 	ErrAPIKeyNotFound            = errors.New("api key not found")
 	ErrUserNotFound              = errors.New("user not found")
+	ErrAttachmentNotFound        = errors.New("attachment not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -133,6 +134,12 @@ type AnalyticsStorer interface {
 	ListSuitePassRates(ctx context.Context, projectID string, builds int) ([]SuitePassRate, error)
 	// ListLabelBreakdown returns counts grouped by label value for a given label name.
 	ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int) ([]LabelCount, error)
+}
+
+// AttachmentStorer provides queries over test attachment metadata.
+type AttachmentStorer interface {
+	ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]TestAttachment, int, error)
+	GetBySource(ctx context.Context, buildID int64, source string) (*TestAttachment, error)
 }
 
 // APIKeyStorer is the interface for API key operations.

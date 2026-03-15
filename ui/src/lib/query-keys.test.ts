@@ -147,6 +147,7 @@ describe('invalidateProjectQueries', () => {
       queryKeys.reportHistoryAnalytics('proj'),
       queryKeys.lowPerforming('proj'),
       queryKeys.knownIssues('proj'),
+      queryKeys.attachments('proj', 'latest'),
     ]
 
     for (const key of expectedKeys) {
@@ -154,10 +155,10 @@ describe('invalidateProjectQueries', () => {
     }
   })
 
-  it('makes 11 total invalidation calls (1 dashboard + 10 project-scoped)', async () => {
+  it('makes 12 total invalidation calls (1 dashboard + 11 project-scoped)', async () => {
     const qc = makeMockQueryClient()
     await invalidateProjectQueries(qc, 'proj')
-    expect(qc.invalidateQueries).toHaveBeenCalledTimes(11)
+    expect(qc.invalidateQueries).toHaveBeenCalledTimes(12)
   })
 })
 
@@ -181,6 +182,7 @@ describe('removeProjectQueries', () => {
       queryKeys.reportHistoryAnalytics('proj'),
       queryKeys.lowPerforming('proj'),
       queryKeys.knownIssues('proj'),
+      queryKeys.attachments('proj', 'latest'),
     ]
 
     for (const key of expectedKeys) {
@@ -195,9 +197,9 @@ describe('removeProjectQueries', () => {
     expect(qc.removeQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.projects })
   })
 
-  it('makes exactly 10 removeQueries calls', () => {
+  it('makes exactly 11 removeQueries calls', () => {
     const qc = makeMockQueryClient()
     removeProjectQueries(qc, 'proj')
-    expect(qc.removeQueries).toHaveBeenCalledTimes(10)
+    expect(qc.removeQueries).toHaveBeenCalledTimes(11)
   })
 })

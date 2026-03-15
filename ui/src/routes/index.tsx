@@ -33,6 +33,9 @@ const APIKeysPage = lazy(() =>
 const TestHistoryPage = lazy(() =>
   import('@/features/tests/TestHistoryPage').then((m) => ({ default: m.TestHistoryPage })),
 )
+const AttachmentsTab = lazy(() =>
+  import('@/features/attachments').then((m) => ({ default: m.AttachmentsTab })),
+)
 
 function PageLoader() {
   return (
@@ -102,6 +105,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <TimelineTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/attachments"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <AttachmentsTab />
               </Suspense>
             }
           />
