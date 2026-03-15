@@ -70,28 +70,29 @@ func (ts *PGTestResultStore) GetBuildID(ctx context.Context, projectID string, b
 }
 
 // ListSlowest returns tests ranked by average duration across the last N builds.
-func (ts *PGTestResultStore) ListSlowest(ctx context.Context, projectID string, builds, limit int) ([]store.LowPerformingTest, error) {
-	query := `
-		WITH recent_builds AS (
-			SELECT id FROM builds
-			WHERE project_id=$1
-			ORDER BY build_order DESC
-			LIMIT $2
-		)
-		SELECT history_id,
+func (ts *PGTestResultStore) ListSlowest(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectID, builds, projectID, limit}
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+	}
+	query := fmt.Sprintf(`
+		WITH recent_builds AS (%s)
+		SELECT MAX(history_id) AS history_id,
 		       MAX(test_name)  AS test_name,
-		       MAX(full_name)  AS full_name,
+		       full_name,
 		       AVG(duration_ms::float8) AS avg_duration,
 		       COUNT(DISTINCT build_id) AS build_count
 		FROM test_results
 		WHERE project_id=$3
 		  AND build_id IN (SELECT id FROM recent_builds)
-		  AND history_id != ''
-		GROUP BY history_id
+		  AND full_name != ''
+		GROUP BY full_name
 		ORDER BY avg_duration DESC
-		LIMIT $4`
+		LIMIT $4`, recentCTE)
 
-	rows, err := ts.pool.Query(ctx, query, projectID, builds, projectID, limit)
+	rows, err := ts.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list slowest: %w", err)
 	}
@@ -111,43 +112,44 @@ func (ts *PGTestResultStore) ListSlowest(ctx context.Context, projectID string, 
 	}
 	rows.Close()
 
-	historyIDs := make([]string, len(tests))
+	fullNames := make([]string, len(tests))
 	for i := range tests {
-		historyIDs[i] = tests[i].HistoryID
+		fullNames[i] = tests[i].FullName
 	}
-	trends, _ := ts.batchTrendDuration(ctx, projectID, historyIDs, builds)
+	trends, _ := ts.batchTrendDuration(ctx, projectID, fullNames, builds, branchID)
 	for i := range tests {
-		tests[i].Trend = trends[tests[i].HistoryID]
+		tests[i].Trend = trends[tests[i].FullName]
 	}
 	return tests, nil
 }
 
 // ListLeastReliable returns tests ranked by failure rate across the last N builds.
-func (ts *PGTestResultStore) ListLeastReliable(ctx context.Context, projectID string, builds, limit int) ([]store.LowPerformingTest, error) {
-	query := `
-		WITH recent_builds AS (
-			SELECT id FROM builds
-			WHERE project_id=$1
-			ORDER BY build_order DESC
-			LIMIT $2
-		)
-		SELECT history_id,
+func (ts *PGTestResultStore) ListLeastReliable(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectID, builds, projectID, limit}
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+	}
+	query := fmt.Sprintf(`
+		WITH recent_builds AS (%s)
+		SELECT MAX(history_id) AS history_id,
 		       MAX(test_name)  AS test_name,
-		       MAX(full_name)  AS full_name,
+		       full_name,
 		       SUM(CASE WHEN status IN ('failed','broken') THEN 1 ELSE 0 END)::float8
 		           / COUNT(*)::float8 AS failure_rate,
 		       COUNT(DISTINCT build_id) AS build_count
 		FROM test_results
 		WHERE project_id=$3
 		  AND build_id IN (SELECT id FROM recent_builds)
-		  AND history_id != ''
-		GROUP BY history_id
+		  AND full_name != ''
+		GROUP BY full_name
 		HAVING SUM(CASE WHEN status IN ('failed','broken') THEN 1 ELSE 0 END)::float8
 		           / COUNT(*)::float8 > 0
 		ORDER BY failure_rate DESC
-		LIMIT $4`
+		LIMIT $4`, recentCTE)
 
-	rows, err := ts.pool.Query(ctx, query, projectID, builds, projectID, limit)
+	rows, err := ts.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list least reliable: %w", err)
 	}
@@ -167,13 +169,13 @@ func (ts *PGTestResultStore) ListLeastReliable(ctx context.Context, projectID st
 	}
 	rows.Close()
 
-	historyIDs := make([]string, len(tests))
+	fullNames := make([]string, len(tests))
 	for i := range tests {
-		historyIDs[i] = tests[i].HistoryID
+		fullNames[i] = tests[i].FullName
 	}
-	trends, _ := ts.batchTrendFailureRate(ctx, projectID, historyIDs, builds)
+	trends, _ := ts.batchTrendFailureRate(ctx, projectID, fullNames, builds, branchID)
 	for i := range tests {
-		tests[i].Trend = trends[tests[i].HistoryID]
+		tests[i].Trend = trends[tests[i].FullName]
 	}
 	return tests, nil
 }
@@ -187,33 +189,38 @@ func buildPGPlaceholders(start, count int) string {
 	return strings.Join(parts, ",")
 }
 
-// batchTrendDuration returns per-build average duration for multiple tests, keyed by history_id.
-func (ts *PGTestResultStore) batchTrendDuration(ctx context.Context, projectID string, historyIDs []string, builds int) (map[string][]float64, error) {
-	if len(historyIDs) == 0 {
+// batchTrendDuration returns per-build average duration for multiple tests, keyed by full_name.
+func (ts *PGTestResultStore) batchTrendDuration(ctx context.Context, projectID string, fullNames []string, builds int, branchID *int64) (map[string][]float64, error) {
+	if len(fullNames) == 0 {
 		return nil, nil
 	}
 
-	// Fixed args: $1=projectID, $2=builds, $3=projectID; historyIDs start at $4.
-	args := make([]any, 0, 3+len(historyIDs))
+	// Fixed args: $1=projectID, $2=builds, $3=projectID; branchID at $4 if set; fullNames start at $4 or $5.
+	var recentCTE string
+	args := make([]any, 0, 3+len(fullNames)+1)
 	args = append(args, projectID, builds, projectID)
-	for _, hid := range historyIDs {
-		args = append(args, hid)
+	var paramStart int
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$4 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+		paramStart = 5
+	} else {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+		paramStart = 4
+	}
+	for _, fn := range fullNames {
+		args = append(args, fn)
 	}
 
 	query := fmt.Sprintf(`
-		WITH recent_builds AS (
-			SELECT id FROM builds
-			WHERE project_id=$1
-			ORDER BY build_order DESC
-			LIMIT $2
-		)
-		SELECT history_id, AVG(duration_ms::float8)
+		WITH recent_builds AS (%s)
+		SELECT full_name, AVG(duration_ms::float8)
 		FROM test_results
 		WHERE project_id=$3
-		  AND history_id IN (%s)
+		  AND full_name IN (%s)
 		  AND build_id IN (SELECT id FROM recent_builds)
-		GROUP BY history_id, build_id
-		ORDER BY history_id, build_id ASC`, buildPGPlaceholders(4, len(historyIDs)))
+		GROUP BY full_name, build_id
+		ORDER BY full_name, build_id ASC`, recentCTE, buildPGPlaceholders(paramStart, len(fullNames)))
 
 	rows, err := ts.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -221,46 +228,51 @@ func (ts *PGTestResultStore) batchTrendDuration(ctx context.Context, projectID s
 	}
 	defer rows.Close()
 
-	result := make(map[string][]float64, len(historyIDs))
+	result := make(map[string][]float64, len(fullNames))
 	for rows.Next() {
-		var hid string
+		var fn string
 		var v float64
-		if err := rows.Scan(&hid, &v); err != nil {
+		if err := rows.Scan(&fn, &v); err != nil {
 			return nil, err
 		}
-		result[hid] = append(result[hid], v)
+		result[fn] = append(result[fn], v)
 	}
 	return result, rows.Err()
 }
 
-// batchTrendFailureRate returns per-build failure rate for multiple tests, keyed by history_id.
-func (ts *PGTestResultStore) batchTrendFailureRate(ctx context.Context, projectID string, historyIDs []string, builds int) (map[string][]float64, error) {
-	if len(historyIDs) == 0 {
+// batchTrendFailureRate returns per-build failure rate for multiple tests, keyed by full_name.
+func (ts *PGTestResultStore) batchTrendFailureRate(ctx context.Context, projectID string, fullNames []string, builds int, branchID *int64) (map[string][]float64, error) {
+	if len(fullNames) == 0 {
 		return nil, nil
 	}
 
-	args := make([]any, 0, 3+len(historyIDs))
+	var recentCTE string
+	args := make([]any, 0, 3+len(fullNames)+1)
 	args = append(args, projectID, builds, projectID)
-	for _, hid := range historyIDs {
-		args = append(args, hid)
+	var paramStart int
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$4 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+		paramStart = 5
+	} else {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+		paramStart = 4
+	}
+	for _, fn := range fullNames {
+		args = append(args, fn)
 	}
 
 	query := fmt.Sprintf(`
-		WITH recent_builds AS (
-			SELECT id FROM builds
-			WHERE project_id=$1
-			ORDER BY build_order DESC
-			LIMIT $2
-		)
-		SELECT history_id,
+		WITH recent_builds AS (%s)
+		SELECT full_name,
 		       SUM(CASE WHEN status IN ('failed','broken') THEN 1 ELSE 0 END)::float8
 		           / COUNT(*)::float8
 		FROM test_results
 		WHERE project_id=$3
-		  AND history_id IN (%s)
+		  AND full_name IN (%s)
 		  AND build_id IN (SELECT id FROM recent_builds)
-		GROUP BY history_id, build_id
-		ORDER BY history_id, build_id ASC`, buildPGPlaceholders(4, len(historyIDs)))
+		GROUP BY full_name, build_id
+		ORDER BY full_name, build_id ASC`, recentCTE, buildPGPlaceholders(paramStart, len(fullNames)))
 
 	rows, err := ts.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -268,14 +280,14 @@ func (ts *PGTestResultStore) batchTrendFailureRate(ctx context.Context, projectI
 	}
 	defer rows.Close()
 
-	result := make(map[string][]float64, len(historyIDs))
+	result := make(map[string][]float64, len(fullNames))
 	for rows.Next() {
-		var hid string
+		var fn string
 		var v float64
-		if err := rows.Scan(&hid, &v); err != nil {
+		if err := rows.Scan(&fn, &v); err != nil {
 			return nil, err
 		}
-		result[hid] = append(result[hid], v)
+		result[fn] = append(result[fn], v)
 	}
 	return result, rows.Err()
 }

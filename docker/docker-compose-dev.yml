@@ -32,6 +32,7 @@ services:
       CHECK_RESULTS_EVERY_SECONDS: NONE
       KEEP_HISTORY: 1
       KEEP_HISTORY_LATEST: 5
+      # KEEP_HISTORY_MAX_AGE_DAYS: 0
       ADMIN_USER: "my_username"
       ADMIN_PASS: "my_password"
       VIEWER_USER: "view_user"

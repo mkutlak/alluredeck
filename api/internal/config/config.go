@@ -103,6 +103,7 @@ type Config struct {
 	CheckResultsEverySeconds  string          `yaml:"check_results_every_secs" envconfig:"CHECK_RESULTS_EVERY_SECONDS"`
 	KeepHistory               bool            `yaml:"keep_history" envconfig:"KEEP_HISTORY"`
 	KeepHistoryLatest         int             `yaml:"keep_history_latest" envconfig:"KEEP_HISTORY_LATEST"`
+	KeepHistoryMaxAgeDays     int             `yaml:"keep_history_max_age_days" envconfig:"KEEP_HISTORY_MAX_AGE_DAYS"`
 	TLS                       bool            `yaml:"tls" envconfig:"TLS"`
 	APIResponseLessVerbose    bool            `yaml:"api_response_less_verbose" envconfig:"API_RESPONSE_LESS_VERBOSE"`
 	CORSAllowedOrigins        []string        `yaml:"cors_allowed_origins" envconfig:"CORS_ALLOWED_ORIGINS"`

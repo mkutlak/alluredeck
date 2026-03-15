@@ -582,6 +582,10 @@ func (m *MemBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ 
 	return nil, nil
 }
 
+func (m *MemBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Time) ([]int, error) {
+	return nil, nil
+}
+
 // ---------------------------------------------------------------------------
 // MemUserStore
 // ---------------------------------------------------------------------------

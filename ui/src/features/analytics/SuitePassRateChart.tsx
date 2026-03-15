@@ -9,6 +9,7 @@ import type { ChartConfig } from '@/components/ui/chart'
 
 interface Props {
   projectId: string
+  branch?: string
 }
 
 const BUILDS = 20
@@ -20,10 +21,10 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-export function SuitePassRateChart({ projectId }: Props) {
+export function SuitePassRateChart({ projectId, branch }: Props) {
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.suitePassRates(projectId, BUILDS),
-    queryFn: () => fetchSuitePassRates(projectId, BUILDS),
+    queryKey: queryKeys.suitePassRates(projectId, BUILDS, branch),
+    queryFn: () => fetchSuitePassRates(projectId, BUILDS, branch),
     staleTime: 60_000,
   })
 

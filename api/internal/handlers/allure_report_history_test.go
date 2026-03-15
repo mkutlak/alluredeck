@@ -329,10 +329,10 @@ func TestGetReportHistory_Allure3LatestWithTiming(t *testing.T) {
 	if entry["is_latest"] != true {
 		t.Errorf("expected is_latest=true for first entry")
 	}
-	// duration_ms = max(stop) - min(start) = 5000
+	// duration_ms = sum of individual test durations = 2000 + 4000 = 6000
 	durMs, ok := entry["duration_ms"].(float64)
-	if !ok || durMs != 5000 {
-		t.Errorf("duration_ms: got %v, want 5000", entry["duration_ms"])
+	if !ok || durMs != 6000 {
+		t.Errorf("duration_ms: got %v, want 6000", entry["duration_ms"])
 	}
 	// generated_at must be a non-empty RFC3339 string
 	genAt, ok := entry["generated_at"].(string)

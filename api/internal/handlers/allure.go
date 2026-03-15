@@ -1002,14 +1002,14 @@ type testResultTiming struct {
 }
 
 // applyTimingFromTestResults scans data/test-results/*.json to derive timing for Allure 3 reports.
-// It sets entry.DurationMs = max(stop) - min(start) and entry.GeneratedAt = RFC3339 of max(stop).
+// It sets entry.DurationMs = sum of individual test durations and entry.GeneratedAt = RFC3339 of max(stop).
 // When no valid timing is found the entry fields are left unchanged.
 func (h *AllureHandler) applyTimingFromTestResults(ctx context.Context, projectID string, entry *ReportHistoryEntry, dataRelPath string) {
 	entries, err := h.store.ReadDir(ctx, projectID, dataRelPath)
 	if err != nil {
 		return
 	}
-	var minStart, maxStop int64
+	var totalDuration, maxStop int64
 	for _, e := range entries {
 		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
 			continue
@@ -1022,16 +1022,17 @@ func (h *AllureHandler) applyTimingFromTestResults(ctx context.Context, projectI
 		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
 			continue
 		}
-		if minStart == 0 || tr.Start < minStart {
-			minStart = tr.Start
+		if tr.Stop > tr.Start {
+			totalDuration += tr.Stop - tr.Start
 		}
 		if tr.Stop > maxStop {
 			maxStop = tr.Stop
 		}
 	}
-	if maxStop > 0 && minStart > 0 && maxStop > minStart {
-		d := maxStop - minStart
-		entry.DurationMs = &d
+	if totalDuration > 0 {
+		entry.DurationMs = &totalDuration
+	}
+	if maxStop > 0 {
 		t := time.Unix(0, maxStop*int64(time.Millisecond)).UTC().Format(time.RFC3339)
 		entry.GeneratedAt = &t
 	}

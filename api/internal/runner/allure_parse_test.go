@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -62,6 +63,9 @@ func (s *spyBuildStore) SetLatestBranch(_ context.Context, _ string, _ int, _ *i
 func (s *spyBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ *int64) ([]int, error) {
 	return nil, nil
 }
+func (s *spyBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Time) ([]int, error) {
+	return nil, nil
+}
 func (s *spyBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
@@ -88,10 +92,10 @@ func (s *spyTestResultStore) InsertBatchFull(_ context.Context, buildID int64, p
 func (s *spyTestResultStore) GetBuildID(_ context.Context, _ string, _ int) (int64, error) {
 	return 42, nil
 }
-func (s *spyTestResultStore) ListSlowest(_ context.Context, _ string, _, _ int) ([]store.LowPerformingTest, error) {
+func (s *spyTestResultStore) ListSlowest(_ context.Context, _ string, _, _ int, _ *int64) ([]store.LowPerformingTest, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) ListLeastReliable(_ context.Context, _ string, _, _ int) ([]store.LowPerformingTest, error) {
+func (s *spyTestResultStore) ListLeastReliable(_ context.Context, _ string, _, _ int, _ *int64) ([]store.LowPerformingTest, error) {
 	return nil, nil
 }
 func (s *spyTestResultStore) ListTimeline(_ context.Context, _ string, _ int64, _ int) ([]store.TimelineRow, error) {

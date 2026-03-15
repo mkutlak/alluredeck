@@ -17,6 +17,7 @@ import type { ChartConfig } from '@/components/ui/chart'
 
 interface Props {
   projectId: string
+  branch?: string
 }
 
 const BUILDS = 20
@@ -48,12 +49,15 @@ function buildChartConfig(data: ReadonlyArray<{ value: string }>): ChartConfig {
   return config
 }
 
-export function LabelBreakdownCard({ projectId }: Props) {
+export function LabelBreakdownCard({ projectId, branch }: Props) {
   const [labelName, setLabelName] = useState<LabelName>('severity')
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.labelBreakdown(projectId, labelName, BUILDS),
-    queryFn: () => fetchLabelBreakdown(projectId, labelName, BUILDS),
+    queryKey: queryKeys.labelBreakdown(projectId, labelName, BUILDS, branch),
+    queryFn: () =>
+      branch !== undefined
+        ? fetchLabelBreakdown(projectId, labelName, BUILDS, branch)
+        : fetchLabelBreakdown(projectId, labelName, BUILDS),
     staleTime: 60_000,
   })
 

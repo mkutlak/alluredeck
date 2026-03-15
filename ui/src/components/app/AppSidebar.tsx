@@ -16,10 +16,10 @@ import { env } from '@/lib/env'
 
 const navItems = [
   { label: 'Overview', path: '', icon: LayoutDashboard, end: true },
-  { label: 'Known Issues', path: '/known-issues', icon: AlertCircle, end: false },
-  { label: 'Timeline', path: '/timeline', icon: Clock, end: false },
-  { label: 'Attachments', path: '/attachments', icon: Paperclip, end: false },
   { label: 'Analytics', path: '/analytics', icon: BarChart3, end: false },
+  { label: 'Timeline', path: '/timeline', icon: Clock, end: false },
+  { label: 'Known Issues', path: '/known-issues', icon: AlertCircle, end: false },
+  { label: 'Attachments', path: '/attachments', icon: Paperclip, end: false },
 ]
 
 export function AppSidebar() {

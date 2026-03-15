@@ -83,9 +83,19 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	var branchID *int64
+	if branchName := q.Get("branch"); branchName != "" {
+		if h.branchStore != nil {
+			br, err := h.branchStore.GetByName(ctx, projectID, branchName)
+			if err == nil && br != nil {
+				branchID = &br.ID
+			}
+		}
+	}
+
 	var entries []analyticsTestEntry
 	if sortBy == "duration" {
-		results, err := h.testResultStore.ListSlowest(ctx, projectID, buildsParam, limitParam)
+		results, err := h.testResultStore.ListSlowest(ctx, projectID, buildsParam, limitParam, branchID)
 		if err != nil {
 			h.logger.Error("analytics: list slowest failed", zap.String("project_id", projectID), zap.Error(err))
 			writeError(w, http.StatusInternalServerError, "failed to retrieve analytics data")
@@ -106,7 +116,7 @@ func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Req
 			})
 		}
 	} else {
-		results, err := h.testResultStore.ListLeastReliable(ctx, projectID, buildsParam, limitParam)
+		results, err := h.testResultStore.ListLeastReliable(ctx, projectID, buildsParam, limitParam, branchID)
 		if err != nil {
 			h.logger.Error("analytics: list least reliable failed", zap.String("project_id", projectID), zap.Error(err))
 			writeError(w, http.StatusInternalServerError, "failed to retrieve analytics data")

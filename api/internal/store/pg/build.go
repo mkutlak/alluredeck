@@ -535,6 +535,39 @@ func (bs *PGBuildStore) PruneBuildsBranch(ctx context.Context, projectID string,
 	return toRemove, nil
 }
 
+// PruneBuildsByAge removes builds older than olderThan that are not the latest build.
+// Returns the build_orders of removed builds.
+func (bs *PGBuildStore) PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error) {
+	rows, err := bs.pool.Query(ctx, `
+		SELECT build_order FROM builds
+		WHERE project_id = $1 AND created_at < $2 AND is_latest = FALSE
+		ORDER BY build_order ASC`, projectID, olderThan)
+	if err != nil {
+		return nil, fmt.Errorf("prune builds by age query: %w", err)
+	}
+	defer rows.Close()
+
+	var toRemove []int
+	for rows.Next() {
+		var bo int
+		if err := rows.Scan(&bo); err != nil {
+			return nil, fmt.Errorf("scan build_order: %w", err)
+		}
+		toRemove = append(toRemove, bo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate prune age rows: %w", err)
+	}
+
+	for _, bo := range toRemove {
+		if _, err := bs.pool.Exec(ctx,
+			"DELETE FROM builds WHERE project_id=$1 AND build_order=$2", projectID, bo); err != nil {
+			return nil, fmt.Errorf("delete build %d: %w", bo, err)
+		}
+	}
+	return toRemove, nil
+}
+
 // ListBuildsPaginatedBranch returns a page of builds, optionally filtered by branch.
 func (bs *PGBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error) {
 	var totalCount int

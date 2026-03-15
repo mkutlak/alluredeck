@@ -617,15 +617,16 @@ func isDirEmpty(name string) (bool, error) {
 	return false, nil
 }
 
-// durationFromTestResultFiles computes wall-clock duration (ms) from Allure test result JSON files.
+// durationFromTestResultFiles computes total test duration (ms) from Allure test result JSON files.
 // It scans all *.json files in dir, parses "start" and "stop" epoch-millisecond fields, and
-// returns max(stop) - min(start). Returns 0 when no valid timing data is found.
+// returns the sum of individual test durations (stop - start per file).
+// Returns 0 when no valid timing data is found.
 func durationFromTestResultFiles(dir string) int64 {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
-	var minStart, maxStop int64
+	var totalDuration int64
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -642,15 +643,9 @@ func durationFromTestResultFiles(dir string) int64 {
 		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
 			continue
 		}
-		if minStart == 0 || tr.Start < minStart {
-			minStart = tr.Start
-		}
-		if tr.Stop > maxStop {
-			maxStop = tr.Stop
+		if tr.Stop > tr.Start {
+			totalDuration += tr.Stop - tr.Start
 		}
 	}
-	if maxStop > 0 && minStart > 0 && maxStop > minStart {
-		return maxStop - minStart
-	}
-	return 0
+	return totalDuration
 }

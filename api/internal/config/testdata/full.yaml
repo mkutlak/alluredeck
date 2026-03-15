@@ -12,6 +12,7 @@ projects_path: "/yaml/projects"
 check_results_every_secs: "5"
 keep_history: true
 keep_history_latest: 50
+keep_history_max_age_days: 30
 tls: true
 api_response_less_verbose: true
 cors_allowed_origins:

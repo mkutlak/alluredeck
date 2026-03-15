@@ -155,6 +155,7 @@ type MockBuildStore struct {
 	UpdateBuildBranchIDFn       func(ctx context.Context, projectID string, buildOrder int, branchID int64) error
 	SetLatestBranchFn           func(ctx context.Context, projectID string, buildOrder int, branchID *int64) error
 	PruneBuildsBranchFn         func(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
+	PruneBuildsByAgeFn          func(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error)
 }
 
@@ -277,6 +278,13 @@ func (m *MockBuildStore) PruneBuildsBranch(ctx context.Context, projectID string
 	return nil, nil
 }
 
+func (m *MockBuildStore) PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error) {
+	if m.PruneBuildsByAgeFn != nil {
+		return m.PruneBuildsByAgeFn(ctx, projectID, olderThan)
+	}
+	return nil, nil
+}
+
 func (m *MockBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error) {
 	if m.ListBuildsPaginatedBranchFn != nil {
 		return m.ListBuildsPaginatedBranchFn(ctx, projectID, page, perPage, branchID)
@@ -293,8 +301,8 @@ type MockTestResultStore struct {
 	InsertBatchFn              func(ctx context.Context, results []store.TestResult) error
 	InsertBatchFullFn          func(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error
 	GetBuildIDFn               func(ctx context.Context, projectID string, buildOrder int) (int64, error)
-	ListSlowestFn              func(ctx context.Context, projectID string, builds, limit int) ([]store.LowPerformingTest, error)
-	ListLeastReliableFn        func(ctx context.Context, projectID string, builds, limit int) ([]store.LowPerformingTest, error)
+	ListSlowestFn              func(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
+	ListLeastReliableFn        func(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
 	ListTimelineFn             func(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TimelineRow, error)
 	ListFailedByBuildFn        func(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TestResult, error)
 	GetTestHistoryFn           func(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
@@ -324,16 +332,16 @@ func (m *MockTestResultStore) GetBuildID(ctx context.Context, projectID string, 
 	return 0, nil
 }
 
-func (m *MockTestResultStore) ListSlowest(ctx context.Context, projectID string, builds, limit int) ([]store.LowPerformingTest, error) {
+func (m *MockTestResultStore) ListSlowest(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
 	if m.ListSlowestFn != nil {
-		return m.ListSlowestFn(ctx, projectID, builds, limit)
+		return m.ListSlowestFn(ctx, projectID, builds, limit, branchID)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListLeastReliable(ctx context.Context, projectID string, builds, limit int) ([]store.LowPerformingTest, error) {
+func (m *MockTestResultStore) ListLeastReliable(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
 	if m.ListLeastReliableFn != nil {
-		return m.ListLeastReliableFn(ctx, projectID, builds, limit)
+		return m.ListLeastReliableFn(ctx, projectID, builds, limit, branchID)
 	}
 	return nil, nil
 }

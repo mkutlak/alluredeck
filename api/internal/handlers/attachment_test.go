@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -96,6 +97,9 @@ func (m *mockAttachmentBuildStore) SetLatestBranch(_ context.Context, _ string, 
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ *int64) ([]int, error) {
+	panic("not implemented")
+}
+func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Time) ([]int, error) {
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {

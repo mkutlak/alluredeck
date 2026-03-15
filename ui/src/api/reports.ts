@@ -183,10 +183,11 @@ export async function fetchLowPerformingTests(
   sort: 'duration' | 'failure_rate' = 'duration',
   builds = 20,
   limit = 20,
+  branch?: string,
 ): Promise<LowPerformingData> {
   const res = await apiClient.get<ApiResponse<LowPerformingData>>(
     `/projects/${encodeURIComponent(projectId)}/analytics/low-performing`,
-    { params: { sort, builds, limit } },
+    { params: { sort, builds, limit, ...(branch ? { branch } : {}) } },
   )
   return res.data.data
 }

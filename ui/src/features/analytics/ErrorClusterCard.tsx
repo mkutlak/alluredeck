@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 interface Props {
   projectId: string
+  branch?: string
 }
 
 const BUILDS = 20
@@ -21,10 +22,10 @@ function truncateMessage(message: string): { text: string; truncated: boolean } 
   return { text: message.slice(0, MAX_MESSAGE_LENGTH) + '...', truncated: true }
 }
 
-export function ErrorClusterCard({ projectId }: Props) {
+export function ErrorClusterCard({ projectId, branch }: Props) {
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.topErrors(projectId, BUILDS),
-    queryFn: () => fetchTopErrors(projectId, BUILDS, LIMIT),
+    queryKey: queryKeys.topErrors(projectId, BUILDS, branch),
+    queryFn: () => fetchTopErrors(projectId, BUILDS, LIMIT, branch),
     staleTime: 60_000,
   })
 

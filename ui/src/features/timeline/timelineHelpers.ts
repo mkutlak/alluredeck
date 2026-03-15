@@ -1,5 +1,3 @@
-import type { TimelineTestCase } from '@/types/api'
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -9,14 +7,6 @@ export interface TickMark {
   ms: number
   /** Human-readable label, e.g. "+0s", "+5s", "+1m 30s". */
   label: string
-}
-
-export interface ComputedBar {
-  tc: TimelineTestCase
-  /** Left position as a percentage of the total timeline width (0–100). */
-  leftPct: number
-  /** Width as a percentage (0–100), minimum 0.4 to stay visible. */
-  widthPct: number
 }
 
 // ---------------------------------------------------------------------------
@@ -75,58 +65,3 @@ export function computeTicks(minStart: number, maxStop: number): TickMark[] {
   return ticks
 }
 
-// ---------------------------------------------------------------------------
-// computeBar
-// ---------------------------------------------------------------------------
-
-/**
- * Converts a test case into percentage-based positioning data for rendering.
- *
- * @param tc        The test case to position.
- * @param minStart  Absolute timestamp of the timeline origin.
- * @param totalMs   Total duration of the visible timeline window.
- */
-export function computeBar(tc: TimelineTestCase, minStart: number, totalMs: number): ComputedBar {
-  const leftMs = Math.max(0, tc.start - minStart)
-  const widthMs = Math.max(0, tc.stop - tc.start)
-  const leftPct = (leftMs / totalMs) * 100
-  const widthPct = Math.max(0.4, (widthMs / totalMs) * 100)
-  return { tc, leftPct, widthPct }
-}
-
-// ---------------------------------------------------------------------------
-// stackBarsIntoRows
-// ---------------------------------------------------------------------------
-
-/**
- * Greedily stacks bars into rows so that no two bars in the same row overlap.
- * A bar overlaps its predecessor when its `leftPct` is less than the
- * predecessor's `leftPct + widthPct`.
- *
- * @returns An array of rows, each row being an array of non-overlapping bars.
- */
-export function stackBarsIntoRows(bars: ComputedBar[]): ComputedBar[][] {
-  if (bars.length === 0) return []
-
-  const rows: ComputedBar[][] = []
-  /** Right edge (leftPct + widthPct) of the last bar placed in each row. */
-  const rowEnds: number[] = []
-
-  for (const bar of bars) {
-    let placed = false
-    for (let i = 0; i < rows.length; i++) {
-      if (bar.leftPct >= rowEnds[i]) {
-        rows[i].push(bar)
-        rowEnds[i] = bar.leftPct + bar.widthPct
-        placed = true
-        break
-      }
-    }
-    if (!placed) {
-      rows.push([bar])
-      rowEnds.push(bar.leftPct + bar.widthPct)
-    }
-  }
-
-  return rows
-}

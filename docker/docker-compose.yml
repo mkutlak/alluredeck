@@ -29,6 +29,7 @@ services:
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:7474}"
       KEEP_HISTORY: "1"
       KEEP_HISTORY_LATEST: "20"
+      # KEEP_HISTORY_MAX_AGE_DAYS: "0"
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
       GOMEMLIMIT: "1GiB"
       DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"

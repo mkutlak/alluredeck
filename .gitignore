@@ -39,6 +39,7 @@ allure-results/
 
 # Oh-My-Claude
 .omc/
+.worktrees
 
 # Beads
 .beads/

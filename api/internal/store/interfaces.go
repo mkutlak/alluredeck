@@ -54,6 +54,7 @@ type BuildStorer interface {
 	UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error
 	SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error
 	PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
+	PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]Build, int, error)
 }
 
@@ -62,8 +63,8 @@ type TestResultStorer interface {
 	InsertBatch(ctx context.Context, results []TestResult) error
 	InsertBatchFull(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error
 	GetBuildID(ctx context.Context, projectID string, buildOrder int) (int64, error)
-	ListSlowest(ctx context.Context, projectID string, builds, limit int) ([]LowPerformingTest, error)
-	ListLeastReliable(ctx context.Context, projectID string, builds, limit int) ([]LowPerformingTest, error)
+	ListSlowest(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]LowPerformingTest, error)
+	ListLeastReliable(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]LowPerformingTest, error)
 	ListTimeline(ctx context.Context, projectID string, buildID int64, limit int) ([]TimelineRow, error)
 	ListFailedByBuild(ctx context.Context, projectID string, buildID int64, limit int) ([]TestResult, error)
 	GetTestHistory(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error)
@@ -126,14 +127,28 @@ type LabelCount struct {
 	Count int
 }
 
+// TrendPoint holds per-build statistics for analytics trend charts.
+type TrendPoint struct {
+	BuildOrder int
+	Passed     int
+	Failed     int
+	Broken     int
+	Skipped    int
+	Total      int
+	PassRate   float64
+	DurationMs int64
+}
+
 // AnalyticsStorer provides analytics queries over the expanded test data schema.
 type AnalyticsStorer interface {
 	// ListTopErrors returns the most common failure messages across recent builds.
-	ListTopErrors(ctx context.Context, projectID string, builds, limit int) ([]ErrorCluster, error)
+	ListTopErrors(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]ErrorCluster, error)
 	// ListSuitePassRates returns per-suite pass rates across recent builds.
-	ListSuitePassRates(ctx context.Context, projectID string, builds int) ([]SuitePassRate, error)
+	ListSuitePassRates(ctx context.Context, projectID string, builds int, branchID *int64) ([]SuitePassRate, error)
 	// ListLabelBreakdown returns counts grouped by label value for a given label name.
-	ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int) ([]LabelCount, error)
+	ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int, branchID *int64) ([]LabelCount, error)
+	// ListTrendPoints returns per-build statistics for the last N builds, ordered chronologically (oldest first).
+	ListTrendPoints(ctx context.Context, projectID string, builds int, branchID *int64) ([]TrendPoint, error)
 }
 
 // AttachmentStorer provides queries over test attachment metadata.

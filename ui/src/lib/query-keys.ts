@@ -15,10 +15,13 @@ export const queryKeys = {
   reportStability: (pid: string) => ['report-stability', pid] as const,
   reportKnownFailures: (pid: string) => ['report-known-failures', pid] as const,
   reportTimeline: (pid: string) => ['report-timeline', pid] as const,
-  reportHistoryAnalytics: (pid: string) => ['report-history-analytics', pid] as const,
-  lowPerforming: (pid: string, sort?: string) =>
-    sort !== undefined
-      ? (['low-performing-tests', pid, sort] as const)
+  reportHistoryAnalytics: (pid: string, branch?: string) =>
+    branch != null
+      ? (['report-history-analytics', pid, branch] as const)
+      : (['report-history-analytics', pid] as const),
+  lowPerforming: (pid: string, sort?: string, branch?: string) =>
+    sort !== undefined || branch !== undefined
+      ? (['low-performing-tests', pid, sort ?? undefined, branch ?? undefined] as const)
       : (['low-performing-tests', pid] as const),
   knownIssues: (pid: string, showResolved?: boolean) =>
     ['known-issues', pid, showResolved ?? undefined] as const,
@@ -37,11 +40,22 @@ export const queryKeys = {
         : (['test-history', projectId, historyId] as const),
   },
   // Phase 8 — PostgreSQL analytics dashboards
-  topErrors: (projectId: string, builds: number) => ['top-errors', projectId, builds] as const,
-  suitePassRates: (projectId: string, builds: number) =>
-    ['suite-pass-rates', projectId, builds] as const,
-  labelBreakdown: (projectId: string, name: string, builds: number) =>
-    ['label-breakdown', projectId, name, builds] as const,
+  topErrors: (projectId: string, builds: number, branch?: string) =>
+    branch != null
+      ? (['top-errors', projectId, builds, branch] as const)
+      : (['top-errors', projectId, builds] as const),
+  suitePassRates: (projectId: string, builds: number, branch?: string) =>
+    branch != null
+      ? (['suite-pass-rates', projectId, builds, branch] as const)
+      : (['suite-pass-rates', projectId, builds] as const),
+  labelBreakdown: (projectId: string, name: string, builds: number, branch?: string) =>
+    branch != null
+      ? (['label-breakdown', projectId, name, builds, branch] as const)
+      : (['label-breakdown', projectId, name, builds] as const),
+  trends: (pid: string, builds: number, branch?: string) =>
+    branch != null
+      ? (['trends', pid, builds, branch] as const)
+      : (['trends', pid, builds] as const),
   attachments: (projectId: string, reportId: string, mimeType?: string) =>
     mimeType != null
       ? (['attachments', projectId, reportId, mimeType] as const)
@@ -61,6 +75,7 @@ function projectScopedKeys(projectId: string) {
     queryKeys.lowPerforming(projectId),
     queryKeys.knownIssues(projectId),
     queryKeys.attachments(projectId, 'latest'),
+    queryKeys.trends(projectId, 100),
   ]
 }
 

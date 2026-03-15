@@ -25,6 +25,7 @@ api:
     checkResultsEverySeconds: "NONE"
     keepHistory: "true"
     keepHistoryLatest: "100"
+    keepHistoryMaxAgeDays: "0"
     apiResponseLessVerbose: "false"
     trustXForwardedFor: "true"
     swaggerEnabled: "false"

@@ -67,6 +67,7 @@ services:
       JWT_SECRET_KEY: "s3-dev-secret-change-in-production-32chars"
       KEEP_HISTORY: "true"
       KEEP_HISTORY_LATEST: "20"
+      # KEEP_HISTORY_MAX_AGE_DAYS: "0"
       GOMEMLIMIT: "1GiB"
       DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
     ports:

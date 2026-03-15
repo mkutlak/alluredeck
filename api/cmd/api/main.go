@@ -116,7 +116,7 @@ func main() {
 	branchHandler := handlers.NewBranchHandler(branchStore, buildStore)
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
 	allureHandler.SetBranchStore(branchStore)
-	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, logger)
+	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, branchStore, logger)
 	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, logger)
 	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
 
@@ -219,6 +219,8 @@ func main() {
 	// Start JWT blacklist cleanup goroutine — prunes expired JTIs every 15 min (AUDIT 2.1).
 	jwtManager.StartCleanup(ctx, 15*time.Minute)
 
+	startRetentionScheduler(ctx, cfg, projectStore, buildStore, dataStore, logger)
+
 	if cfg.StorageType != "s3" {
 		backgroundWatcher.Start()
 	} else {
@@ -255,6 +257,63 @@ func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watche
 		logger.Error("server shutdown error", zap.Error(err))
 	}
 	logger.Info("server stopped cleanly")
+}
+
+// startRetentionScheduler runs a daily goroutine that prunes old builds for all projects.
+// It applies count-based and age-based pruning according to the configured retention settings.
+func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectStore store.ProjectStorer,
+	buildStore store.BuildStorer, dataStore storage.Store, logger *zap.Logger) {
+	if cfg.KeepHistoryLatest <= 0 && cfg.KeepHistoryMaxAgeDays <= 0 {
+		logger.Info("retention scheduler disabled")
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				projects, err := projectStore.ListProjects(ctx)
+				if err != nil {
+					logger.Error("retention scheduler: list projects failed", zap.Error(err))
+					continue
+				}
+				totalPruned := 0
+				for _, p := range projects {
+					if cfg.KeepHistoryLatest > 0 {
+						removed, err := buildStore.PruneBuildsBranch(ctx, p.ID, cfg.KeepHistoryLatest, nil)
+						if err != nil {
+							logger.Error("retention scheduler: count prune failed",
+								zap.String("project_id", p.ID), zap.Error(err))
+						} else {
+							if err := dataStore.PruneReportDirs(ctx, p.ID, removed); err != nil {
+								logger.Error("retention scheduler: prune report dirs failed",
+									zap.String("project_id", p.ID), zap.Error(err))
+							}
+							totalPruned += len(removed)
+						}
+					}
+					if cfg.KeepHistoryMaxAgeDays > 0 {
+						cutoff := time.Now().AddDate(0, 0, -cfg.KeepHistoryMaxAgeDays)
+						aged, err := buildStore.PruneBuildsByAge(ctx, p.ID, cutoff)
+						if err != nil {
+							logger.Error("retention scheduler: age prune failed",
+								zap.String("project_id", p.ID), zap.Error(err))
+						} else {
+							if err := dataStore.PruneReportDirs(ctx, p.ID, aged); err != nil {
+								logger.Error("retention scheduler: prune aged report dirs failed",
+									zap.String("project_id", p.ID), zap.Error(err))
+							}
+							totalPruned += len(aged)
+						}
+					}
+				}
+				logger.Info("retention scheduler: daily run complete", zap.Int("builds_pruned", totalPruned))
+			}
+		}
+	}()
 }
 
 // createDataStore initialises the storage backend based on StorageType config.
@@ -389,6 +448,7 @@ func registerRoutes(
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/errors", viewerUp(shortCache(analyticsHandler.GetTopErrors)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(analyticsHandler.GetSuitePassRates)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(analyticsHandler.GetLabelBreakdown)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/trends", viewerUp(shortCache(analyticsHandler.GetTrends)))
 
 	// Attachment viewer endpoints.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(attachmentHandler.ListAttachments)))

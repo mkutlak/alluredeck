@@ -137,6 +137,7 @@ storage_type: {{ .Values.api.config.storageType | quote }}
 check_results_every_secs: {{ .Values.api.config.checkResultsEverySeconds | quote }}
 keep_history: {{ .Values.api.config.keepHistory }}
 keep_history_latest: {{ .Values.api.config.keepHistoryLatest | int }}
+keep_history_max_age_days: {{ .Values.api.config.keepHistoryMaxAgeDays | int }}
 api_response_less_verbose: {{ .Values.api.config.apiResponseLessVerbose }}
 trust_forwarded_for: {{ .Values.api.config.trustXForwardedFor }}
 swagger_enabled: {{ .Values.api.config.swaggerEnabled }}

@@ -20,9 +20,15 @@ func NewAnalyticsStore(s *PGStore) *PGAnalyticsStore {
 }
 
 // ListTopErrors returns the most common failure messages across the last N builds.
-func (a *PGAnalyticsStore) ListTopErrors(ctx context.Context, projectID string, builds, limit int) ([]store.ErrorCluster, error) {
-	rows, err := a.pool.Query(ctx, `
-		WITH recent AS (SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2)
+func (a *PGAnalyticsStore) ListTopErrors(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectID, builds, projectID, limit}
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+	}
+	query := fmt.Sprintf(`
+		WITH recent AS (%s)
 		SELECT status_message, COUNT(*) AS cnt
 		FROM test_results
 		WHERE project_id=$3
@@ -31,9 +37,9 @@ func (a *PGAnalyticsStore) ListTopErrors(ctx context.Context, projectID string, 
 		  AND status_message IS NOT NULL AND status_message != ''
 		GROUP BY status_message
 		ORDER BY cnt DESC
-		LIMIT $4`,
-		projectID, builds, projectID, limit,
-	)
+		LIMIT $4`, recentCTE)
+
+	rows, err := a.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list top errors: %w", err)
 	}
@@ -57,9 +63,15 @@ func (a *PGAnalyticsStore) ListTopErrors(ctx context.Context, projectID string, 
 }
 
 // ListSuitePassRates returns per-suite pass rates across the last N builds.
-func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID string, builds int) ([]store.SuitePassRate, error) {
-	rows, err := a.pool.Query(ctx, `
-		WITH recent AS (SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2)
+func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.SuitePassRate, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectID, builds, projectID}
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$4 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+	}
+	query := fmt.Sprintf(`
+		WITH recent AS (%s)
 		SELECT tl.value AS suite,
 		       COUNT(*) AS total,
 		       SUM(CASE WHEN tr.status='passed' THEN 1 ELSE 0 END) AS passed
@@ -69,9 +81,9 @@ func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID str
 		  AND tr.build_id IN (SELECT id FROM recent)
 		  AND tl.name = 'suite'
 		GROUP BY tl.value
-		ORDER BY tl.value`,
-		projectID, builds, projectID,
-	)
+		ORDER BY tl.value`, recentCTE)
+
+	rows, err := a.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list suite pass rates: %w", err)
 	}
@@ -98,9 +110,15 @@ func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID str
 }
 
 // ListLabelBreakdown returns counts grouped by label value for a given label name.
-func (a *PGAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int) ([]store.LabelCount, error) {
-	rows, err := a.pool.Query(ctx, `
-		WITH recent AS (SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2)
+func (a *PGAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectID, builds, projectID, labelName}
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+	}
+	query := fmt.Sprintf(`
+		WITH recent AS (%s)
 		SELECT tl.value, COUNT(DISTINCT tr.id) AS cnt
 		FROM test_results tr
 		JOIN test_labels tl ON tl.test_result_id = tr.id
@@ -108,9 +126,9 @@ func (a *PGAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, la
 		  AND tr.build_id IN (SELECT id FROM recent)
 		  AND tl.name = $4
 		GROUP BY tl.value
-		ORDER BY cnt DESC`,
-		projectID, builds, projectID, labelName,
-	)
+		ORDER BY cnt DESC`, recentCTE)
+
+	rows, err := a.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list label breakdown: %w", err)
 	}
@@ -129,6 +147,54 @@ func (a *PGAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, la
 	}
 	if result == nil {
 		result = []store.LabelCount{}
+	}
+	return result, nil
+}
+
+// ListTrendPoints returns per-build statistics for the last N builds, ordered chronologically (oldest first).
+func (a *PGAnalyticsStore) ListTrendPoints(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.TrendPoint, error) {
+	query := `SELECT build_order,
+       COALESCE(stat_passed, 0),
+       COALESCE(stat_failed, 0),
+       COALESCE(stat_broken, 0),
+       COALESCE(stat_skipped, 0),
+       COALESCE(stat_total, 0),
+       COALESCE(duration_ms, 0)
+FROM builds
+WHERE project_id = $1`
+	args := []any{projectID, builds}
+	if branchID != nil {
+		query += " AND branch_id = $3"
+		args = append(args, *branchID)
+	}
+	query += " ORDER BY build_order DESC LIMIT $2"
+
+	rows, err := a.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list trend points: %w", err)
+	}
+	defer rows.Close()
+
+	var result []store.TrendPoint
+	for rows.Next() {
+		var tp store.TrendPoint
+		if err := rows.Scan(&tp.BuildOrder, &tp.Passed, &tp.Failed, &tp.Broken, &tp.Skipped, &tp.Total, &tp.DurationMs); err != nil {
+			return nil, fmt.Errorf("scan trend point: %w", err)
+		}
+		if tp.Total > 0 {
+			tp.PassRate = float64(tp.Passed) / float64(tp.Total) * 100
+		}
+		result = append(result, tp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate trend points: %w", err)
+	}
+	if result == nil {
+		result = []store.TrendPoint{}
+	}
+	// Reverse to chronological (oldest first) order.
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
 	}
 	return result, nil
 }

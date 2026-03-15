@@ -23,11 +23,11 @@ export function DurationTrendChart({ data }: Props) {
         </defs>
         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
         <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-        <YAxis tick={{ fontSize: 11 }} unit="s" />
+        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => formatDuration(v * 1000)} />
         <Tooltip
           content={
             <ChartTooltipContent
-              formatter={(v) => [formatDuration((v as number) * 1000), 'Duration']}
+              formatter={(v) => formatDuration((v as number) * 1000)}
             />
           }
         />

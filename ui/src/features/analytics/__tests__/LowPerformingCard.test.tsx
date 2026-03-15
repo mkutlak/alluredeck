@@ -47,7 +47,7 @@ describe('LowPerformingCard', () => {
     })
     renderCard()
     await waitFor(() => {
-      expect(screen.getByText('SlowTest')).toBeInTheDocument()
+      expect(screen.getByText('pkg.SlowTest')).toBeInTheDocument()
     })
   })
 

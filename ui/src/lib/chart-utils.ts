@@ -1,6 +1,21 @@
-import type { CategoryEntry, ReportHistoryEntry, TimelineTestCase } from '@/types/api'
+import type { CategoryEntry, ReportHistoryEntry } from '@/types/api'
 import type { ChartConfig } from '@/components/ui/chart'
 import { calcPassRate } from './utils'
+
+// ---------------------------------------------------------------------------
+// KPI Summary types
+// ---------------------------------------------------------------------------
+
+export interface KpiData {
+  passRate: number
+  passRateTrend: number[]
+  totalTests: number
+  totalTestsTrend: number[]
+  avgDuration: number
+  durationTrend: number[]
+  failedCount: number
+  failedTrend: number[]
+}
 
 // ChartConfig objects for each chart type — use CSS variables for theming
 export const statusChartConfig = {
@@ -125,36 +140,42 @@ export function toAllTrendData(entries: ReportHistoryEntry[]): AllTrendData {
 }
 
 // ---------------------------------------------------------------------------
-// Timeline lane utilities (G3)
+// KPI Summary utilities
 // ---------------------------------------------------------------------------
 
-export interface TimelineLane {
-  id: string
-  label: string
-}
+export function toKpiData(entries: ReportHistoryEntry[]): KpiData | null {
+  if (entries.length === 0) return null
 
-export type LaneStrategy = 'thread' | 'host' | 'default'
+  const latest = entries[0]
+  if (!latest.statistic) return null
 
-export function detectLaneStrategy(testCases: TimelineTestCase[]): LaneStrategy {
-  if (testCases.some((tc) => tc.thread)) return 'thread'
-  if (testCases.some((tc) => tc.host)) return 'host'
-  return 'default'
-}
+  // Take last 10 reports, reverse to chronological for sparklines
+  const sparklineEntries = entries.slice(0, 10).reverse()
 
-export function toTimelineLanes(
-  testCases: TimelineTestCase[],
-  strategy: LaneStrategy,
-): TimelineLane[] {
-  if (strategy === 'default') return [{ id: 'default', label: 'Tests' }]
-  const seen = new Set<string>()
-  const lanes: TimelineLane[] = []
-  for (const tc of testCases) {
-    const key = strategy === 'thread' ? tc.thread : tc.host
-    if (key && !seen.has(key)) {
-      seen.add(key)
-      lanes.push({ id: key, label: key })
-    }
+  const passRateTrend = sparklineEntries
+    .filter((e) => e.statistic)
+    .map((e) => calcPassRate(e.statistic!.passed, e.statistic!.total))
+
+  const totalTestsTrend = sparklineEntries
+    .filter((e) => e.statistic)
+    .map((e) => e.statistic!.total)
+
+  const durationTrend = sparklineEntries
+    .filter((e) => e.duration_ms != null)
+    .map((e) => e.duration_ms!)
+
+  const failedTrend = sparklineEntries
+    .filter((e) => e.statistic)
+    .map((e) => e.statistic!.failed + e.statistic!.broken)
+
+  return {
+    passRate: calcPassRate(latest.statistic.passed, latest.statistic.total),
+    passRateTrend,
+    totalTests: latest.statistic.total,
+    totalTestsTrend,
+    avgDuration: latest.duration_ms ?? 0,
+    durationTrend,
+    failedCount: latest.statistic.failed + latest.statistic.broken,
+    failedTrend,
   }
-  if (lanes.length === 0) return [{ id: 'default', label: 'Tests' }]
-  return lanes
 }

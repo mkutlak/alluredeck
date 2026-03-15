@@ -94,6 +94,7 @@ func TestLoadConfigFromYAMLFile(t *testing.T) {
 		{"CheckResultsEverySeconds", cfg.CheckResultsEverySeconds, "5"},
 		{"KeepHistory", cfg.KeepHistory, true},
 		{"KeepHistoryLatest", cfg.KeepHistoryLatest, 50},
+		{"KeepHistoryMaxAgeDays", cfg.KeepHistoryMaxAgeDays, 30},
 		{"TLS", cfg.TLS, true},
 		{"APIResponseLessVerbose", cfg.APIResponseLessVerbose, true},
 		{"AccessTokenExpiry", cfg.AccessTokenExpiry, DurationSeconds(1800 * time.Second)},
@@ -415,6 +416,28 @@ func TestS3ConcurrencyFromEnv(t *testing.T) {
 	}
 	if cfg.S3.Concurrency != 20 {
 		t.Errorf("S3 concurrency from env: want 20, got %d", cfg.S3.Concurrency)
+	}
+}
+
+func TestKeepHistoryMaxAgeDaysDefault(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.KeepHistoryMaxAgeDays != 0 {
+		t.Errorf("default KeepHistoryMaxAgeDays: want 0, got %d", cfg.KeepHistoryMaxAgeDays)
+	}
+}
+
+func TestKeepHistoryMaxAgeDaysFromEnv(t *testing.T) {
+	t.Setenv("KEEP_HISTORY_MAX_AGE_DAYS", "90")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.KeepHistoryMaxAgeDays != 90 {
+		t.Errorf("KeepHistoryMaxAgeDays from env: want 90, got %d", cfg.KeepHistoryMaxAgeDays)
 	}
 }
 

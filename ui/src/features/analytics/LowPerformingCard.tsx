@@ -9,6 +9,7 @@ import { LineChart, Line } from 'recharts'
 
 interface Props {
   projectId: string
+  branch?: string
 }
 
 type SortMode = 'duration' | 'failure_rate'
@@ -32,12 +33,12 @@ const MiniSparkline = React.memo(function MiniSparkline({ data }: { data: number
   )
 })
 
-export function LowPerformingCard({ projectId }: Props) {
+export function LowPerformingCard({ projectId, branch }: Props) {
   const [sort, setSort] = useState<SortMode>('duration')
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.lowPerforming(projectId, sort),
-    queryFn: () => fetchLowPerformingTests(projectId, sort),
+    queryKey: queryKeys.lowPerforming(projectId, sort, branch),
+    queryFn: () => fetchLowPerformingTests(projectId, sort, 20, 20, branch),
     staleTime: 60_000,
   })
 
@@ -97,7 +98,7 @@ export function LowPerformingCard({ projectId }: Props) {
                   <tr key={test.history_id || i} className="border-b last:border-0">
                     <td className="py-1 pr-2">
                       <span className="line-clamp-1 font-mono text-xs" title={test.full_name}>
-                        {test.test_name}
+                        {test.full_name}
                       </span>
                     </td>
                     <td className="py-1 text-right font-mono text-xs">

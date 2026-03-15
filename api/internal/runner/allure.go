@@ -523,6 +523,17 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID string, branch
 		return fmt.Errorf("prune report dirs: %w", err)
 	}
 
+	if a.cfg.KeepHistoryMaxAgeDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -a.cfg.KeepHistoryMaxAgeDays)
+		aged, err := a.buildStore.PruneBuildsByAge(ctx, projectID, cutoff)
+		if err != nil {
+			return fmt.Errorf("prune builds by age: %w", err)
+		}
+		if err := a.store.PruneReportDirs(ctx, projectID, aged); err != nil {
+			return fmt.Errorf("prune aged report dirs: %w", err)
+		}
+	}
+
 	return nil
 }
 

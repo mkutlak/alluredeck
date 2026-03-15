@@ -5,16 +5,18 @@ import type {
   ErrorCluster,
   SuitePassRate,
   LabelCount,
+  TrendsData,
 } from '@/types/api'
 
 export async function fetchTopErrors(
   projectId: string,
   builds = 20,
   limit = 10,
+  branch?: string,
 ): Promise<AnalyticsResponse<ErrorCluster>> {
   const res = await apiClient.get<ApiResponse<AnalyticsResponse<ErrorCluster>>>(
     `/projects/${encodeURIComponent(projectId)}/analytics/errors`,
-    { params: { builds, limit } },
+    { params: { builds, limit, ...(branch ? { branch } : {}) } },
   )
   return res.data.data
 }
@@ -22,10 +24,11 @@ export async function fetchTopErrors(
 export async function fetchSuitePassRates(
   projectId: string,
   builds = 20,
+  branch?: string,
 ): Promise<AnalyticsResponse<SuitePassRate>> {
   const res = await apiClient.get<ApiResponse<AnalyticsResponse<SuitePassRate>>>(
     `/projects/${encodeURIComponent(projectId)}/analytics/suites`,
-    { params: { builds } },
+    { params: { builds, ...(branch ? { branch } : {}) } },
   )
   return res.data.data
 }
@@ -34,10 +37,23 @@ export async function fetchLabelBreakdown(
   projectId: string,
   name: string,
   builds = 20,
+  branch?: string,
 ): Promise<AnalyticsResponse<LabelCount>> {
   const res = await apiClient.get<ApiResponse<AnalyticsResponse<LabelCount>>>(
     `/projects/${encodeURIComponent(projectId)}/analytics/labels`,
-    { params: { name, builds } },
+    { params: { name, builds, ...(branch ? { branch } : {}) } },
+  )
+  return res.data.data
+}
+
+export async function fetchTrends(
+  projectId: string,
+  builds = 100,
+  branch?: string,
+): Promise<TrendsData> {
+  const res = await apiClient.get<{ data: TrendsData; project_id: string }>(
+    `/projects/${encodeURIComponent(projectId)}/analytics/trends`,
+    { params: { builds, ...(branch ? { branch } : {}) } },
   )
   return res.data.data
 }

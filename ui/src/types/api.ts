@@ -518,6 +518,45 @@ export interface AnalyticsResponse<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Analytics Trends (server-computed)
+// ---------------------------------------------------------------------------
+export interface TrendsStatusPoint {
+  name: string
+  passed: number
+  failed: number
+  broken: number
+  skipped: number
+}
+
+export interface TrendsPassRatePoint {
+  name: string
+  pass_rate: number
+}
+
+export interface TrendsDurationPoint {
+  name: string
+  duration_sec: number
+}
+
+export interface TrendsKpi {
+  pass_rate: number
+  pass_rate_trend: number[]
+  total_tests: number
+  total_tests_trend: number[]
+  avg_duration: number
+  duration_trend: number[]
+  failed_count: number
+  failed_trend: number[]
+}
+
+export interface TrendsData {
+  status: TrendsStatusPoint[]
+  pass_rate: TrendsPassRatePoint[]
+  duration: TrendsDurationPoint[]
+  kpi: TrendsKpi | null
+}
+
+// ---------------------------------------------------------------------------
 // Attachments (D2)
 // ---------------------------------------------------------------------------
 export interface AttachmentEntry {

@@ -624,15 +624,16 @@ func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error
 	return data, nil
 }
 
-// durationFromTestResults computes wall-clock duration (ms) from Allure test result JSON files in S3.
+// durationFromTestResults computes total test duration (ms) from Allure test result JSON files in S3.
 // It lists *.json files under relPath, parses "start"/"stop" epoch-millisecond fields, and
-// returns max(stop) - min(start). Returns 0 when no valid timing data is found.
+// returns the sum of individual test durations (stop - start per file).
+// Returns 0 when no valid timing data is found.
 func (s *S3Store) durationFromTestResults(ctx context.Context, projectID, relPath string) int64 {
 	entries, err := s.ReadDir(ctx, projectID, relPath)
 	if err != nil {
 		return 0
 	}
-	var minStart, maxStop int64
+	var totalDuration int64
 	for _, e := range entries {
 		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
 			continue
@@ -648,17 +649,11 @@ func (s *S3Store) durationFromTestResults(ctx context.Context, projectID, relPat
 		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
 			continue
 		}
-		if minStart == 0 || tr.Start < minStart {
-			minStart = tr.Start
-		}
-		if tr.Stop > maxStop {
-			maxStop = tr.Stop
+		if tr.Stop > tr.Start {
+			totalDuration += tr.Stop - tr.Start
 		}
 	}
-	if maxStop > 0 && minStart > 0 && maxStop > minStart {
-		return maxStop - minStart
-	}
-	return 0
+	return totalDuration
 }
 
 // Ensure S3Store implements Store at compile time.
