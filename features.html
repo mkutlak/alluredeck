@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Features — AllureDeck</title>
+  <meta name="description" content="Explore AllureDeck's full feature set: authentication, analytics, build comparison, test timeline, CI/CD integration, and more.">
+  <meta name="theme-color" content="#eff1f5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2388;</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="container">
+      <a href="index.html" class="nav-brand">ALLUREDECK</a>
+      <button class="nav-hamburger" aria-label="Menu" aria-expanded="false">&#9776;</button>
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="features.html" class="active">Features</a></li>
+        <li class="nav-dropdown">
+          <button class="nav-dropdown-toggle">Docs</button>
+          <div class="nav-dropdown-menu">
+            <a href="docs/helm.html">Helm Configuration</a>
+            <a href="docs/oidc.html">OIDC Authentication</a>
+          </div>
+        </li>
+        <li><a href="https://github.com/mkutlak/alluredeck" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- PAGE HEADER -->
+  <header class="page-header">
+    <div class="container">
+      <p class="section-label">// Capabilities</p>
+      <h1><span class="highlight">Product</span> Features</h1>
+      <p class="hero-sub">Everything you need to manage, analyse, and act on Allure test reports — from a single Helm install.</p>
+    </div>
+  </header>
+
+  <hr class="divider">
+
+  <!-- FEATURES SHOWCASE -->
+  <main>
+    <div class="container">
+
+      <!-- 1. Authentication & Access Control -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Auth</p>
+            <h2>Authentication &amp; Access Control</h2>
+            <p>AllureDeck supports two authentication methods out of the box: local username/password auth and OIDC Single Sign-On via Azure AD, Keycloak, Okta, or Google. Choose one or layer them to fit your organisation.</p>
+            <p>Access is governed by a <strong>3-level RBAC model</strong> — admin, editor, and viewer — applied per-project. JIT user provisioning creates accounts automatically on first OIDC login, with role assignment driven by identity-provider claims.</p>
+            <ul>
+              <li>Local auth + OIDC SSO (Azure AD, Keycloak, Okta, Google)</li>
+              <li>Authorization Code + PKCE flow — no client secrets in browser</li>
+              <li>3-level RBAC: admin, editor, viewer</li>
+              <li>JIT user provisioning on first SSO login</li>
+              <li>JWT-based sessions with auto-generated signing keys</li>
+            </ul>
+            <a href="docs/oidc.html" class="btn btn-secondary">OIDC Setup Guide &rarr;</a>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/login.png" alt="AllureDeck login screen showing local and SSO authentication options" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Projects Dashboard -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Dashboard</p>
+            <h2>Projects Dashboard</h2>
+            <p>The dashboard gives you an at-a-glance health summary across all your projects. Health summary cards show Total, Healthy, Degraded, and Failing counts so you can triage issues instantly without drilling into each project.</p>
+            <p>Each project card shows a <strong>sparkline of recent build results</strong>, a colour-coded pass rate badge, and test counts. Tag management lets you group and filter projects by team, environment, or any custom label, with both grid and list views available.</p>
+            <ul>
+              <li>Health summary cards: Total, Healthy, Degraded, Failing</li>
+              <li>Per-project sparklines and pass rate badges</li>
+              <li>Tag management for filtering and grouping</li>
+              <li>Grid and list view toggles</li>
+              <li>Instant search across all projects</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/dashboard.png" alt="AllureDeck projects dashboard with health summary cards and project cards" loading="lazy">
+            <img src="screenshots/project-tags.png" alt="Tag management interface for filtering projects" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Project Overview & Report History -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// History</p>
+            <h2>Project Overview &amp; Report History</h2>
+            <p>The project overview surfaces key KPIs — Pass Rate, Total Tests, Duration, and Last Run — as stat cards at the top, giving you the metrics that matter before you scroll into the history.</p>
+            <p>The <strong>paginated report history table</strong> supports branch filtering and three grouping modes: None, Commit SHA, and Branch. Pass rates are colour-coded from red to green. Select any two builds to queue them for comparison.</p>
+            <ul>
+              <li>Stat cards: Pass Rate, Total Tests, Duration, Last Run</li>
+              <li>Branch filtering and build grouping (None, Commit SHA, Branch)</li>
+              <li>Colour-coded pass rate column</li>
+              <li>Pagination with configurable page size</li>
+              <li>Build selection for side-by-side comparison</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/project-overview.png" alt="Project overview with KPI stat cards" loading="lazy">
+            <img src="screenshots/report-history.png" alt="Paginated report history with colour-coded pass rates" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Analytics & Trends -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Analytics</p>
+            <h2>Analytics &amp; Trends</h2>
+            <p>Server-side computed analytics give you rich trend data without sacrificing UI responsiveness. Branch filtering scopes all charts to the slice of history you care about. Charts update in real time as you change the filter.</p>
+            <p>The analytics view combines four chart types — <strong>Status Trend, Pass Rate Trend, Duration Trend, and a Latest Status Distribution donut</strong> — with a Failure Categories breakdown and a Low Performing Tests table for the slowest and least reliable cases.</p>
+            <ul>
+              <li>Status Trend (stacked bar chart over time)</li>
+              <li>Pass Rate Trend (line chart with configurable thresholds)</li>
+              <li>Duration Trend and Latest Status Distribution (donut)</li>
+              <li>Failure Categories breakdown</li>
+              <li>Low Performing Tests: slowest and least reliable</li>
+              <li>KPI sparklines derived from last 10 builds</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/analytics-trends.png" alt="Analytics trends view with stacked bar and line charts" loading="lazy">
+            <img src="screenshots/analytics-details.png" alt="Analytics details with failure categories and low performing tests" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Test Execution Timeline -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Timeline</p>
+            <h2>Test Execution Timeline</h2>
+            <p>The interactive D3.js Gantt chart visualises test runs laid out across parallel workers over time. Bars are colour-coded by status — passed, failed, broken, skipped — and a hover tooltip shows duration, suite, and status details.</p>
+            <p>A <strong>minimap with brush control</strong> lets you select a viewport into long runs. The chart is fully keyboard accessible: arrow keys pan, +/- zoom, Home resets the view, and Escape clears any selection. A sortable and searchable detail table sits below the chart.</p>
+            <ul>
+              <li>D3.js Gantt chart across parallel workers</li>
+              <li>Minimap with brush-select viewport control</li>
+              <li>Colour-coded by status with hover tooltips</li>
+              <li>Keyboard navigation: arrows pan, +/- zoom, Home reset</li>
+              <li>Sortable and searchable detail table</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/timeline.png" alt="Interactive test execution timeline Gantt chart with minimap" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. Build Comparison -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Compare</p>
+            <h2>Build Comparison</h2>
+            <p>Select any two builds from the Report History table and click Compare to generate a structured diff. The summary instantly shows how many tests Regressed, were Fixed, Added, or Removed between the two builds.</p>
+            <p>Filter tabs let you focus on a specific change category. Each row shows the <strong>duration delta</strong> alongside the status change, making it easy to spot tests that pass but have become significantly slower.</p>
+            <ul>
+              <li>Select two builds from history, click Compare</li>
+              <li>Summary counts: Regressed, Fixed, Added, Removed</li>
+              <li>Filter tabs by change category</li>
+              <li>Duration delta per test</li>
+              <li>Linked directly from Report History</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/build-comparison.png" alt="Build comparison view showing regressed, fixed, added, and removed tests" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. Known Issues -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Known Issues</p>
+            <h2>Known Issues</h2>
+            <p>Known Issues lets you tag test cases that are intentionally broken — flaky tests, tests blocked by open bugs, or tests expected to fail in certain environments. Pattern matching uses regex or substring rules, so a single entry can cover a whole suite.</p>
+            <p>The <strong>adjusted pass rate</strong> excludes matched tests, giving you a cleaner signal of production quality. Each known issue has an inline resolve/reopen toggle so your team can track remediation without leaving the dashboard.</p>
+            <ul>
+              <li>Pattern matching with regex or substring rules</li>
+              <li>Adjusted pass rate excludes matched tests</li>
+              <li>Per-project known issue management</li>
+              <li>Inline resolve / reopen toggle</li>
+              <li>Covers flaky tests, known bugs, and environment exclusions</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/known-issues.png" alt="Known issues management with pattern matching and resolve toggle" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 8. Report Viewer -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Viewer</p>
+            <h2>Report Viewer</h2>
+            <p>AllureDeck embeds Allure 2 and Allure 3 reports directly inside the dashboard via a secure iframe, so there is no need to switch tabs or share raw links. Breadcrumb navigation keeps you oriented within the report hierarchy.</p>
+            <p>The embedded viewer exposes the <strong>full Allure feature set</strong>: test results tree, quality gates, retries, flaky indicators, attachments, and environment information. An open-in-new-tab button is always available for deeper inspection.</p>
+            <ul>
+              <li>Embedded Allure 2 and Allure 3 report support</li>
+              <li>Secure iframe with breadcrumb navigation</li>
+              <li>Open in new tab for full-screen access</li>
+              <li>Full Allure features: results tree, quality gates, retries</li>
+              <li>Flaky test indicators and attachment viewer</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/report-viewer.png" alt="Allure report embedded inside the AllureDeck viewer with breadcrumb navigation" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 9. Report Operations & CI/CD -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// CI/CD</p>
+            <h2>Report Operations &amp; CI/CD</h2>
+            <p>The action bar exposes the full report lifecycle: upload results (drag-and-drop or tar.gz), generate reports, and clean results or history. All operations are also available over the REST API for seamless CI/CD integration.</p>
+            <p><strong>API keys with an <code>ald_</code> prefix</strong> enable passwordless access from pipelines. Each project can have multiple keys with scoped permissions. Curl examples and a GitHub Actions snippet are provided directly in the UI to minimise setup time.</p>
+            <ul>
+              <li>Upload results via drag-and-drop or tar.gz</li>
+              <li>Generate reports, clean results and history</li>
+              <li>API keys with <code>ald_</code> prefix for CI/CD access</li>
+              <li>Curl examples for upload and generate operations</li>
+              <li>GitHub Actions integration example</li>
+              <li>Swagger UI at <code>/swagger</code> for full API reference</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/action-bar.png" alt="Report action bar with upload, generate, and clean operations" loading="lazy">
+            <img src="screenshots/send-results.png" alt="Send results panel showing curl example and API key usage" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 10. Global Search -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Search</p>
+            <h2>Global Search</h2>
+            <p>Press <kbd>Cmd+K</kbd> (or <kbd>Ctrl+K</kbd> on Windows/Linux) to open the command palette from anywhere in the app. The palette searches across both project names and test names in a single query, returning grouped results instantly.</p>
+            <p>Search is backed by <strong>PostgreSQL full-text search with GIN indexes</strong>, keeping latency low even across large report histories. Results are navigable with arrow keys and activated with Enter, so your hands never leave the keyboard.</p>
+            <ul>
+              <li>Cmd+K / Ctrl+K command palette shortcut</li>
+              <li>Searches projects and test names simultaneously</li>
+              <li>PostgreSQL full-text search with GIN indexes</li>
+              <li>Grouped results with keyboard navigation</li>
+              <li>Arrow key navigation, Enter to open, Escape to close</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/search.png" alt="Global search command palette showing grouped results for projects and tests" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 11. Admin & Storage -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Admin</p>
+            <h2>Admin &amp; Storage</h2>
+            <p>The System Monitor in the admin panel shows active and completed background jobs, pending results queues, and storage usage — giving operators full visibility into what the system is doing at any moment.</p>
+            <p>Storage is flexible: use a <strong>local persistent volume</strong> for on-prem deployments or an S3-compatible store (AWS S3, MinIO) for cloud. Report retention is configurable per-project using count-based, age-based, or combined strategies, enforced nightly by the background scheduler.</p>
+            <ul>
+              <li>System Monitor: active/completed jobs, pending results</li>
+              <li>Flexible storage: local filesystem or S3/MinIO</li>
+              <li>IRSA support for EKS workloads</li>
+              <li>Retention: count-based and age-based strategies</li>
+              <li>Daily background scheduler for automated cleanup</li>
+              <li>User and API key management</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/admin-monitor.png" alt="Admin panel system monitor showing job queues and storage stats" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- 12. Navigation & UX (text-only) -->
+      <div class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// UX</p>
+            <h2>Navigation &amp; UX</h2>
+            <p>AllureDeck is built for daily use by engineers who live in the terminal and the browser in equal measure. The interface adapts to your working style with persistent preferences, keyboard-first navigation, and a theme that matches your environment.</p>
+            <p><strong>Dark and light modes</strong> use Catppuccin Mocha and Latte respectively, selected automatically from your OS preference or toggled manually. Preferences such as pagination size and group-by selection are persisted across sessions so the dashboard always opens in your preferred state.</p>
+            <ul>
+              <li>Dark/light mode: Catppuccin Mocha and Latte</li>
+              <li>Collapsible sidebar with project tabs</li>
+              <li>Project switcher dropdown for fast navigation</li>
+              <li>Keyboard shortcuts: Cmd+K search, arrows, Enter, Escape</li>
+              <li>Persistent preferences: pagination, group-by, view mode</li>
+              <li>Responsive layout — usable on tablets and wide screens</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image" style="display:flex;align-items:center;justify-content:center;">
+            <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:32px 40px;text-align:center;width:100%;">
+              <div style="font-family:var(--mono);font-size:2.5rem;margin-bottom:16px;opacity:0.6;">&#x2388;</div>
+              <p style="font-family:var(--mono);font-size:0.8rem;color:var(--text-muted);margin:0;">Keyboard-first. Theme-aware.<br>Built for engineers.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /.container -->
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>
+        <a href="https://github.com/mkutlak/alluredeck">AllureDeck</a>
+        &nbsp;&middot;&nbsp; Licensed under
+        <a href="https://github.com/mkutlak/alluredeck/blob/main/LICENSE">Apache 2.0</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+
+</body>
+</html>

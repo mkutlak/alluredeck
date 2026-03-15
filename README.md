@@ -1,18 +1,28 @@
 # AllureDeck — GitHub Pages
 
-This branch (`gh-pages`) contains the static landing page for the AllureDeck Helm chart, served at [alluredeck.kutlak.cc](https://alluredeck.kutlak.cc).
-
-The page provides quick-start installation instructions for the OCI-published Helm chart and an overview of key features.
+This branch (`gh-pages`) contains the documentation site for AllureDeck, served at [alluredeck.kutlak.cc](https://alluredeck.kutlak.cc).
 
 ## Structure
 
-- `index.html` — Self-contained landing page (inline CSS, no build step)
-- `.nojekyll` — Bypasses Jekyll processing on GitHub Pages
-- `CNAME` — Custom domain configuration
+```
+index.html          Landing page with install instructions and feature overview
+features.html       Product features showcase with screenshots
+docs/
+  helm.html         Helm chart configuration reference
+  oidc.html         OIDC authentication setup guide
+css/
+  style.css         Shared styles (Catppuccin Latte design language)
+js/
+  main.js           Shared JavaScript (copy buttons, nav, TOC tracking)
+screenshots/        Product screenshots (16 images)
+gopher_deck.png     Mascot image
+CNAME               Custom domain (alluredeck.kutlak.cc)
+.nojekyll           Bypass Jekyll processing
+```
 
 ## Development
 
-The Helm chart source and application code live on the [`main`](https://github.com/mkutlak/alluredeck/tree/main) branch.
+The application source code lives on the [`main`](https://github.com/mkutlak/alluredeck/tree/main) branch.
 
 To preview locally:
 

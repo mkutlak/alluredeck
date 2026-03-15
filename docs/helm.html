@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helm Configuration — AllureDeck Docs</title>
+  <meta name="description" content="Complete Helm chart configuration reference for AllureDeck — API, S3, OIDC, Ingress, Secrets, and full examples.">
+  <meta name="theme-color" content="#eff1f5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2388;</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="container">
+      <a href="../index.html" class="nav-brand">ALLUREDECK</a>
+      <button class="nav-hamburger" aria-label="Menu" aria-expanded="false">&#9776;</button>
+      <ul class="nav-links">
+        <li><a href="../index.html">Home</a></li>
+        <li><a href="../features.html">Features</a></li>
+        <li class="nav-dropdown">
+          <button class="nav-dropdown-toggle">Docs</button>
+          <div class="nav-dropdown-menu">
+            <a href="helm.html" class="active">Helm Configuration</a>
+            <a href="oidc.html">OIDC Authentication</a>
+          </div>
+        </li>
+        <li><a href="https://github.com/mkutlak/alluredeck" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- DOCS LAYOUT -->
+  <div class="container">
+    <div class="docs-layout">
+
+      <!-- SIDEBAR TOC -->
+      <aside class="toc">
+        <p class="toc-title">On this page</p>
+        <ul class="toc-list">
+          <li><a href="#prerequisites" class="toc-link">Prerequisites</a></li>
+          <li><a href="#quick-start" class="toc-link">Quick Start</a></li>
+          <li><a href="#api-configuration" class="toc-link">API Configuration</a></li>
+          <li><a href="#s3-minio" class="toc-link">S3 / MinIO</a></li>
+          <li><a href="#security" class="toc-link">Security</a></li>
+          <li><a href="#oidc-sso" class="toc-link">OIDC SSO</a></li>
+          <li><a href="#ui-configuration" class="toc-link">UI Configuration</a></li>
+          <li><a href="#persistence" class="toc-link">Persistence</a></li>
+          <li><a href="#ingress-tls" class="toc-link">Ingress &amp; TLS</a></li>
+          <li><a href="#network-policy" class="toc-link">Network Policy</a></li>
+          <li><a href="#postgresql" class="toc-link">PostgreSQL</a></li>
+          <li><a href="#secrets-management" class="toc-link">Secrets Management</a></li>
+          <li><a href="#complete-examples" class="toc-link">Complete Examples</a></li>
+        </ul>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="docs-main">
+
+        <div class="breadcrumb">
+          <a href="../index.html">Home</a><span class="sep">/</span>
+          <a href="../index.html">Docs</a><span class="sep">/</span>
+          Helm Configuration
+        </div>
+
+        <h1>Helm Chart Configuration</h1>
+        <p>Complete reference for all <code>values.yaml</code> options. Install AllureDeck from the OCI registry — no <code>helm repo add</code> required.</p>
+
+        <!-- PREREQUISITES -->
+        <h2 id="prerequisites">Prerequisites</h2>
+        <p>Before installing AllureDeck, ensure you have:</p>
+        <ul>
+          <li><strong>Kubernetes 1.26+</strong> — required for modern security context and policy APIs</li>
+          <li><strong>Helm 3.10+</strong> — required for OCI registry support</li>
+          <li><strong>PostgreSQL 14+</strong> — external database; the chart does not deploy PostgreSQL</li>
+        </ul>
+        <div class="callout">
+          <strong>Note:</strong> AllureDeck requires an externally managed PostgreSQL instance. Schema migrations run automatically on startup via Goose. See the <a href="#postgresql">PostgreSQL section</a> for connection options and cloud provider examples.
+        </div>
+
+        <!-- QUICK START -->
+        <h2 id="quick-start">Quick Start</h2>
+        <p>The fastest path to a running installation. All three commands install directly from the OCI registry.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">Minimal install</span>
+            <button class="copy-btn" data-copy='helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --set api.config.databaseURL="postgres://user:password@postgres-host:5432/alluredeck?sslmode=require"'>Copy</button>
+          </div>
+          <pre>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck \
+  --set api.config.databaseURL="postgres://user:password@postgres-host:5432/alluredeck?sslmode=require"</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">With custom values file</span>
+            <button class="copy-btn" data-copy="helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck -f values.yaml">Copy</button>
+          </div>
+          <pre>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck -f values.yaml</pre>
+        </div>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">Pin a specific chart version</span>
+            <button class="copy-btn" data-copy="helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.4.0">Copy</button>
+          </div>
+          <pre>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.4.0</pre>
+        </div>
+
+        <!-- API CONFIGURATION -->
+        <h2 id="api-configuration">API Configuration</h2>
+        <p>Core settings for the Go API backend. Values under <code>api.config.*</code> are passed as environment variables to the container.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>api.image.repository</td>
+              <td>API container image</td>
+              <td><code>ghcr.io/mkutlak/alluredeck-api</code></td>
+            </tr>
+            <tr>
+              <td>api.image.tag</td>
+              <td>Image tag</td>
+              <td><code>""</code> (appVersion)</td>
+            </tr>
+            <tr>
+              <td>api.config.devMode</td>
+              <td>Enable dev mode (verbose logging, relaxed security)</td>
+              <td><code>"false"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.logLevel</td>
+              <td>Log level (<code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>)</td>
+              <td><code>"info"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.storageType</td>
+              <td>File storage backend (<code>local</code> or <code>s3</code>)</td>
+              <td><code>"local"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.databaseURL</td>
+              <td>PostgreSQL connection string</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.config.keepHistory</td>
+              <td>Enable test history tracking</td>
+              <td><code>"true"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.keepHistoryLatest</td>
+              <td>Number of history entries to keep (0 = unlimited)</td>
+              <td><code>"100"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.keepHistoryMaxAgeDays</td>
+              <td>Delete reports older than N days (0 = disabled)</td>
+              <td><code>"0"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.maxUploadSizeMb</td>
+              <td>Max upload size in MB</td>
+              <td><code>"100"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.goMemLimit</td>
+              <td>Go memory limit — set to ~80% of the memory limit</td>
+              <td><code>"768MiB"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.swaggerEnabled</td>
+              <td>Enable Swagger UI at <code>/swagger/index.html</code></td>
+              <td><code>"false"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.makeViewerEndpointsPublic</td>
+              <td>Allow unauthenticated read access to viewer endpoints</td>
+              <td><code>"false"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.corsAllowedOrigins</td>
+              <td>CORS origins list (auto-computed from ingress host if empty)</td>
+              <td><code>[]</code></td>
+            </tr>
+            <tr>
+              <td>api.config.checkResultsEverySeconds</td>
+              <td>Polling interval for result processing</td>
+              <td><code>"NONE"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.trustXForwardedFor</td>
+              <td>Trust <code>X-Forwarded-For</code> header from ingress</td>
+              <td><code>"true"</code></td>
+            </tr>
+            <tr>
+              <td>api.kind</td>
+              <td>Workload kind — <code>Deployment</code> or <code>StatefulSet</code></td>
+              <td><code>Deployment</code></td>
+            </tr>
+            <tr>
+              <td>api.replicaCount</td>
+              <td>Number of API replicas</td>
+              <td><code>1</code></td>
+            </tr>
+            <tr>
+              <td>api.resources.requests.cpu</td>
+              <td>CPU request</td>
+              <td><code>100m</code></td>
+            </tr>
+            <tr>
+              <td>api.resources.requests.memory</td>
+              <td>Memory request</td>
+              <td><code>256Mi</code></td>
+            </tr>
+            <tr>
+              <td>api.resources.limits.memory</td>
+              <td>Memory limit</td>
+              <td><code>1Gi</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- S3 / MINIO -->
+        <h2 id="s3-minio">S3 / MinIO</h2>
+        <p>When <code>api.config.storageType</code> is set to <code>"s3"</code>, these values configure the S3-compatible storage backend. Works with AWS S3, MinIO, and any S3-compatible service.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>api.s3.endpoint</td>
+              <td>S3 endpoint URL (leave empty for AWS S3)</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.s3.bucket</td>
+              <td>Bucket name</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.s3.region</td>
+              <td>AWS region</td>
+              <td><code>"us-east-1"</code></td>
+            </tr>
+            <tr>
+              <td>api.s3.pathStyle</td>
+              <td>Enable path-style addressing — required for MinIO</td>
+              <td><code>"false"</code></td>
+            </tr>
+            <tr>
+              <td>api.s3.tlsInsecureSkipVerify</td>
+              <td>Skip TLS certificate verification (dev only)</td>
+              <td><code>"false"</code></td>
+            </tr>
+            <tr>
+              <td>api.s3.concurrency</td>
+              <td>Upload concurrency for multipart transfers</td>
+              <td><code>"10"</code></td>
+            </tr>
+            <tr>
+              <td>api.s3.existingSecret</td>
+              <td>Name of a pre-existing Secret with <code>S3_ACCESS_KEY</code> and <code>S3_SECRET_KEY</code></td>
+              <td><code>""</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout-tip callout">
+          <strong>Tip:</strong> For EKS deployments, use IRSA (IAM Roles for Service Accounts) instead of static credentials. Set <code>api.serviceAccount.annotations</code> with the IAM role ARN and leave <code>api.s3.existingSecret</code> empty. See the <a href="#complete-examples">EKS with IRSA example</a>.
+        </div>
+
+        <!-- SECURITY -->
+        <h2 id="security">Security</h2>
+        <p>Built-in role-based authentication with admin and viewer roles. All credential values are auto-generated as secure random secrets on first install and preserved across upgrades.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>api.security.enabled</td>
+              <td>Enable JWT-based authentication</td>
+              <td><code>"true"</code></td>
+            </tr>
+            <tr>
+              <td>api.security.user</td>
+              <td>Admin username</td>
+              <td><code>"admin"</code></td>
+            </tr>
+            <tr>
+              <td>api.security.password</td>
+              <td>Admin password — auto-generated if empty</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.security.viewerUser</td>
+              <td>Viewer username</td>
+              <td><code>"viewer"</code></td>
+            </tr>
+            <tr>
+              <td>api.security.viewerPassword</td>
+              <td>Viewer password — auto-generated if empty</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.security.jwtSecretKey</td>
+              <td>HMAC signing key for JWT tokens — auto-generated if empty</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.security.jwtAccessTokenExpires</td>
+              <td>Access token TTL in seconds</td>
+              <td><code>"3600"</code></td>
+            </tr>
+            <tr>
+              <td>api.security.jwtRefreshTokenExpires</td>
+              <td>Refresh token TTL in seconds</td>
+              <td><code>"2592000"</code></td>
+            </tr>
+            <tr>
+              <td>api.security.existingSecret</td>
+              <td>Use a pre-created Kubernetes Secret for all credentials</td>
+              <td><code>""</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout-warning callout">
+          <strong>Warning:</strong> Setting <code>api.security.enabled: "false"</code> removes all authentication. Only do this in isolated development environments — never in production.
+        </div>
+
+        <!-- OIDC SSO -->
+        <h2 id="oidc-sso">OIDC SSO</h2>
+        <p>AllureDeck supports Single Sign-On via OpenID Connect. When enabled, users can log in with any compatible identity provider (Azure AD, Keycloak, Google, Okta, and others). OIDC login can coexist with the built-in admin/viewer accounts.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>api.oidc.enabled</td>
+              <td>Enable OIDC SSO</td>
+              <td><code>false</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.issuerUrl</td>
+              <td>Identity provider discovery URL (e.g. <code>https://login.microsoftonline.com/&lt;tenant&gt;/v2.0</code>)</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.clientId</td>
+              <td>OIDC client (application) ID</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.clientSecret</td>
+              <td>Client secret — stored in a Kubernetes Secret</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.redirectUrl</td>
+              <td>OAuth2 callback URL (must match IdP registration)</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.scopes</td>
+              <td>Requested OIDC scopes (comma-separated)</td>
+              <td><code>"openid,profile,email"</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.groupsClaim</td>
+              <td>JWT claim name containing group memberships</td>
+              <td><code>"groups"</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.adminGroups</td>
+              <td>Comma-separated group IDs granted the admin role</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.editorGroups</td>
+              <td>Comma-separated group IDs granted the editor role</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.defaultRole</td>
+              <td>Role assigned to authenticated users not in any mapped group</td>
+              <td><code>"viewer"</code></td>
+            </tr>
+            <tr>
+              <td>api.oidc.stateCookieSecret</td>
+              <td>32-byte AES key for encrypting OAuth2 state cookies — auto-generated if empty</td>
+              <td><code>""</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>For provider-specific setup instructions (Azure AD, Keycloak, Google, Okta), see the <a href="oidc.html">OIDC Authentication guide</a>.</p>
+
+        <!-- UI CONFIGURATION -->
+        <h2 id="ui-configuration">UI Configuration</h2>
+        <p>Settings for the React frontend. The <code>ui.config.apiUrl</code> is automatically computed from the ingress host when ingress is enabled and the field is left empty.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ui.image.repository</td>
+              <td>UI container image</td>
+              <td><code>ghcr.io/mkutlak/alluredeck-ui</code></td>
+            </tr>
+            <tr>
+              <td>ui.image.tag</td>
+              <td>Image tag</td>
+              <td><code>""</code> (appVersion)</td>
+            </tr>
+            <tr>
+              <td>ui.config.apiUrl</td>
+              <td>API base URL — auto-computed from ingress host if empty</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>ui.config.appTitle</td>
+              <td>Application title shown in the browser tab and header</td>
+              <td><code>"AllureDeck"</code></td>
+            </tr>
+            <tr>
+              <td>ui.replicaCount</td>
+              <td>Number of UI replicas</td>
+              <td><code>1</code></td>
+            </tr>
+            <tr>
+              <td>ui.resources.requests.cpu</td>
+              <td>CPU request</td>
+              <td><code>50m</code></td>
+            </tr>
+            <tr>
+              <td>ui.resources.requests.memory</td>
+              <td>Memory request</td>
+              <td><code>64Mi</code></td>
+            </tr>
+            <tr>
+              <td>ui.resources.limits.memory</td>
+              <td>Memory limit</td>
+              <td><code>128Mi</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- PERSISTENCE -->
+        <h2 id="persistence">Persistence</h2>
+        <p>AllureDeck supports two storage backends: a local PersistentVolumeClaim for on-premises or single-node deployments, and S3-compatible object storage for cloud or multi-replica setups.</p>
+
+        <h3>Local filesystem with PVC</h3>
+        <p>Use <code>api.kind: StatefulSet</code> with a local PVC for stable volume binding. This is the recommended approach for single-replica on-prem deployments.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — local PVC with StatefulSet</span>
+            <button class="copy-btn" data-copy="api:
+  kind: StatefulSet
+  config:
+    storageType: &quot;local&quot;
+  persistence:
+    projects:
+      enabled: true
+      size: 10Gi
+      storageClass: &quot;standard&quot;">Copy</button>
+          </div>
+          <pre>api:
+  kind: StatefulSet
+  config:
+    storageType: "local"
+  persistence:
+    projects:
+      enabled: true
+      size: 10Gi
+      storageClass: "standard"</pre>
+        </div>
+
+        <h3>S3 / MinIO with existingSecret</h3>
+        <p>For S3 storage, set <code>storageType: "s3"</code> and provide credentials either inline or via an existing Secret.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — S3 with existingSecret</span>
+            <button class="copy-btn" data-copy="api:
+  kind: Deployment
+  config:
+    storageType: &quot;s3&quot;
+  s3:
+    endpoint: &quot;https://minio.example.com&quot;
+    bucket: &quot;alluredeck&quot;
+    region: &quot;us-east-1&quot;
+    pathStyle: &quot;true&quot;
+    existingSecret: &quot;alluredeck-s3-credentials&quot;">Copy</button>
+          </div>
+          <pre>api:
+  kind: Deployment
+  config:
+    storageType: "s3"
+  s3:
+    endpoint: "https://minio.example.com"
+    bucket: "alluredeck"
+    region: "us-east-1"
+    pathStyle: "true"
+    existingSecret: "alluredeck-s3-credentials"</pre>
+        </div>
+
+        <h3>EKS with IRSA (no static credentials)</h3>
+        <p>On EKS, annotate the ServiceAccount with the IAM role ARN. The AWS SDK picks up credentials automatically — no Secret needed.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — EKS IRSA</span>
+            <button class="copy-btn" data-copy="api:
+  kind: Deployment
+  config:
+    storageType: &quot;s3&quot;
+  s3:
+    bucket: &quot;alluredeck-reports&quot;
+    region: &quot;eu-west-1&quot;
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-s3">Copy</button>
+          </div>
+          <pre>api:
+  kind: Deployment
+  config:
+    storageType: "s3"
+  s3:
+    bucket: "alluredeck-reports"
+    region: "eu-west-1"
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-s3</pre>
+        </div>
+
+        <!-- INGRESS & TLS -->
+        <h2 id="ingress-tls">Ingress &amp; TLS</h2>
+        <p>The chart creates a single path-based Ingress resource routing all traffic through one hostname. CORS is automatically configured when the ingress host is set.</p>
+
+        <h3>Path routing</h3>
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Backend</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>/</td>
+              <td>UI (React frontend)</td>
+            </tr>
+            <tr>
+              <td>/api</td>
+              <td>API (Go backend)</td>
+            </tr>
+            <tr>
+              <td>/swagger</td>
+              <td>API — Swagger UI (only when <code>api.config.swaggerEnabled: "true"</code>)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Ingress values</h3>
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ingress.enabled</td>
+              <td>Create the Ingress resource</td>
+              <td><code>false</code></td>
+            </tr>
+            <tr>
+              <td>ingress.className</td>
+              <td>IngressClass name (e.g. <code>nginx</code>, <code>traefik</code>)</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>ingress.host</td>
+              <td>Hostname for the Ingress rule</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>ingress.tls.enabled</td>
+              <td>Enable TLS on the Ingress</td>
+              <td><code>false</code></td>
+            </tr>
+            <tr>
+              <td>ingress.tls.secretName</td>
+              <td>Name of the TLS Secret (created by cert-manager or manually)</td>
+              <td><code>""</code></td>
+            </tr>
+            <tr>
+              <td>ingress.annotations</td>
+              <td>Additional annotations for the Ingress resource</td>
+              <td><code>{}</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>TLS with cert-manager</h3>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — Ingress with cert-manager TLS</span>
+            <button class="copy-btn" data-copy="ingress:
+  enabled: true
+  className: nginx
+  host: allure.example.com
+  tls:
+    enabled: true
+    secretName: alluredeck-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: &quot;200m&quot;">Copy</button>
+          </div>
+          <pre>ingress:
+  enabled: true
+  className: nginx
+  host: allure.example.com
+  tls:
+    enabled: true
+    secretName: alluredeck-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"</pre>
+        </div>
+
+        <div class="callout-tip callout">
+          <strong>Tip:</strong> When using nginx-ingress, set <code>nginx.ingress.kubernetes.io/proxy-body-size</code> to at least twice the value of <code>api.config.maxUploadSizeMb</code>. The default annotation value in the example above (<code>200m</code>) matches a 100 MB upload limit with headroom. Omitting this annotation causes nginx to reject large report uploads with a 413 error.
+        </div>
+
+        <!-- NETWORK POLICY -->
+        <h2 id="network-policy">Network Policy</h2>
+        <p>When enabled, the chart creates Kubernetes <code>NetworkPolicy</code> resources that restrict ingress to the API and UI pods. Only traffic from the ingress controller namespace is allowed — pod-to-pod communication is locked down by default.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — NetworkPolicy</span>
+            <button class="copy-btn" data-copy="networkPolicy:
+  enabled: true
+  # Allow traffic from pods with this label in the ingress controller namespace
+  ingressControllerSelector:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx">Copy</button>
+          </div>
+          <pre>networkPolicy:
+  enabled: true
+  # Allow traffic from pods with this label in the ingress controller namespace
+  ingressControllerSelector:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx</pre>
+        </div>
+
+        <div class="callout callout">
+          <strong>Note:</strong> Adjust <code>ingressControllerSelector</code> to match your ingress controller's namespace and pod labels. For Traefik in the <code>traefik</code> namespace, replace the selector values accordingly.
+        </div>
+
+        <!-- POSTGRESQL -->
+        <h2 id="postgresql">PostgreSQL</h2>
+        <p>AllureDeck requires an external PostgreSQL 14+ instance. The chart does not deploy a database. Schema migrations run automatically via Goose on every pod startup — no manual migration steps needed.</p>
+
+        <h3>Connection string format</h3>
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">Connection string</span>
+            <button class="copy-btn" data-copy="postgres://username:password@hostname:5432/dbname?sslmode=require">Copy</button>
+          </div>
+          <pre>postgres://username:password@hostname:5432/dbname?sslmode=require</pre>
+        </div>
+
+        <h3>Option A: Inline via api.config.databaseURL</h3>
+        <p>Suitable for testing and development. The connection string is stored in the chart-managed Secret.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — inline databaseURL</span>
+            <button class="copy-btn" data-copy='api:
+  config:
+    databaseURL: "postgres://alluredeck:secret@postgres.example.com:5432/alluredeck?sslmode=require"'>Copy</button>
+          </div>
+          <pre>api:
+  config:
+    databaseURL: "postgres://alluredeck:secret@postgres.example.com:5432/alluredeck?sslmode=require"</pre>
+        </div>
+
+        <h3>Option B: existingSecret (recommended for production)</h3>
+        <p>Reference a pre-existing Kubernetes Secret. The Secret must contain a <code>databaseURL</code> key. See the <a href="#secrets-management">Secrets Management section</a> for the full list of required keys.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — existingSecret</span>
+            <button class="copy-btn" data-copy="api:
+  security:
+    existingSecret: alluredeck-credentials">Copy</button>
+          </div>
+          <pre>api:
+  security:
+    existingSecret: alluredeck-credentials</pre>
+        </div>
+
+        <h3>CloudNativePG example</h3>
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — CloudNativePG</span>
+            <button class="copy-btn" data-copy="api:
+  security:
+    existingSecret: alluredeck-app  # Secret created by CloudNativePG cluster">Copy</button>
+          </div>
+          <pre>api:
+  security:
+    existingSecret: alluredeck-app  # Secret created by CloudNativePG cluster</pre>
+        </div>
+
+        <h3>AWS RDS example</h3>
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — AWS RDS</span>
+            <button class="copy-btn" data-copy='api:
+  config:
+    databaseURL: "postgres://alluredeck:$(DB_PASSWORD)@alluredeck.cluster-xyz.eu-west-1.rds.amazonaws.com:5432/alluredeck?sslmode=require"'>Copy</button>
+          </div>
+          <pre>api:
+  config:
+    databaseURL: "postgres://alluredeck:secret@alluredeck.cluster-xyz.eu-west-1.rds.amazonaws.com:5432/alluredeck?sslmode=require"</pre>
+        </div>
+
+        <!-- SECRETS MANAGEMENT -->
+        <h2 id="secrets-management">Secrets Management</h2>
+        <p>All credentials (admin/viewer passwords, JWT signing key, database URL) are managed in a single Kubernetes Secret. On first install the chart auto-generates secure random values for any field left empty. Existing values are preserved on <code>helm upgrade</code>.</p>
+
+        <p>For production deployments, use <code>api.security.existingSecret</code> to reference a Secret managed externally (Vault, AWS Secrets Manager, SOPS, etc.). The Secret must contain the following keys:</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>adminUser</td>
+              <td>Admin username</td>
+            </tr>
+            <tr>
+              <td>adminPassword</td>
+              <td>Admin password (bcrypt-hashed by the API at startup)</td>
+            </tr>
+            <tr>
+              <td>viewerUser</td>
+              <td>Viewer username</td>
+            </tr>
+            <tr>
+              <td>viewerPassword</td>
+              <td>Viewer password</td>
+            </tr>
+            <tr>
+              <td>jwtSecretKey</td>
+              <td>HMAC signing key for JWT tokens (min 32 bytes recommended)</td>
+            </tr>
+            <tr>
+              <td>jwtAccessTokenExpires</td>
+              <td>Access token TTL in seconds</td>
+            </tr>
+            <tr>
+              <td>jwtRefreshTokenExpires</td>
+              <td>Refresh token TTL in seconds</td>
+            </tr>
+            <tr>
+              <td>databaseURL</td>
+              <td>PostgreSQL connection string</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>CSI driver example with extraResources</h3>
+        <p>Use <code>extraResources</code> to inject a <code>SecretProviderClass</code> (Vault, AWS Secrets Manager, Azure Key Vault) alongside the chart manifests.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — CSI SecretProviderClass via extraResources</span>
+            <button class="copy-btn" data-copy='api:
+  security:
+    existingSecret: alluredeck-credentials
+
+extraResources:
+  - apiVersion: secrets-store.csi.x-k8s.io/v1
+    kind: SecretProviderClass
+    metadata:
+      name: alluredeck-vault
+    spec:
+      provider: vault
+      secretObjects:
+        - secretName: alluredeck-credentials
+          type: Opaque
+          data:
+            - objectName: adminPassword
+              key: adminPassword
+            - objectName: jwtSecretKey
+              key: jwtSecretKey
+            - objectName: databaseURL
+              key: databaseURL
+      parameters:
+        vaultAddress: "https://vault.example.com"
+        roleName: "alluredeck"
+        objects: |
+          - objectName: "adminPassword"
+            secretPath: "secret/alluredeck"
+            secretKey: "adminPassword"
+          - objectName: "jwtSecretKey"
+            secretPath: "secret/alluredeck"
+            secretKey: "jwtSecretKey"
+          - objectName: "databaseURL"
+            secretPath: "secret/alluredeck"
+            secretKey: "databaseURL"'>Copy</button>
+          </div>
+          <pre>api:
+  security:
+    existingSecret: alluredeck-credentials
+
+extraResources:
+  - apiVersion: secrets-store.csi.x-k8s.io/v1
+    kind: SecretProviderClass
+    metadata:
+      name: alluredeck-vault
+    spec:
+      provider: vault
+      secretObjects:
+        - secretName: alluredeck-credentials
+          type: Opaque
+          data:
+            - objectName: adminPassword
+              key: adminPassword
+            - objectName: jwtSecretKey
+              key: jwtSecretKey
+            - objectName: databaseURL
+              key: databaseURL
+      parameters:
+        vaultAddress: "https://vault.example.com"
+        roleName: "alluredeck"
+        objects: |
+          - objectName: "adminPassword"
+            secretPath: "secret/alluredeck"
+            secretKey: "adminPassword"
+          - objectName: "jwtSecretKey"
+            secretPath: "secret/alluredeck"
+            secretKey: "jwtSecretKey"
+          - objectName: "databaseURL"
+            secretPath: "secret/alluredeck"
+            secretKey: "databaseURL"</pre>
+        </div>
+
+        <!-- COMPLETE EXAMPLES -->
+        <h2 id="complete-examples">Complete Examples</h2>
+        <p>Ready-to-use <code>values.yaml</code> files for common deployment scenarios.</p>
+
+        <h3>Minimal</h3>
+        <p>The smallest possible configuration — only a database URL is required. Uses local storage, auto-generated credentials, no ingress.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — minimal</span>
+            <button class="copy-btn" data-copy='api:
+  config:
+    databaseURL: "postgres://alluredeck:password@postgres-host:5432/alluredeck?sslmode=require"'>Copy</button>
+          </div>
+          <pre>api:
+  config:
+    databaseURL: "postgres://alluredeck:password@postgres-host:5432/alluredeck?sslmode=require"</pre>
+        </div>
+
+        <h3>Production with S3</h3>
+        <p>Full production setup: S3 storage, custom credentials, path-based ingress with TLS, and NetworkPolicy.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — production with S3</span>
+            <button class="copy-btn" data-copy='api:
+  kind: Deployment
+  replicaCount: 2
+  config:
+    storageType: "s3"
+    logLevel: "info"
+    keepHistory: "true"
+    keepHistoryLatest: "200"
+    maxUploadSizeMb: "150"
+    goMemLimit: "768MiB"
+  s3:
+    bucket: "alluredeck-reports"
+    region: "eu-west-1"
+    existingSecret: "alluredeck-s3"
+  security:
+    existingSecret: "alluredeck-credentials"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+ui:
+  replicaCount: 2
+  config:
+    appTitle: "AllureDeck"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: allure.example.com
+  tls:
+    enabled: true
+    secretName: alluredeck-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "300m"
+
+networkPolicy:
+  enabled: true
+  ingressControllerSelector:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx'>Copy</button>
+          </div>
+          <pre>api:
+  kind: Deployment
+  replicaCount: 2
+  config:
+    storageType: "s3"
+    logLevel: "info"
+    keepHistory: "true"
+    keepHistoryLatest: "200"
+    maxUploadSizeMb: "150"
+    goMemLimit: "768MiB"
+  s3:
+    bucket: "alluredeck-reports"
+    region: "eu-west-1"
+    existingSecret: "alluredeck-s3"
+  security:
+    existingSecret: "alluredeck-credentials"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+ui:
+  replicaCount: 2
+  config:
+    appTitle: "AllureDeck"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: allure.example.com
+  tls:
+    enabled: true
+    secretName: alluredeck-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "300m"
+
+networkPolicy:
+  enabled: true
+  ingressControllerSelector:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx</pre>
+        </div>
+
+        <h3>EKS with IRSA</h3>
+        <p>EKS deployment using IAM Roles for Service Accounts — no static S3 credentials required. The AWS SDK picks up the role automatically via the projected token volume.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml — EKS with IRSA</span>
+            <button class="copy-btn" data-copy='api:
+  kind: Deployment
+  config:
+    storageType: "s3"
+    goMemLimit: "768MiB"
+  s3:
+    bucket: "alluredeck-reports"
+    region: "eu-west-1"
+    # No existingSecret — credentials come from IRSA
+  serviceAccount:
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-s3-role
+  security:
+    existingSecret: "alluredeck-credentials"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+ui:
+  config:
+    appTitle: "AllureDeck"
+
+ingress:
+  enabled: true
+  className: alb
+  host: allure.example.com
+  tls:
+    enabled: true
+    secretName: alluredeck-tls
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-west-1:123456789012:certificate/abc-123'>Copy</button>
+          </div>
+          <pre>api:
+  kind: Deployment
+  config:
+    storageType: "s3"
+    goMemLimit: "768MiB"
+  s3:
+    bucket: "alluredeck-reports"
+    region: "eu-west-1"
+    # No existingSecret — credentials come from IRSA
+  serviceAccount:
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/alluredeck-s3-role
+  security:
+    existingSecret: "alluredeck-credentials"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+ui:
+  config:
+    appTitle: "AllureDeck"
+
+ingress:
+  enabled: true
+  className: alb
+  host: allure.example.com
+  tls:
+    enabled: true
+    secretName: alluredeck-tls
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-west-1:123456789012:certificate/abc-123</pre>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <footer>
+    <div class="container">
+      <p>
+        <a href="https://github.com/mkutlak/alluredeck">AllureDeck</a>
+        &nbsp;&middot;&nbsp; Licensed under
+        <a href="https://github.com/mkutlak/alluredeck/blob/main/LICENSE">Apache 2.0</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+
+</body>
+</html>

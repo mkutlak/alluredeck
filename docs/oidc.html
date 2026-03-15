@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OIDC Authentication — AllureDeck Docs</title>
+  <meta name="description" content="Configure OpenID Connect SSO for AllureDeck. Supports Azure AD, Keycloak, Google Workspace, and Okta with role mapping from group claims.">
+  <meta name="theme-color" content="#eff1f5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2388;</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="container">
+      <a href="../index.html" class="nav-brand">ALLUREDECK</a>
+      <button class="nav-hamburger" aria-label="Menu" aria-expanded="false">&#9776;</button>
+      <ul class="nav-links">
+        <li><a href="../index.html">Home</a></li>
+        <li><a href="../features.html">Features</a></li>
+        <li class="nav-dropdown">
+          <button class="nav-dropdown-toggle">Docs</button>
+          <div class="nav-dropdown-menu">
+            <a href="helm.html">Helm Configuration</a>
+            <a href="oidc.html" class="active">OIDC Authentication</a>
+          </div>
+        </li>
+        <li><a href="https://github.com/mkutlak/alluredeck" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- DOCS LAYOUT -->
+  <div class="container">
+    <div class="docs-layout">
+
+      <!-- SIDEBAR TOC -->
+      <aside class="toc">
+        <p class="toc-title">On this page</p>
+        <ul class="toc-list">
+          <li><a href="#overview" class="toc-link">Overview</a></li>
+          <li><a href="#how-it-works" class="toc-link">How It Works</a></li>
+          <li><a href="#configuration-reference" class="toc-link">Configuration Reference</a></li>
+          <li><a href="#role-mapping" class="toc-link">Role Mapping</a></li>
+          <li><a href="#user-lifecycle" class="toc-link">User Lifecycle</a></li>
+          <li><a href="#provider-setup" class="toc-link">Provider Setup</a></li>
+          <li><a href="#deployment-examples" class="toc-link">Deployment Examples</a></li>
+          <li><a href="#generating-secrets" class="toc-link">Generating Secrets</a></li>
+          <li><a href="#troubleshooting" class="toc-link">Troubleshooting</a></li>
+        </ul>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="docs-main">
+
+        <div class="breadcrumb">
+          <a href="../index.html">Home</a><span class="sep">/</span>
+          <a href="../index.html">Docs</a><span class="sep">/</span>
+          OIDC Authentication
+        </div>
+
+        <h1>OIDC Authentication</h1>
+        <p>Configure OpenID Connect SSO for AllureDeck with role mapping from identity provider group claims.</p>
+
+        <!-- OVERVIEW -->
+        <h2 id="overview">Overview</h2>
+        <p>AllureDeck supports two authentication methods operating simultaneously:</p>
+        <ol>
+          <li><strong>Local authentication</strong> — static admin/viewer credentials via environment variables</li>
+          <li><strong>OIDC SSO</strong> — OpenID Connect with any compliant identity provider</li>
+        </ol>
+        <p>Local auth serves as a break-glass fallback when SSO is enabled.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Permissions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>admin</strong></td>
+              <td>Full access: create/delete projects, manage reports, manage users, system settings, API keys</td>
+            </tr>
+            <tr>
+              <td><strong>editor</strong></td>
+              <td>Upload results, generate reports, manage known issues, set default branches</td>
+            </tr>
+            <tr>
+              <td><strong>viewer</strong></td>
+              <td>Read-only access to all reports, dashboards, and analytics</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- HOW IT WORKS -->
+        <h2 id="how-it-works">How It Works</h2>
+        <p>AllureDeck uses the <strong>Authorization Code + PKCE</strong> flow. The entire OIDC exchange happens server-side — the frontend only provides an SSO button.</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">Authorization Code + PKCE flow</span>
+          </div>
+          <pre>Browser                    AllureDeck API              Identity Provider
+  |                              |                              |
+  |-- click "Sign in with SSO" ->                              |
+  |                              |-- redirect with PKCE ------->
+  |                              |                              |
+  |                              |&lt;---- authorization code -----|
+  |                              |                              |
+  |                              |-- exchange code + verifier ->
+  |                              |&lt;---- ID token ---------------|
+  |                              |                              |
+  |                              |  validate token, extract claims,
+  |                              |  resolve role from groups,
+  |                              |  JIT-provision user record,
+  |                              |  issue AllureDeck JWT cookies
+  |                              |                              |
+  |&lt;-- redirect with cookies ---|                              |</pre>
+        </div>
+
+        <p>Key security properties:</p>
+        <ul>
+          <li><strong>PKCE (S256)</strong> on every authorization request</li>
+          <li><strong>State parameter</strong> encrypted with AES-GCM in an httpOnly cookie</li>
+          <li><strong>Nonce</strong> validated in the ID token to prevent replay attacks</li>
+          <li><strong>Group claims</strong> read from the signed ID token only (not userinfo endpoint)</li>
+          <li><strong>JIT provisioning</strong> — user records created on first login, updated on subsequent logins</li>
+        </ul>
+
+        <!-- CONFIGURATION REFERENCE -->
+        <h2 id="configuration-reference">Configuration Reference</h2>
+        <p>All OIDC settings are provided via environment variables. Variables marked with * are required when <code>OIDC_ENABLED=true</code> — the server refuses to start if they are missing.</p>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Environment Variable</th>
+              <th>Required</th>
+              <th>Default</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>OIDC_ENABLED</td>
+              <td>No</td>
+              <td><code>false</code></td>
+              <td>Master toggle for SSO</td>
+            </tr>
+            <tr>
+              <td>OIDC_ISSUER_URL</td>
+              <td>Yes*</td>
+              <td>—</td>
+              <td>IdP discovery URL (must support <code>/.well-known/openid-configuration</code>)</td>
+            </tr>
+            <tr>
+              <td>OIDC_CLIENT_ID</td>
+              <td>Yes*</td>
+              <td>—</td>
+              <td>OAuth2 client ID registered with the IdP</td>
+            </tr>
+            <tr>
+              <td>OIDC_CLIENT_SECRET</td>
+              <td>Yes*</td>
+              <td>—</td>
+              <td>OAuth2 client secret (confidential client)</td>
+            </tr>
+            <tr>
+              <td>OIDC_REDIRECT_URL</td>
+              <td>Yes*</td>
+              <td>—</td>
+              <td>Callback URL: <code>https://&lt;your-domain&gt;/api/v1/auth/oidc/callback</code></td>
+            </tr>
+            <tr>
+              <td>OIDC_SCOPES</td>
+              <td>No</td>
+              <td><code>openid,profile,email</code></td>
+              <td>Comma-separated OIDC scopes</td>
+            </tr>
+            <tr>
+              <td>OIDC_GROUPS_CLAIM</td>
+              <td>No</td>
+              <td><code>groups</code></td>
+              <td>JWT claim name containing group memberships</td>
+            </tr>
+            <tr>
+              <td>OIDC_ADMIN_GROUPS</td>
+              <td>No</td>
+              <td>—</td>
+              <td>Comma-separated group IDs mapping to admin role</td>
+            </tr>
+            <tr>
+              <td>OIDC_EDITOR_GROUPS</td>
+              <td>No</td>
+              <td>—</td>
+              <td>Comma-separated group IDs mapping to editor role</td>
+            </tr>
+            <tr>
+              <td>OIDC_DEFAULT_ROLE</td>
+              <td>No</td>
+              <td><code>viewer</code></td>
+              <td>Role assigned when no group matches</td>
+            </tr>
+            <tr>
+              <td>OIDC_STATE_COOKIE_SECRET</td>
+              <td>Yes*</td>
+              <td>—</td>
+              <td>AES encryption key for state cookies (exactly 32 bytes)</td>
+            </tr>
+            <tr>
+              <td>OIDC_POST_LOGIN_REDIRECT</td>
+              <td>No</td>
+              <td><code>/</code></td>
+              <td>Frontend URL after successful SSO login</td>
+            </tr>
+            <tr>
+              <td>OIDC_END_SESSION_URL</td>
+              <td>No</td>
+              <td>—</td>
+              <td>RP-initiated logout URL (optional)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="callout">* Required when <code>OIDC_ENABLED=true</code>. Server refuses to start if missing.</p>
+
+        <!-- ROLE MAPPING -->
+        <h2 id="role-mapping">Role Mapping</h2>
+        <p>Roles are resolved from IdP group claims using highest-priority-wins:</p>
+        <ol>
+          <li>If any group matches <code>OIDC_ADMIN_GROUPS</code> &rarr; <strong>admin</strong></li>
+          <li>Else if any matches <code>OIDC_EDITOR_GROUPS</code> &rarr; <strong>editor</strong></li>
+          <li>Else &rarr; <code>OIDC_DEFAULT_ROLE</code> (default: <strong>viewer</strong>)</li>
+        </ol>
+
+        <!-- USER LIFECYCLE -->
+        <h2 id="user-lifecycle">User Lifecycle</h2>
+        <ul>
+          <li><strong>First login:</strong> User record created automatically (JIT provisioning) with resolved role</li>
+          <li><strong>Subsequent logins:</strong> Name, email, and role updated from latest token claims</li>
+          <li><strong>Deactivation:</strong> Set <code>is_active=false</code> in users table. User receives 403 on next SSO login</li>
+        </ul>
+
+        <!-- PROVIDER SETUP -->
+        <h2 id="provider-setup">Provider Setup</h2>
+        <p>Select your identity provider below for step-by-step configuration instructions.</p>
+
+        <div class="provider-tabs">
+          <input type="radio" name="provider" id="tab-azure" checked>
+          <input type="radio" name="provider" id="tab-keycloak">
+          <input type="radio" name="provider" id="tab-google">
+          <input type="radio" name="provider" id="tab-okta">
+
+          <div class="provider-tab-labels">
+            <label for="tab-azure">Azure AD</label>
+            <label for="tab-keycloak">Keycloak</label>
+            <label for="tab-google">Google</label>
+            <label for="tab-okta">Okta</label>
+          </div>
+
+          <!-- AZURE AD -->
+          <div class="provider-panel" data-tab="azure">
+            <h3>Azure AD (Entra ID)</h3>
+            <ol>
+              <li>Register an application in Azure Portal &rarr; <strong>App registrations</strong></li>
+              <li>Set redirect URI to <code>https://alluredeck.example.com/api/v1/auth/oidc/callback</code> (Web platform)</li>
+              <li>Create a client secret under <strong>Certificates &amp; secrets</strong></li>
+              <li>Under <strong>Token configuration</strong>, add optional <code>groups</code> claim (Security groups, type: Group ID)</li>
+              <li>Note your tenant ID</li>
+            </ol>
+
+            <div class="code-block">
+              <div class="terminal-bar">
+                <span class="terminal-title">Environment variables</span>
+                <button class="copy-btn" data-copy="OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0
+OIDC_CLIENT_ID=<application-client-id>
+OIDC_CLIENT_SECRET=<client-secret-value>
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_ADMIN_GROUPS=<azure-ad-group-object-id-for-admins>
+OIDC_EDITOR_GROUPS=<azure-ad-group-object-id-for-editors>
+OIDC_STATE_COOKIE_SECRET=<32-byte-random-string>">Copy</button>
+              </div>
+              <pre>OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://login.microsoftonline.com/&lt;tenant-id&gt;/v2.0
+OIDC_CLIENT_ID=&lt;application-client-id&gt;
+OIDC_CLIENT_SECRET=&lt;client-secret-value&gt;
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_ADMIN_GROUPS=&lt;azure-ad-group-object-id-for-admins&gt;
+OIDC_EDITOR_GROUPS=&lt;azure-ad-group-object-id-for-editors&gt;
+OIDC_STATE_COOKIE_SECRET=&lt;32-byte-random-string&gt;</pre>
+            </div>
+
+            <div class="callout callout-warning">
+              <strong>Group overage:</strong> When a user belongs to 200+ groups, Azure AD returns a <code>_claim_sources</code> reference instead of inline groups. AllureDeck detects this and assigns <code>OIDC_DEFAULT_ROLE</code>.
+            </div>
+          </div>
+
+          <!-- KEYCLOAK -->
+          <div class="provider-panel" data-tab="keycloak">
+            <h3>Keycloak</h3>
+            <ol>
+              <li>Create client in realm (Client type: OpenID Connect, Access type: confidential)</li>
+              <li>Set <strong>Valid redirect URIs</strong> to <code>https://alluredeck.example.com/api/v1/auth/oidc/callback</code></li>
+              <li>Under <strong>Client scopes</strong> &rarr; add mapper of type "Group Membership" with token claim name <code>groups</code></li>
+            </ol>
+
+            <div class="code-block">
+              <div class="terminal-bar">
+                <span class="terminal-title">Environment variables</span>
+                <button class="copy-btn" data-copy="OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://keycloak.example.com/realms/<realm>
+OIDC_CLIENT_ID=alluredeck
+OIDC_CLIENT_SECRET=<client-secret>
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_ADMIN_GROUPS=alluredeck-admins
+OIDC_EDITOR_GROUPS=alluredeck-editors
+OIDC_STATE_COOKIE_SECRET=<32-byte-random-string>">Copy</button>
+              </div>
+              <pre>OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://keycloak.example.com/realms/&lt;realm&gt;
+OIDC_CLIENT_ID=alluredeck
+OIDC_CLIENT_SECRET=&lt;client-secret&gt;
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_ADMIN_GROUPS=alluredeck-admins
+OIDC_EDITOR_GROUPS=alluredeck-editors
+OIDC_STATE_COOKIE_SECRET=&lt;32-byte-random-string&gt;</pre>
+            </div>
+          </div>
+
+          <!-- GOOGLE -->
+          <div class="provider-panel" data-tab="google">
+            <h3>Google Workspace</h3>
+            <ol>
+              <li>Create OAuth 2.0 credentials in Google Cloud Console &rarr; <strong>APIs &amp; Services &rarr; Credentials</strong></li>
+              <li>Set authorized redirect URI to <code>https://alluredeck.example.com/api/v1/auth/oidc/callback</code></li>
+              <li>Note: Google does not provide group claims by default</li>
+            </ol>
+
+            <div class="callout callout-warning">
+              <strong>No group claims:</strong> Google does not provide group claims in the ID token by default. All users will receive <code>OIDC_DEFAULT_ROLE</code> unless you use Google Workspace directory groups with a custom claim mapper.
+            </div>
+
+            <div class="code-block">
+              <div class="terminal-bar">
+                <span class="terminal-title">Environment variables</span>
+                <button class="copy-btn" data-copy="OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://accounts.google.com
+OIDC_CLIENT_ID=<client-id>.apps.googleusercontent.com
+OIDC_CLIENT_SECRET=<client-secret>
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_DEFAULT_ROLE=editor
+OIDC_STATE_COOKIE_SECRET=<32-byte-random-string>">Copy</button>
+              </div>
+              <pre>OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://accounts.google.com
+OIDC_CLIENT_ID=&lt;client-id&gt;.apps.googleusercontent.com
+OIDC_CLIENT_SECRET=&lt;client-secret&gt;
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_DEFAULT_ROLE=editor
+OIDC_STATE_COOKIE_SECRET=&lt;32-byte-random-string&gt;</pre>
+            </div>
+          </div>
+
+          <!-- OKTA -->
+          <div class="provider-panel" data-tab="okta">
+            <h3>Okta</h3>
+            <ol>
+              <li>Create an OIDC Web Application in Okta Admin Console</li>
+              <li>Set sign-in redirect URI to <code>https://alluredeck.example.com/api/v1/auth/oidc/callback</code></li>
+              <li>Under <strong>Sign On &rarr; OpenID Connect ID Token</strong>, add a Groups claim filter</li>
+            </ol>
+
+            <div class="code-block">
+              <div class="terminal-bar">
+                <span class="terminal-title">Environment variables</span>
+                <button class="copy-btn" data-copy="OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://<your-okta-domain>/oauth2/default
+OIDC_CLIENT_ID=<client-id>
+OIDC_CLIENT_SECRET=<client-secret>
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_ADMIN_GROUPS=alluredeck-admins
+OIDC_EDITOR_GROUPS=alluredeck-editors
+OIDC_STATE_COOKIE_SECRET=<32-byte-random-string>">Copy</button>
+              </div>
+              <pre>OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://&lt;your-okta-domain&gt;/oauth2/default
+OIDC_CLIENT_ID=&lt;client-id&gt;
+OIDC_CLIENT_SECRET=&lt;client-secret&gt;
+OIDC_REDIRECT_URL=https://alluredeck.example.com/api/v1/auth/oidc/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_ADMIN_GROUPS=alluredeck-admins
+OIDC_EDITOR_GROUPS=alluredeck-editors
+OIDC_STATE_COOKIE_SECRET=&lt;32-byte-random-string&gt;</pre>
+            </div>
+          </div>
+
+        </div><!-- /.provider-tabs -->
+
+        <!-- DEPLOYMENT EXAMPLES -->
+        <h2 id="deployment-examples">Deployment Examples</h2>
+
+        <h3>Docker Compose</h3>
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">docker-compose.yml</span>
+            <button class="copy-btn" data-copy='services:
+  allure-api:
+    environment:
+      OIDC_ENABLED: "true"
+      OIDC_ISSUER_URL: "https://login.microsoftonline.com/<tenant>/v2.0"
+      OIDC_CLIENT_ID: "<client-id>"
+      OIDC_CLIENT_SECRET: "<client-secret>"
+      OIDC_REDIRECT_URL: "http://localhost:5050/api/v1/auth/oidc/callback"
+      OIDC_ADMIN_GROUPS: "<admin-group-id>"
+      OIDC_EDITOR_GROUPS: "<editor-group-id>"
+      OIDC_STATE_COOKIE_SECRET: "<32-byte-random-string>"'>Copy</button>
+          </div>
+          <pre>services:
+  allure-api:
+    environment:
+      OIDC_ENABLED: "true"
+      OIDC_ISSUER_URL: "https://login.microsoftonline.com/&lt;tenant&gt;/v2.0"
+      OIDC_CLIENT_ID: "&lt;client-id&gt;"
+      OIDC_CLIENT_SECRET: "&lt;client-secret&gt;"
+      OIDC_REDIRECT_URL: "http://localhost:5050/api/v1/auth/oidc/callback"
+      OIDC_ADMIN_GROUPS: "&lt;admin-group-id&gt;"
+      OIDC_EDITOR_GROUPS: "&lt;editor-group-id&gt;"
+      OIDC_STATE_COOKIE_SECRET: "&lt;32-byte-random-string&gt;"</pre>
+        </div>
+
+        <h3>Helm Chart</h3>
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">values.yaml</span>
+            <button class="copy-btn" data-copy='api:
+  oidc:
+    enabled: true
+    issuerUrl: "https://login.microsoftonline.com/<tenant>/v2.0"
+    clientId: "<client-id>"
+    clientSecret: "<client-secret>"
+    redirectUrl: "https://alluredeck.example.com/api/v1/auth/oidc/callback"
+    adminGroups: "<admin-group-id>"
+    editorGroups: "<editor-group-id>"
+    stateCookieSecret: "<32-byte-random-string>"'>Copy</button>
+          </div>
+          <pre>api:
+  oidc:
+    enabled: true
+    issuerUrl: "https://login.microsoftonline.com/&lt;tenant&gt;/v2.0"
+    clientId: "&lt;client-id&gt;"
+    clientSecret: "&lt;client-secret&gt;"
+    redirectUrl: "https://alluredeck.example.com/api/v1/auth/oidc/callback"
+    adminGroups: "&lt;admin-group-id&gt;"
+    editorGroups: "&lt;editor-group-id&gt;"
+    stateCookieSecret: "&lt;32-byte-random-string&gt;"</pre>
+        </div>
+
+        <div class="callout callout-tip">
+          <strong>Auto-generated secrets:</strong> The chart stores <code>clientSecret</code> and <code>stateCookieSecret</code> in a Kubernetes Secret. If left empty, random values are auto-generated on first install and preserved across upgrades.
+        </div>
+
+        <!-- GENERATING SECRETS -->
+        <h2 id="generating-secrets">Generating Secrets</h2>
+        <p>The <code>OIDC_STATE_COOKIE_SECRET</code> must be exactly 32 bytes. Use any of these methods to generate one:</p>
+
+        <div class="code-block">
+          <div class="terminal-bar">
+            <span class="terminal-title">Generate a 32-byte secret</span>
+            <button class="copy-btn" data-copy="# OpenSSL
+openssl rand -base64 32 | head -c 32
+
+# Python
+python3 -c &quot;import secrets; print(secrets.token_urlsafe(24)[:32])&quot;
+
+# /dev/urandom
+head -c 32 /dev/urandom | base64 | head -c 32">Copy</button>
+          </div>
+          <pre><span style="color:var(--text-muted);font-style:italic"># OpenSSL</span>
+openssl rand -base64 32 | head -c 32
+
+<span style="color:var(--text-muted);font-style:italic"># Python</span>
+python3 -c "import secrets; print(secrets.token_urlsafe(24)[:32])"
+
+<span style="color:var(--text-muted);font-style:italic"># /dev/urandom</span>
+head -c 32 /dev/urandom | base64 | head -c 32</pre>
+        </div>
+
+        <!-- TROUBLESHOOTING -->
+        <h2 id="troubleshooting">Troubleshooting</h2>
+
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th>Symptom</th>
+              <th>Cause</th>
+              <th>Fix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Server refuses to start with "OIDC_ISSUER_URL is required"</td>
+              <td>OIDC enabled but required fields missing</td>
+              <td>Set all required env vars</td>
+            </tr>
+            <tr>
+              <td>Server refuses to start with secret length error</td>
+              <td>Key length wrong</td>
+              <td>Generate key of exactly 32 bytes</td>
+            </tr>
+            <tr>
+              <td>"OIDC discovery failed" at startup</td>
+              <td>Cannot reach issuer URL</td>
+              <td>Verify <code>OIDC_ISSUER_URL</code> is reachable and returns <code>.well-known/openid-configuration</code></td>
+            </tr>
+            <tr>
+              <td>SSO login redirects but callback returns 400</td>
+              <td>State mismatch or expired</td>
+              <td>Ensure <code>OIDC_REDIRECT_URL</code> matches IdP; check clock sync</td>
+            </tr>
+            <tr>
+              <td>User gets viewer role despite admin group</td>
+              <td>Group ID mismatch</td>
+              <td>Compare group claim value against <code>OIDC_ADMIN_GROUPS</code>; Azure uses GUIDs, Keycloak uses paths</td>
+            </tr>
+            <tr>
+              <td>Azure AD user gets viewer despite membership</td>
+              <td>Group overage (200+ groups)</td>
+              <td>Reduce group count or use filtered claims</td>
+            </tr>
+            <tr>
+              <td>User gets 403 after successful SSO</td>
+              <td>Account deactivated</td>
+              <td>Check <code>is_active</code> in users table</td>
+            </tr>
+            <tr>
+              <td>SSO button not visible</td>
+              <td>Config reports OIDC disabled</td>
+              <td>Verify <code>OIDC_ENABLED=true</code> and API reachable</td>
+            </tr>
+          </tbody>
+        </table>
+
+      </main><!-- /.docs-main -->
+    </div><!-- /.docs-layout -->
+  </div><!-- /.container -->
+
+  <footer>
+    <div class="container">
+      <p>
+        <a href="https://github.com/mkutlak/alluredeck">AllureDeck</a>
+        &nbsp;&middot;&nbsp; Licensed under
+        <a href="https://github.com/mkutlak/alluredeck/blob/main/LICENSE">Apache 2.0</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+
+</body>
+</html>
