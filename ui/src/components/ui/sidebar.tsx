@@ -193,9 +193,9 @@ const Sidebar = React.forwardRef<
         className={cn(
           'group peer text-sidebar-foreground sticky top-0 hidden h-svh self-start md:flex',
           'w-(--sidebar-width) flex-col transition-[width] duration-200 ease-linear',
-          'group-data-[collapsible=icon]:w-(--sidebar-width-icon)',
+          'data-[collapsible=icon]:w-(--sidebar-width-icon)',
           variant === 'floating' || variant === 'inset'
-            ? 'group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]'
+            ? 'data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]'
             : 'group-data-[side=right]:border-l',
           className,
         )}
