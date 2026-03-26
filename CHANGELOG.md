@@ -1,3 +1,9 @@
+## [0.9.1](https://github.com/mkutlak/alluredeck/compare/v0.9.0...v0.9.1) (2026-03-26)
+
+### Bug Fixes
+
+* **ui:** update sidebar collapsible icon data attributes ([3398cd9](https://github.com/mkutlak/alluredeck/commit/3398cd9b87e68a471f5d44e8bd3c976f5f2a209c))
+
 ## [0.9.0](https://github.com/mkutlak/alluredeck/compare/v0.8.0...v0.9.0) (2026-03-26)
 
 ### Features
