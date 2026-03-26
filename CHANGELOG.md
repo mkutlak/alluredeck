@@ -1,3 +1,9 @@
+## [0.9.0](https://github.com/mkutlak/alluredeck/compare/v0.8.0...v0.9.0) (2026-03-26)
+
+### Features
+
+* implement multi-build timeline view ([2634f99](https://github.com/mkutlak/alluredeck/commit/2634f998b552a2eb17bf12a1893fe14360c3e961))
+
 ## [0.8.0](https://github.com/mkutlak/alluredeck/compare/v0.7.0...v0.8.0) (2026-03-15)
 
 ### Features
