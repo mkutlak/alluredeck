@@ -610,6 +610,50 @@ func (bs *PGBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID
 	return builds, totalCount, nil
 }
 
+// ListBuildsInRange returns up to limit builds in [from, to), optionally filtered by branchID.
+// Returns builds (descending by build_order) and the total count of matching builds.
+func (bs *PGBuildStore) ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
+	var totalCount int
+	var err error
+	if branchID != nil {
+		err = bs.pool.QueryRow(ctx,
+			"SELECT COUNT(*) FROM builds WHERE project_id=$1 AND branch_id=$2 AND created_at >= $3 AND created_at < $4",
+			projectID, *branchID, from, to,
+		).Scan(&totalCount)
+	} else {
+		err = bs.pool.QueryRow(ctx,
+			"SELECT COUNT(*) FROM builds WHERE project_id=$1 AND created_at >= $2 AND created_at < $3",
+			projectID, from, to,
+		).Scan(&totalCount)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("count builds in range: %w", err)
+	}
+
+	var rows pgx.Rows
+	if branchID != nil {
+		rows, err = bs.pool.Query(ctx, buildSelectCols+`
+			WHERE project_id=$1 AND branch_id=$2 AND created_at >= $3 AND created_at < $4
+			ORDER BY build_order DESC LIMIT $5`,
+			projectID, *branchID, from, to, limit)
+	} else {
+		rows, err = bs.pool.Query(ctx, buildSelectCols+`
+			WHERE project_id=$1 AND created_at >= $2 AND created_at < $3
+			ORDER BY build_order DESC LIMIT $4`,
+			projectID, from, to, limit)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("list builds in range: %w", err)
+	}
+	defer rows.Close()
+
+	builds, err := scanBuildRowsAll(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return builds, totalCount, nil
+}
+
 // scanBuildRowsAll scans all builds from pgx.Rows.
 func scanBuildRowsAll(rows pgx.Rows) ([]store.Build, error) {
 	var builds []store.Build

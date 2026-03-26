@@ -57,6 +57,13 @@ func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Resolve "latest" to a numeric build order via the database when possible.
+	if reportID == "latest" && h.buildStore != nil && h.testResultStore != nil {
+		if latestBuild, err := h.buildStore.GetLatestBuild(ctx, projectID); err == nil {
+			reportID = strconv.Itoa(latestBuild.BuildOrder)
+		}
+	}
+
 	// Database fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
 	if buildOrder, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {
 		if buildID, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrder); err == nil {

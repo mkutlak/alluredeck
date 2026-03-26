@@ -11,6 +11,7 @@ import type {
   JobData,
   KnownFailuresData,
   LowPerformingData,
+  MultiTimelineData,
   ReportHistoryData,
   StabilityData,
   TimelineData,
@@ -164,6 +165,17 @@ export async function fetchReportTimeline(
 ): Promise<TimelineData> {
   const res = await apiClient.get<ApiResponse<TimelineData>>(
     `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/timeline`,
+  )
+  return res.data.data
+}
+
+export async function fetchProjectTimeline(
+  projectId: string,
+  params?: { branch?: string; from?: string; to?: string; limit?: number },
+): Promise<MultiTimelineData> {
+  const res = await apiClient.get<ApiResponse<MultiTimelineData>>(
+    `/projects/${encodeURIComponent(projectId)}/timeline`,
+    { params },
   )
   return res.data.data
 }

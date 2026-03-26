@@ -105,6 +105,9 @@ func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ string,
 func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
 	panic("not implemented")
 }
+func (m *mockAttachmentBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
+	panic("not implemented")
+}
 
 // ---------------------------------------------------------------------------
 // mockDataStore (minimal — only OpenReportFile used by AttachmentHandler)

@@ -334,6 +334,69 @@ func TestGetReportTimeline_FallbackToS3(t *testing.T) {
 	}
 }
 
+func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "latestdbproj"
+
+	mocks := testutil.New()
+
+	// GetLatestBuild resolves "latest" to build order 7.
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
+		if pid == projectID {
+			return store.Build{BuildOrder: 7}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+
+	// GetBuildID maps build order 7 → build ID 200.
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
+		if pid == projectID && buildOrder == 7 {
+			return int64(200), nil
+		}
+		return 0, fmt.Errorf("not found")
+	}
+
+	// ListTimeline returns test data for build ID 200.
+	mocks.TestResults.ListTimelineFn = func(_ context.Context, pid string, buildID int64, _ int) ([]store.TimelineRow, error) {
+		if pid == projectID && buildID == int64(200) {
+			return []store.TimelineRow{
+				{TestName: "ResolvedTest", FullName: "com.ResolvedTest", Status: "passed", StartMs: 1700000000000, StopMs: 1700000002000, Thread: "t-1", Host: "h-1"},
+			}, nil
+		}
+		return nil, nil
+	}
+
+	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/latestdbproj/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("report_id", "latest")
+
+	rr := httptest.NewRecorder()
+	h.GetReportTimeline(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	data := resp["data"].(map[string]any)
+	testCases := data["test_cases"].([]any)
+	if len(testCases) != 1 {
+		t.Fatalf("expected 1 test case from DB via latest resolution, got %d", len(testCases))
+	}
+	tc := testCases[0].(map[string]any)
+	if tc["name"] != "ResolvedTest" {
+		t.Errorf("expected name=ResolvedTest, got %v", tc["name"])
+	}
+}
+
 func TestGetReportTimeline_Truncation(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "truncproj"

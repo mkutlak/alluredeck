@@ -322,6 +322,35 @@ func (ts *PGTestResultStore) ListTimeline(ctx context.Context, projectID string,
 	return result, nil
 }
 
+// ListTimelineMulti returns timeline data across multiple builds, ordered by build_order ASC then start_ms ASC.
+func (ts *PGTestResultStore) ListTimelineMulti(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
+	rows, err := ts.pool.Query(ctx, `
+		SELECT tr.build_id, b.build_order, tr.test_name, tr.full_name, tr.status,
+		       tr.start_ms, tr.stop_ms, tr.thread, tr.host
+		FROM test_results tr
+		JOIN builds b ON b.id = tr.build_id
+		WHERE tr.build_id = ANY($1) AND tr.project_id = $2 AND tr.start_ms IS NOT NULL
+		ORDER BY b.build_order ASC, tr.start_ms ASC
+		LIMIT $3`, buildIDs, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list timeline multi: %w", err)
+	}
+	defer rows.Close()
+
+	var result []store.MultiTimelineRow
+	for rows.Next() {
+		var r store.MultiTimelineRow
+		if err := rows.Scan(&r.BuildID, &r.BuildOrder, &r.TestName, &r.FullName, &r.Status, &r.StartMs, &r.StopMs, &r.Thread, &r.Host); err != nil {
+			return nil, fmt.Errorf("scan multi timeline row: %w", err)
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate multi timeline: %w", err)
+	}
+	return result, nil
+}
+
 // ListFailedByBuild returns failed+broken tests for a build, ordered by duration DESC.
 func (ts *PGTestResultStore) ListFailedByBuild(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TestResult, error) {
 	rows, err := ts.pool.Query(ctx, `

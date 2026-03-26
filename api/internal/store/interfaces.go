@@ -56,6 +56,7 @@ type BuildStorer interface {
 	PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]Build, int, error)
+	ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]Build, int, error)
 }
 
 // TestResultStorer is the interface for test result operations.
@@ -71,6 +72,7 @@ type TestResultStorer interface {
 	DeleteByBuild(ctx context.Context, buildID int64) error
 	DeleteByProject(ctx context.Context, projectID string) error
 	CompareBuildsByHistoryID(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]DiffEntry, error)
+	ListTimelineMulti(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]MultiTimelineRow, error)
 }
 
 // KnownIssueStorer is the interface for known issue operations.

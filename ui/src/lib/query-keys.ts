@@ -15,6 +15,8 @@ export const queryKeys = {
   reportStability: (pid: string) => ['report-stability', pid] as const,
   reportKnownFailures: (pid: string) => ['report-known-failures', pid] as const,
   reportTimeline: (pid: string) => ['report-timeline', pid] as const,
+  projectTimeline: (pid: string, branch?: string, from?: string, to?: string, limit?: number) =>
+    ['project-timeline', pid, branch, from, to, limit] as const,
   reportHistoryAnalytics: (pid: string, branch?: string) =>
     branch != null
       ? (['report-history-analytics', pid, branch] as const)

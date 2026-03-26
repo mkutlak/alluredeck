@@ -157,6 +157,7 @@ type MockBuildStore struct {
 	PruneBuildsBranchFn         func(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAgeFn          func(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error)
+	ListBuildsInRangeFn         func(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
 }
 
 func (m *MockBuildStore) NextBuildOrder(ctx context.Context, projectID string) (int, error) {
@@ -292,6 +293,13 @@ func (m *MockBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectI
 	return nil, 0, nil
 }
 
+func (m *MockBuildStore) ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
+	if m.ListBuildsInRangeFn != nil {
+		return m.ListBuildsInRangeFn(ctx, projectID, branchID, from, to, limit)
+	}
+	return nil, 0, nil
+}
+
 // ---------------------------------------------------------------------------
 // MockTestResultStore
 // ---------------------------------------------------------------------------
@@ -309,6 +317,7 @@ type MockTestResultStore struct {
 	DeleteByBuildFn            func(ctx context.Context, buildID int64) error
 	DeleteByProjectFn          func(ctx context.Context, projectID string) error
 	CompareBuildsByHistoryIDFn func(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
+	ListTimelineMultiFn        func(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
 }
 
 func (m *MockTestResultStore) InsertBatch(ctx context.Context, results []store.TestResult) error {
@@ -384,6 +393,13 @@ func (m *MockTestResultStore) DeleteByProject(ctx context.Context, projectID str
 func (m *MockTestResultStore) CompareBuildsByHistoryID(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {
 	if m.CompareBuildsByHistoryIDFn != nil {
 		return m.CompareBuildsByHistoryIDFn(ctx, projectID, buildIDA, buildIDB)
+	}
+	return nil, nil
+}
+
+func (m *MockTestResultStore) ListTimelineMulti(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
+	if m.ListTimelineMultiFn != nil {
+		return m.ListTimelineMultiFn(ctx, projectID, buildIDs, limit)
 	}
 	return nil, nil
 }

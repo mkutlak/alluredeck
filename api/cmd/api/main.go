@@ -398,6 +398,9 @@ func registerRoutes(
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(allure.SendResults)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(allure.DeleteReport)))
 
+	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(allure.GetProjectTimeline))
+
 	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(allure.GetReportCategories)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(allure.GetReportEnvironment)))

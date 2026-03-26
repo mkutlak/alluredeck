@@ -1,4 +1,4 @@
-import type { TimelineTestCase } from '@/types/api'
+import type { TimelineTestCase, TimelineBuildEntry } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,4 +126,63 @@ export function computeMinimapBars(
     width: Math.max(1, xScale(tc.stop) - xScale(tc.start)),
     y: (index / total) * height,
   }))
+}
+
+// ---------------------------------------------------------------------------
+// Multi-build layout
+// ---------------------------------------------------------------------------
+
+export interface BuildBand {
+  buildOrder: number
+  createdAt: string
+  yOffset: number
+  bandHeight: number
+  layout: GanttLayout
+}
+
+/**
+ * Computes a stacked multi-build layout where each build gets its own
+ * horizontal band. Within each band, tests are row-packed via
+ * `computeGanttLayout`. Bands are separated by `bandGap` pixels (used for
+ * the label divider between builds).
+ *
+ * @param builds   Build entries in display order (most recent first).
+ * @param xScale   Maps an absolute ms timestamp to a pixel x value.
+ * @param barHeight Height of each bar in pixels.
+ * @param barGap    Vertical gap between rows within a band.
+ * @param bandGap   Gap between build bands in pixels (e.g. 24px for label).
+ */
+export function computeMultiBuildLayout(
+  builds: TimelineBuildEntry[],
+  xScale: (ms: number) => number,
+  barHeight: number,
+  barGap: number,
+  bandGap: number,
+): { bands: BuildBand[]; totalHeight: number } {
+  if (builds.length === 0) {
+    return { bands: [], totalHeight: 0 }
+  }
+
+  const bands: BuildBand[] = []
+  let currentY = 0
+
+  for (const build of builds) {
+    const layout = computeGanttLayout(build.test_cases, xScale, barHeight, barGap)
+
+    bands.push({
+      buildOrder: build.build_order,
+      createdAt: build.created_at,
+      yOffset: currentY,
+      bandHeight: layout.totalHeight,
+      layout,
+    })
+
+    currentY += layout.totalHeight + bandGap
+  }
+
+  // Total height is last band's yOffset + its bandHeight (no trailing gap)
+  const lastBand = bands[bands.length - 1]
+  const totalHeight = lastBand.yOffset + lastBand.bandHeight
+
+  return { bands, totalHeight }
 }

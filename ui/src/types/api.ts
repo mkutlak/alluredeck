@@ -344,6 +344,21 @@ export interface TimelineData {
   summary: TimelineSummary
 }
 
+export interface TimelineBuildEntry {
+  build_order: number
+  created_at: string
+  test_cases: TimelineTestCase[]
+  summary: TimelineSummary
+}
+
+export interface MultiTimelineData {
+  builds: TimelineBuildEntry[]
+  total_builds_in_range: number
+  builds_returned: number
+  global_min_start: number
+  global_max_stop: number
+}
+
 // ---------------------------------------------------------------------------
 // Build Comparison (Diff View)
 // ---------------------------------------------------------------------------

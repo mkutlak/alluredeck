@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useMemo } from 'react'
-import type { TimelineTestCase } from '@/types/api'
+import type { TimelineTestCase, TimelineBuildEntry } from '@/types/api'
 import { useStatusColors } from '@/hooks/useStatusColors'
 import { useContainerWidth } from '@/hooks/useContainerWidth'
 import { filterByTimeRange } from './timelineGanttHelpers'
@@ -16,13 +16,15 @@ export interface TimelineChartProps {
   testCases: TimelineTestCase[]
   minStart: number
   maxStop: number
+  /** When provided, enables multi-build stacked layout. */
+  builds?: TimelineBuildEntry[]
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartProps) {
+export function TimelineChart({ testCases, minStart, maxStop, builds }: TimelineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const width = useContainerWidth(containerRef)
 
@@ -65,6 +67,7 @@ export function TimelineChart({ testCases, minStart, maxStop }: TimelineChartPro
             onViewportChange={setViewportRange}
             onBrushSelect={setBrushRange}
             highlightedTestId={highlightedTestId}
+            builds={builds}
           />
         </>
       )}

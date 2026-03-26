@@ -203,6 +203,19 @@ type TestMatch struct {
 	Status    string
 }
 
+// MultiTimelineRow holds timeline data for a test execution across multiple builds.
+type MultiTimelineRow struct {
+	BuildID    int64
+	BuildOrder int
+	TestName   string
+	FullName   string
+	Status     string
+	StartMs    int64
+	StopMs     int64
+	Thread     string
+	Host       string
+}
+
 // DiffCategory describes how a test changed between two builds.
 type DiffCategory string
 

@@ -69,6 +69,9 @@ func (s *spyBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Tim
 func (s *spyBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
+func (s *spyBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
+	return nil, 0, nil
+}
 
 // spyTestResultStore implements store.TestResultStorer and records InsertBatchFull calls.
 type spyTestResultStore struct {
@@ -110,6 +113,9 @@ func (s *spyTestResultStore) GetTestHistory(_ context.Context, _, _ string, _ *i
 func (s *spyTestResultStore) DeleteByBuild(_ context.Context, _ int64) error    { return nil }
 func (s *spyTestResultStore) DeleteByProject(_ context.Context, _ string) error { return nil }
 func (s *spyTestResultStore) CompareBuildsByHistoryID(_ context.Context, _ string, _, _ int64) ([]store.DiffEntry, error) {
+	return nil, nil
+}
+func (s *spyTestResultStore) ListTimelineMulti(_ context.Context, _ string, _ []int64, _ int) ([]store.MultiTimelineRow, error) {
 	return nil, nil
 }
 
