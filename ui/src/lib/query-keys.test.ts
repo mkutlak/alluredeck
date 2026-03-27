@@ -18,10 +18,6 @@ describe('queryKeys', () => {
     expect(queryKeys.dashboard()).toEqual(['dashboard'])
   })
 
-  it('dashboard returns tagged key when called with a tag', () => {
-    expect(queryKeys.dashboard('prod')).toEqual(['dashboard', 'prod'])
-  })
-
   it('reportHistory without page returns fixed-length key with undefined slots', () => {
     expect(queryKeys.reportHistory('p1')).toEqual([
       'report-history',

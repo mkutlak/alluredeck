@@ -2,9 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 
 export const queryKeys = {
   projects: ['projects'] as const,
-  tags: ['tags'] as const,
-  dashboard: (tag?: string) =>
-    tag !== undefined ? (['dashboard', tag] as const) : (['dashboard'] as const),
+  dashboard: () => ['dashboard'] as const,
   search: (query: string) => ['search', query] as const,
   // Project-scoped
   reportHistory: (pid: string, page?: number, branch?: string, perPage?: number) =>

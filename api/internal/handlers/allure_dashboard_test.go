@@ -14,7 +14,7 @@ import (
 
 func TestGetDashboard_Empty(t *testing.T) {
 	mocks := testutil.New()
-	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{}, nil
 	}
 
@@ -48,12 +48,12 @@ func TestGetDashboard_Empty(t *testing.T) {
 func TestGetDashboard_SingleProject(t *testing.T) {
 	projID := "single-proj"
 	mocks := testutil.New()
-	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{
 			{
 				ProjectID: projID,
 				CreatedAt: time.Now(),
-				Tags:      []string{},
+	
 				Latest: &store.Build{
 					ID:         3,
 					ProjectID:  projID,
@@ -116,12 +116,12 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 
 func TestGetDashboard_HealthSummary(t *testing.T) {
 	mocks := testutil.New()
-	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{
 			{
 				ProjectID: "proj-healthy",
 				CreatedAt: time.Now(),
-				Tags:      []string{},
+	
 				Latest: &store.Build{
 					BuildOrder: 1,
 					StatPassed: intPtr(95),
@@ -132,7 +132,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 			{
 				ProjectID: "proj-degraded",
 				CreatedAt: time.Now(),
-				Tags:      []string{},
+	
 				Latest: &store.Build{
 					BuildOrder: 1,
 					StatPassed: intPtr(80),
@@ -143,7 +143,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 			{
 				ProjectID: "proj-failing",
 				CreatedAt: time.Now(),
-				Tags:      []string{},
+	
 				Latest: &store.Build{
 					BuildOrder: 1,
 					StatPassed: intPtr(50),
@@ -184,12 +184,12 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 
 func TestGetDashboard_ProjectWithNoBuilds(t *testing.T) {
 	mocks := testutil.New()
-	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{
 			{
 				ProjectID: "no-builds-proj",
 				CreatedAt: time.Now(),
-				Tags:      []string{},
+	
 				Latest:    nil,
 				Sparkline: []store.SparklinePoint{},
 			},

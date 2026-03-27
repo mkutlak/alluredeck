@@ -10,6 +10,7 @@ import (
 type MockStore struct {
 	CreateProjectFn      func(ctx context.Context, projectID string) error
 	DeleteProjectFn      func(ctx context.Context, projectID string) error
+	RenameProjectFn      func(ctx context.Context, oldID, newID string) error
 	ProjectExistsFn      func(ctx context.Context, projectID string) (bool, error)
 	ListProjectsFn       func(ctx context.Context) ([]string, error)
 	WriteResultFileFn    func(ctx context.Context, projectID, filename string, r io.Reader) error
@@ -46,6 +47,14 @@ func (m *MockStore) CreateProject(ctx context.Context, projectID string) error {
 func (m *MockStore) DeleteProject(ctx context.Context, projectID string) error {
 	if m.DeleteProjectFn != nil {
 		return m.DeleteProjectFn(ctx, projectID)
+	}
+	return nil
+}
+
+// RenameProject implements Store.
+func (m *MockStore) RenameProject(ctx context.Context, oldID, newID string) error {
+	if m.RenameProjectFn != nil {
+		return m.RenameProjectFn(ctx, oldID, newID)
 	}
 	return nil
 }

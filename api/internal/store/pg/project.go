@@ -2,7 +2,6 @@ package pg
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -38,27 +37,39 @@ func (ps *PGProjectStore) CreateProject(ctx context.Context, id string) error {
 	return nil
 }
 
+// CreateProjectWithParent inserts a new project with the given parent ID.
+// Returns store.ErrProjectExists if the ID is taken.
+func (ps *PGProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
+	_, err := ps.pool.Exec(ctx,
+		"INSERT INTO projects(id, parent_id) VALUES($1, $2)", id, parentID)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: %s", store.ErrProjectExists, id)
+		}
+		return fmt.Errorf("insert project: %w", err)
+	}
+	return nil
+}
+
 // GetProject returns the project with the given ID or store.ErrProjectNotFound.
 func (ps *PGProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
 	var p store.Project
-	var rawTags []byte
 	err := ps.pool.QueryRow(ctx,
-		"SELECT id, created_at, tags FROM projects WHERE id = $1", id,
-	).Scan(&p.ID, &p.CreatedAt, &rawTags)
+		"SELECT id, parent_id, created_at FROM projects WHERE id = $1", id,
+	).Scan(&p.ID, &p.ParentID, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
-	p.Tags = parseTags(rawTags)
 	return &p, nil
 }
 
 // ListProjects returns all projects ordered by ID.
 func (ps *PGProjectStore) ListProjects(ctx context.Context) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, created_at, tags FROM projects ORDER BY id")
+		"SELECT id, parent_id, created_at FROM projects ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -67,11 +78,9 @@ func (ps *PGProjectStore) ListProjects(ctx context.Context) ([]store.Project, er
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		var rawTags []byte
-		if err := rows.Scan(&p.ID, &p.CreatedAt, &rawTags); err != nil {
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
-		p.Tags = parseTags(rawTags)
 		projects = append(projects, p)
 	}
 	if err := rows.Err(); err != nil {
@@ -81,35 +90,16 @@ func (ps *PGProjectStore) ListProjects(ctx context.Context) ([]store.Project, er
 }
 
 // ListProjectsPaginated returns a page of projects, plus the total count.
-// When tag is non-empty, only projects containing that tag are returned.
-func (ps *PGProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int, tag string) ([]store.Project, int, error) {
+func (ps *PGProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
 	var total int
-	if tag != "" {
-		tagJSON, _ := json.Marshal([]string{tag})
-		if err := ps.pool.QueryRow(ctx,
-			"SELECT COUNT(*) FROM projects WHERE tags @> $1::jsonb", string(tagJSON),
-		).Scan(&total); err != nil {
-			return nil, 0, fmt.Errorf("count projects (tag filter): %w", err)
-		}
-	} else {
-		if err := ps.pool.QueryRow(ctx, "SELECT COUNT(*) FROM projects").Scan(&total); err != nil {
-			return nil, 0, fmt.Errorf("count projects: %w", err)
-		}
+	if err := ps.pool.QueryRow(ctx, "SELECT COUNT(*) FROM projects").Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count projects: %w", err)
 	}
 
 	offset := (page - 1) * perPage
-	var rows pgx.Rows
-	var err error
-	if tag != "" {
-		tagJSON, _ := json.Marshal([]string{tag})
-		rows, err = ps.pool.Query(ctx,
-			"SELECT id, created_at, tags FROM projects WHERE tags @> $1::jsonb ORDER BY id LIMIT $2 OFFSET $3",
-			string(tagJSON), perPage, offset)
-	} else {
-		rows, err = ps.pool.Query(ctx,
-			"SELECT id, created_at, tags FROM projects ORDER BY id LIMIT $1 OFFSET $2",
-			perPage, offset)
-	}
+	rows, err := ps.pool.Query(ctx,
+		"SELECT id, parent_id, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
+		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list projects paginated: %w", err)
 	}
@@ -118,11 +108,9 @@ func (ps *PGProjectStore) ListProjectsPaginated(ctx context.Context, page, perPa
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		var rawTags []byte
-		if err := rows.Scan(&p.ID, &p.CreatedAt, &rawTags); err != nil {
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
-		p.Tags = parseTags(rawTags)
 		projects = append(projects, p)
 	}
 	if err := rows.Err(); err != nil {
@@ -131,42 +119,92 @@ func (ps *PGProjectStore) ListProjectsPaginated(ctx context.Context, page, perPa
 	return projects, total, nil
 }
 
-// ListAllTags returns all distinct tags across all projects, sorted alphabetically.
-func (ps *PGProjectStore) ListAllTags(ctx context.Context) ([]string, error) {
+// ListProjectsPaginatedTopLevel returns a page of top-level projects (parent_id IS NULL), plus the total count.
+func (ps *PGProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
+	var total int
+	if err := ps.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM projects WHERE parent_id IS NULL",
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count top-level projects: %w", err)
+	}
+
+	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT DISTINCT jsonb_array_elements_text(tags) AS tag FROM projects ORDER BY tag")
+		"SELECT id, parent_id, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
+		perPage, offset)
 	if err != nil {
-		return nil, fmt.Errorf("list all tags: %w", err)
+		return nil, 0, fmt.Errorf("list top-level projects paginated: %w", err)
 	}
 	defer rows.Close()
 
-	var tags []string
+	var projects []store.Project
 	for rows.Next() {
-		var tag string
-		if err := rows.Scan(&tag); err != nil {
-			return nil, fmt.Errorf("scan tag: %w", err)
+		var p store.Project
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
-		tags = append(tags, tag)
+		projects = append(projects, p)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate tag rows: %w", err)
+		return nil, 0, fmt.Errorf("iterate project rows: %w", err)
 	}
-	return tags, nil
+	return projects, total, nil
 }
 
-// SetTags replaces the tags for a project. Returns store.ErrProjectNotFound if the project does not exist.
-func (ps *PGProjectStore) SetTags(ctx context.Context, projectID string, tags []string) error {
-	if tags == nil {
-		tags = []string{}
-	}
-	raw, err := json.Marshal(tags)
+// ListChildren returns all child projects for a given parent project ID, ordered by ID.
+func (ps *PGProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+	rows, err := ps.pool.Query(ctx,
+		"SELECT id, parent_id, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
 	if err != nil {
-		return fmt.Errorf("marshal tags: %w", err)
+		return nil, fmt.Errorf("list children: %w", err)
 	}
+	defer rows.Close()
+
+	var projects []store.Project
+	for rows.Next() {
+		var p store.Project
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan project: %w", err)
+		}
+		projects = append(projects, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate project rows: %w", err)
+	}
+	return projects, nil
+}
+
+// HasChildren returns true if any project has the given projectID as its parent.
+func (ps *PGProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+	var exists bool
+	err := ps.pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM projects WHERE parent_id = $1)", projectID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check children: %w", err)
+	}
+	return exists, nil
+}
+
+// SetParent sets the parent_id for a project. Returns store.ErrProjectNotFound if the project does not exist.
+func (ps *PGProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
 	tag, err := ps.pool.Exec(ctx,
-		"UPDATE projects SET tags = $1::jsonb WHERE id = $2", string(raw), projectID)
+		"UPDATE projects SET parent_id = $1 WHERE id = $2", parentID, projectID)
 	if err != nil {
-		return fmt.Errorf("set tags: %w", err)
+		return fmt.Errorf("set parent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, projectID)
+	}
+	return nil
+}
+
+// ClearParent sets parent_id to NULL for a project. Returns store.ErrProjectNotFound if the project does not exist.
+func (ps *PGProjectStore) ClearParent(ctx context.Context, projectID string) error {
+	tag, err := ps.pool.Exec(ctx,
+		"UPDATE projects SET parent_id = NULL WHERE id = $1", projectID)
+	if err != nil {
+		return fmt.Errorf("clear parent: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, projectID)
@@ -182,6 +220,21 @@ func (ps *PGProjectStore) DeleteProject(ctx context.Context, id string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, id)
+	}
+	return nil
+}
+
+// RenameProject changes a project's ID. ON UPDATE CASCADE propagates to all child tables.
+func (ps *PGProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
+	tag, err := ps.pool.Exec(ctx, "UPDATE projects SET id = $1 WHERE id = $2", newID, oldID)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: %s", store.ErrProjectExists, newID)
+		}
+		return fmt.Errorf("rename project: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, oldID)
 	}
 	return nil
 }
@@ -207,21 +260,6 @@ func (ps *PGProjectStore) InsertOrIgnore(ctx context.Context, id string) error {
 		return fmt.Errorf("insert project %q: %w", id, err)
 	}
 	return nil
-}
-
-// parseTags unmarshals a JSON tags byte slice into a []string.
-func parseTags(raw []byte) []string {
-	if len(raw) == 0 {
-		return []string{}
-	}
-	var tags []string
-	if err := json.Unmarshal(raw, &tags); err != nil {
-		return []string{}
-	}
-	if tags == nil {
-		return []string{}
-	}
-	return tags
 }
 
 // isUniqueViolation returns true if err is a PostgreSQL unique constraint violation (SQLSTATE 23505).

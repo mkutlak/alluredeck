@@ -181,19 +181,10 @@ func (m *MemProjectStore) ListProjects(ctx context.Context) ([]store.Project, er
 	return out, nil
 }
 
-func (m *MemProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int, tag string) ([]store.Project, int, error) {
+func (m *MemProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
 	all, err := m.ListProjects(ctx)
 	if err != nil {
 		return nil, 0, err
-	}
-	if tag != "" {
-		var filtered []store.Project
-		for _, p := range all {
-			if slices.Contains(p.Tags, tag) {
-				filtered = append(filtered, p)
-			}
-		}
-		all = filtered
 	}
 	total := len(all)
 	start := (page - 1) * perPage
@@ -201,40 +192,6 @@ func (m *MemProjectStore) ListProjectsPaginated(ctx context.Context, page, perPa
 		return []store.Project{}, total, nil
 	}
 	return all[start:min(start+perPage, total)], total, nil
-}
-
-func (m *MemProjectStore) ListAllTags(ctx context.Context) ([]string, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	seen := make(map[string]struct{})
-	for _, p := range m.projects {
-		for _, t := range p.Tags {
-			seen[t] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for t := range seen {
-		out = append(out, t)
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-func (m *MemProjectStore) SetTags(ctx context.Context, projectID string, tags []string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, ok := m.projects[projectID]
-	if !ok {
-		return store.ErrProjectNotFound
-	}
-	p.Tags = slices.Clone(tags)
-	return nil
 }
 
 func (m *MemProjectStore) DeleteProject(ctx context.Context, id string) error {
@@ -250,6 +207,25 @@ func (m *MemProjectStore) DeleteProject(ctx context.Context, id string) error {
 	return nil
 }
 
+func (m *MemProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.projects[oldID]
+	if !ok {
+		return store.ErrProjectNotFound
+	}
+	if _, exists := m.projects[newID]; exists {
+		return store.ErrProjectExists
+	}
+	p.ID = newID
+	m.projects[newID] = p
+	delete(m.projects, oldID)
+	return nil
+}
+
 func (m *MemProjectStore) ProjectExists(ctx context.Context, id string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -258,6 +234,95 @@ func (m *MemProjectStore) ProjectExists(ctx context.Context, id string) (bool, e
 	defer m.mu.RUnlock()
 	_, ok := m.projects[id]
 	return ok, nil
+}
+
+func (m *MemProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.projects[id]; ok {
+		return store.ErrProjectExists
+	}
+	m.projects[id] = &store.Project{ID: id, ParentID: &parentID, CreatedAt: time.Now()}
+	return nil
+}
+
+func (m *MemProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
+	all, err := m.ListProjects(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	var topLevel []store.Project
+	for _, p := range all {
+		if p.ParentID == nil {
+			topLevel = append(topLevel, p)
+		}
+	}
+	total := len(topLevel)
+	start := (page - 1) * perPage
+	if start >= total {
+		return []store.Project{}, total, nil
+	}
+	return topLevel[start:min(start+perPage, total)], total, nil
+}
+
+func (m *MemProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []store.Project
+	for _, p := range m.projects {
+		if p.ParentID != nil && *p.ParentID == parentID {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
+
+func (m *MemProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.projects {
+		if p.ParentID != nil && *p.ParentID == projectID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *MemProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.projects[projectID]
+	if !ok {
+		return store.ErrProjectNotFound
+	}
+	p.ParentID = &parentID
+	return nil
+}
+
+func (m *MemProjectStore) ClearParent(ctx context.Context, projectID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.projects[projectID]
+	if !ok {
+		return store.ErrProjectNotFound
+	}
+	p.ParentID = nil
+	return nil
 }
 
 // MemKnownIssueStore is a thread-safe in-memory KnownIssueStorer for tests.
@@ -562,7 +627,7 @@ func (m *MemBuildStore) DeleteAllBuilds(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *MemBuildStore) GetDashboardData(_ context.Context, _ int, _ string) ([]store.DashboardProject, error) {
+func (m *MemBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
 	return nil, nil
 }
 

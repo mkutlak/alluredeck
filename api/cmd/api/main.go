@@ -119,6 +119,7 @@ func main() {
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, branchStore, logger)
 	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, logger)
 	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
+	parentHandler := handlers.NewProjectParentHandler(projectStore, buildStore, logger)
 
 	// Conditionally construct OIDC provider and handler (Stage 2 SSO).
 	var oidcHandler *handlers.OIDCHandler
@@ -186,7 +187,7 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -348,6 +349,7 @@ func registerRoutes(
 	apiKeyHandler *handlers.APIKeyHandler,
 	apiKeyStore store.APIKeyStorer,
 	oidcHandler *handlers.OIDCHandler,
+	parentHandler *handlers.ProjectParentHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
@@ -391,6 +393,7 @@ func registerRoutes(
 	// Admin write endpoints — no-store.
 	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(allure.CreateProject)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(allure.DeleteProject)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(allure.RenameProject)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(allure.GenerateReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(allure.GetJobStatus)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(allure.CleanHistory)))
@@ -424,9 +427,10 @@ func registerRoutes(
 	// Dashboard — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(shortCache(allure.GetDashboard)))
 
-	// Project tags — admin write, viewer read.
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/tags", adminOnly(noStore(allure.UpdateProjectTags)))
-	mux.HandleFunc("GET "+prefix+"/tags", viewerUp(mutableCache(allure.ListTags)))
+	// Project parent-child — admin write, viewer read.
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(parentHandler.SetParent)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(parentHandler.ClearParent)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/children", viewerUp(mutableCache(parentHandler.ListChildren)))
 
 	// Admin system monitor endpoints.
 	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(admin.ListJobs)))

@@ -2,7 +2,6 @@ package pg
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -281,26 +280,20 @@ func (bs *PGBuildStore) DeleteAllBuilds(ctx context.Context, projectID string) e
 }
 
 // GetDashboardData returns all projects with their latest build and sparkline data.
-func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 	query := `
 		SELECT DISTINCT ON (p.id)
-		    p.id, p.created_at, p.tags,
+		    p.id, p.parent_id, p.created_at,
 		    b.id, b.project_id, b.build_order, b.created_at,
 		    b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
 		    b.duration_ms, b.is_latest,
 		    b.flaky_count, b.retried_count, b.new_failed_count, b.new_passed_count,
 		    b.ci_provider, b.ci_build_url, b.ci_branch, b.ci_commit_sha
 		FROM projects p
-		LEFT JOIN builds b ON b.project_id=p.id AND b.is_latest=TRUE`
-	var qArgs []any
-	if tag != "" {
-		tagJSON, _ := json.Marshal([]string{tag})
-		query += "\n\t\tWHERE p.tags @> $1::jsonb"
-		qArgs = []any{string(tagJSON)}
-	}
-	query += "\n\t\tORDER BY p.id, b.build_order DESC NULLS LAST"
+		LEFT JOIN builds b ON b.project_id=p.id AND b.is_latest=TRUE
+		ORDER BY p.id, b.build_order DESC NULLS LAST`
 
-	rows, err := bs.pool.Query(ctx, query, qArgs...)
+	rows, err := bs.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard projects query: %w", err)
 	}
@@ -311,8 +304,8 @@ func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int
 
 	for rows.Next() {
 		var projID string
+		var projParentID *string
 		var projCreatedAt time.Time
-		var projTags []byte
 		// Nullable build fields (LEFT JOIN may produce NULLs).
 		var buildID *int64
 		var buildProjID *string
@@ -325,7 +318,7 @@ func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int
 		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA *string
 
 		if err := rows.Scan(
-			&projID, &projCreatedAt, &projTags,
+			&projID, &projParentID, &projCreatedAt,
 			&buildID, &buildProjID, &buildOrder, &buildCreatedAt,
 			&statPassed, &statFailed, &statBroken, &statSkipped, &statUnknown, &statTotal,
 			&durationMs, &isLatest,
@@ -337,8 +330,8 @@ func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int
 
 		dp := &store.DashboardProject{
 			ProjectID: projID,
+			ParentID:  projParentID,
 			CreatedAt: projCreatedAt,
-			Tags:      parseTags(projTags),
 		}
 
 		if buildID != nil {

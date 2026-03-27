@@ -50,7 +50,7 @@ func (s *spyBuildStore) PruneBuilds(_ context.Context, _ string, _ int) ([]int, 
 }
 func (s *spyBuildStore) SetLatest(_ context.Context, _ string, _ int) error { return nil }
 func (s *spyBuildStore) DeleteAllBuilds(_ context.Context, _ string) error  { return nil }
-func (s *spyBuildStore) GetDashboardData(_ context.Context, _ int, _ string) ([]store.DashboardProject, error) {
+func (s *spyBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
 	return nil, nil
 }
 func (s *spyBuildStore) DeleteBuild(_ context.Context, _ string, _ int) error { return nil }

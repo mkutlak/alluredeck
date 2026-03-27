@@ -39,8 +39,8 @@ type CreateAPIKeyRequest struct {
 // Project represents a registered allure project.
 type Project struct {
 	ID        string
+	ParentID  *string
 	CreatedAt time.Time
-	Tags      []string
 }
 
 // BuildStats holds aggregated test statistics for a build.
@@ -100,8 +100,8 @@ type SparklinePoint struct {
 // DashboardProject bundles a project with its latest build and sparkline data.
 type DashboardProject struct {
 	ProjectID string
+	ParentID  *string
 	CreatedAt time.Time
-	Tags      []string
 	Latest    *Build
 	Sparkline []SparklinePoint
 }

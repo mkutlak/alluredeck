@@ -1,14 +1,19 @@
 import { useState, useMemo } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, NavLink, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { RefreshCw, Clock, GitCommitHorizontal, GitBranch } from 'lucide-react'
+import { RefreshCw, Clock, GitCommitHorizontal, GitBranch, Layers } from 'lucide-react'
 import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
+import { fetchDashboard } from '@/api/dashboard'
+import { getProjects } from '@/api/projects'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { formatDuration, calcPassRate } from '@/lib/utils'
+import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertDialog,
@@ -28,6 +33,7 @@ import { BranchSelector } from '@/features/projects/BranchSelector'
 import { ProjectStatCards } from './ProjectStatCards'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
+import type { DashboardProjectEntry } from '@/types/api'
 
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -42,6 +48,28 @@ export function OverviewTab() {
   const setReportsPerPage = useUIStore((s) => s.setReportsPerPage)
   const groupBy = useUIStore((s) => s.reportsGroupBy)
   const setGroupBy = useUIStore((s) => s.setReportsGroupBy)
+
+  // Hierarchy detection: fetch the project list to find parent/child relationships
+  const { data: projectsResp } = useQuery({
+    queryKey: queryKeys.projects,
+    queryFn: () => getProjects(),
+    staleTime: 30_000,
+    enabled: !!projectId,
+  })
+  const allProjects = projectsResp?.data ?? []
+  const currentProject = allProjects.find((p) => p.project_id === projectId)
+  const isParentProject = (currentProject?.children?.length ?? 0) > 0
+  const parentProject = currentProject?.parent_id
+    ? allProjects.find((p) => p.project_id === currentProject.parent_id)
+    : null
+
+  // For parent projects: fetch dashboard data to get children stats
+  const { data: dashboardData } = useQuery({
+    queryKey: queryKeys.dashboard(),
+    queryFn: () => fetchDashboard(),
+    staleTime: 30_000,
+    enabled: isParentProject,
+  })
 
   const handleToggleBuild = (id: string) => {
     setSelectedBuilds((prev) => {
@@ -111,6 +139,39 @@ export function OverviewTab() {
 
   if (!projectId) return null
 
+  // Parent project view: show child suite cards instead of build history
+  if (isParentProject) {
+    const childIds = currentProject?.children ?? []
+    const childEntries = dashboardData?.projects.filter((p) =>
+      childIds.includes(p.project_id),
+    ) ?? []
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+          <p className="text-muted-foreground flex items-center gap-1 text-sm">
+            <Layers size={14} />
+            Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}
+          </p>
+        </div>
+
+        {childEntries.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+            <Layers size={36} className="text-muted-foreground/40" />
+            <p className="font-medium">No child suites found</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {childEntries.map((child) => (
+              <ChildSuiteCard key={child.project_id} child={child} />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const compareBarContent =
     selectedBuilds.size === 2
       ? (() => {
@@ -135,7 +196,19 @@ export function OverviewTab() {
       {/* Page title */}
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
-        <p className="text-muted-foreground text-sm">Overview</p>
+        {parentProject ? (
+          <p className="text-muted-foreground flex items-center gap-1 text-sm">
+            Part of:{' '}
+            <NavLink
+              to={`/projects/${encodeURIComponent(parentProject.project_id)}`}
+              className="text-primary hover:underline"
+            >
+              {parentProject.project_id}
+            </NavLink>
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-sm">Overview</p>
+        )}
       </div>
 
       {/* Stat cards */}
@@ -281,5 +354,68 @@ export function OverviewTab() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+function ChildSuiteCard({ child }: { child: DashboardProjectEntry }) {
+  const { latest_build, sparkline } = child
+  const passRate = latest_build?.pass_rate ?? 0
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate font-semibold">{child.project_id}</span>
+          {latest_build ? (
+            <Badge
+              variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
+              className={getPassRateBadgeClass(passRate)}
+            >
+              {passRate.toFixed(0)}%
+            </Badge>
+          ) : (
+            <Badge variant="secondary">No builds</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        {sparkline.length > 0 && (
+          <div className="flex gap-0.5 items-end h-8">
+            {sparkline.slice(-10).map((pt, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-sm bg-primary/60"
+                style={{ height: `${Math.max(4, pt.pass_rate)}%` }}
+                title={`Build ${pt.build_order}: ${pt.pass_rate.toFixed(0)}%`}
+              />
+            ))}
+          </div>
+        )}
+        {latest_build ? (
+          <div className="text-muted-foreground space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span>Tests</span>
+              <span className="text-foreground font-medium">{latest_build.statistics.total}</span>
+            </div>
+            {latest_build.statistics.failed + latest_build.statistics.broken > 0 && (
+              <div className="flex justify-between">
+                <span>Failures</span>
+                <span className="text-destructive font-medium">
+                  {latest_build.statistics.failed + latest_build.statistics.broken}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">No runs yet</p>
+        )}
+        <NavLink
+          to={`/projects/${encodeURIComponent(child.project_id)}`}
+          className="text-primary mt-auto text-sm hover:underline"
+        >
+          View suite
+        </NavLink>
+      </CardContent>
+    </Card>
   )
 }

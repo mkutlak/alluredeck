@@ -4,7 +4,6 @@ import type {
   CreateProjectData,
   CreateProjectRequest,
   PaginatedResponse,
-  ProjectEntry,
   ProjectsData,
 } from '@/types/api'
 
@@ -28,21 +27,18 @@ export async function createProject(
   return res.data
 }
 
-export async function updateProjectTags(
-  projectId: string,
-  tags: string[],
-): Promise<ApiResponse<ProjectEntry>> {
-  const res = await apiClient.put<ApiResponse<ProjectEntry>>(`/projects/${encodeURIComponent(projectId)}/tags`, {
-    tags,
-  })
-  return res.data
-}
-
-export async function getTags(): Promise<ApiResponse<string[]>> {
-  const res = await apiClient.get<ApiResponse<string[]>>('/tags')
-  return res.data
-}
-
 export async function deleteProject(projectId: string): Promise<void> {
   await apiClient.delete(`/projects/${encodeURIComponent(projectId)}`)
+}
+
+export async function renameProject(projectId: string, newId: string): Promise<void> {
+  await apiClient.put(`/projects/${encodeURIComponent(projectId)}/rename`, { new_id: newId })
+}
+
+export async function setProjectParent(projectId: string, parentId: string): Promise<void> {
+  await apiClient.put(`/projects/${encodeURIComponent(projectId)}/parent`, { parent_id: parentId })
+}
+
+export async function clearProjectParent(projectId: string): Promise<void> {
+  await apiClient.delete(`/projects/${encodeURIComponent(projectId)}/parent`)
 }

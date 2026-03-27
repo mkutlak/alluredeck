@@ -66,19 +66,31 @@ func New() *MockStores {
 // MockProjectStore is a test double for store.ProjectStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockProjectStore struct {
-	CreateProjectFn         func(ctx context.Context, id string) error
-	GetProjectFn            func(ctx context.Context, id string) (*store.Project, error)
-	ListProjectsFn          func(ctx context.Context) ([]store.Project, error)
-	ListProjectsPaginatedFn func(ctx context.Context, page, perPage int, tag string) ([]store.Project, int, error)
-	ListAllTagsFn           func(ctx context.Context) ([]string, error)
-	SetTagsFn               func(ctx context.Context, projectID string, tags []string) error
-	DeleteProjectFn         func(ctx context.Context, id string) error
-	ProjectExistsFn         func(ctx context.Context, id string) (bool, error)
+	CreateProjectFn                 func(ctx context.Context, id string) error
+	CreateProjectWithParentFn       func(ctx context.Context, id string, parentID string) error
+	GetProjectFn                    func(ctx context.Context, id string) (*store.Project, error)
+	ListProjectsFn                  func(ctx context.Context) ([]store.Project, error)
+	ListProjectsPaginatedFn         func(ctx context.Context, page, perPage int) ([]store.Project, int, error)
+	ListProjectsPaginatedTopLevelFn func(ctx context.Context, page, perPage int) ([]store.Project, int, error)
+	ListChildrenFn                  func(ctx context.Context, parentID string) ([]store.Project, error)
+	HasChildrenFn                   func(ctx context.Context, projectID string) (bool, error)
+	SetParentFn                     func(ctx context.Context, projectID, parentID string) error
+	ClearParentFn                   func(ctx context.Context, projectID string) error
+	DeleteProjectFn                 func(ctx context.Context, id string) error
+	RenameProjectFn                 func(ctx context.Context, oldID, newID string) error
+	ProjectExistsFn                 func(ctx context.Context, id string) (bool, error)
 }
 
 func (m *MockProjectStore) CreateProject(ctx context.Context, id string) error {
 	if m.CreateProjectFn != nil {
 		return m.CreateProjectFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *MockProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
+	if m.CreateProjectWithParentFn != nil {
+		return m.CreateProjectWithParentFn(ctx, id, parentID)
 	}
 	return nil
 }
@@ -97,23 +109,44 @@ func (m *MockProjectStore) ListProjects(ctx context.Context) ([]store.Project, e
 	return nil, nil
 }
 
-func (m *MockProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int, tag string) ([]store.Project, int, error) {
+func (m *MockProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
 	if m.ListProjectsPaginatedFn != nil {
-		return m.ListProjectsPaginatedFn(ctx, page, perPage, tag)
+		return m.ListProjectsPaginatedFn(ctx, page, perPage)
 	}
 	return nil, 0, nil
 }
 
-func (m *MockProjectStore) ListAllTags(ctx context.Context) ([]string, error) {
-	if m.ListAllTagsFn != nil {
-		return m.ListAllTagsFn(ctx)
+func (m *MockProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
+	if m.ListProjectsPaginatedTopLevelFn != nil {
+		return m.ListProjectsPaginatedTopLevelFn(ctx, page, perPage)
+	}
+	return nil, 0, nil
+}
+
+func (m *MockProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+	if m.ListChildrenFn != nil {
+		return m.ListChildrenFn(ctx, parentID)
 	}
 	return nil, nil
 }
 
-func (m *MockProjectStore) SetTags(ctx context.Context, projectID string, tags []string) error {
-	if m.SetTagsFn != nil {
-		return m.SetTagsFn(ctx, projectID, tags)
+func (m *MockProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+	if m.HasChildrenFn != nil {
+		return m.HasChildrenFn(ctx, projectID)
+	}
+	return false, nil
+}
+
+func (m *MockProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
+	if m.SetParentFn != nil {
+		return m.SetParentFn(ctx, projectID, parentID)
+	}
+	return nil
+}
+
+func (m *MockProjectStore) ClearParent(ctx context.Context, projectID string) error {
+	if m.ClearParentFn != nil {
+		return m.ClearParentFn(ctx, projectID)
 	}
 	return nil
 }
@@ -121,6 +154,13 @@ func (m *MockProjectStore) SetTags(ctx context.Context, projectID string, tags [
 func (m *MockProjectStore) DeleteProject(ctx context.Context, id string) error {
 	if m.DeleteProjectFn != nil {
 		return m.DeleteProjectFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *MockProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
+	if m.RenameProjectFn != nil {
+		return m.RenameProjectFn(ctx, oldID, newID)
 	}
 	return nil
 }
@@ -150,7 +190,7 @@ type MockBuildStore struct {
 	PruneBuildsFn               func(ctx context.Context, projectID string, keep int) ([]int, error)
 	SetLatestFn                 func(ctx context.Context, projectID string, buildOrder int) error
 	DeleteAllBuildsFn           func(ctx context.Context, projectID string) error
-	GetDashboardDataFn          func(ctx context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error)
+	GetDashboardDataFn          func(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error)
 	DeleteBuildFn               func(ctx context.Context, projectID string, buildOrder int) error
 	UpdateBuildBranchIDFn       func(ctx context.Context, projectID string, buildOrder int, branchID int64) error
 	SetLatestBranchFn           func(ctx context.Context, projectID string, buildOrder int, branchID *int64) error
@@ -244,9 +284,9 @@ func (m *MockBuildStore) DeleteAllBuilds(ctx context.Context, projectID string) 
 	return nil
 }
 
-func (m *MockBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int, tag string) ([]store.DashboardProject, error) {
+func (m *MockBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 	if m.GetDashboardDataFn != nil {
-		return m.GetDashboardDataFn(ctx, sparklineDepth, tag)
+		return m.GetDashboardDataFn(ctx, sparklineDepth)
 	}
 	return nil, nil
 }

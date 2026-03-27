@@ -108,7 +108,8 @@ func (h *AllureHandler) SetBranchStore(bs store.BranchStorer) {
 type ProjectEntry struct {
 	ProjectID string   `json:"project_id"`
 	CreatedAt string   `json:"created_at"`
-	Tags      []string `json:"tags"`
+	ParentID  *string  `json:"parent_id,omitempty"`
+	Children  []string `json:"children,omitempty"`
 }
 
 // reservedProjectNames lists names that clash with API route segments
@@ -224,34 +225,58 @@ func extractReportID(w http.ResponseWriter, r *http.Request) (string, bool) {
 
 // GetProjects godoc
 // @Summary      List projects
-// @Description  Returns a paginated list of all existing projects.
+// @Description  Returns a paginated list of all existing projects. Supports top_level=true to return only top-level projects and parent_id=<id> to list children of a specific project.
 // @Tags         projects
 // @Produce      json
-// @Param        page      query  int  false  "Page number"      default(1)
-// @Param        per_page  query  int  false  "Items per page"   default(20)
+// @Param        page       query  int     false  "Page number"                        default(1)
+// @Param        per_page   query  int     false  "Items per page"                     default(20)
+// @Param        top_level  query  bool    false  "Return only top-level projects"
+// @Param        parent_id  query  string  false  "Return children of this project ID"
 // @Success      200  {object}  map[string]any
 // @Failure      500  {object}  map[string]any
 // @Router       /projects [get]
 func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	pg := parsePagination(r)
-	tag := r.URL.Query().Get("tag")
+	topLevel := r.URL.Query().Get("top_level") == "true"
+	filterParentID := r.URL.Query().Get("parent_id")
 
-	dbProjects, total, err := h.projectStore.ListProjectsPaginated(r.Context(), pg.Page, pg.PerPage, tag)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing projects: %v", err))
-		return
+	var (
+		dbProjects []store.Project
+		total      int
+		err        error
+	)
+
+	switch {
+	case filterParentID != "":
+		// Return children of the given parent project.
+		children, childErr := h.projectStore.ListChildren(ctx, filterParentID)
+		if childErr != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing children: %v", childErr))
+			return
+		}
+		dbProjects = children
+		total = len(children)
+	case topLevel:
+		dbProjects, total, err = h.projectStore.ListProjectsPaginatedTopLevel(ctx, pg.Page, pg.PerPage)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing projects: %v", err))
+			return
+		}
+	default:
+		dbProjects, total, err = h.projectStore.ListProjectsPaginated(ctx, pg.Page, pg.PerPage)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing projects: %v", err))
+			return
+		}
 	}
 
 	entries := make([]ProjectEntry, 0, len(dbProjects))
 	for _, p := range dbProjects {
-		tags := p.Tags
-		if tags == nil {
-			tags = []string{}
-		}
 		entries = append(entries, ProjectEntry{
 			ProjectID: p.ID,
 			CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
-			Tags:      tags,
+			ParentID:  p.ParentID,
 		})
 	}
 
@@ -467,6 +492,8 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	parentID := r.URL.Query().Get("parent_id")
+
 	// Ensure project exists (auto-create if requested)
 	exists, err := h.store.ProjectExists(r.Context(), projectID)
 	if err != nil {
@@ -479,10 +506,25 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create project: %v", err))
 				return
 			}
-			// Register in database so downstream jobs (River) can reference the project.
-			if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
-				if !errors.Is(dbErr, store.ErrProjectExists) {
-					h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+			if parentID != "" {
+				// Ensure parent project exists in DB; create it if missing.
+				if dbErr := h.projectStore.CreateProject(r.Context(), parentID); dbErr != nil {
+					if !errors.Is(dbErr, store.ErrProjectExists) {
+						h.logger.Error("db parent project registration failed", zap.String("parent_id", parentID), zap.Error(dbErr))
+					}
+				}
+				// Register child project with parent link in DB.
+				if dbErr := h.projectStore.CreateProjectWithParent(r.Context(), projectID, parentID); dbErr != nil {
+					if !errors.Is(dbErr, store.ErrProjectExists) {
+						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+					}
+				}
+			} else {
+				// Register in database so downstream jobs (River) can reference the project.
+				if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
+					if !errors.Is(dbErr, store.ErrProjectExists) {
+						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+					}
 				}
 			}
 		} else {
@@ -1160,6 +1202,88 @@ func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data":     map[string]string{"project_id": projectID},
 		"metadata": map[string]string{"message": "Project successfully deleted"},
+	})
+}
+
+// RenameProject godoc
+// @Summary      Rename a project
+// @Description  Changes the project ID. All builds, results, and storage are updated. Warning: this operation may cause data loss if interrupted during S3 storage migration.
+// @Tags         projects
+// @Accept       json
+// @Produce      json
+// @Param        project_id  path  string  true  "Current project ID"
+// @Param        body        body  object  true  "New project ID"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Failure      409  {object}  map[string]any
+// @Router       /projects/{project_id}/rename [put]
+func (h *AllureHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	projectID, ok := h.extractProjectID(w, r)
+	if !ok {
+		return
+	}
+
+	var reqBody struct {
+		NewID string `json:"new_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	newID := strings.TrimSpace(reqBody.NewID)
+	if err := validateProjectID(h.cfg.ProjectsPath, newID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if newID == projectID {
+		writeError(w, http.StatusBadRequest, "new_id must differ from current project ID")
+		return
+	}
+
+	// Check old exists.
+	if _, err := h.projectStore.GetProject(ctx, projectID); err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// Check new doesn't exist.
+	if exists, _ := h.projectStore.ProjectExists(ctx, newID); exists {
+		writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newID))
+		return
+	}
+
+	// Rename storage first (reversible).
+	if err := h.store.RenameProject(ctx, projectID, newID); err != nil {
+		h.logger.Error("storage rename failed", zap.String("old", projectID), zap.String("new", newID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "failed to rename project storage")
+		return
+	}
+
+	// Rename in DB (cascades via ON UPDATE CASCADE).
+	if err := h.projectStore.RenameProject(ctx, projectID, newID); err != nil {
+		h.logger.Error("db rename failed, attempting storage rollback", zap.Error(err))
+		if rbErr := h.store.RenameProject(ctx, newID, projectID); rbErr != nil {
+			h.logger.Error("storage rollback failed", zap.Error(rbErr))
+		}
+		if errors.Is(err, store.ErrProjectExists) {
+			writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newID))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to rename project")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":     map[string]any{"old_id": projectID, "new_id": newID},
+		"metadata": map[string]string{"message": "Project renamed successfully. Note: external references to the old project ID must be updated manually."},
 	})
 }
 

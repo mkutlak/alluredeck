@@ -36,11 +36,8 @@ export interface SessionData {
 export interface ProjectEntry {
   project_id: string
   created_at?: string
-  tags?: string[]
-}
-
-export interface UpdateTagsRequest {
-  tags: string[]
+  parent_id?: string | null
+  children?: string[]
 }
 
 export type ProjectsData = ProjectEntry[]
@@ -62,6 +59,7 @@ export interface PaginatedResponse<T> {
 
 export interface CreateProjectRequest {
   id: string
+  parent_id?: string
 }
 
 export type CreateProjectData = ProjectEntry
@@ -437,9 +435,18 @@ export interface DashboardSparklinePoint {
 export interface DashboardProjectEntry {
   project_id: string
   created_at: string
-  tags?: string[]
   latest_build: DashboardLatestBuild | null
   sparkline: DashboardSparklinePoint[]
+  is_group?: boolean
+  children?: DashboardProjectEntry[]
+  aggregate?: {
+    passed: number
+    failed: number
+    broken: number
+    skipped: number
+    total: number
+    pass_rate: number
+  }
 }
 
 export interface DashboardSummary {

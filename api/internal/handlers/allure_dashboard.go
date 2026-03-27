@@ -38,12 +38,23 @@ type sparklinePointResp struct {
 	PassRate   float64 `json:"pass_rate"`
 }
 
+type aggregateStats struct {
+	Passed   int     `json:"passed"`
+	Failed   int     `json:"failed"`
+	Broken   int     `json:"broken"`
+	Skipped  int     `json:"skipped"`
+	Total    int     `json:"total"`
+	PassRate float64 `json:"pass_rate"`
+}
+
 type dashboardProjectResp struct {
-	ProjectID   string               `json:"project_id"`
-	CreatedAt   string               `json:"created_at"`
-	Tags        []string             `json:"tags"`
-	LatestBuild *latestBuildResp     `json:"latest_build"`
-	Sparkline   []sparklinePointResp `json:"sparkline"`
+	ProjectID   string                 `json:"project_id"`
+	CreatedAt   string                 `json:"created_at"`
+	LatestBuild *latestBuildResp       `json:"latest_build"`
+	Sparkline   []sparklinePointResp   `json:"sparkline"`
+	IsGroup     bool                   `json:"is_group"`
+	Children    []dashboardProjectResp `json:"children,omitempty"`
+	Aggregate   *aggregateStats        `json:"aggregate,omitempty"`
 }
 
 type dashboardSummaryResp struct {
@@ -64,46 +75,67 @@ type dashboardSummaryResp struct {
 func (h *AllureHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	tag := r.URL.Query().Get("tag")
-	projects, err := h.buildStore.GetDashboardData(ctx, 10, tag)
+	projects, err := h.buildStore.GetDashboardData(ctx, 10)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	projectResps := make([]dashboardProjectResp, 0, len(projects))
-	summary := dashboardSummaryResp{TotalProjects: len(projects)}
+	// Build lookup: parent_id -> child responses.
+	childrenOf := map[string][]dashboardProjectResp{}
+	for _, dp := range projects {
+		if dp.ParentID != nil {
+			childrenOf[*dp.ParentID] = append(childrenOf[*dp.ParentID], buildProjectResp(dp))
+		}
+	}
+
+	var projectResps []dashboardProjectResp
+	summary := dashboardSummaryResp{}
 
 	for _, dp := range projects {
-		tags := dp.Tags
-		if tags == nil {
-			tags = []string{}
+		if dp.ParentID != nil {
+			continue // children appear nested, not at top level
 		}
-		pr := dashboardProjectResp{
-			ProjectID: dp.ProjectID,
-			CreatedAt: dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			Tags:      tags,
-			Sparkline: buildSparkline(dp.Sparkline),
-		}
-
-		if dp.Latest != nil {
-			pr.LatestBuild = buildLatestResp(dp.Latest)
-			passRate := pr.LatestBuild.PassRate
-			switch {
-			case passRate >= healthyThreshold:
-				summary.Healthy++
-			case passRate >= degradedThreshold:
-				summary.Degraded++
-			default:
+		pr := buildProjectResp(dp)
+		if children, ok := childrenOf[dp.ProjectID]; ok {
+			pr.IsGroup = true
+			pr.Children = children
+			pr.Aggregate = computeAggregate(children)
+			// Health classification for a group uses aggregate pass rate.
+			if pr.Aggregate.Total == 0 {
 				summary.Failing++
+			} else {
+				switch {
+				case pr.Aggregate.PassRate >= healthyThreshold:
+					summary.Healthy++
+				case pr.Aggregate.PassRate >= degradedThreshold:
+					summary.Degraded++
+				default:
+					summary.Failing++
+				}
 			}
 		} else {
-			// No builds: counts as failing.
-			summary.Failing++
+			// Standalone project: classify by its own latest build.
+			if pr.LatestBuild != nil {
+				switch {
+				case pr.LatestBuild.PassRate >= healthyThreshold:
+					summary.Healthy++
+				case pr.LatestBuild.PassRate >= degradedThreshold:
+					summary.Degraded++
+				default:
+					summary.Failing++
+				}
+			} else {
+				// No builds: counts as failing.
+				summary.Failing++
+			}
 		}
-
 		projectResps = append(projectResps, pr)
 	}
+	if projectResps == nil {
+		projectResps = []dashboardProjectResp{}
+	}
+	summary.TotalProjects = len(projectResps)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
@@ -136,6 +168,37 @@ func buildLatestResp(b *store.Build) *latestBuildResp {
 		NewPassedCount: derefInt(b.NewPassedCount),
 		CIBranch:       derefStr(b.CIBranch),
 	}
+}
+
+// buildProjectResp converts a store.DashboardProject into a dashboardProjectResp.
+func buildProjectResp(dp store.DashboardProject) dashboardProjectResp {
+	pr := dashboardProjectResp{
+		ProjectID: dp.ProjectID,
+		CreatedAt: dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		Sparkline: buildSparkline(dp.Sparkline),
+	}
+	if dp.Latest != nil {
+		pr.LatestBuild = buildLatestResp(dp.Latest)
+	}
+	return pr
+}
+
+// computeAggregate sums the latest-build stats of all children and derives pass rate.
+func computeAggregate(children []dashboardProjectResp) *aggregateStats {
+	agg := &aggregateStats{}
+	for _, c := range children {
+		if c.LatestBuild == nil {
+			continue
+		}
+		s := c.LatestBuild.Statistics
+		agg.Passed += s.Passed
+		agg.Failed += s.Failed
+		agg.Broken += s.Broken
+		agg.Skipped += s.Skipped
+		agg.Total += s.Total
+	}
+	agg.PassRate = pct(agg.Passed, agg.Total)
+	return agg
 }
 
 // buildSparkline converts store.SparklinePoint slice into response type,

@@ -26,12 +26,17 @@ var (
 // ProjectStorer is the interface for project operations.
 type ProjectStorer interface {
 	CreateProject(ctx context.Context, id string) error
+	CreateProjectWithParent(ctx context.Context, id string, parentID string) error
 	GetProject(ctx context.Context, id string) (*Project, error)
 	ListProjects(ctx context.Context) ([]Project, error)
-	ListProjectsPaginated(ctx context.Context, page, perPage int, tag string) ([]Project, int, error)
-	ListAllTags(ctx context.Context) ([]string, error)
-	SetTags(ctx context.Context, projectID string, tags []string) error
+	ListProjectsPaginated(ctx context.Context, page, perPage int) ([]Project, int, error)
+	ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]Project, int, error)
+	ListChildren(ctx context.Context, parentID string) ([]Project, error)
+	HasChildren(ctx context.Context, projectID string) (bool, error)
+	SetParent(ctx context.Context, projectID, parentID string) error
+	ClearParent(ctx context.Context, projectID string) error
 	DeleteProject(ctx context.Context, id string) error
+	RenameProject(ctx context.Context, oldID, newID string) error
 	ProjectExists(ctx context.Context, id string) (bool, error)
 }
 
@@ -49,7 +54,7 @@ type BuildStorer interface {
 	PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error)
 	SetLatest(ctx context.Context, projectID string, buildOrder int) error
 	DeleteAllBuilds(ctx context.Context, projectID string) error
-	GetDashboardData(ctx context.Context, sparklineDepth int, tag string) ([]DashboardProject, error)
+	GetDashboardData(ctx context.Context, sparklineDepth int) ([]DashboardProject, error)
 	DeleteBuild(ctx context.Context, projectID string, buildOrder int) error
 	UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error
 	SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error

@@ -39,6 +39,7 @@ type Store interface {
 	// Project lifecycle
 	CreateProject(ctx context.Context, projectID string) error
 	DeleteProject(ctx context.Context, projectID string) error
+	RenameProject(ctx context.Context, oldID, newID string) error
 	ProjectExists(ctx context.Context, projectID string) (bool, error)
 	ListProjects(ctx context.Context) ([]string, error)
 

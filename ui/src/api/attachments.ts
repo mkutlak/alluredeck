@@ -22,7 +22,12 @@ export async function fetchAttachments(
       },
     },
   )
-  return res.data.data
+  const data = res.data.data
+  data.attachments = data.attachments.map((att) => ({
+    ...att,
+    url: attachmentFileUrl(projectId, reportId, att.source),
+  }))
+  return data
 }
 
 export function attachmentFileUrl(

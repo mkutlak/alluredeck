@@ -250,7 +250,7 @@ func TestGetDashboardData_MultiBranch_ReturnsOneProjectEntry(t *testing.T) {
 	}
 
 	// GetDashboardData must return exactly one entry for this project.
-	dashboard, err := buildStore.GetDashboardData(ctx, 5, "")
+	dashboard, err := buildStore.GetDashboardData(ctx, 5)
 	if err != nil {
 		t.Fatalf("GetDashboardData: %v", err)
 	}

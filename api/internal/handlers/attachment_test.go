@@ -84,7 +84,7 @@ func (m *mockAttachmentBuildStore) SetLatest(_ context.Context, _ string, _ int)
 func (m *mockAttachmentBuildStore) DeleteAllBuilds(_ context.Context, _ string) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) GetDashboardData(_ context.Context, _ int, _ string) ([]store.DashboardProject, error) {
+func (m *mockAttachmentBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) DeleteBuild(_ context.Context, _ string, _ int) error {
@@ -128,6 +128,9 @@ func (m *mockDataStore) OpenReportFile(_ context.Context, _, _, _ string) (io.Re
 
 func (m *mockDataStore) CreateProject(_ context.Context, _ string) error { panic("not implemented") }
 func (m *mockDataStore) DeleteProject(_ context.Context, _ string) error { panic("not implemented") }
+func (m *mockDataStore) RenameProject(_ context.Context, _, _ string) error {
+	panic("not implemented")
+}
 func (m *mockDataStore) ProjectExists(_ context.Context, _ string) (bool, error) {
 	panic("not implemented")
 }

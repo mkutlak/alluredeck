@@ -139,12 +139,12 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('button', { name: /new project/i })).not.toBeInTheDocument()
   })
 
-  it('calls fetchDashboard with undefined when no tag is selected', async () => {
+  it('calls fetchDashboard with no arguments', async () => {
     vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()
     await waitFor(() => {
       expect(screen.getByText('proj-alpha')).toBeInTheDocument()
     })
-    expect(vi.mocked(dashboardApi.fetchDashboard)).toHaveBeenCalledWith(undefined)
+    expect(vi.mocked(dashboardApi.fetchDashboard)).toHaveBeenCalledWith()
   })
 })

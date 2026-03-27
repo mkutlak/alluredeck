@@ -1,12 +1,19 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { createProject } from '@/api/projects'
+import { createProject, getProjects } from '@/api/projects'
 import { extractErrorMessage } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -24,8 +31,18 @@ interface CreateProjectDialogProps {
 
 export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
   const [projectId, setProjectId] = useState('')
+  const [parentId, setParentId] = useState('')
   const [error, setError] = useState('')
   const queryClient = useQueryClient()
+
+  const { data: projectsResp } = useQuery({
+    queryKey: queryKeys.projects,
+    queryFn: () => getProjects(1, 200),
+    enabled: open,
+  })
+
+  // Only top-level projects (no parent_id) can be parents
+  const availableParents = (projectsResp?.data ?? []).filter((p) => !p.parent_id)
 
   const mutation = useMutation({
     mutationFn: createProject,
@@ -34,6 +51,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       toast({ title: 'Project created', description: `"${projectId}" is ready.` })
       setProjectId('')
+      setParentId('')
       onOpenChange(false)
     },
     onError: (err) => {
@@ -49,7 +67,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       setError('Project ID is required.')
       return
     }
-    mutation.mutate({ id })
+    mutation.mutate({ id, ...(parentId ? { parent_id: parentId } : {}) })
   }
 
   return (
@@ -58,6 +76,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       onOpenChange={(v) => {
         if (!v) {
           setProjectId('')
+          setParentId('')
           setError('')
         }
         onOpenChange(v)
@@ -84,6 +103,23 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
             />
             {error && <p className="text-destructive text-sm">{error}</p>}
           </div>
+          {availableParents.length > 0 && (
+            <div className="space-y-2">
+              <Label>Parent project (optional)</Label>
+              <Select value={parentId} onValueChange={setParentId} disabled={mutation.isPending}>
+                <SelectTrigger>
+                  <SelectValue placeholder="No parent (standalone project)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableParents.map((p) => (
+                    <SelectItem key={p.project_id} value={p.project_id}>
+                      {p.project_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

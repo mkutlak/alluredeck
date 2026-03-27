@@ -95,25 +95,6 @@ function ReportRow({
         )}
       </TableCell>
       <TableCell className="text-center">
-        <div className="flex justify-center gap-1">
-          {r.flaky_count != null && r.flaky_count > 0 && (
-            <Badge variant="broken" className="text-xs">
-              Flaky: {r.flaky_count}
-            </Badge>
-          )}
-          {r.new_failed_count != null && r.new_failed_count > 0 && (
-            <Badge variant="destructive" className="text-xs">
-              Regressed: {r.new_failed_count}
-            </Badge>
-          )}
-          {r.new_passed_count != null && r.new_passed_count > 0 && (
-            <Badge variant="passed" className="text-xs">
-              Fixed: {r.new_passed_count}
-            </Badge>
-          )}
-        </div>
-      </TableCell>
-      <TableCell className="text-center">
         {r.ci_provider || r.ci_branch || r.ci_commit_sha ? (
           <div className="flex flex-col items-center gap-1">
             {r.ci_provider &&
@@ -179,7 +160,7 @@ function ReportRow({
 }
 
 // Must match <TableHead> count in ReportHistoryTable header
-const TABLE_COL_COUNT = 12
+const TABLE_COL_COUNT = 11
 
 export function ReportHistoryTable({
   projectId,
@@ -270,7 +251,6 @@ export function ReportHistoryTable({
                 Skipped
               </TableHead>
               <TableHead className="text-center">Pass rate</TableHead>
-              <TableHead className="text-center">Stability</TableHead>
               <TableHead className="text-center">CI</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>

@@ -72,6 +72,22 @@ func (ls *LocalStore) DeleteProject(_ context.Context, projectID string) error {
 	return nil
 }
 
+// RenameProject renames the project directory from oldID to newID.
+func (ls *LocalStore) RenameProject(_ context.Context, oldID, newID string) error {
+	oldPath := filepath.Join(ls.cfg.ProjectsPath, oldID)
+	newPath := filepath.Join(ls.cfg.ProjectsPath, newID)
+	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+		return fmt.Errorf("project %q: %w", oldID, ErrProjectNotFound)
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("target project dir %q already exists", newID)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("rename project dir: %w", err)
+	}
+	return nil
+}
+
 // ProjectExists returns true if the project directory exists.
 func (ls *LocalStore) ProjectExists(_ context.Context, projectID string) (bool, error) {
 	_, err := os.Stat(filepath.Join(ls.cfg.ProjectsPath, projectID))

@@ -4,10 +4,9 @@ import { mockApiClient } from '@/test/mocks/api-client'
 mockApiClient()
 
 import { apiClient } from '@/api/client'
-import { getProjects, updateProjectTags } from './projects'
+import { getProjects } from './projects'
 
 const mockGet = vi.mocked(apiClient.get)
-const mockPut = vi.mocked(apiClient.put)
 
 describe('getProjects', () => {
   beforeEach(() => {
@@ -46,22 +45,3 @@ describe('getProjects', () => {
   })
 })
 
-describe('updateProjectTags', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockPut.mockResolvedValue({ data: { data: {}, metadata: {} } })
-  })
-
-  it('calls PUT /projects/:projectId/tags with encoded project ID', async () => {
-    await updateProjectTags('my-project', ['tag1', 'tag2'])
-    expect(mockPut).toHaveBeenCalledWith('/projects/my-project/tags', { tags: ['tag1', 'tag2'] })
-  })
-
-  it('encodes special characters in projectId', async () => {
-    await updateProjectTags('project/with/slashes', ['tag1'])
-    expect(mockPut).toHaveBeenCalledWith(
-      `/projects/${encodeURIComponent('project/with/slashes')}/tags`,
-      { tags: ['tag1'] },
-    )
-  })
-})

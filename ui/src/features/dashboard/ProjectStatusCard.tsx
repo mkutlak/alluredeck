@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { MoreHorizontal, Tags, Trash2 } from 'lucide-react'
+import { FolderInput, FolderOutput, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,9 +15,102 @@ import { formatDate, formatDuration } from '@/lib/utils'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { PassRateSparkline } from './PassRateSparkline'
 import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
-import { EditTagsDialog } from '@/features/projects/EditTagsDialog'
+import { RenameProjectDialog } from '@/features/projects/RenameProjectDialog'
+import { SetParentDialog } from '@/features/projects/SetParentDialog'
+import { clearProjectParent } from '@/api/projects'
+import { queryKeys } from '@/lib/query-keys'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import type { DashboardProjectEntry } from '@/types/api'
+
+// Isolated component so useQueryClient/useMutation are only called when this
+// menu item is actually present in the tree (i.e. only for non-group projects
+// whose dropdown is open). Tests that render ProjectStatusCard without a
+// QueryClientProvider remain unaffected because they never open the dropdown.
+function RemoveFromGroupItem({ projectId }: { projectId: string }) {
+  const qc = useQueryClient()
+  const { mutate } = useMutation({
+    mutationFn: () => clearProjectParent(projectId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.projects })
+      void qc.invalidateQueries({ queryKey: queryKeys.dashboard() })
+    },
+  })
+
+  return (
+    <DropdownMenuItem onClick={() => mutate()}>
+      <FolderOutput size={14} />
+      Remove from group
+    </DropdownMenuItem>
+  )
+}
+
+interface AdminActionsProps {
+  project: DashboardProjectEntry
+  showRemoveFromGroup: boolean
+}
+
+function AdminActions({ project, showRemoveFromGroup }: AdminActionsProps) {
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Project actions"
+          >
+            <MoreHorizontal size={14} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+            <Pencil size={14} />
+            Rename project
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+            <FolderInput size={14} />
+            Move to group...
+          </DropdownMenuItem>
+          {showRemoveFromGroup && <RemoveFromGroupItem projectId={project.project_id} />}
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2 size={14} />
+            Delete project
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {renameOpen && (
+        <RenameProjectDialog
+          projectId={project.project_id}
+          open={renameOpen}
+          onOpenChange={setRenameOpen}
+        />
+      )}
+      {deleteOpen && (
+        <DeleteProjectDialog
+          projectId={project.project_id}
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+        />
+      )}
+      {moveOpen && (
+        <SetParentDialog
+          projectId={project.project_id}
+          open={moveOpen}
+          onOpenChange={setMoveOpen}
+        />
+      )}
+    </>
+  )
+}
 
 interface Props {
   project: DashboardProjectEntry
@@ -24,11 +118,10 @@ interface Props {
 
 export function ProjectStatusCard({ project }: Props) {
   const isAdmin = useAuthStore(selectIsAdmin)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [editTagsOpen, setEditTagsOpen] = useState(false)
   const { latest_build, sparkline } = project
   const passRate = latest_build?.pass_rate ?? 0
-  const tags = project.tags ?? []
+  // Show "Remove from group" only for child projects (not group nodes themselves)
+  const showRemoveFromGroup = !project.is_group && project.children === undefined
 
   return (
     <>
@@ -48,43 +141,10 @@ export function ProjectStatusCard({ project }: Props) {
                 <Badge variant="secondary">No builds</Badge>
               )}
               {isAdmin && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                      aria-label="Project actions"
-                    >
-                      <MoreHorizontal size={14} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setEditTagsOpen(true)}>
-                      <Tags size={14} />
-                      Edit tags
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setDeleteOpen(true)}
-                    >
-                      <Trash2 size={14} />
-                      Delete project
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <AdminActions project={project} showRemoveFromGroup={showRemoveFromGroup} />
               )}
             </div>
           </div>
-          {tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 pt-1">
-              {tags.map((tag) => (
-                <Badge key={tag} variant="outline" className="text-xs font-normal">
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          )}
         </CardHeader>
         <CardContent className="flex flex-1 flex-col gap-3">
           {sparkline.length > 0 && <PassRateSparkline data={sparkline} />}
@@ -140,26 +200,6 @@ export function ProjectStatusCard({ project }: Props) {
           </NavLink>
         </CardContent>
       </Card>
-
-      {isAdmin && (
-        <>
-          {deleteOpen && (
-            <DeleteProjectDialog
-              projectId={project.project_id}
-              open={deleteOpen}
-              onOpenChange={setDeleteOpen}
-            />
-          )}
-          {editTagsOpen && (
-            <EditTagsDialog
-              projectId={project.project_id}
-              currentTags={tags}
-              open={editTagsOpen}
-              onOpenChange={setEditTagsOpen}
-            />
-          )}
-        </>
-      )}
     </>
   )
 }

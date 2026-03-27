@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { FolderOpen, Trash2, MoreHorizontal } from 'lucide-react'
+import { FolderInput, FolderOpen, Pencil, Trash2, MoreHorizontal } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
+import { RenameProjectDialog } from './RenameProjectDialog'
+import { SetParentDialog } from './SetParentDialog'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 
 interface ProjectCardProps {
@@ -20,6 +22,8 @@ interface ProjectCardProps {
 export function ProjectCard({ projectId }: ProjectCardProps) {
   const isAdmin = useAuthStore(selectIsAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
 
   return (
     <>
@@ -43,6 +47,14 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                    <Pencil size={14} />
+                    Rename project
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                    <FolderInput size={14} />
+                    Move to group...
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => setDeleteOpen(true)}
@@ -68,7 +80,11 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
       </Card>
 
       {isAdmin && (
-        <DeleteProjectDialog projectId={projectId} open={deleteOpen} onOpenChange={setDeleteOpen} />
+        <>
+          <RenameProjectDialog projectId={projectId} open={renameOpen} onOpenChange={setRenameOpen} />
+          <DeleteProjectDialog projectId={projectId} open={deleteOpen} onOpenChange={setDeleteOpen} />
+          <SetParentDialog projectId={projectId} open={moveOpen} onOpenChange={setMoveOpen} />
+        </>
       )}
     </>
   )

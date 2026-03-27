@@ -656,5 +656,45 @@ func (s *S3Store) durationFromTestResults(ctx context.Context, projectID, relPat
 	return totalDuration
 }
 
+// RenameProject copies all S3 objects from the old project prefix to the new one, then deletes the old prefix.
+func (s *S3Store) RenameProject(ctx context.Context, oldID, newID string) error {
+	oldPrefix := s.s3Key("projects", oldID) + "/"
+	newPrefix := s.s3Key("projects", newID) + "/"
+
+	var srcKeys []string
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(oldPrefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list objects for rename: %w", err)
+		}
+		for _, obj := range page.Contents {
+			if obj.Key != nil {
+				srcKeys = append(srcKeys, *obj.Key)
+			}
+		}
+	}
+	if len(srcKeys) == 0 {
+		return nil
+	}
+
+	for _, srcKey := range srcKeys {
+		relPath := strings.TrimPrefix(srcKey, oldPrefix)
+		dstKey := newPrefix + relPath
+		if _, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
+			Bucket:     aws.String(s.bucket),
+			CopySource: aws.String(s.bucket + "/" + srcKey),
+			Key:        aws.String(dstKey),
+		}); err != nil {
+			return fmt.Errorf("copy object %q -> %q: %w", srcKey, dstKey, err)
+		}
+	}
+
+	return deletePrefix(ctx, s.client, s.bucket, oldPrefix)
+}
+
 // Ensure S3Store implements Store at compile time.
 var _ Store = (*S3Store)(nil)
