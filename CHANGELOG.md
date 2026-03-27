@@ -1,3 +1,9 @@
+## [0.10.0](https://github.com/mkutlak/alluredeck/compare/v0.9.1...v0.10.0) (2026-03-27)
+
+### Features
+
+* implement project hierarchy and renaming ([aa60e4c](https://github.com/mkutlak/alluredeck/commit/aa60e4ca62afe25364d86caef63efa44f28822b6))
+
 ## [0.9.1](https://github.com/mkutlak/alluredeck/compare/v0.9.0...v0.9.1) (2026-03-26)
 
 ### Bug Fixes
