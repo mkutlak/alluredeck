@@ -26,7 +26,7 @@ func TestRegisterRoutes(t *testing.T) {
 	systemHandler := handlers.NewSystemHandler(cfg, nil)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
+	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, localStore, zap.NewNop())
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
@@ -74,7 +74,7 @@ func TestBareRoutes_Return404(t *testing.T) {
 	systemHandler := handlers.NewSystemHandler(cfg, nil)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, zap.NewNop())
+	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, localStore, zap.NewNop())
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)

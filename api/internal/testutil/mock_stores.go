@@ -37,6 +37,7 @@ type MockStores struct {
 	APIKeys     *MemAPIKeyStore // stateful in-memory store for API key handler tests
 	Users       *MemUserStore   // stateful in-memory store for user handler tests
 	Attachments *MockAttachmentStore
+	Defects     *MemDefectStore
 }
 
 // New returns a MockStores with all fields initialised.
@@ -56,6 +57,7 @@ func New() *MockStores {
 		APIKeys:     NewMemAPIKeyStore(),
 		Users:       NewMemUserStore(),
 		Attachments: &MockAttachmentStore{},
+		Defects:     NewMemDefectStore(),
 	}
 }
 

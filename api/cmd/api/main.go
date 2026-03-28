@@ -103,7 +103,8 @@ func main() {
 	jwtManager := security.NewJWTManager(cfg, blacklistStore, logger)
 	systemHandler := handlers.NewSystemHandler(cfg, sqlDB)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
-	allureCore := runner.NewAllure(cfg, dataStore, buildStore, locker, testResultStore, branchStore, logger)
+	defectStore := pg.NewDefectStore(pgDB)
+	allureCore := runner.NewAllure(cfg, dataStore, buildStore, locker, testResultStore, branchStore, defectStore, logger)
 
 	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, 2, logger)
 	if err != nil {

@@ -64,11 +64,12 @@ type Allure struct {
 	lockManager     store.Locker
 	testResultStore store.TestResultStorer
 	branchStore     store.BranchStorer
+	defectStore     store.DefectStorer
 	logger          *zap.Logger
 }
 
 // NewAllure creates a new Allure runner
-func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore store.BuildStorer, locker store.Locker, testResultStore store.TestResultStorer, branchStore store.BranchStorer, logger *zap.Logger) *Allure {
+func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore store.BuildStorer, locker store.Locker, testResultStore store.TestResultStorer, branchStore store.BranchStorer, defectStore store.DefectStorer, logger *zap.Logger) *Allure {
 	return &Allure{
 		cfg:             cfg,
 		store:           dataStore,
@@ -76,6 +77,7 @@ func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore store.Bui
 		lockManager:     locker,
 		testResultStore: testResultStore,
 		branchStore:     branchStore,
+		defectStore:     defectStore,
 		logger:          logger,
 	}
 }
@@ -262,6 +264,12 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 						if enrichErr := a.testResultStore.InsertBatchFull(ctx, buildID, projectID, parsedResults); enrichErr != nil {
 							a.logger.Warn("failed to enrich test results",
 								zap.String("project_id", projectID), zap.Error(enrichErr))
+						}
+						if a.defectStore != nil && len(parsedResults) > 0 {
+							if fpErr := a.computeDefectFingerprints(ctx, projectID, buildID, parsedResults); fpErr != nil {
+								a.logger.Warn("failed to compute defect fingerprints",
+									zap.String("project_id", projectID), zap.Error(fpErr))
+							}
 						}
 					}
 				} else {
@@ -564,5 +572,82 @@ func (a *Allure) runAllureCmd(ctx context.Context, args ...string) error {
 	if outBuff.Len() > 0 {
 		a.logger.Debug("allure command output", zap.String("stdout", outBuff.String()))
 	}
+	return nil
+}
+
+// computeDefectFingerprints queries failed test results, groups them by
+// normalised fingerprint, upserts fingerprints into the defect store, links
+// test results, and runs clean-build / auto-resolve / regression detection.
+func (a *Allure) computeDefectFingerprints(ctx context.Context, projectID string, buildID int64, _ []*parser.Result) error {
+	failed, err := a.testResultStore.ListFailedForFingerprinting(ctx, projectID, buildID)
+	if err != nil {
+		return fmt.Errorf("list failed for fingerprinting: %w", err)
+	}
+
+	if len(failed) == 0 {
+		// No failures — still update clean build counts and auto-resolve.
+		if err := a.defectStore.UpdateCleanBuildCounts(ctx, projectID, buildID); err != nil {
+			return fmt.Errorf("update clean build counts: %w", err)
+		}
+		if _, err := a.defectStore.AutoResolveFixed(ctx, projectID, 3); err != nil {
+			return fmt.Errorf("auto resolve fixed: %w", err)
+		}
+		return nil
+	}
+
+	// Group failures by normalised fingerprint.
+	fpMap := ComputeFingerprintsForResults(failed)
+
+	// Convert to store types and upsert.
+	fingerprints := make([]store.DefectFingerprint, 0, len(fpMap))
+	for _, fp := range fpMap {
+		fingerprints = append(fingerprints, store.DefectFingerprint{
+			FingerprintHash:   fp.Hash,
+			NormalizedMessage: fp.NormalizedMessage,
+			SampleTrace:       fp.NormalizedTrace,
+			Category:          fp.Category,
+			OccurrenceCount:   len(fp.TestResultIDs),
+		})
+	}
+
+	if err := a.defectStore.UpsertFingerprints(ctx, projectID, buildID, fingerprints); err != nil {
+		return fmt.Errorf("upsert fingerprints: %w", err)
+	}
+
+	// Link test results to their fingerprint IDs.
+	for _, fp := range fpMap {
+		dfp, err := a.defectStore.GetByHash(ctx, projectID, fp.Hash)
+		if err != nil {
+			a.logger.Warn("failed to lookup fingerprint by hash",
+				zap.String("hash", fp.Hash), zap.Error(err))
+			continue
+		}
+		if err := a.defectStore.LinkTestResults(ctx, dfp.ID, buildID, fp.TestResultIDs); err != nil {
+			a.logger.Warn("failed to link test results to fingerprint",
+				zap.String("fingerprint_id", dfp.ID), zap.Error(err))
+		}
+	}
+
+	// Update clean build counts for fingerprints not seen in this build.
+	if err := a.defectStore.UpdateCleanBuildCounts(ctx, projectID, buildID); err != nil {
+		return fmt.Errorf("update clean build counts: %w", err)
+	}
+
+	// Auto-resolve fingerprints that have been clean for 3 consecutive builds.
+	if _, err := a.defectStore.AutoResolveFixed(ctx, projectID, 3); err != nil {
+		return fmt.Errorf("auto resolve fixed: %w", err)
+	}
+
+	// Detect regressions and log if any found.
+	regressions, err := a.defectStore.DetectRegressions(ctx, projectID, buildID)
+	if err != nil {
+		a.logger.Warn("failed to detect regressions",
+			zap.String("project_id", projectID), zap.Error(err))
+	} else if len(regressions) > 0 {
+		a.logger.Info("detected defect regressions",
+			zap.String("project_id", projectID),
+			zap.Int("count", len(regressions)))
+	}
+
 	return nil
 }

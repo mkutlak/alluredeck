@@ -647,7 +647,7 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
 	h := NewAllureHandler(cfg, r, nil,
 		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, zap.NewNop())
 

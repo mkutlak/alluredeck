@@ -27,7 +27,7 @@ func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
 	h := NewAllureHandler(cfg, r, nil,
 		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, logger)
 	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
@@ -107,7 +107,7 @@ func newTestAllureHandlerAndMocks(t *testing.T, projectsDir string) (*AllureHand
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, logger)
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
 	h := NewAllureHandler(cfg, r, nil,
 		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, logger)
 	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
@@ -121,7 +121,7 @@ func newTestAllureHandlerWithMocks(t *testing.T, projectsDir string, mocks *test
 	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
-	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, logger)
+	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, nil, logger)
 	return NewAllureHandler(cfg, r, nil,
 		mocks.Projects, mocks.Builds, mocks.KnownIssues, mocks.TestResults, mocks.Search, st, logger)
 }
@@ -135,7 +135,7 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 	logger := zap.NewNop()
 	st := storage.NewLocalStore(cfg)
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, logger)
+	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, logger)
 
 	jm := runner.NewMemJobManager(gen, 2, logger)
 	jm.Start(context.Background())
