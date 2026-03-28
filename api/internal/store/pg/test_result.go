@@ -552,4 +552,31 @@ func insertSteps(ctx context.Context, tx pgx.Tx, testResultID int64, parentStepI
 	return nil
 }
 
+// ListFailedForFingerprinting returns failed test results for a build, providing
+// the minimal fields needed for fingerprint heuristics (ID, status message, trace).
+func (ts *PGTestResultStore) ListFailedForFingerprinting(ctx context.Context, projectID string, buildID int64) ([]store.FailedTestResult, error) {
+	rows, err := ts.pool.Query(ctx, `
+		SELECT tr.id, tr.status_message, tr.status_trace
+		FROM test_results tr
+		WHERE tr.build_id = $1
+		  AND tr.project_id = $2
+		  AND tr.status IN ('failed', 'broken')
+		ORDER BY tr.id
+	`, buildID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list failed for fingerprinting: %w", err)
+	}
+	defer rows.Close()
+
+	var results []store.FailedTestResult
+	for rows.Next() {
+		var r store.FailedTestResult
+		if err := rows.Scan(&r.ID, &r.StatusMessage, &r.StatusTrace); err != nil {
+			return nil, fmt.Errorf("scan failed test result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
 var _ store.TestResultStorer = (*PGTestResultStore)(nil)

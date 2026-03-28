@@ -444,6 +444,10 @@ func (m *MockTestResultStore) ListTimelineMulti(ctx context.Context, projectID s
 	return nil, nil
 }
 
+func (m *MockTestResultStore) ListFailedForFingerprinting(ctx context.Context, projectID string, buildID int64) ([]store.FailedTestResult, error) {
+	return nil, nil
+}
+
 // ---------------------------------------------------------------------------
 // MockKnownIssueStore
 // ---------------------------------------------------------------------------

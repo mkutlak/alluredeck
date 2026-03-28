@@ -21,6 +21,7 @@ var (
 	ErrAPIKeyNotFound            = errors.New("api key not found")
 	ErrUserNotFound              = errors.New("user not found")
 	ErrAttachmentNotFound        = errors.New("attachment not found")
+	ErrDefectNotFound            = errors.New("defect fingerprint not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -78,6 +79,7 @@ type TestResultStorer interface {
 	DeleteByProject(ctx context.Context, projectID string) error
 	CompareBuildsByHistoryID(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]DiffEntry, error)
 	ListTimelineMulti(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]MultiTimelineRow, error)
+	ListFailedForFingerprinting(ctx context.Context, projectID string, buildID int64) ([]FailedTestResult, error)
 }
 
 // KnownIssueStorer is the interface for known issue operations.
@@ -189,4 +191,121 @@ type UserStorer interface {
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	List(ctx context.Context) ([]User, error)
 	Deactivate(ctx context.Context, id int64) error
+}
+
+// Defect category constants — mirror the CHECK constraint values stored in defect_fingerprints.category.
+const (
+	DefectCategoryProductBug     = "product_bug"
+	DefectCategoryTestBug        = "test_bug"
+	DefectCategoryInfrastructure = "infrastructure"
+	DefectCategoryToInvestigate  = "to_investigate"
+)
+
+// Defect resolution constants — mirror the CHECK constraint values stored in defect_fingerprints.resolution.
+const (
+	DefectResolutionOpen    = "open"
+	DefectResolutionFixed   = "fixed"
+	DefectResolutionMuted   = "muted"
+	DefectResolutionWontFix = "wont_fix"
+)
+
+// DefectFingerprint represents a deduplicated defect group derived from failed test results.
+type DefectFingerprint struct {
+	ID                     string `json:"id"`
+	ProjectID              string `json:"project_id"`
+	FingerprintHash        string `json:"fingerprint_hash"`
+	NormalizedMessage      string `json:"normalized_message"`
+	SampleTrace            string `json:"sample_trace"`
+	Category               string `json:"category"`
+	Resolution             string `json:"resolution"`
+	KnownIssueID           *int64 `json:"known_issue_id,omitempty"`
+	FirstSeenBuildID       int64  `json:"first_seen_build_id"`
+	LastSeenBuildID        int64  `json:"last_seen_build_id"`
+	OccurrenceCount        int    `json:"occurrence_count"`
+	ConsecutiveCleanBuilds int    `json:"consecutive_clean_builds"`
+	CreatedAt              string `json:"created_at"`
+	UpdatedAt              string `json:"updated_at"`
+}
+
+// DefectListRow extends DefectFingerprint with build-context fields used in list responses.
+type DefectListRow struct {
+	DefectFingerprint
+	TestResultCountInBuild *int        `json:"test_result_count_in_build,omitempty"`
+	FirstSeenBuildOrder    int         `json:"first_seen_build_order"`
+	LastSeenBuildOrder     int         `json:"last_seen_build_order"`
+	IsRegression           bool        `json:"is_regression"`
+	IsNew                  bool        `json:"is_new"`
+	KnownIssue             *KnownIssue `json:"known_issue,omitempty"`
+}
+
+// DefectFilter holds query parameters for paginated defect list operations.
+type DefectFilter struct {
+	Resolution string
+	Category   string
+	Search     string
+	SortBy     string
+	Order      string
+	Page       int
+	PerPage    int
+}
+
+// DefectBuildSummary holds aggregated defect statistics for a single build.
+type DefectBuildSummary struct {
+	TotalGroups   int            `json:"total_groups"`
+	AffectedTests int            `json:"affected_tests"`
+	NewDefects    int            `json:"new_defects"`
+	Regressions   int            `json:"regressions"`
+	ByCategory    map[string]int `json:"by_category"`
+	ByResolution  map[string]int `json:"by_resolution"`
+}
+
+// DefectProjectSummary holds aggregated defect statistics across all builds for a project.
+type DefectProjectSummary struct {
+	Open                 int            `json:"open"`
+	Fixed                int            `json:"fixed"`
+	Muted                int            `json:"muted"`
+	WontFix              int            `json:"wont_fix"`
+	RegressionsLastBuild int            `json:"regressions_last_build"`
+	ByCategory           map[string]int `json:"by_category"`
+}
+
+// FailedTestResult holds the minimal fields needed for fingerprint heuristics.
+type FailedTestResult struct {
+	ID            int64
+	StatusMessage string
+	StatusTrace   string
+}
+
+// DefectStorer manages defect fingerprint lifecycle: upsert, linking, resolution, and querying.
+type DefectStorer interface {
+	// UpsertFingerprints inserts new fingerprints or updates existing ones for a build.
+	UpsertFingerprints(ctx context.Context, projectID string, buildID int64, fingerprints []DefectFingerprint) error
+	// LinkTestResults associates individual test result rows with a fingerprint for a given build.
+	LinkTestResults(ctx context.Context, fingerprintID string, buildID int64, testResultIDs []int64) error
+	// UpdateCleanBuildCounts increments consecutive_clean_builds for fingerprints absent from the build.
+	UpdateCleanBuildCounts(ctx context.Context, projectID string, buildID int64) error
+	// AutoResolveFixed transitions open fingerprints to "fixed" when they have reached the clean-build threshold.
+	AutoResolveFixed(ctx context.Context, projectID string, threshold int) (int, error)
+	// DetectRegressions returns fingerprint IDs that were previously fixed but reappeared in this build.
+	DetectRegressions(ctx context.Context, projectID string, buildID int64) ([]string, error)
+	// GetByHash retrieves a fingerprint by its project-scoped hash, returning ErrDefectNotFound if absent.
+	GetByHash(ctx context.Context, projectID, hash string) (*DefectFingerprint, error)
+
+	// ListByProject returns a paginated list of defects for a project with optional filters.
+	ListByProject(ctx context.Context, projectID string, filter DefectFilter) ([]DefectListRow, int, error)
+	// ListByBuild returns a paginated list of defects observed in a specific build.
+	ListByBuild(ctx context.Context, projectID string, buildID int64, filter DefectFilter) ([]DefectListRow, int, error)
+	// GetByID retrieves a single defect fingerprint by its UUID, returning ErrDefectNotFound if absent.
+	GetByID(ctx context.Context, defectID string) (*DefectFingerprint, error)
+	// GetTestResults returns paginated test results linked to a defect, optionally scoped to a build.
+	GetTestResults(ctx context.Context, defectID string, buildID *int64, page, perPage int) ([]TestResult, int, error)
+	// GetProjectSummary returns aggregated defect counts for a project.
+	GetProjectSummary(ctx context.Context, projectID string) (*DefectProjectSummary, error)
+	// GetBuildSummary returns aggregated defect counts for a single build.
+	GetBuildSummary(ctx context.Context, projectID string, buildID int64) (*DefectBuildSummary, error)
+
+	// UpdateDefect updates the category, resolution, or known-issue link for a single defect.
+	UpdateDefect(ctx context.Context, defectID string, category, resolution *string, knownIssueID *int64) error
+	// BulkUpdate applies category and/or resolution changes to multiple defects atomically.
+	BulkUpdate(ctx context.Context, defectIDs []string, category, resolution *string) error
 }

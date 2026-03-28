@@ -118,6 +118,9 @@ func (s *spyTestResultStore) CompareBuildsByHistoryID(_ context.Context, _ strin
 func (s *spyTestResultStore) ListTimelineMulti(_ context.Context, _ string, _ []int64, _ int) ([]store.MultiTimelineRow, error) {
 	return nil, nil
 }
+func (s *spyTestResultStore) ListFailedForFingerprinting(_ context.Context, _ string, _ int64) ([]store.FailedTestResult, error) {
+	return nil, nil
+}
 
 // mockStore returns a storage.MockStore wired for storeAndPruneBuild success:
 // ReadBuildStats returns non-empty stats, ReadDir returns empty (no stability entries).
