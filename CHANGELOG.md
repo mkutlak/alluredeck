@@ -1,3 +1,9 @@
+## [0.10.1](https://github.com/mkutlak/alluredeck/compare/v0.10.0...v0.10.1) (2026-03-28)
+
+### Bug Fixes
+
+* resolve cache invalidation and auth persistence issues ([814b279](https://github.com/mkutlak/alluredeck/commit/814b279e64c9bde9aa1852579be8d60aa2b35279))
+
 ## [0.10.0](https://github.com/mkutlak/alluredeck/compare/v0.9.1...v0.10.0) (2026-03-27)
 
 ### Features
