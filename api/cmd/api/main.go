@@ -188,7 +188,8 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler)
+	defectHandler := handlers.NewDefectHandler(defectStore, logger)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -351,6 +352,7 @@ func registerRoutes(
 	apiKeyStore store.APIKeyStorer,
 	oidcHandler *handlers.OIDCHandler,
 	parentHandler *handlers.ProjectParentHandler,
+	defectHandler *handlers.DefectHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
@@ -476,5 +478,17 @@ func registerRoutes(
 	if oidcHandler != nil {
 		mux.HandleFunc("GET "+prefix+"/auth/oidc/login", noStore(rateLimit(oidcHandler.Login)))
 		mux.HandleFunc("GET "+prefix+"/auth/oidc/callback", noStore(rateLimit(oidcHandler.Callback)))
+	}
+
+	// Defect fingerprint endpoints.
+	if defectHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects", viewerUp(noStore(defectHandler.ListProjectDefects)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/summary", viewerUp(mutableCache(defectHandler.GetProjectDefectSummary)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/{defect_id}", viewerUp(noStore(defectHandler.GetDefect)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/{defect_id}/tests", viewerUp(noStore(defectHandler.GetDefectTests)))
+		mux.HandleFunc("PATCH "+prefix+"/projects/{project_id}/defects/{defect_id}", editorUp(noStore(defectHandler.UpdateDefect)))
+		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/defects/bulk", editorUp(noStore(defectHandler.BulkUpdateDefects)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects", viewerUp(noStore(defectHandler.ListBuildDefects)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects/summary", viewerUp(mutableCache(defectHandler.GetBuildDefectSummary)))
 	}
 }
