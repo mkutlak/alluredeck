@@ -596,3 +596,61 @@ export interface AttachmentsData {
   limit: number
   offset: number
 }
+
+// ---------------------------------------------------------------------------
+// Defect Grouping
+// ---------------------------------------------------------------------------
+export type DefectCategory = 'product_bug' | 'test_bug' | 'infrastructure' | 'to_investigate'
+export type DefectResolution = 'open' | 'fixed' | 'muted' | 'wont_fix'
+
+export interface DefectFingerprint {
+  id: string
+  project_id: string
+  fingerprint_hash: string
+  normalized_message: string
+  sample_trace: string
+  category: DefectCategory
+  resolution: DefectResolution
+  known_issue_id: number | null
+  first_seen_build_id: number
+  last_seen_build_id: number
+  occurrence_count: number
+  consecutive_clean_builds: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DefectListRow extends DefectFingerprint {
+  test_result_count_in_build: number | null
+  first_seen_build_order: number
+  last_seen_build_order: number
+  is_regression: boolean
+  is_new: boolean
+  known_issue: KnownIssue | null
+}
+
+export interface DefectBuildSummary {
+  total_groups: number
+  affected_tests: number
+  new_defects: number
+  regressions: number
+  by_category: Record<string, number>
+  by_resolution: Record<string, number>
+}
+
+export interface DefectProjectSummary {
+  open: number
+  fixed: number
+  muted: number
+  wont_fix: number
+  regressions_last_build: number
+  by_category: Record<string, number>
+}
+
+export interface DefectListResponse {
+  data: DefectListRow[]
+  total: number
+  page: number
+  per_page: number
+  metadata: { message: string }
+}

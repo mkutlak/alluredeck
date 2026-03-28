@@ -60,6 +60,18 @@ export const queryKeys = {
     mimeType != null
       ? (['attachments', projectId, reportId, mimeType] as const)
       : (['attachments', projectId, reportId] as const),
+  defects: (projectId: string, filters?: Record<string, unknown>) =>
+    filters != null
+      ? (['defects', projectId, filters] as const)
+      : (['defects', projectId] as const),
+  buildDefects: (projectId: string, buildId: number, filters?: Record<string, unknown>) =>
+    filters != null
+      ? (['defects', 'build', projectId, buildId, filters] as const)
+      : (['defects', 'build', projectId, buildId] as const),
+  defectDetail: (defectId: string) => ['defects', 'detail', defectId] as const,
+  defectProjectSummary: (projectId: string) => ['defects', 'summary', projectId] as const,
+  defectBuildSummary: (projectId: string, buildId: number) =>
+    ['defects', 'buildSummary', projectId, buildId] as const,
 }
 
 function projectScopedKeys(projectId: string) {

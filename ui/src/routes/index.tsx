@@ -36,6 +36,12 @@ const TestHistoryPage = lazy(() =>
 const AttachmentsTab = lazy(() =>
   import('@/features/attachments').then((m) => ({ default: m.AttachmentsTab })),
 )
+const ProjectDefectsView = lazy(() =>
+  import('@/features/defects/ProjectDefectsView').then((m) => ({ default: m.ProjectDefectsView })),
+)
+const BuildDefectsView = lazy(() =>
+  import('@/features/defects/BuildDefectsView').then((m) => ({ default: m.BuildDefectsView })),
+)
 
 function PageLoader() {
   return (
@@ -97,6 +103,22 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <KnownIssuesTab />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/defects"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ProjectDefectsView />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/builds/:buildId/defects"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <BuildDefectsView />
               </Suspense>
             }
           />

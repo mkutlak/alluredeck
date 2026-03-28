@@ -3,6 +3,7 @@ import { NavLink } from 'react-router'
 import {
   AlertCircle,
   BarChart3,
+  Bug,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -35,6 +36,7 @@ import type { ProjectEntry } from '@/types/api'
 const navItems = [
   { label: 'Overview', path: '', icon: LayoutDashboard, end: true },
   { label: 'Analytics', path: '/analytics', icon: BarChart3, end: false },
+  { label: 'Defects', path: '/defects', icon: Bug, end: false },
   { label: 'Timeline', path: '/timeline', icon: Clock, end: false },
   { label: 'Known Issues', path: '/known-issues', icon: AlertCircle, end: false },
   { label: 'Attachments', path: '/attachments', icon: Paperclip, end: false },
