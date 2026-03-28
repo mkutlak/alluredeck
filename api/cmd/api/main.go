@@ -76,7 +76,7 @@ func main() {
 
 	pgDB, err := pg.Open(initCtx, cfg)
 	if err != nil {
-		logger.Fatal("failed to open PostgreSQL database", zap.String("url", cfg.DatabaseURL), zap.Error(err))
+		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
 	}
 	defer func() { _ = pgDB.Close() }()
 
@@ -387,7 +387,7 @@ func registerRoutes(
 
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
-	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(mutableCache(allure.GetProjects)))
+	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(allure.GetProjects)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))
 
 	// Admin write endpoints — no-store.
@@ -424,8 +424,8 @@ func registerRoutes(
 	// Compare — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(allure.CompareBuilds)))
 
-	// Dashboard — short-lived cache.
-	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(shortCache(allure.GetDashboard)))
+	// Dashboard — no-store (TanStack Query manages client-side freshness).
+	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(noStore(allure.GetDashboard)))
 
 	// Project parent-child — admin write, viewer read.
 	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(parentHandler.SetParent)))

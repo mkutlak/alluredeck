@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router'
+import { Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
+import { useSessionRestore } from '@/hooks/useSessionRestore'
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -12,6 +14,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const clearAuth = useAuthStore((s) => s.clearAuth)
   const location = useLocation()
 
+  const { isRestoring } = useSessionRestore()
+
   useEffect(() => {
     if (expiresAt === null) return
     const remaining = expiresAt - Date.now()
@@ -22,6 +26,14 @@ export function AuthGuard({ children }: AuthGuardProps) {
     const timer = setTimeout(() => clearAuth(), remaining)
     return () => clearTimeout(timer)
   }, [expiresAt, clearAuth])
+
+  if (isRestoring) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   // eslint-disable-next-line react-hooks/purity -- intentional: session expiry must reflect current time on each render
   const sessionValid = isAuthenticated && (expiresAt === null || expiresAt > Date.now())

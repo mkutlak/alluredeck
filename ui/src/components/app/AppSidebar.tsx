@@ -15,8 +15,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
-import { getProjects } from '@/api/projects'
-import { queryKeys } from '@/lib/query-keys'
+import { projectListOptions } from '@/lib/queries'
 import {
   Sidebar,
   SidebarContent,
@@ -103,11 +102,7 @@ export function AppSidebar() {
   const { projectId } = useActiveProject()
   const isAdmin = useAuthStore(selectIsAdmin)
 
-  const { data: projectsResp } = useQuery({
-    queryKey: queryKeys.projects,
-    queryFn: () => getProjects(),
-    staleTime: 30_000,
-  })
+  const { data: projectsResp } = useQuery(projectListOptions())
 
   const allProjects = projectsResp?.data ?? []
   const { groups, standalone } = buildHierarchy(allProjects)

@@ -3,10 +3,9 @@ import { Link, NavLink, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { RefreshCw, Clock, GitCommitHorizontal, GitBranch, Layers } from 'lucide-react'
 import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
-import { fetchDashboard } from '@/api/dashboard'
-import { getProjects } from '@/api/projects'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
+import { projectListOptions, dashboardOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { formatDuration, calcPassRate } from '@/lib/utils'
@@ -50,12 +49,7 @@ export function OverviewTab() {
   const setGroupBy = useUIStore((s) => s.setReportsGroupBy)
 
   // Hierarchy detection: fetch the project list to find parent/child relationships
-  const { data: projectsResp } = useQuery({
-    queryKey: queryKeys.projects,
-    queryFn: () => getProjects(),
-    staleTime: 30_000,
-    enabled: !!projectId,
-  })
+  const { data: projectsResp } = useQuery({ ...projectListOptions(), enabled: !!projectId })
   const allProjects = projectsResp?.data ?? []
   const currentProject = allProjects.find((p) => p.project_id === projectId)
   const isParentProject = (currentProject?.children?.length ?? 0) > 0
@@ -64,12 +58,7 @@ export function OverviewTab() {
     : null
 
   // For parent projects: fetch dashboard data to get children stats
-  const { data: dashboardData } = useQuery({
-    queryKey: queryKeys.dashboard(),
-    queryFn: () => fetchDashboard(),
-    staleTime: 30_000,
-    enabled: isParentProject,
-  })
+  const { data: dashboardData } = useQuery({ ...dashboardOptions(), enabled: isParentProject })
 
   const handleToggleBuild = (id: string) => {
     setSelectedBuilds((prev) => {

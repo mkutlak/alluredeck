@@ -63,6 +63,7 @@ func TestRiverJobManager_SubmitAndGet(t *testing.T) {
 	job := jm.Submit("river-test-project", runner.JobParams{ExecName: "CI"})
 	if job == nil {
 		t.Fatal("Submit returned nil")
+		return // unreachable, but satisfies staticcheck SA5011
 	}
 	if job.ID == "" {
 		t.Error("expected non-empty job ID")
@@ -74,6 +75,7 @@ func TestRiverJobManager_SubmitAndGet(t *testing.T) {
 	got := jm.Get(job.ID)
 	if got == nil {
 		t.Fatal("Get returned nil for existing job ID")
+		return // unreachable, but satisfies staticcheck SA5011
 	}
 	if got.ID != job.ID {
 		t.Errorf("Get ID mismatch: got %q, want %q", got.ID, job.ID)

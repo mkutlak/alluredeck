@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, LayoutGrid, List, RefreshCw, FolderX } from 'lucide-react'
-import { getProjects } from '@/api/projects'
-import { queryKeys } from '@/lib/query-keys'
+import { projectListOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
@@ -17,11 +16,7 @@ export function ProjectsPage() {
   const setViewMode = useUIStore((s) => s.setProjectViewMode)
   const [createOpen, setCreateOpen] = useState(false)
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: queryKeys.projects,
-    queryFn: () => getProjects(),
-    staleTime: 30_000,
-  })
+  const { data, isLoading, isError, refetch, isFetching } = useQuery(projectListOptions())
 
   const projects = data?.data ?? []
 

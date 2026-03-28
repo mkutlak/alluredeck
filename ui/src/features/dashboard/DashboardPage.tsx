@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Plus, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchDashboard } from '@/api/dashboard'
-import { queryKeys } from '@/lib/query-keys'
+import { dashboardOptions } from '@/lib/queries'
 import { ProjectStatusCard } from './ProjectStatusCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
@@ -16,11 +15,7 @@ export function DashboardPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const isAdmin = useAuthStore(selectIsAdmin)
 
-  const { data, isLoading, isFetching, isError, refetch } = useQuery({
-    queryKey: queryKeys.dashboard(),
-    queryFn: () => fetchDashboard(),
-    staleTime: 30_000,
-  })
+  const { data, isLoading, isFetching, isError, refetch } = useQuery(dashboardOptions())
 
   if (isLoading) {
     return (

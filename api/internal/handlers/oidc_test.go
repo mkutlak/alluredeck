@@ -85,6 +85,7 @@ func TestOIDCHandler_Login_Redirects(t *testing.T) {
 	}
 	if stateCookie == nil {
 		t.Fatal("Login() expected oidc_state cookie")
+		return // unreachable, but satisfies staticcheck SA5011
 	}
 	if !stateCookie.HttpOnly {
 		t.Error("Login() oidc_state cookie must be HttpOnly")

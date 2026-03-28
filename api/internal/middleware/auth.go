@@ -59,9 +59,12 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 					writeMiddlewareError(w, http.StatusUnauthorized, "API key has expired")
 					return
 				}
-				// Update last_used asynchronously — fire-and-forget
+				// Update last_used asynchronously — fire-and-forget.
+				// Use the request context so the update is cancelled if the
+				// client disconnects, and to satisfy gosec G118.
+				reqCtx := r.Context()
 				go func() {
-					_ = apiKeyStore.UpdateLastUsed(context.Background(), apiKey.ID)
+					_ = apiKeyStore.UpdateLastUsed(reqCtx, apiKey.ID)
 				}()
 				// Inject claims compatible with existing JWT claims structure
 				claims := jwt.MapClaims{

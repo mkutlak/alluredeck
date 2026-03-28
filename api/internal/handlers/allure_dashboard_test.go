@@ -53,7 +53,7 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 			{
 				ProjectID: projID,
 				CreatedAt: time.Now(),
-	
+
 				Latest: &store.Build{
 					ID:         3,
 					ProjectID:  projID,
@@ -121,7 +121,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 			{
 				ProjectID: "proj-healthy",
 				CreatedAt: time.Now(),
-	
+
 				Latest: &store.Build{
 					BuildOrder: 1,
 					StatPassed: intPtr(95),
@@ -132,7 +132,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 			{
 				ProjectID: "proj-degraded",
 				CreatedAt: time.Now(),
-	
+
 				Latest: &store.Build{
 					BuildOrder: 1,
 					StatPassed: intPtr(80),
@@ -143,7 +143,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 			{
 				ProjectID: "proj-failing",
 				CreatedAt: time.Now(),
-	
+
 				Latest: &store.Build{
 					BuildOrder: 1,
 					StatPassed: intPtr(50),
@@ -189,7 +189,7 @@ func TestGetDashboard_ProjectWithNoBuilds(t *testing.T) {
 			{
 				ProjectID: "no-builds-proj",
 				CreatedAt: time.Now(),
-	
+
 				Latest:    nil,
 				Sparkline: []store.SparklinePoint{},
 			},

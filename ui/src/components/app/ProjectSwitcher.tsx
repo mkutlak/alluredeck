@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronsUpDown } from 'lucide-react'
-import { getProjects } from '@/api/projects'
-import { queryKeys } from '@/lib/query-keys'
+import { projectListOptions } from '@/lib/queries'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
@@ -23,11 +22,7 @@ export function ProjectSwitcher() {
   const setLastProjectId = useUIStore((s) => s.setLastProjectId)
   const [open, setOpen] = useState(false)
 
-  const { data } = useQuery({
-    queryKey: queryKeys.projects,
-    queryFn: () => getProjects(),
-    staleTime: 30_000,
-  })
+  const { data } = useQuery(projectListOptions())
 
   const projects = data?.data ?? []
 

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getProjects, setProjectParent } from '@/api/projects'
+import { setProjectParent } from '@/api/projects'
 import { extractErrorMessage } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
+import { projectParentsOptions } from '@/lib/queries'
 import {
   Dialog,
   DialogContent,
@@ -31,11 +32,7 @@ export function SetParentDialog({ projectId, open, onOpenChange }: Props) {
   const [error, setError] = useState<string | null>(null)
   const qc = useQueryClient()
 
-  const { data: projectsResp } = useQuery({
-    queryKey: queryKeys.projects,
-    queryFn: () => getProjects(1, 200),
-    enabled: open,
-  })
+  const { data: projectsResp } = useQuery({ ...projectParentsOptions(), enabled: open })
 
   // Filter: exclude self, exclude projects that already have a parent (they can't be parents)
   const availableParents = (projectsResp?.data ?? []).filter(
