@@ -57,7 +57,8 @@ func (ds *PGDefectStore) UpsertFingerprints(ctx context.Context, projectID strin
 			END,
 			updated_at = NOW()`
 
-	for _, fp := range fingerprints {
+	for i := range fingerprints {
+		fp := &fingerprints[i]
 		if _, err := tx.Exec(ctx, q,
 			projectID,
 			fp.FingerprintHash,
@@ -263,10 +264,7 @@ func (ds *PGDefectStore) listDefects(ctx context.Context, projectID string, buil
 	}
 
 	// --- pagination ---
-	page := filter.Page
-	if page < 1 {
-		page = 1
-	}
+	page := max(filter.Page, 1)
 	perPage := filter.PerPage
 	if perPage < 1 {
 		perPage = 20

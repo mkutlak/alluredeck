@@ -22,8 +22,8 @@ var (
 
 // Compiled regexes for NormalizeTrace.
 var (
-	reLineCol  = regexp.MustCompile(`:(\d+):\d+\b`)
-	reLineNum  = regexp.MustCompile(`:(\d+)\b`)
+	reLineCol   = regexp.MustCompile(`:(\d+):\d+\b`)
+	reLineNum   = regexp.MustCompile(`:(\d+)\b`)
 	reTracePath = regexp.MustCompile(`(?:/[a-zA-Z0-9._-]+){3,}/([a-zA-Z0-9._-]+)`)
 )
 
