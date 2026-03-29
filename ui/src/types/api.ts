@@ -654,3 +654,55 @@ export interface DefectListResponse {
   per_page: number
   metadata: { message: string }
 }
+
+// ---------------------------------------------------------------------------
+// Webhook types
+// ---------------------------------------------------------------------------
+export type WebhookTargetType = 'slack' | 'discord' | 'teams' | 'generic'
+
+export interface Webhook {
+  id: string
+  project_id: string
+  name: string
+  target_type: WebhookTargetType
+  url: string
+  has_secret: boolean
+  template: string | null
+  events: string[]
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface WebhookDelivery {
+  id: string
+  webhook_id: string
+  build_id: number | null
+  event: string
+  status_code: number | null
+  response_body: string | null
+  error: string | null
+  attempt: number
+  duration_ms: number | null
+  delivered_at: string
+}
+
+export interface CreateWebhookRequest {
+  name: string
+  target_type: string
+  url: string
+  secret?: string
+  template?: string
+  events?: string[]
+  is_active?: boolean
+}
+
+export interface UpdateWebhookRequest {
+  name?: string
+  target_type?: string
+  url?: string
+  secret?: string
+  template?: string
+  events?: string[]
+  is_active?: boolean
+}

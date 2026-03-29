@@ -123,6 +123,7 @@ type Config struct {
 	OIDC              OIDCConfig    `yaml:"oidc"`
 	LogLevel          string        `yaml:"log_level" envconfig:"LOG_LEVEL"`
 	MaxUploadSizeMB   int           `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
+	ExternalURL       string        `yaml:"external_url" envconfig:"EXTERNAL_URL"`
 	SecurityPassHash  []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 	ViewerPassHash    []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 }

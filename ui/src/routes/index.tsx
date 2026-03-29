@@ -30,6 +30,11 @@ const AdminPage = lazy(() => import('@/features/admin').then((m) => ({ default: 
 const APIKeysPage = lazy(() =>
   import('@/features/settings/APIKeysPage').then((m) => ({ default: m.APIKeysPage })),
 )
+const WebhooksPage = lazy(() =>
+  import('@/features/settings/WebhooksPage').then((m) => ({
+    default: m.WebhooksPage,
+  })),
+)
 const TestHistoryPage = lazy(() =>
   import('@/features/tests/TestHistoryPage').then((m) => ({ default: m.TestHistoryPage })),
 )
@@ -175,6 +180,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <APIKeysPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings/webhooks"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <WebhooksPage />
               </Suspense>
             }
           />

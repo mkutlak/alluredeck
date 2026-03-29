@@ -22,6 +22,7 @@ var (
 	ErrUserNotFound              = errors.New("user not found")
 	ErrAttachmentNotFound        = errors.New("attachment not found")
 	ErrDefectNotFound            = errors.New("defect fingerprint not found")
+	ErrWebhookNotFound           = errors.New("webhook not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -308,4 +309,18 @@ type DefectStorer interface {
 	UpdateDefect(ctx context.Context, defectID string, category, resolution *string, knownIssueID *int64) error
 	// BulkUpdate applies category and/or resolution changes to multiple defects atomically.
 	BulkUpdate(ctx context.Context, defectIDs []string, category, resolution *string) error
+}
+
+// WebhookStorer manages per-project webhook configurations and delivery logs.
+type WebhookStorer interface {
+	Create(ctx context.Context, wh *Webhook) (*Webhook, error)
+	GetByID(ctx context.Context, webhookID string) (*Webhook, error)
+	List(ctx context.Context, projectID string) ([]Webhook, error)
+	Update(ctx context.Context, wh *Webhook) error
+	Delete(ctx context.Context, webhookID, projectID string) error
+	ListActiveForEvent(ctx context.Context, projectID, event string) ([]Webhook, error)
+
+	InsertDelivery(ctx context.Context, d *WebhookDelivery) error
+	ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]WebhookDelivery, int, error)
+	PruneDeliveries(ctx context.Context, olderThan time.Time) (int64, error)
 }

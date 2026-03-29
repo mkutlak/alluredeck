@@ -54,6 +54,8 @@ func main() {
 		}
 	}
 
+	encKey := security.DeriveEncryptionKey(cfg.JWTSecret)
+
 	// Declare metadata store interfaces — populated below by the PostgreSQL backend.
 	var (
 		projectStore    store.ProjectStorer
@@ -104,9 +106,10 @@ func main() {
 	systemHandler := handlers.NewSystemHandler(cfg, sqlDB)
 	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	defectStore := pg.NewDefectStore(pgDB)
+	webhookStore := pg.NewWebhookStore(pgDB, encKey, logger)
 	allureCore := runner.NewAllure(cfg, dataStore, buildStore, locker, testResultStore, branchStore, defectStore, logger)
 
-	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, 2, logger)
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, webhookStore, buildStore, encKey, cfg.ExternalURL, 2, logger)
 	if err != nil {
 		logger.Fatal("failed to create River job manager", zap.Error(err))
 	}
@@ -189,7 +192,8 @@ func main() {
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
 	defectHandler := handlers.NewDefectHandler(defectStore, logger)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler)
+	webhookHandler := handlers.NewWebhookHandler(webhookStore, logger)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -222,7 +226,7 @@ func main() {
 	// Start JWT blacklist cleanup goroutine — prunes expired JTIs every 15 min (AUDIT 2.1).
 	jwtManager.StartCleanup(ctx, 15*time.Minute)
 
-	startRetentionScheduler(ctx, cfg, projectStore, buildStore, dataStore, logger)
+	startRetentionScheduler(ctx, cfg, projectStore, buildStore, dataStore, webhookStore, logger)
 
 	if cfg.StorageType != "s3" {
 		backgroundWatcher.Start()
@@ -265,7 +269,7 @@ func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watche
 // startRetentionScheduler runs a daily goroutine that prunes old builds for all projects.
 // It applies count-based and age-based pruning according to the configured retention settings.
 func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectStore store.ProjectStorer,
-	buildStore store.BuildStorer, dataStore storage.Store, logger *zap.Logger) {
+	buildStore store.BuildStorer, dataStore storage.Store, webhookStore store.WebhookStorer, logger *zap.Logger) {
 	if cfg.KeepHistoryLatest <= 0 && cfg.KeepHistoryMaxAgeDays <= 0 {
 		logger.Info("retention scheduler disabled")
 		return
@@ -314,6 +318,14 @@ func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectSto
 					}
 				}
 				logger.Info("retention scheduler: daily run complete", zap.Int("builds_pruned", totalPruned))
+
+				// Prune webhook deliveries older than 30 days.
+				whCutoff := time.Now().AddDate(0, 0, -30)
+				if n, err := webhookStore.PruneDeliveries(ctx, whCutoff); err != nil {
+					logger.Error("retention scheduler: webhook delivery prune failed", zap.Error(err))
+				} else if n > 0 {
+					logger.Info("retention scheduler: pruned webhook deliveries", zap.Int64("count", n))
+				}
 			}
 		}
 	}()
@@ -353,6 +365,7 @@ func registerRoutes(
 	oidcHandler *handlers.OIDCHandler,
 	parentHandler *handlers.ProjectParentHandler,
 	defectHandler *handlers.DefectHandler,
+	webhookHandler *handlers.WebhookHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
@@ -490,5 +503,16 @@ func registerRoutes(
 		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/defects/bulk", editorUp(noStore(defectHandler.BulkUpdateDefects)))
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects", viewerUp(noStore(defectHandler.ListBuildDefects)))
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects/summary", viewerUp(mutableCache(defectHandler.GetBuildDefectSummary)))
+	}
+
+	// Webhook management endpoints.
+	if webhookHandler != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks", editorUp(noStore(webhookHandler.List)))
+		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/webhooks", editorUp(noStore(webhookHandler.Create)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(webhookHandler.Get)))
+		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(webhookHandler.Update)))
+		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(webhookHandler.Delete)))
+		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/webhooks/{webhook_id}/test", editorUp(noStore(webhookHandler.Test)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks/{webhook_id}/deliveries", editorUp(noStore(webhookHandler.ListDeliveries)))
 	}
 }

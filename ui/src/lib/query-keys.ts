@@ -72,6 +72,9 @@ export const queryKeys = {
   defectProjectSummary: (projectId: string) => ['defects', 'summary', projectId] as const,
   defectBuildSummary: (projectId: string, buildId: number) =>
     ['defects', 'buildSummary', projectId, buildId] as const,
+  webhooks: (projectId: string) => ['webhooks', projectId] as const,
+  webhookDeliveries: (projectId: string, webhookId: string, page?: number) =>
+    ['webhook-deliveries', projectId, webhookId, ...(page !== undefined ? [page] : [])] as const,
 }
 
 function projectScopedKeys(projectId: string) {

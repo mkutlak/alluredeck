@@ -43,7 +43,9 @@ func openRiverTestStore(t *testing.T) *pg.PGStore {
 func newTestRiverJM(t *testing.T, s *pg.PGStore, gen runner.ReportGenerator) *runner.RiverJobManager {
 	t.Helper()
 	logger := zap.NewNop()
-	jm, err := runner.NewRiverJobManager(s.Pool(), gen, 1, logger)
+	webhookStore := pg.NewWebhookStore(s, nil, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	jm, err := runner.NewRiverJobManager(s.Pool(), gen, webhookStore, buildStore, nil, "", 1, logger)
 	if err != nil {
 		t.Fatalf("NewRiverJobManager: %v", err)
 	}

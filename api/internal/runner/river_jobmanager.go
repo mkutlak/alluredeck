@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 	"go.uber.org/zap"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // GenerateReportArgs holds the River job arguments for async report generation.
@@ -33,8 +36,12 @@ func (GenerateReportArgs) Kind() string { return "generate_report" }
 // GenerateReportWorker is a River worker that executes Allure report generation.
 type GenerateReportWorker struct {
 	river.WorkerDefaults[GenerateReportArgs]
-	generator ReportGenerator
-	logger    *zap.Logger
+	generator    ReportGenerator
+	buildStore   store.BuildStorer
+	webhookStore store.WebhookStorer
+	externalURL  string
+	riverClient  *river.Client[pgx.Tx]
+	logger       *zap.Logger
 }
 
 // Work implements river.Worker.
@@ -52,7 +59,119 @@ func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[Generate
 		zap.Int64("job_id", job.ID),
 		zap.String("project_id", a.ProjectID),
 	)
+	// Fire-and-forget: enqueue webhook notifications for this report.
+	if err := w.enqueueWebhooks(ctx, a.ProjectID); err != nil {
+		w.logger.Warn("river: failed to enqueue webhook notifications",
+			zap.String("project_id", a.ProjectID), zap.Error(err))
+	}
 	return nil
+}
+
+// enqueueWebhooks constructs a WebhookPayload from the latest build and enqueues
+// delivery jobs for all active webhooks. Errors are non-fatal.
+func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID string) error {
+	// Get active webhooks for this project
+	webhooks, err := w.webhookStore.ListActiveForEvent(ctx, projectID, "report_completed")
+	if err != nil {
+		return fmt.Errorf("list active webhooks: %w", err)
+	}
+	if len(webhooks) == 0 {
+		return nil
+	}
+
+	// Get latest build for stats
+	build, err := w.buildStore.GetLatestBuild(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("get latest build: %w", err)
+	}
+
+	// Construct payload
+	payload := store.WebhookPayload{
+		Event:      "report_completed",
+		ProjectID:  projectID,
+		BuildOrder: build.BuildOrder,
+		Timestamp:  time.Now(),
+	}
+
+	// Dashboard URL
+	if w.externalURL != "" {
+		payload.DashboardURL = w.externalURL + "/projects/" + projectID
+	}
+
+	// Stats
+	if build.StatTotal != nil && *build.StatTotal > 0 {
+		payload.Stats = store.WebhookStats{
+			Total:   derefInt(build.StatTotal),
+			Passed:  derefInt(build.StatPassed),
+			Failed:  derefInt(build.StatFailed),
+			Broken:  derefInt(build.StatBroken),
+			Skipped: derefInt(build.StatSkipped),
+		}
+		payload.Stats.PassRate = float64(payload.Stats.Passed) / float64(payload.Stats.Total) * 100
+	}
+
+	// Delta vs previous build
+	prev, err := w.buildStore.GetPreviousBuild(ctx, projectID, build.BuildOrder)
+	if err == nil && prev.StatTotal != nil && *prev.StatTotal > 0 {
+		prevPassRate := float64(derefInt(prev.StatPassed)) / float64(derefInt(prev.StatTotal)) * 100
+		payload.Delta = &store.WebhookDelta{
+			PassRateChange: payload.Stats.PassRate - prevPassRate,
+			NewFailures:    derefInt(build.StatFailed) - derefInt(prev.StatFailed),
+			FixedTests:     derefInt(prev.StatFailed) - derefInt(build.StatFailed),
+		}
+		if payload.Delta.NewFailures < 0 {
+			payload.Delta.NewFailures = 0
+		}
+		if payload.Delta.FixedTests < 0 {
+			payload.Delta.FixedTests = 0
+		}
+	}
+
+	// CI metadata
+	if build.CIProvider != nil || build.CIBranch != nil {
+		payload.CI = &store.WebhookCI{
+			Provider:  derefStr(build.CIProvider),
+			BuildURL:  derefStr(build.CIBuildURL),
+			Branch:    derefStr(build.CIBranch),
+			CommitSHA: derefStr(build.CICommitSHA),
+		}
+	}
+
+	// Enqueue one job per webhook
+	for i := range webhooks {
+		_, err := w.riverClient.Insert(ctx, SendWebhookArgs{
+			WebhookID: webhooks[i].ID,
+			Payload:   payload,
+		}, &river.InsertOpts{
+			Queue:       "webhooks",
+			MaxAttempts: 5,
+		})
+		if err != nil {
+			w.logger.Warn("river: failed to enqueue webhook",
+				zap.String("webhook_id", webhooks[i].ID), zap.Error(err))
+		}
+	}
+
+	w.logger.Info("river: enqueued webhook notifications",
+		zap.String("project_id", projectID),
+		zap.Int("count", len(webhooks)))
+	return nil
+}
+
+// derefInt safely dereferences an *int, returning 0 if nil.
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// derefStr safely dereferences a *string, returning "" if nil.
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // RiverJobManager implements JobQueuer using River backed by PostgreSQL.
@@ -68,19 +187,36 @@ type RiverJobManager struct {
 var _ JobQueuer = (*RiverJobManager)(nil)
 
 // NewRiverJobManager creates a new RiverJobManager. Call Start to begin processing jobs.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, maxWorkers int, logger *zap.Logger) (*RiverJobManager, error) {
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, logger *zap.Logger) (*RiverJobManager, error) {
 	workers := river.NewWorkers()
-	river.AddWorker(workers, &GenerateReportWorker{generator: generator, logger: logger})
+	reportWorker := &GenerateReportWorker{
+		generator:    generator,
+		buildStore:   buildStore,
+		webhookStore: webhookStore,
+		externalURL:  externalURL,
+		logger:       logger,
+	}
+	river.AddWorker(workers, reportWorker)
+	river.AddWorker(workers, &SendWebhookWorker{
+		webhookStore: webhookStore,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		encKey:       encKey,
+		logger:       logger,
+	})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: maxWorkers},
+			"webhooks":         {MaxWorkers: 5},
 		},
 		Workers: workers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create River client: %w", err)
 	}
+
+	// Wire the client back into the report worker so it can enqueue webhook jobs.
+	reportWorker.riverClient = client
 
 	return &RiverJobManager{client: client, pool: pool, logger: logger}, nil
 }

@@ -3,12 +3,14 @@ import { NavLink } from 'react-router'
 import {
   AlertCircle,
   BarChart3,
+  Bell,
   Bug,
   ChevronDown,
   ChevronRight,
   Clock,
   FolderOpen,
   Gauge,
+  KeyRound,
   LayoutDashboard,
   Paperclip,
   Shield,
@@ -184,6 +186,29 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroup>
         )}
+
+        {/* Settings */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Settings</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild tooltip="API Keys">
+                <NavLink to="/settings/api-keys">
+                  <KeyRound />
+                  <span>API Keys</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild tooltip="Webhooks">
+                <NavLink to="/settings/webhooks">
+                  <Bell />
+                  <span>Webhooks</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
         <p className="text-muted-foreground px-2 py-1 text-xs">v{env.appVersion}</p>

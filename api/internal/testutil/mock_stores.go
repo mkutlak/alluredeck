@@ -38,6 +38,7 @@ type MockStores struct {
 	Users       *MemUserStore   // stateful in-memory store for user handler tests
 	Attachments *MockAttachmentStore
 	Defects     *MemDefectStore
+	Webhooks    *MemWebhookStore // stateful in-memory store for webhook handler tests
 }
 
 // New returns a MockStores with all fields initialised.
@@ -58,6 +59,7 @@ func New() *MockStores {
 		Users:       NewMemUserStore(),
 		Attachments: &MockAttachmentStore{},
 		Defects:     NewMemDefectStore(),
+		Webhooks:    NewMemWebhookStore(),
 	}
 }
 
