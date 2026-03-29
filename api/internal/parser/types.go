@@ -46,4 +46,5 @@ type Attachment struct {
 	Name     string
 	Source   string // filename in storage
 	MimeType string
+	Size     int64 // populated by ResolveAttachments; 0 when unknown
 }

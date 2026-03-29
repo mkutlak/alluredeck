@@ -17,10 +17,16 @@ describe('fetchAttachments', () => {
     vi.clearAllMocks()
   })
 
-  it('calls correct endpoint and returns data', async () => {
+  it('calls correct endpoint and returns grouped data with urls', async () => {
     const mockData = {
-      attachments: [
-        { id: 1, name: 'screenshot.png', source: 'abc123.png', mime_type: 'image/png', size_bytes: 1024, url: '/api/v1/projects/p1/reports/latest/attachments/abc123.png' },
+      groups: [
+        {
+          test_name: 'shouldRegister',
+          test_status: 'failed',
+          attachments: [
+            { id: 1, name: 'screenshot.png', source: 'abc123.png', mime_type: 'image/png', size_bytes: 1024 },
+          ],
+        },
       ],
       total: 1,
       limit: 100,
@@ -34,11 +40,15 @@ describe('fetchAttachments', () => {
       '/projects/p1/reports/latest/attachments',
       { params: {} },
     )
-    expect(result).toEqual(mockData)
+    expect(result.groups).toHaveLength(1)
+    expect(result.groups[0].test_name).toBe('shouldRegister')
+    expect(result.groups[0].attachments[0].url).toBe(
+      '/api/v1/projects/p1/reports/latest/attachments/abc123.png',
+    )
   })
 
   it('passes mime_type filter param', async () => {
-    mockGet.mockResolvedValueOnce({ data: { data: { attachments: [], total: 0, limit: 100, offset: 0 } } })
+    mockGet.mockResolvedValueOnce({ data: { data: { groups: [], total: 0, limit: 100, offset: 0 } } })
 
     await fetchAttachments('p1', 'latest', { mimeType: 'image/' })
 
@@ -49,7 +59,7 @@ describe('fetchAttachments', () => {
   })
 
   it('passes limit and offset params', async () => {
-    mockGet.mockResolvedValueOnce({ data: { data: { attachments: [], total: 0, limit: 50, offset: 10 } } })
+    mockGet.mockResolvedValueOnce({ data: { data: { groups: [], total: 0, limit: 50, offset: 10 } } })
 
     await fetchAttachments('p1', '5', { limit: 50, offset: 10 })
 

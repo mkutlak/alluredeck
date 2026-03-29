@@ -141,6 +141,106 @@ func convertAttachments(raw []allureAttachJSON) []Attachment {
 	return attachments
 }
 
+// ResolveAttachments reads the Allure-generated test result files to resolve
+// hashed attachment filenames and populate sizes. Allure CLI renames attachment
+// files with content-based hashes during report generation (e.g. stdout-001.txt
+// becomes a007608853ada3187d97d23b85f1d7d4.txt). This function reads the
+// generated data/test-results/*.json files to build the originalFileName →
+// {hashedName, contentLength} mapping, then updates each Attachment's Source
+// and Size. For Allure 2 (which doesn't rename files), it falls back to
+// stat-ing the original filename in the attachments directory.
+func ResolveAttachments(results []*Result, reportDataDir string) {
+	mapping := buildAttachmentMapping(filepath.Join(reportDataDir, "test-results"))
+	attachmentsDir := filepath.Join(reportDataDir, "attachments")
+
+	for _, r := range results {
+		resolveAttachmentSlice(r.Attachments, mapping, attachmentsDir)
+		for i := range r.Steps {
+			resolveStepAttachments(&r.Steps[i], mapping, attachmentsDir)
+		}
+	}
+}
+
+// attachmentMapping holds the resolved filename and size for an attachment.
+type attachmentMapping struct {
+	HashedSource string
+	Size         int64
+}
+
+// buildAttachmentMapping reads Allure-generated test result JSON files and
+// builds a map from originalFileName to the hashed filename and content length.
+func buildAttachmentMapping(testResultsDir string) map[string]attachmentMapping {
+	mapping := make(map[string]attachmentMapping)
+
+	entries, err := os.ReadDir(testResultsDir)
+	if err != nil {
+		return mapping
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(testResultsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var result generatedResultJSON
+		if json.Unmarshal(data, &result) != nil {
+			continue
+		}
+		for _, att := range result.Attachments {
+			if att.Link.OriginalFileName != "" && att.Link.ID != "" {
+				mapping[att.Link.OriginalFileName] = attachmentMapping{
+					HashedSource: att.Link.ID + att.Link.Ext,
+					Size:         att.Link.ContentLength,
+				}
+			}
+		}
+	}
+
+	return mapping
+}
+
+func resolveAttachmentSlice(atts []Attachment, mapping map[string]attachmentMapping, attachmentsDir string) {
+	for i := range atts {
+		if m, ok := mapping[atts[i].Source]; ok {
+			atts[i].Source = m.HashedSource
+			atts[i].Size = m.Size
+		} else {
+			// Fallback: stat original filename (Allure 2 doesn't rename files).
+			info, err := os.Stat(filepath.Join(attachmentsDir, atts[i].Source))
+			if err == nil {
+				atts[i].Size = info.Size()
+			}
+		}
+	}
+}
+
+func resolveStepAttachments(step *Step, mapping map[string]attachmentMapping, attachmentsDir string) {
+	resolveAttachmentSlice(step.Attachments, mapping, attachmentsDir)
+	for i := range step.Steps {
+		resolveStepAttachments(&step.Steps[i], mapping, attachmentsDir)
+	}
+}
+
+// --- internal JSON structs for Allure-generated test results ---
+
+// generatedResultJSON is a minimal struct for parsing Allure-generated test result files.
+type generatedResultJSON struct {
+	Attachments []generatedAttachmentJSON `json:"attachments"`
+}
+
+// generatedAttachmentJSON represents an attachment entry in a generated test result.
+type generatedAttachmentJSON struct {
+	Link struct {
+		ID               string `json:"id"`
+		OriginalFileName string `json:"originalFileName"`
+		Ext              string `json:"ext"`
+		ContentLength    int64  `json:"contentLength"`
+	} `json:"link"`
+}
+
 // --- internal JSON structs (unexported, used only for decoding) ---
 
 type allureResultJSON struct {

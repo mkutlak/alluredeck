@@ -134,6 +134,8 @@ type TestAttachment struct {
 	Source       string
 	MimeType     string
 	SizeBytes    int64
+	TestName     string // joined from test_results
+	TestStatus   string // joined from test_results
 }
 
 // LowPerformingTest holds aggregated metrics for a test that performs poorly.

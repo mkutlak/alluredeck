@@ -30,25 +30,27 @@ func (a *PGAttachmentStore) ListByBuild(ctx context.Context, projectID string, b
 	if mimeFilter != "" {
 		rows, err = a.pool.Query(ctx, `
 			SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes,
+			       tr.test_name, tr.status,
 			       COUNT(*) OVER() AS total
 			FROM test_attachments ta
 			JOIN test_results tr ON tr.id = ta.test_result_id
 			WHERE tr.build_id = $1
 			  AND tr.project_id = $2
 			  AND ta.mime_type LIKE $3 || '%'
-			ORDER BY ta.id
+			ORDER BY tr.test_name, ta.id
 			LIMIT $4 OFFSET $5`,
 			buildID, projectID, mimeFilter, limit, offset,
 		)
 	} else {
 		rows, err = a.pool.Query(ctx, `
 			SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes,
+			       tr.test_name, tr.status,
 			       COUNT(*) OVER() AS total
 			FROM test_attachments ta
 			JOIN test_results tr ON tr.id = ta.test_result_id
 			WHERE tr.build_id = $1
 			  AND tr.project_id = $2
-			ORDER BY ta.id
+			ORDER BY tr.test_name, ta.id
 			LIMIT $3 OFFSET $4`,
 			buildID, projectID, limit, offset,
 		)
@@ -62,7 +64,7 @@ func (a *PGAttachmentStore) ListByBuild(ctx context.Context, projectID string, b
 	var total int
 	for rows.Next() {
 		var at store.TestAttachment
-		if err := rows.Scan(&at.ID, &at.TestResultID, &at.TestStepID, &at.Name, &at.Source, &at.MimeType, &at.SizeBytes, &total); err != nil {
+		if err := rows.Scan(&at.ID, &at.TestResultID, &at.TestStepID, &at.Name, &at.Source, &at.MimeType, &at.SizeBytes, &at.TestName, &at.TestStatus, &total); err != nil {
 			return nil, 0, fmt.Errorf("scan attachment: %w", err)
 		}
 		result = append(result, at)

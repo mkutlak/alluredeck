@@ -14,10 +14,11 @@ const textAttachment: AttachmentEntry = {
 }
 
 describe('AttachmentCard', () => {
-  it('renders thumbnail for image attachments', () => {
+  it('renders thumbnail for image attachments with crossOrigin', () => {
     render(<AttachmentCard attachment={imageAttachment} onClick={() => {}} />)
     const img = screen.getByRole('img')
     expect(img).toBeInTheDocument()
+    expect(img).toHaveAttribute('crossOrigin', 'use-credentials')
   })
 
   it('renders file icon for text attachments', () => {

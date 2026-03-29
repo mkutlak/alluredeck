@@ -590,8 +590,14 @@ export interface AttachmentEntry {
   url: string
 }
 
-export interface AttachmentsData {
+export interface AttachmentGroup {
+  test_name: string
+  test_status: string
   attachments: AttachmentEntry[]
+}
+
+export interface AttachmentsData {
+  groups: AttachmentGroup[]
   total: number
   limit: number
   offset: number

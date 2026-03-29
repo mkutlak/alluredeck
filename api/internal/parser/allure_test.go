@@ -221,3 +221,183 @@ func TestParseDir_EmptyDir(t *testing.T) {
 		t.Errorf("ParseDir: got %d results, want 0", len(results))
 	}
 }
+
+func TestResolveAttachments_WithMapping(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// Simulate Allure-generated directory structure: data/test-results/*.json + data/attachments/
+	testResultsDir := filepath.Join(dir, "test-results")
+	if err := os.MkdirAll(testResultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "attachments"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a generated test result file with the hashed attachment mapping.
+	genResult := `{
+		"name": "test1",
+		"attachments": [
+			{
+				"link": {
+					"id": "abc123hash",
+					"originalFileName": "screenshot-001.png",
+					"ext": ".png",
+					"contentType": "image/png",
+					"contentLength": 4096,
+					"name": "screenshot.png",
+					"used": true,
+					"missed": false
+				},
+				"type": "attachment"
+			}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(testResultsDir, "aaa-result.json"), []byte(genResult), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	results := []*parser.Result{
+		{
+			Name: "test1",
+			Attachments: []parser.Attachment{
+				{Name: "screenshot.png", Source: "screenshot-001.png", MimeType: "image/png"},
+			},
+		},
+	}
+
+	parser.ResolveAttachments(results, dir)
+
+	att := results[0].Attachments[0]
+	if att.Source != "abc123hash.png" {
+		t.Errorf("Source = %q, want %q", att.Source, "abc123hash.png")
+	}
+	if att.Size != 4096 {
+		t.Errorf("Size = %d, want 4096", att.Size)
+	}
+}
+
+func TestResolveAttachments_FallbackToStat(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// No test-results dir → fallback to stat-ing files directly (Allure 2 behavior).
+	attDir := filepath.Join(dir, "attachments")
+	if err := os.MkdirAll(attDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("hello, this is a 42-byte attachment file!!")
+	if err := os.WriteFile(filepath.Join(attDir, "abc-screenshot.png"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	results := []*parser.Result{
+		{
+			Name: "test1",
+			Attachments: []parser.Attachment{
+				{Name: "screenshot.png", Source: "abc-screenshot.png", MimeType: "image/png"},
+			},
+		},
+	}
+
+	parser.ResolveAttachments(results, dir)
+
+	att := results[0].Attachments[0]
+	if att.Source != "abc-screenshot.png" {
+		t.Errorf("Source should remain %q for fallback, got %q", "abc-screenshot.png", att.Source)
+	}
+	if att.Size != int64(len(content)) {
+		t.Errorf("Size = %d, want %d", att.Size, len(content))
+	}
+}
+
+func TestResolveAttachments_MissingFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir() // empty — no test-results, no attachments
+
+	results := []*parser.Result{
+		{
+			Name: "test1",
+			Attachments: []parser.Attachment{
+				{Name: "missing.png", Source: "no-such-file.png", MimeType: "image/png"},
+			},
+		},
+	}
+
+	parser.ResolveAttachments(results, dir)
+
+	if results[0].Attachments[0].Size != 0 {
+		t.Errorf("Size = %d, want 0 for missing file", results[0].Attachments[0].Size)
+	}
+}
+
+func TestResolveAttachments_StepAttachments(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	testResultsDir := filepath.Join(dir, "test-results")
+	if err := os.MkdirAll(testResultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "attachments"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Generated result maps step-log.txt to a hash, but nonexistent.txt is not in the mapping.
+	genResult := `{
+		"name": "test1",
+		"attachments": [
+			{
+				"link": {
+					"id": "hashsteplog",
+					"originalFileName": "step-log.txt",
+					"ext": ".txt",
+					"contentType": "text/plain",
+					"contentLength": 19,
+					"name": "log.txt",
+					"used": true,
+					"missed": false
+				},
+				"type": "attachment"
+			}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(testResultsDir, "bbb-result.json"), []byte(genResult), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	results := []*parser.Result{
+		{
+			Name: "test1",
+			Steps: []parser.Step{
+				{
+					Name: "step1",
+					Attachments: []parser.Attachment{
+						{Name: "log.txt", Source: "step-log.txt", MimeType: "text/plain"},
+					},
+					Steps: []parser.Step{
+						{
+							Name: "nested-step",
+							Attachments: []parser.Attachment{
+								{Name: "missing.txt", Source: "nonexistent.txt", MimeType: "text/plain"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	parser.ResolveAttachments(results, dir)
+
+	if results[0].Steps[0].Attachments[0].Source != "hashsteplog.txt" {
+		t.Errorf("step attachment Source = %q, want %q", results[0].Steps[0].Attachments[0].Source, "hashsteplog.txt")
+	}
+	if results[0].Steps[0].Attachments[0].Size != 19 {
+		t.Errorf("step attachment Size = %d, want 19", results[0].Steps[0].Attachments[0].Size)
+	}
+	if results[0].Steps[0].Steps[0].Attachments[0].Size != 0 {
+		t.Errorf("nested missing attachment Size = %d, want 0", results[0].Steps[0].Steps[0].Attachments[0].Size)
+	}
+}

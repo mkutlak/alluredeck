@@ -261,6 +261,8 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 						a.logger.Warn("failed to parse raw results for enrichment",
 							zap.String("project_id", projectID), zap.Error(parseErr))
 					} else if len(parsedResults) > 0 {
+						reportDataDir := filepath.Join(localProjectDir, "reports", "latest", "data")
+						parser.ResolveAttachments(parsedResults, reportDataDir)
 						if enrichErr := a.testResultStore.InsertBatchFull(ctx, buildID, projectID, parsedResults); enrichErr != nil {
 							a.logger.Warn("failed to enrich test results",
 								zap.String("project_id", projectID), zap.Error(enrichErr))

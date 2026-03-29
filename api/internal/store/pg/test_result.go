@@ -509,7 +509,7 @@ func (ts *PGTestResultStore) InsertBatchFull(ctx context.Context, buildID int64,
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO test_attachments(test_result_id, name, source, mime_type, size_bytes)
 				 VALUES ($1,$2,$3,$4,$5)`,
-				testResultID, att.Name, att.Source, att.MimeType, 0,
+				testResultID, att.Name, att.Source, att.MimeType, att.Size,
 			); err != nil {
 				return fmt.Errorf("insert attachment: %w", err)
 			}
@@ -539,7 +539,7 @@ func insertSteps(ctx context.Context, tx pgx.Tx, testResultID int64, parentStepI
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO test_attachments(test_result_id, test_step_id, name, source, mime_type, size_bytes)
 				 VALUES ($1,$2,$3,$4,$5,$6)`,
-				testResultID, stepID, att.Name, att.Source, att.MimeType, 0,
+				testResultID, stepID, att.Name, att.Source, att.MimeType, att.Size,
 			); err != nil {
 				return fmt.Errorf("insert step attachment: %w", err)
 			}

@@ -237,12 +237,12 @@ func TestListAttachments_Empty(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected data object, got %T", resp["data"])
 	}
-	atts, ok := data["attachments"].([]any)
+	groups, ok := data["groups"].([]any)
 	if !ok {
-		t.Fatalf("expected attachments array, got %T", data["attachments"])
+		t.Fatalf("expected groups array, got %T", data["groups"])
 	}
-	if len(atts) != 0 {
-		t.Errorf("expected 0 attachments, got %d", len(atts))
+	if len(groups) != 0 {
+		t.Errorf("expected 0 groups, got %d", len(groups))
 	}
 	total, _ := data["total"].(float64)
 	if total != 0 {
@@ -254,9 +254,11 @@ func TestListAttachments_WithResults(t *testing.T) {
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 10, BuildOrder: 3, ProjectID: "proj1"}}
 	as := &mockAttachmentStore{
 		attachments: []store.TestAttachment{
-			{ID: 1, Name: "screenshot.png", Source: "abc123-result.png", MimeType: "image/png", SizeBytes: 1024},
+			{ID: 1, TestResultID: 100, Name: "screenshot.png", Source: "abc123-result.png", MimeType: "image/png", SizeBytes: 1024, TestName: "shouldRegister", TestStatus: "failed"},
+			{ID: 2, TestResultID: 100, Name: "stdout.txt", Source: "def456.txt", MimeType: "text/plain", SizeBytes: 512, TestName: "shouldRegister", TestStatus: "failed"},
+			{ID: 3, TestResultID: 200, Name: "stderr.txt", Source: "ghi789.txt", MimeType: "text/plain", SizeBytes: 256, TestName: "shouldLogin", TestStatus: "passed"},
 		},
-		total: 1,
+		total: 3,
 	}
 	h := newAttachmentHandler(as, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -277,27 +279,36 @@ func TestListAttachments_WithResults(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected data object, got %T", resp["data"])
 	}
-	atts, ok := data["attachments"].([]any)
+	groups, ok := data["groups"].([]any)
 	if !ok {
-		t.Fatalf("expected attachments array, got %T", data["attachments"])
+		t.Fatalf("expected groups array, got %T", data["groups"])
 	}
-	if len(atts) != 1 {
-		t.Fatalf("expected 1 attachment, got %d", len(atts))
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
 	}
-	att, ok := atts[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected attachment object, got %T", atts[0])
+
+	g0, _ := groups[0].(map[string]any)
+	if g0["test_name"] != "shouldRegister" {
+		t.Errorf("group[0].test_name = %v, want shouldRegister", g0["test_name"])
 	}
-	// Verify url field is set correctly.
-	wantURL := "/api/v1/projects/proj1/reports/3/attachments/abc123-result.png"
-	if att["url"] != wantURL {
-		t.Errorf("url = %v, want %v", att["url"], wantURL)
+	if g0["test_status"] != "failed" {
+		t.Errorf("group[0].test_status = %v, want failed", g0["test_status"])
 	}
-	if att["name"] != "screenshot.png" {
-		t.Errorf("name = %v, want screenshot.png", att["name"])
+	g0atts, _ := g0["attachments"].([]any)
+	if len(g0atts) != 2 {
+		t.Fatalf("group[0] expected 2 attachments, got %d", len(g0atts))
 	}
-	if att["mime_type"] != "image/png" {
-		t.Errorf("mime_type = %v, want image/png", att["mime_type"])
+	att0, _ := g0atts[0].(map[string]any)
+	if att0["name"] != "screenshot.png" {
+		t.Errorf("group[0].attachments[0].name = %v, want screenshot.png", att0["name"])
+	}
+
+	g1, _ := groups[1].(map[string]any)
+	if g1["test_name"] != "shouldLogin" {
+		t.Errorf("group[1].test_name = %v, want shouldLogin", g1["test_name"])
+	}
+	if g1["test_status"] != "passed" {
+		t.Errorf("group[1].test_status = %v, want passed", g1["test_status"])
 	}
 }
 
@@ -405,5 +416,51 @@ func TestServeAttachment_Success(t *testing.T) {
 	}
 	if rr.Body.String() != "PNG_DATA" {
 		t.Errorf("body = %q, want %q", rr.Body.String(), "PNG_DATA")
+	}
+}
+
+func TestServeAttachment_InlineDisposition(t *testing.T) {
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	ds := &mockDataStore{content: "data", mimeType: "image/png"}
+	h := newAttachmentHandler(&mockAttachmentStore{}, bs, ds)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/p/reports/1/attachments/shot.png", nil)
+	req.SetPathValue("project_id", "p")
+	req.SetPathValue("report_id", "1")
+	req.SetPathValue("source", "shot.png")
+	rr := httptest.NewRecorder()
+	h.ServeAttachment(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	cd := rr.Header().Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "inline") {
+		t.Errorf("Content-Disposition = %q, want prefix 'inline'", cd)
+	}
+}
+
+func TestServeAttachment_DownloadDisposition(t *testing.T) {
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	ds := &mockDataStore{content: "data", mimeType: "image/png"}
+	as := &mockAttachmentStore{source: &store.TestAttachment{Name: "my-screenshot.png", Source: "abc123hash.png"}}
+	h := newAttachmentHandler(as, bs, ds)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/p/reports/1/attachments/abc123hash.png?dl=1", nil)
+	req.SetPathValue("project_id", "p")
+	req.SetPathValue("report_id", "1")
+	req.SetPathValue("source", "abc123hash.png")
+	rr := httptest.NewRecorder()
+	h.ServeAttachment(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	cd := rr.Header().Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "attachment") {
+		t.Errorf("Content-Disposition = %q, want prefix 'attachment'", cd)
+	}
+	if !strings.Contains(cd, "my-screenshot.png") {
+		t.Errorf("Content-Disposition = %q, want human-readable filename 'my-screenshot.png'", cd)
 	}
 }

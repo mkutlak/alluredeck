@@ -23,6 +23,7 @@ export function AttachmentCard({ attachment, onClick }: AttachmentCardProps) {
             src={attachment.url}
             alt={attachment.name}
             loading="lazy"
+            crossOrigin="use-credentials"
             className="h-full w-full object-cover"
           />
         ) : isText ? (

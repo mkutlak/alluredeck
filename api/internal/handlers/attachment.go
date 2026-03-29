@@ -78,6 +78,13 @@ type attachmentItem struct {
 	URL       string `json:"url"`
 }
 
+// attachmentGroup groups attachments by the test result they belong to.
+type attachmentGroup struct {
+	TestName    string           `json:"test_name"`
+	TestStatus  string           `json:"test_status"`
+	Attachments []attachmentItem `json:"attachments"`
+}
+
 // ListAttachments godoc
 // @Summary      List attachments for a build
 // @Description  Returns paginated attachment metadata for all test attachments in a build.
@@ -135,9 +142,13 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	items := make([]attachmentItem, len(atts))
-	for i, att := range atts {
-		items[i] = attachmentItem{
+	// Group attachments by test result (ordered by test_name from the query).
+	var groups []attachmentGroup
+	groupIdx := make(map[int64]int) // test_result_id → index in groups
+
+	for i := range atts {
+		att := &atts[i]
+		item := attachmentItem{
 			ID:        att.ID,
 			Name:      att.Name,
 			Source:    att.Source,
@@ -145,14 +156,29 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 			SizeBytes: att.SizeBytes,
 			URL:       fmt.Sprintf("/api/v1/projects/%s/reports/%d/attachments/%s", projectID, build.BuildOrder, att.Source),
 		}
+
+		idx, exists := groupIdx[att.TestResultID]
+		if !exists {
+			idx = len(groups)
+			groupIdx[att.TestResultID] = idx
+			groups = append(groups, attachmentGroup{
+				TestName:   att.TestName,
+				TestStatus: att.TestStatus,
+			})
+		}
+		groups[idx].Attachments = append(groups[idx].Attachments, item)
+	}
+
+	if groups == nil {
+		groups = []attachmentGroup{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"attachments": items,
-			"total":       total,
-			"limit":       limit,
-			"offset":      offset,
+			"groups": groups,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
 		},
 		"metadata": map[string]string{"message": "Attachments successfully retrieved"},
 	})
@@ -206,7 +232,16 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 	defer func() { _ = reader.Close() }()
 
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", source))
+	disposition := "inline"
+	if r.URL.Query().Get("dl") == "1" {
+		disposition = "attachment"
+	}
+	// Use the human-readable name for Content-Disposition when available.
+	displayName := source
+	if att, err := h.attachmentStore.GetBySource(ctx, build.ID, source); err == nil && att != nil {
+		displayName = att.Name
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, displayName))
 
 	if _, err := io.Copy(w, reader); err != nil {
 		h.logger.Error("failed to stream attachment", zap.String("source", source), zap.Error(err))
