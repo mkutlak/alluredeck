@@ -14,12 +14,13 @@ import (
 type ProjectParentHandler struct {
 	projectStore store.ProjectStorer
 	buildStore   store.BuildStorer
+	projectsDir  string
 	logger       *zap.Logger
 }
 
 // NewProjectParentHandler creates a new ProjectParentHandler.
-func NewProjectParentHandler(ps store.ProjectStorer, bs store.BuildStorer, logger *zap.Logger) *ProjectParentHandler {
-	return &ProjectParentHandler{projectStore: ps, buildStore: bs, logger: logger}
+func NewProjectParentHandler(ps store.ProjectStorer, bs store.BuildStorer, projectsDir string, logger *zap.Logger) *ProjectParentHandler {
+	return &ProjectParentHandler{projectStore: ps, buildStore: bs, projectsDir: projectsDir, logger: logger}
 }
 
 type setParentRequest struct {
@@ -42,9 +43,8 @@ type setParentRequest struct {
 func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -112,13 +112,10 @@ func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"project_id": projectID,
-			"parent_id":  req.ParentID,
-		},
-		"metadata": map[string]string{"message": "Parent set successfully"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"project_id": projectID,
+		"parent_id":  req.ParentID,
+	}, "Parent set successfully")
 }
 
 // ClearParent godoc
@@ -134,9 +131,8 @@ func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request)
 func (h *ProjectParentHandler) ClearParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -164,12 +160,7 @@ func (h *ProjectParentHandler) ClearParent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"project_id": projectID,
-		},
-		"metadata": map[string]string{"message": "Parent removed successfully"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{"project_id": projectID}, "Parent removed successfully")
 }
 
 // ListChildren godoc
@@ -185,9 +176,8 @@ func (h *ProjectParentHandler) ClearParent(w http.ResponseWriter, r *http.Reques
 func (h *ProjectParentHandler) ListChildren(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -211,8 +201,5 @@ func (h *ProjectParentHandler) ListChildren(w http.ResponseWriter, r *http.Reque
 		children = []store.Project{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     children,
-		"metadata": map[string]string{"message": "Children successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, children, "Children successfully obtained")
 }

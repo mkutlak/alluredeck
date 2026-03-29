@@ -13,13 +13,15 @@ import (
 type BranchHandler struct {
 	branchStore store.BranchStorer
 	buildStore  store.BuildStorer
+	projectsDir string
 }
 
 // NewBranchHandler creates a new BranchHandler.
-func NewBranchHandler(bs store.BranchStorer, buildStore store.BuildStorer) *BranchHandler {
+func NewBranchHandler(bs store.BranchStorer, buildStore store.BuildStorer, projectsDir string) *BranchHandler {
 	return &BranchHandler{
 		branchStore: bs,
 		buildStore:  buildStore,
+		projectsDir: projectsDir,
 	}
 }
 
@@ -54,7 +56,10 @@ func branchToJSON(b store.Branch) branchJSON {
 func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	branches, err := h.branchStore.List(ctx, projectID)
 	if err != nil {
@@ -67,12 +72,7 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 		out = append(out, branchToJSON(b))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"branches": out,
-		},
-		"metadata": map[string]string{"message": "Branches successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{"branches": out}, "Branches successfully obtained")
 }
 
 // SetDefaultBranch godoc
@@ -89,7 +89,10 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	branchIDStr := r.PathValue("branch_id")
 	branchID, err := strconv.ParseInt(branchIDStr, 10, 64)
@@ -107,9 +110,7 @@ func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"metadata": map[string]string{"message": "Default branch successfully updated"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{}, "Default branch successfully updated")
 }
 
 // DeleteBranch godoc
@@ -127,7 +128,10 @@ func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request)
 func (h *BranchHandler) DeleteBranch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	branchIDStr := r.PathValue("branch_id")
 	branchID, err := strconv.ParseInt(branchIDStr, 10, 64)

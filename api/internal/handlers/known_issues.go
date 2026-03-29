@@ -65,10 +65,7 @@ func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) 
 	for i := range issues {
 		resp = append(resp, kiToResponse(&issues[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     resp,
-		"metadata": map[string]string{"message": "Known issues successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, resp, "Known issues successfully obtained")
 }
 
 // CreateKnownIssue godoc
@@ -123,10 +120,7 @@ func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"data":     kiToResponse(issue),
-		"metadata": map[string]string{"message": "Known issue created"},
-	})
+	writeSuccess(w, http.StatusCreated, kiToResponse(issue), "Known issue created")
 }
 
 // UpdateKnownIssue godoc
@@ -191,10 +185,7 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     kiToResponse(issue),
-		"metadata": map[string]string{"message": "Known issue updated"},
-	})
+	writeSuccess(w, http.StatusOK, kiToResponse(issue), "Known issue updated")
 }
 
 // DeleteKnownIssue godoc
@@ -231,10 +222,7 @@ func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]any{"id": issueID},
-		"metadata": map[string]string{"message": "Known issue deleted"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{"id": issueID}, "Known issue deleted")
 }
 
 // GetReportKnownFailures godoc
@@ -318,18 +306,15 @@ func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"known_failures": knownFailures,
-			"new_failures":   newFailures,
-			"adjusted_stats": map[string]any{
-				"known_count": len(knownFailures),
-				"new_count":   len(newFailures),
-				"total_count": len(knownFailures) + len(newFailures),
-			},
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"known_failures": knownFailures,
+		"new_failures":   newFailures,
+		"adjusted_stats": map[string]any{
+			"known_count": len(knownFailures),
+			"new_count":   len(newFailures),
+			"total_count": len(knownFailures) + len(newFailures),
 		},
-		"metadata": map[string]string{"message": "Known failures successfully obtained"},
-	})
+	}, "Known failures successfully obtained")
 }
 
 // isUniqueConstraintError returns true when err wraps store.ErrDuplicateEntry.

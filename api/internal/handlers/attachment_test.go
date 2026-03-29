@@ -178,8 +178,9 @@ func (m *mockDataStore) ResultsDirHash(_ context.Context, _ string) (string, err
 // helpers
 // ---------------------------------------------------------------------------
 
-func newAttachmentHandler(as store.AttachmentStorer, bs store.BuildStorer, ds storage.Store) *AttachmentHandler {
-	return NewAttachmentHandler(as, bs, ds, zap.NewNop())
+func newAttachmentHandler(t *testing.T, as store.AttachmentStorer, bs store.BuildStorer, ds storage.Store) *AttachmentHandler {
+	t.Helper()
+	return NewAttachmentHandler(as, bs, ds, t.TempDir(), zap.NewNop())
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +188,7 @@ func newAttachmentHandler(as store.AttachmentStorer, bs store.BuildStorer, ds st
 // ---------------------------------------------------------------------------
 
 func TestListAttachments_InvalidReportID(t *testing.T) {
-	h := newAttachmentHandler(&mockAttachmentStore{}, &mockAttachmentBuildStore{}, &mockDataStore{})
+	h := newAttachmentHandler(t, &mockAttachmentStore{}, &mockAttachmentBuildStore{}, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/reports/abc!!/attachments", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -202,7 +203,7 @@ func TestListAttachments_InvalidReportID(t *testing.T) {
 
 func TestListAttachments_BuildNotFound(t *testing.T) {
 	bs := &mockAttachmentBuildStore{errToReturn: store.ErrBuildNotFound}
-	h := newAttachmentHandler(&mockAttachmentStore{}, bs, &mockDataStore{})
+	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/reports/5/attachments", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -218,7 +219,7 @@ func TestListAttachments_BuildNotFound(t *testing.T) {
 func TestListAttachments_Empty(t *testing.T) {
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 5, ProjectID: "myproj"}}
 	as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
-	h := newAttachmentHandler(as, bs, &mockDataStore{})
+	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/reports/5/attachments", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -260,7 +261,7 @@ func TestListAttachments_WithResults(t *testing.T) {
 		},
 		total: 3,
 	}
-	h := newAttachmentHandler(as, bs, &mockDataStore{})
+	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/reports/3/attachments", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -319,7 +320,7 @@ func TestListAttachments_MimeFilter(t *testing.T) {
 	as.attachments = []store.TestAttachment{}
 	// Override ListByBuild to capture the mimeFilter arg.
 	captureStore := &captureMimeStore{inner: as, capturedMime: &capturedMime}
-	h := newAttachmentHandler(captureStore, bs, &mockDataStore{})
+	h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments?mime_type=image", nil)
 	req.SetPathValue("project_id", "p")
@@ -362,7 +363,7 @@ func TestServeAttachment_PathTraversal(t *testing.T) {
 	rawSources := []string{"../secret", "a/../b", "a/b", "a\\b", "a\x00b"}
 
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
-	h := newAttachmentHandler(&mockAttachmentStore{}, bs, &mockDataStore{})
+	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
 
 	for i, src := range rawSources {
 		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -382,7 +383,7 @@ func TestServeAttachment_PathTraversal(t *testing.T) {
 func TestServeAttachment_FileNotFound(t *testing.T) {
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
 	ds := &mockDataStore{errToReturn: errors.New("not found")}
-	h := newAttachmentHandler(&mockAttachmentStore{}, bs, ds)
+	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments/abc.png", nil)
 	req.SetPathValue("project_id", "p")
@@ -399,7 +400,7 @@ func TestServeAttachment_FileNotFound(t *testing.T) {
 func TestServeAttachment_Success(t *testing.T) {
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 2, ProjectID: "proj"}}
 	ds := &mockDataStore{content: "PNG_DATA", mimeType: "image/png"}
-	h := newAttachmentHandler(&mockAttachmentStore{}, bs, ds)
+	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj/reports/2/attachments/screenshot.png", nil)
 	req.SetPathValue("project_id", "proj")
@@ -422,7 +423,7 @@ func TestServeAttachment_Success(t *testing.T) {
 func TestServeAttachment_InlineDisposition(t *testing.T) {
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
 	ds := &mockDataStore{content: "data", mimeType: "image/png"}
-	h := newAttachmentHandler(&mockAttachmentStore{}, bs, ds)
+	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments/shot.png", nil)
 	req.SetPathValue("project_id", "p")
@@ -444,7 +445,7 @@ func TestServeAttachment_DownloadDisposition(t *testing.T) {
 	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
 	ds := &mockDataStore{content: "data", mimeType: "image/png"}
 	as := &mockAttachmentStore{source: &store.TestAttachment{Name: "my-screenshot.png", Source: "abc123hash.png"}}
-	h := newAttachmentHandler(as, bs, ds)
+	h := newAttachmentHandler(t, as, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments/abc123hash.png?dl=1", nil)
 	req.SetPathValue("project_id", "p")

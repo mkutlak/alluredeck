@@ -14,17 +14,19 @@ import (
 
 // AdminHandler handles admin-only system monitoring endpoints.
 type AdminHandler struct {
-	jobManager runner.JobQueuer
-	store      storage.Store
-	logger     *zap.Logger
+	jobManager  runner.JobQueuer
+	store       storage.Store
+	projectsDir string
+	logger      *zap.Logger
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(jm runner.JobQueuer, store storage.Store, logger *zap.Logger) *AdminHandler {
+func NewAdminHandler(jm runner.JobQueuer, store storage.Store, projectsDir string, logger *zap.Logger) *AdminHandler {
 	return &AdminHandler{
-		jobManager: jm,
-		store:      store,
-		logger:     logger,
+		jobManager:  jm,
+		store:       store,
+		projectsDir: projectsDir,
+		logger:      logger,
 	}
 }
 
@@ -45,12 +47,7 @@ type pendingResultsEntry struct {
 // @Router       /admin/jobs [get]
 func (h *AdminHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := h.jobManager.ListJobs()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": jobs,
-		"metadata": map[string]any{
-			"message": fmt.Sprintf("%d job(s) found", len(jobs)),
-		},
-	})
+	writeSuccess(w, http.StatusOK, jobs, fmt.Sprintf("%d job(s) found", len(jobs)))
 }
 
 // ListPendingResults godoc
@@ -108,12 +105,7 @@ func (h *AdminHandler) ListPendingResults(w http.ResponseWriter, r *http.Request
 		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": entries,
-		"metadata": map[string]any{
-			"message": fmt.Sprintf("%d project(s) with pending results", len(entries)),
-		},
-	})
+	writeSuccess(w, http.StatusOK, entries, fmt.Sprintf("%d project(s) with pending results", len(entries)))
 }
 
 // CancelJob godoc
@@ -135,9 +127,7 @@ func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 
 	err := h.jobManager.Cancel(jobID)
 	if err == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"metadata": map[string]any{"message": "job cancelled"},
-		})
+		writeSuccess(w, http.StatusOK, map[string]any{}, "job cancelled")
 		return
 	}
 
@@ -162,9 +152,8 @@ func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/results/{project_id} [delete]
 func (h *AdminHandler) CleanProjectResults(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -185,9 +174,7 @@ func (h *AdminHandler) CleanProjectResults(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"metadata": map[string]any{"message": "results cleaned"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{}, "results cleaned")
 }
 
 // DeleteJob godoc
@@ -210,9 +197,7 @@ func (h *AdminHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	err := h.jobManager.Delete(jobID)
 	if err == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"metadata": map[string]any{"message": "job deleted"},
-		})
+		writeSuccess(w, http.StatusOK, map[string]any{}, "job deleted")
 		return
 	}
 

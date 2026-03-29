@@ -49,7 +49,7 @@ describe('LabelBreakdownCard', () => {
         { value: 'normal', count: 30 },
         { value: 'minor', count: 10 },
       ],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderCard()
     await waitFor(() => {
@@ -60,7 +60,7 @@ describe('LabelBreakdownCard', () => {
   it('shows placeholder when data is empty', async () => {
     vi.mocked(analyticsApi.fetchLabelBreakdown).mockResolvedValue({
       data: [],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderCard()
     await waitFor(() => {
@@ -72,7 +72,7 @@ describe('LabelBreakdownCard', () => {
     const user = userEvent.setup()
     vi.mocked(analyticsApi.fetchLabelBreakdown).mockResolvedValue({
       data: [{ value: 'critical', count: 5 }],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderCard()
 

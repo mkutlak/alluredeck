@@ -46,7 +46,7 @@ describe('SuitePassRateChart', () => {
         { suite: 'Auth Suite', total: 50, passed: 45, pass_rate: 90 },
         { suite: 'Payment Suite', total: 30, passed: 28, pass_rate: 93.3 },
       ],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderChart()
     await waitFor(() => {
@@ -57,7 +57,7 @@ describe('SuitePassRateChart', () => {
   it('shows placeholder when data is empty', async () => {
     vi.mocked(analyticsApi.fetchSuitePassRates).mockResolvedValue({
       data: [],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderChart()
     await waitFor(() => {

@@ -58,9 +58,9 @@ export function DefectList({ projectId, buildId, defaultResolution }: DefectList
   })
 
   const defects = data?.data ?? []
-  const total = data?.total ?? 0
-  const perPage = data?.per_page ?? 25
-  const totalPages = Math.max(1, Math.ceil(total / perPage))
+  const total = data?.pagination?.total ?? 0
+  const perPage = data?.pagination?.per_page ?? 25
+  const totalPages = data?.pagination?.total_pages ?? Math.max(1, Math.ceil(total / perPage))
 
   const handleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {

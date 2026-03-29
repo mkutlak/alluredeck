@@ -35,7 +35,7 @@ describe('ErrorClusterCard', () => {
         { message: 'NullPointerException at com.example.Test', count: 42 },
         { message: 'AssertionError: expected true to be false', count: 7 },
       ],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderCard()
     await waitFor(() => {
@@ -49,7 +49,7 @@ describe('ErrorClusterCard', () => {
     const longMessage = 'A'.repeat(120)
     vi.mocked(analyticsApi.fetchTopErrors).mockResolvedValue({
       data: [{ message: longMessage, count: 1 }],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderCard()
     await waitFor(() => {
@@ -61,7 +61,7 @@ describe('ErrorClusterCard', () => {
   it('shows placeholder when data is empty', async () => {
     vi.mocked(analyticsApi.fetchTopErrors).mockResolvedValue({
       data: [],
-      project_id: 'myproject',
+      metadata: { message: 'ok' },
     })
     renderCard()
     await waitFor(() => {

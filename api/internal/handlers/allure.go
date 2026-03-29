@@ -112,53 +112,8 @@ type ProjectEntry struct {
 	Children  []string `json:"children,omitempty"`
 }
 
-// reservedProjectNames lists names that clash with API route segments
-//
-//nolint:gochecknoglobals // read-only constant-like lookup table for reserved project names
-var reservedProjectNames = map[string]bool{
-	"login":   true,
-	"logout":  true,
-	"version": true,
-	"config":  true,
-	"swagger": true,
-	".":       true,
-	"..":      true,
-}
-
-// validateProjectID rejects project IDs that could cause path traversal or
-// shadow API routes. Returns an error message suitable for the API response.
-func validateProjectID(projectsDir, projectID string) error {
-	if projectID == "" {
-		return ErrProjectRequired
-	}
-	if len(projectID) > 100 {
-		return ErrProjectTooLong
-	}
-	if strings.ContainsAny(projectID, "/\\") || strings.Contains(projectID, "..") {
-		return ErrProjectInvalidChars
-	}
-	if reservedProjectNames[projectID] {
-		return fmt.Errorf("project_id %q: %w", projectID, ErrProjectReserved)
-	}
-	// Belt-and-suspenders: verify the resolved path stays under projectsDir
-	resolved := filepath.Join(projectsDir, projectID)
-	rel, err := filepath.Rel(projectsDir, resolved)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return ErrProjectInvalid
-	}
-	return nil
-}
-
-// safeProjectID resolves to "default" when empty, then validates
-func safeProjectID(projectsDir, raw string) (string, error) {
-	if raw == "" {
-		raw = "default"
-	}
-	if err := validateProjectID(projectsDir, raw); err != nil {
-		return "", err
-	}
-	return raw, nil
-}
+// NOTE: reservedProjectNames, validateProjectID, safeProjectID, and the
+// package-level extractProjectID function are defined in project_id.go.
 
 // validateReportID rejects report IDs that could cause path traversal.
 // Accepts "latest" or non-empty all-digit strings (positive integers).
@@ -195,21 +150,10 @@ func validateTicketURL(rawURL string) error {
 	}
 }
 
-// extractProjectID extracts, unescapes, and validates the "project_id" path
-// parameter. On failure it writes a 400 response and returns ("", false).
+// extractProjectID delegates to the package-level extractProjectID using the
+// handler's configured projects directory.
 func (h *AllureHandler) extractProjectID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid project_id encoding")
-		return "", false
-	}
-	projectID, err := safeProjectID(h.cfg.ProjectsPath, unescaped)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return "", false
-	}
-	return projectID, true
+	return extractProjectID(w, r, h.cfg.ProjectsPath)
 }
 
 // extractReportID extracts and validates the "report_id" path parameter.
@@ -252,7 +196,8 @@ func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 		// Return children of the given parent project.
 		children, childErr := h.projectStore.ListChildren(ctx, filterParentID)
 		if childErr != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing children: %v", childErr))
+			h.logger.Error("listing children failed", zap.String("parent_id", filterParentID), zap.Error(childErr))
+			writeError(w, http.StatusInternalServerError, "error listing children")
 			return
 		}
 		dbProjects = children
@@ -260,13 +205,15 @@ func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	case topLevel:
 		dbProjects, total, err = h.projectStore.ListProjectsPaginatedTopLevel(ctx, pg.Page, pg.PerPage)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing projects: %v", err))
+			h.logger.Error("listing projects failed", zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "error listing projects")
 			return
 		}
 	default:
 		dbProjects, total, err = h.projectStore.ListProjectsPaginated(ctx, pg.Page, pg.PerPage)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error listing projects: %v", err))
+			h.logger.Error("listing projects failed", zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "error listing projects")
 			return
 		}
 	}
@@ -280,11 +227,7 @@ func (h *AllureHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":       entries,
-		"metadata":   map[string]string{"message": "Projects successfully obtained"},
-		"pagination": newPaginationMeta(pg.Page, pg.PerPage, total),
-	})
+	writePagedSuccess(w, http.StatusOK, entries, "Projects successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
 
 // CreateProject godoc
@@ -320,7 +263,8 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error creating project: %v", err))
+		h.logger.Error("creating project failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error creating project")
 		return
 	}
 
@@ -332,10 +276,7 @@ func (h *AllureHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"data":     ProjectEntry{ProjectID: projectID},
-		"metadata": map[string]string{"message": "Project successfully created"},
-	})
+	writeSuccess(w, http.StatusCreated, ProjectEntry{ProjectID: projectID}, "Project successfully created")
 }
 
 // GenerateReport godoc
@@ -383,10 +324,7 @@ func (h *AllureHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		CICommitSHA:  ciCommitSHA,
 	}
 	job := h.jobManager.Submit(projectID, params)
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"data":     map[string]string{"job_id": job.ID},
-		"metadata": map[string]string{"message": "Report generation queued"},
-	})
+	writeSuccess(w, http.StatusAccepted, map[string]string{"job_id": job.ID}, "Report generation queued")
 }
 
 // GetJobStatus godoc
@@ -413,10 +351,7 @@ func (h *AllureHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     job,
-		"metadata": map[string]string{"message": "Job status retrieved"},
-	})
+	writeSuccess(w, http.StatusOK, job, "Job status retrieved")
 }
 
 // CleanHistory godoc
@@ -436,14 +371,12 @@ func (h *AllureHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.runner.CleanHistory(r.Context(), projectID); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error cleaning history: %v", err))
+		h.logger.Error("cleaning history failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error cleaning history")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]string{"output": ""},
-		"metadata": map[string]string{"message": "History successfully cleaned"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]string{"output": ""}, "History successfully cleaned")
 }
 
 // CleanResults godoc
@@ -463,14 +396,12 @@ func (h *AllureHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.runner.CleanResults(r.Context(), projectID); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error cleaning results: %v", err))
+		h.logger.Error("cleaning results failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error cleaning results")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]string{"output": ""},
-		"metadata": map[string]string{"message": "Results successfully cleaned"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]string{"output": ""}, "Results successfully cleaned")
 }
 
 // SendResults godoc
@@ -497,13 +428,15 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 	// Ensure project exists (auto-create if requested)
 	exists, err := h.store.ProjectExists(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to check project: %v", err))
+		h.logger.Error("checking project existence failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "failed to check project")
 		return
 	}
 	if !exists {
 		if r.URL.Query().Get("force_project_creation") == "true" {
 			if err := h.runner.CreateProject(r.Context(), projectID); err != nil && !errors.Is(err, runner.ErrProjectExists) {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create project: %v", err))
+				h.logger.Error("auto-creating project failed", zap.String("project_id", projectID), zap.Error(err))
+				writeError(w, http.StatusInternalServerError, "failed to create project")
 				return
 			}
 			if parentID != "" {
@@ -562,26 +495,21 @@ func (h *AllureHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.cfg.APIResponseLessVerbose {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"metadata": map[string]string{"message": fmt.Sprintf("Results successfully sent for project_id '%s'", projectID)},
-		})
+		writeSuccess(w, http.StatusOK, map[string]any{}, fmt.Sprintf("Results successfully sent for project_id '%s'", projectID))
 		return
 	}
 
 	currentFileNames, _ := h.store.ListResultFiles(r.Context(), projectID)
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"current_files":         currentFileNames,
-			"current_files_count":   len(currentFileNames),
-			"failed_files":          failedFiles,
-			"failed_files_count":    len(failedFiles),
-			"processed_files":       processedFiles,
-			"processed_files_count": len(processedFiles),
-			"sent_files_count":      len(processedFiles) + len(failedFiles),
-		},
-		"metadata": map[string]string{"message": fmt.Sprintf("Results successfully sent for project_id '%s'", projectID)},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"current_files":         currentFileNames,
+		"current_files_count":   len(currentFileNames),
+		"failed_files":          failedFiles,
+		"failed_files_count":    len(failedFiles),
+		"processed_files":       processedFiles,
+		"processed_files_count": len(processedFiles),
+		"sent_files_count":      len(processedFiles) + len(failedFiles),
+	}, fmt.Sprintf("Results successfully sent for project_id '%s'", projectID))
 }
 
 // parseResultsBody routes the request to the appropriate parser based on Content-Type.
@@ -892,7 +820,8 @@ func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 	// Fetch numbered builds from DB (sorted descending by build_order).
 	builds, total, err := h.buildStore.ListBuildsPaginatedBranch(r.Context(), projectID, pg.Page, pg.PerPage, branchID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error reading report history: %v", err))
+		h.logger.Error("reading report history failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error reading report history")
 		return
 	}
 
@@ -1004,17 +933,11 @@ func (h *AllureHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Requ
 	relPath := "reports/" + reportID + "/widgets/environment.json"
 	entries := make([]EnvironmentEntry, 0)
 	if !h.readJSONViaStore(ctx, projectID, relPath, &entries) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data":     entries,
-			"metadata": map[string]string{"message": "No environment data available"},
-		})
+		writeSuccess(w, http.StatusOK, entries, "No environment data available")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     entries,
-		"metadata": map[string]string{"message": "Environment info successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, entries, "Environment info successfully obtained")
 }
 
 // applySummaryFile reads widgets/summary.json (Allure 2) and fills entry in-place.
@@ -1143,17 +1066,11 @@ func (h *AllureHandler) GetReportCategories(w http.ResponseWriter, r *http.Reque
 	relPath := "reports/" + reportID + "/widgets/categories.json"
 	entries := make([]CategoryEntry, 0)
 	if !h.readJSONViaStore(ctx, projectID, relPath, &entries) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data":     entries,
-			"metadata": map[string]string{"message": "No categories data available"},
-		})
+		writeSuccess(w, http.StatusOK, entries, "No categories data available")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     entries,
-		"metadata": map[string]string{"message": "Categories successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, entries, "Categories successfully obtained")
 }
 
 // DeleteProject godoc
@@ -1188,7 +1105,8 @@ func (h *AllureHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id %q not found", projectID))
 			return
 		}
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Error deleting project: %v", err))
+		h.logger.Error("deleting project failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error deleting project")
 		return
 	}
 
@@ -1311,13 +1229,17 @@ func (h *AllureHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.runner.DeleteReport(r.Context(), projectID, reportID); err != nil {
+		h.logger.Error("deleting report failed", zap.String("project_id", projectID), zap.String("report_id", reportID), zap.Error(err))
 		status := http.StatusInternalServerError
+		msg := "error deleting report"
 		if errors.Is(err, storage.ErrReportNotFound) {
 			status = http.StatusNotFound
+			msg = "report not found"
 		} else if errors.Is(err, storage.ErrReportIDEmpty) || errors.Is(err, storage.ErrReportIDInvalid) {
 			status = http.StatusBadRequest
+			msg = "invalid report id"
 		}
-		writeError(w, status, fmt.Sprintf("Error deleting report: %v", err))
+		writeError(w, status, msg)
 		return
 	}
 

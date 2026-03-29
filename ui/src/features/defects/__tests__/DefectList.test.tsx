@@ -15,10 +15,8 @@ mockApiClient()
 function makeEmptyResponse(): DefectListResponse {
   return {
     data: [],
-    total: 0,
-    page: 1,
-    per_page: 25,
     metadata: { message: 'ok' },
+    pagination: { total: 0, page: 1, per_page: 25, total_pages: 0 },
   }
 }
 
@@ -91,10 +89,8 @@ describe('DefectList', () => {
           known_issue: null,
         },
       ],
-      total: 1,
-      page: 1,
-      per_page: 25,
       metadata: { message: 'ok' },
+      pagination: { total: 1, page: 1, per_page: 25, total_pages: 1 },
     })
     renderList()
     await waitFor(() => {

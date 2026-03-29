@@ -38,7 +38,7 @@ func (m *mockAnalyticsStore) ListTrendPoints(_ context.Context, _ string, _ int,
 }
 
 func TestAnalyticsHandler_NilStore_GetTopErrors(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/analytics/errors?builds=5&limit=3", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -60,7 +60,7 @@ func TestAnalyticsHandler_NilStore_GetTopErrors(t *testing.T) {
 }
 
 func TestAnalyticsHandler_NilStore_GetSuitePassRates(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/analytics/suites?builds=5", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -82,7 +82,7 @@ func TestAnalyticsHandler_NilStore_GetSuitePassRates(t *testing.T) {
 }
 
 func TestAnalyticsHandler_NilStore_GetLabelBreakdown(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/analytics/labels?name=severity&builds=5", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -110,7 +110,7 @@ func TestAnalyticsHandler_GetTopErrors_WithData(t *testing.T) {
 			{Message: "Timeout in Bar", Count: 3},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -123,8 +123,9 @@ func TestAnalyticsHandler_GetTopErrors_WithData(t *testing.T) {
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
-	if resp["project_id"] != "proj1" {
-		t.Errorf("project_id = %v, want proj1", resp["project_id"])
+	meta, _ := resp["metadata"].(map[string]any)
+	if meta == nil {
+		t.Fatal("expected metadata in response")
 	}
 	data, ok := resp["data"].([]any)
 	if !ok {
@@ -141,7 +142,7 @@ func TestAnalyticsHandler_GetSuitePassRates_WithData(t *testing.T) {
 			{Suite: "SmokeTests", Total: 10, Passed: 9, PassRate: 90.0},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj2/analytics/suites", nil)
 	req.SetPathValue("project_id", "proj2")
@@ -169,7 +170,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_WithData(t *testing.T) {
 			{Value: "minor", Count: 3},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj3/analytics/labels?name=severity", nil)
 	req.SetPathValue("project_id", "proj3")
@@ -195,7 +196,7 @@ func TestAnalyticsHandler_QueryParamDefaults(t *testing.T) {
 	var gotBuilds, gotLimit int
 	mock := &mockAnalyticsStore{}
 	// We just verify the handler doesn't crash with no query params
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	_ = called
 	_ = gotBuilds
 	_ = gotLimit
@@ -211,7 +212,7 @@ func TestAnalyticsHandler_QueryParamDefaults(t *testing.T) {
 }
 
 func TestAnalyticsHandler_NilStore_GetTrends(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/analytics/trends?builds=5", nil)
 	req.SetPathValue("project_id", "myproj")
@@ -261,7 +262,7 @@ func TestAnalyticsHandler_GetTrends_WithData(t *testing.T) {
 			{BuildOrder: 3, Passed: 48, Failed: 1, Broken: 0, Skipped: 1, Total: 50, PassRate: 96.0, DurationMs: 50000},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/trends", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -274,8 +275,9 @@ func TestAnalyticsHandler_GetTrends_WithData(t *testing.T) {
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
-	if resp["project_id"] != "proj1" {
-		t.Errorf("project_id = %v, want proj1", resp["project_id"])
+	meta, _ := resp["metadata"].(map[string]any)
+	if meta == nil {
+		t.Fatal("expected metadata in response")
 	}
 	data, ok := resp["data"].(map[string]any)
 	if !ok {
@@ -322,7 +324,7 @@ func TestAnalyticsHandler_GetTrends_KpiComputation(t *testing.T) {
 		}
 	}
 	mock := &mockAnalyticsStore{trendPoints: points}
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj4/analytics/trends?builds=15", nil)
 	req.SetPathValue("project_id", "proj4")

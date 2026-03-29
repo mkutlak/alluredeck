@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -37,7 +39,7 @@ func TestAnalyticsHandler_GetTopErrors_NoBranch(t *testing.T) {
 	type capturingStore struct{ *mockAnalyticsStore }
 	_ = capturingStore{}
 
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors?builds=5&limit=3", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -70,7 +72,7 @@ func TestAnalyticsHandler_GetTopErrors_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors?branch=main", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -93,7 +95,7 @@ func TestAnalyticsHandler_GetSuitePassRates_NoBranch(t *testing.T) {
 	analyticsStore := &captureAnalyticsStore{
 		suitePassRates: []store.SuitePassRate{{Suite: "Smoke", Total: 10, Passed: 9, PassRate: 90}},
 	}
-	h := NewAnalyticsHandler(analyticsStore, nil, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj2/analytics/suites?builds=10", nil)
 	req.SetPathValue("project_id", "proj2")
@@ -125,7 +127,7 @@ func TestAnalyticsHandler_GetSuitePassRates_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj2/analytics/suites?branch=main", nil)
 	req.SetPathValue("project_id", "proj2")
@@ -148,7 +150,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_NoBranch(t *testing.T) {
 	analyticsStore := &captureAnalyticsStore{
 		labelCounts: []store.LabelCount{{Value: "critical", Count: 5}},
 	}
-	h := NewAnalyticsHandler(analyticsStore, nil, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj3/analytics/labels?name=severity&builds=5", nil)
 	req.SetPathValue("project_id", "proj3")
@@ -180,7 +182,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj3/analytics/labels?name=severity&branch=main", nil)
 	req.SetPathValue("project_id", "proj3")
@@ -210,7 +212,7 @@ func TestAnalyticsHandler_GetTopErrors_UnknownBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics() // only "main" resolves
 
-	h := NewAnalyticsHandler(analyticsStore, branches, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors?branch=nonexistent", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -233,7 +235,7 @@ func TestAnalyticsHandler_GetTrends_NoBranch(t *testing.T) {
 			{BuildOrder: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj5/analytics/trends?builds=5", nil)
 	req.SetPathValue("project_id", "proj5")
@@ -267,7 +269,7 @@ func TestAnalyticsHandler_GetTrends_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj5/analytics/trends?branch=main", nil)
 	req.SetPathValue("project_id", "proj5")
@@ -297,7 +299,7 @@ func TestAnalyticsHandler_GetTrends_UnknownBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics() // only "main" resolves
 
-	h := NewAnalyticsHandler(analyticsStore, branches, zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj5/analytics/trends?branch=nonexistent", nil)
 	req.SetPathValue("project_id", "proj5")
@@ -354,4 +356,76 @@ func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ string, _ i
 		c.onListTrendPoints(branchID)
 	}
 	return c.trendPoints, nil
+}
+
+// ---------------------------------------------------------------------------
+// Error leakage tests — store errors must return 500, not leak internal details.
+// ---------------------------------------------------------------------------
+
+func TestAnalyticsHandler_GetTopErrors_StoreError_Returns500(t *testing.T) {
+	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/proj1/analytics/errors", nil)
+	req.SetPathValue("project_id", "proj1")
+	rr := httptest.NewRecorder()
+	h.GetTopErrors(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "connection refused") {
+		t.Error("response body leaks internal error details")
+	}
+}
+
+func TestAnalyticsHandler_GetSuitePassRates_StoreError_Returns500(t *testing.T) {
+	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/proj1/analytics/suites", nil)
+	req.SetPathValue("project_id", "proj1")
+	rr := httptest.NewRecorder()
+	h.GetSuitePassRates(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "connection refused") {
+		t.Error("response body leaks internal error details")
+	}
+}
+
+func TestAnalyticsHandler_GetLabelBreakdown_StoreError_Returns500(t *testing.T) {
+	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/proj1/analytics/labels", nil)
+	req.SetPathValue("project_id", "proj1")
+	rr := httptest.NewRecorder()
+	h.GetLabelBreakdown(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "connection refused") {
+		t.Error("response body leaks internal error details")
+	}
+}
+
+func TestAnalyticsHandler_GetTrends_StoreError_Returns500(t *testing.T) {
+	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/proj1/analytics/trends", nil)
+	req.SetPathValue("project_id", "proj1")
+	rr := httptest.NewRecorder()
+	h.GetTrends(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "connection refused") {
+		t.Error("response body leaks internal error details")
+	}
 }

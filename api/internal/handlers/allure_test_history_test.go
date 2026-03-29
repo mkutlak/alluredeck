@@ -15,7 +15,7 @@ import (
 
 func newTestHistoryHandler(t *testing.T, mocks *testutil.MockStores) *TestHistoryHandler {
 	t.Helper()
-	return NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches)
+	return NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches, t.TempDir())
 }
 
 func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {

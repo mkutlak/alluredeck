@@ -19,6 +19,7 @@ type AttachmentHandler struct {
 	attachmentStore store.AttachmentStorer
 	buildStore      store.BuildStorer
 	dataStore       storage.Store
+	projectsDir     string
 	logger          *zap.Logger
 }
 
@@ -27,12 +28,14 @@ func NewAttachmentHandler(
 	attachmentStore store.AttachmentStorer,
 	buildStore store.BuildStorer,
 	dataStore storage.Store,
+	projectsDir string,
 	logger *zap.Logger,
 ) *AttachmentHandler {
 	return &AttachmentHandler{
 		attachmentStore: attachmentStore,
 		buildStore:      buildStore,
 		dataStore:       dataStore,
+		projectsDir:     projectsDir,
 		logger:          logger,
 	}
 }
@@ -102,7 +105,10 @@ type attachmentGroup struct {
 func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	reportID, ok := extractReportID(w, r)
 	if !ok {
@@ -173,15 +179,12 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 		groups = []attachmentGroup{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"groups": groups,
-			"total":  total,
-			"limit":  limit,
-			"offset": offset,
-		},
-		"metadata": map[string]string{"message": "Attachments successfully retrieved"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"groups": groups,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	}, "Attachments successfully retrieved")
 }
 
 // ServeAttachment godoc
@@ -199,7 +202,10 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	reportID, ok := extractReportID(w, r)
 	if !ok {

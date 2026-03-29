@@ -116,14 +116,14 @@ func main() {
 	var jobManager runner.JobQueuer = rjm
 
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore, logger)
-	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, logger)
-	branchHandler := handlers.NewBranchHandler(branchStore, buildStore)
-	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore)
+	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger)
+	branchHandler := handlers.NewBranchHandler(branchStore, buildStore, cfg.ProjectsPath)
+	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore, cfg.ProjectsPath)
 	allureHandler.SetBranchStore(branchStore)
-	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, branchStore, logger)
-	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, logger)
+	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, branchStore, cfg.ProjectsPath, logger)
+	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, cfg.ProjectsPath, logger)
 	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
-	parentHandler := handlers.NewProjectParentHandler(projectStore, buildStore, logger)
+	parentHandler := handlers.NewProjectParentHandler(projectStore, buildStore, cfg.ProjectsPath, logger)
 
 	// Conditionally construct OIDC provider and handler (Stage 2 SSO).
 	var oidcHandler *handlers.OIDCHandler
@@ -191,8 +191,8 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	defectHandler := handlers.NewDefectHandler(defectStore, logger)
-	webhookHandler := handlers.NewWebhookHandler(webhookStore, logger)
+	defectHandler := handlers.NewDefectHandler(defectStore, cfg.ProjectsPath, logger)
+	webhookHandler := handlers.NewWebhookHandler(webhookStore, cfg.ProjectsPath, logger)
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).

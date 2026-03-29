@@ -25,7 +25,7 @@ func newAdminTestJobManager(t *testing.T, gen runner.ReportGenerator, poolSize i
 
 func newTestAdminHandler(t *testing.T, jm runner.JobQueuer, ms *storage.MockStore) *AdminHandler {
 	t.Helper()
-	return NewAdminHandler(jm, ms, zap.NewNop())
+	return NewAdminHandler(jm, ms, t.TempDir(), zap.NewNop())
 }
 
 // blockingGen blocks until ch is closed (for keeping jobs in pending/running state).

@@ -15,13 +15,14 @@ import (
 type AnalyticsHandler struct {
 	analyticsStore store.AnalyticsStorer
 	branchStore    store.BranchStorer
+	projectsDir    string
 	logger         *zap.Logger
 }
 
 // NewAnalyticsHandler creates an AnalyticsHandler. analyticsStore may be nil
 // when analytics are unavailable — all endpoints return empty data in that case.
-func NewAnalyticsHandler(analyticsStore store.AnalyticsStorer, branchStore store.BranchStorer, logger *zap.Logger) *AnalyticsHandler {
-	return &AnalyticsHandler{analyticsStore: analyticsStore, branchStore: branchStore, logger: logger}
+func NewAnalyticsHandler(analyticsStore store.AnalyticsStorer, branchStore store.BranchStorer, projectsDir string, logger *zap.Logger) *AnalyticsHandler {
+	return &AnalyticsHandler{analyticsStore: analyticsStore, branchStore: branchStore, projectsDir: projectsDir, logger: logger}
 }
 
 // parseClampedInt parses s as an int in [1,100], defaulting to 20.
@@ -51,14 +52,17 @@ func (h *AnalyticsHandler) resolveBranchID(r *http.Request, projectID, branchNam
 
 // GetTopErrors returns the most common failure messages across recent builds.
 func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	q := r.URL.Query()
 	builds := parseClampedInt(q.Get("builds"))
 	limit := parseClampedInt(q.Get("limit"))
 
 	if h.analyticsStore == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"data": []store.ErrorCluster{}, "project_id": projectID})
+		writeSuccess(w, http.StatusOK, []store.ErrorCluster{}, "analytics data retrieved")
 		return
 	}
 
@@ -67,23 +71,27 @@ func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) 
 	data, err := h.analyticsStore.ListTopErrors(r.Context(), projectID, builds, limit, branchID)
 	if err != nil {
 		h.logger.Error("list top errors", zap.String("project_id", projectID), zap.Error(err))
-		data = []store.ErrorCluster{}
+		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
+		return
 	}
 	if data == nil {
 		data = []store.ErrorCluster{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": data, "project_id": projectID})
+	writeSuccess(w, http.StatusOK, data, "analytics data retrieved")
 }
 
 // GetSuitePassRates returns per-suite pass rates across recent builds.
 func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	q := r.URL.Query()
 	builds := parseClampedInt(q.Get("builds"))
 
 	if h.analyticsStore == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"data": []store.SuitePassRate{}, "project_id": projectID})
+		writeSuccess(w, http.StatusOK, []store.SuitePassRate{}, "analytics data retrieved")
 		return
 	}
 
@@ -92,17 +100,21 @@ func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Requ
 	data, err := h.analyticsStore.ListSuitePassRates(r.Context(), projectID, builds, branchID)
 	if err != nil {
 		h.logger.Error("list suite pass rates", zap.String("project_id", projectID), zap.Error(err))
-		data = []store.SuitePassRate{}
+		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
+		return
 	}
 	if data == nil {
 		data = []store.SuitePassRate{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": data, "project_id": projectID})
+	writeSuccess(w, http.StatusOK, data, "analytics data retrieved")
 }
 
 // GetLabelBreakdown returns counts grouped by label value for a given label name.
 func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 
 	q := r.URL.Query()
 	labelName := q.Get("name")
@@ -112,7 +124,7 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 	builds := parseClampedInt(q.Get("builds"))
 
 	if h.analyticsStore == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"data": []store.LabelCount{}, "project_id": projectID})
+		writeSuccess(w, http.StatusOK, []store.LabelCount{}, "analytics data retrieved")
 		return
 	}
 
@@ -121,25 +133,26 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 	data, err := h.analyticsStore.ListLabelBreakdown(r.Context(), projectID, labelName, builds, branchID)
 	if err != nil {
 		h.logger.Error("list label breakdown", zap.String("project_id", projectID), zap.Error(err))
-		data = []store.LabelCount{}
+		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
+		return
 	}
 	if data == nil {
 		data = []store.LabelCount{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": data, "project_id": projectID})
+	writeSuccess(w, http.StatusOK, data, "analytics data retrieved")
 }
 
 // GetTrends returns per-build statistics for trend charts.
 func (h *AnalyticsHandler) GetTrends(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 	q := r.URL.Query()
 	builds := parseClampedInt(q.Get("builds"))
 
 	if h.analyticsStore == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data":       emptyTrendsResponse(),
-			"project_id": projectID,
-		})
+		writeSuccess(w, http.StatusOK, emptyTrendsResponse(), "analytics data retrieved")
 		return
 	}
 
@@ -148,16 +161,14 @@ func (h *AnalyticsHandler) GetTrends(w http.ResponseWriter, r *http.Request) {
 	points, err := h.analyticsStore.ListTrendPoints(r.Context(), projectID, builds, branchID)
 	if err != nil {
 		h.logger.Error("list trend points", zap.String("project_id", projectID), zap.Error(err))
-		points = []store.TrendPoint{}
+		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
+		return
 	}
 	if points == nil {
 		points = []store.TrendPoint{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":       buildTrendsResponse(points),
-		"project_id": projectID,
-	})
+	writeSuccess(w, http.StatusOK, buildTrendsResponse(points), "analytics data retrieved")
 }
 
 type trendsResponse struct {

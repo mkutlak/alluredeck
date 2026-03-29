@@ -17,14 +17,16 @@ type TestHistoryHandler struct {
 	testResultStore store.TestResultStorer
 	buildStore      store.BuildStorer
 	branchStore     store.BranchStorer
+	projectsDir     string
 }
 
 // NewTestHistoryHandler creates a new TestHistoryHandler.
-func NewTestHistoryHandler(ts store.TestResultStorer, bs store.BuildStorer, brs store.BranchStorer) *TestHistoryHandler {
+func NewTestHistoryHandler(ts store.TestResultStorer, bs store.BuildStorer, brs store.BranchStorer, projectsDir string) *TestHistoryHandler {
 	return &TestHistoryHandler{
 		testResultStore: ts,
 		buildStore:      bs,
 		branchStore:     brs,
+		projectsDir:     projectsDir,
 	}
 }
 
@@ -54,7 +56,10 @@ type testHistoryEntryJSON struct {
 func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID := r.PathValue("project_id")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
+		return
+	}
 	historyID := r.URL.Query().Get("history_id")
 	if historyID == "" {
 		writeError(w, http.StatusBadRequest, "history_id query parameter is required")
@@ -115,8 +120,5 @@ func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Reque
 		data["branch_name"] = resolvedBranchName
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     data,
-		"metadata": map[string]string{"message": "Test history successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, data, "Test history successfully obtained")
 }

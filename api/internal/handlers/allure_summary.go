@@ -223,15 +223,12 @@ func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"build":        buildMeta,
-			"statistics":   stats,
-			"timing":       timing,
-			"quality":      quality,
-			"top_failures": topFailures,
-			"trend":        trend,
-		},
-		"metadata": map[string]string{"message": "Report summary successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"build":        buildMeta,
+		"statistics":   stats,
+		"timing":       timing,
+		"quality":      quality,
+		"top_failures": topFailures,
+		"trend":        trend,
+	}, "Report summary successfully obtained")
 }

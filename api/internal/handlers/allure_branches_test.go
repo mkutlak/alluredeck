@@ -15,7 +15,7 @@ import (
 
 func newTestBranchHandler(t *testing.T, mocks *testutil.MockStores) *BranchHandler {
 	t.Helper()
-	return NewBranchHandler(mocks.Branches, mocks.Builds)
+	return NewBranchHandler(mocks.Branches, mocks.Builds, t.TempDir())
 }
 
 // --- ListBranches tests ---

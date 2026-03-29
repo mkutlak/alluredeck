@@ -14,12 +14,13 @@ import (
 // DefectHandler handles HTTP requests for defect fingerprint management.
 type DefectHandler struct {
 	defectStore store.DefectStorer
+	projectsDir string
 	logger      *zap.Logger
 }
 
 // NewDefectHandler creates a DefectHandler.
-func NewDefectHandler(defectStore store.DefectStorer, logger *zap.Logger) *DefectHandler {
-	return &DefectHandler{defectStore: defectStore, logger: logger}
+func NewDefectHandler(defectStore store.DefectStorer, projectsDir string, logger *zap.Logger) *DefectHandler {
+	return &DefectHandler{defectStore: defectStore, projectsDir: projectsDir, logger: logger}
 }
 
 // parseDefectFilter extracts a DefectFilter from query parameters.
@@ -70,9 +71,8 @@ func isValidDefectResolution(s string) bool {
 
 // ListProjectDefects handles GET /projects/{project_id}/defects
 func (h *DefectHandler) ListProjectDefects(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -88,20 +88,13 @@ func (h *DefectHandler) ListProjectDefects(w http.ResponseWriter, r *http.Reques
 		rows = []store.DefectListRow{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     rows,
-		"total":    total,
-		"page":     filter.Page,
-		"per_page": filter.PerPage,
-		"metadata": map[string]string{"message": "Defects successfully obtained"},
-	})
+	writePagedSuccess(w, http.StatusOK, rows, "Defects successfully obtained", newPaginationMeta(filter.Page, filter.PerPage, total))
 }
 
 // ListBuildDefects handles GET /projects/{project_id}/builds/{build_id}/defects
 func (h *DefectHandler) ListBuildDefects(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -124,13 +117,7 @@ func (h *DefectHandler) ListBuildDefects(w http.ResponseWriter, r *http.Request)
 		rows = []store.DefectListRow{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     rows,
-		"total":    total,
-		"page":     filter.Page,
-		"per_page": filter.PerPage,
-		"metadata": map[string]string{"message": "Defects successfully obtained"},
-	})
+	writePagedSuccess(w, http.StatusOK, rows, "Defects successfully obtained", newPaginationMeta(filter.Page, filter.PerPage, total))
 }
 
 // GetDefect handles GET /projects/{project_id}/defects/{defect_id}
@@ -152,10 +139,7 @@ func (h *DefectHandler) GetDefect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     fp,
-		"metadata": map[string]string{"message": "Defect successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, fp, "Defect successfully obtained")
 }
 
 // GetDefectTests handles GET /projects/{project_id}/defects/{defect_id}/tests
@@ -178,16 +162,9 @@ func (h *DefectHandler) GetDefectTests(w http.ResponseWriter, r *http.Request) {
 		buildID = &bid
 	}
 
-	page, _ := strconv.Atoi(q.Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	perPage, _ := strconv.Atoi(q.Get("per_page"))
-	if perPage < 1 || perPage > 100 {
-		perPage = 20
-	}
+	pg := parsePagination(r)
 
-	results, total, err := h.defectStore.GetTestResults(r.Context(), defectID, buildID, page, perPage)
+	results, total, err := h.defectStore.GetTestResults(r.Context(), defectID, buildID, pg.Page, pg.PerPage)
 	if err != nil {
 		h.logger.Error("get defect tests", zap.String("defect_id", defectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching defect tests")
@@ -197,13 +174,7 @@ func (h *DefectHandler) GetDefectTests(w http.ResponseWriter, r *http.Request) {
 		results = []store.TestResult{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     results,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
-		"metadata": map[string]string{"message": "Defect tests successfully obtained"},
-	})
+	writePagedSuccess(w, http.StatusOK, results, "Defect tests successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
 
 // UpdateDefect handles PATCH /projects/{project_id}/defects/{defect_id}
@@ -243,10 +214,7 @@ func (h *DefectHandler) UpdateDefect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]string{"id": defectID},
-		"metadata": map[string]string{"message": "Defect updated"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]string{"id": defectID}, "Defect updated")
 }
 
 // BulkUpdateDefects handles POST /projects/{project_id}/defects/bulk
@@ -281,17 +249,13 @@ func (h *DefectHandler) BulkUpdateDefects(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]any{"updated": len(req.DefectIDs)},
-		"metadata": map[string]string{"message": "Defects updated"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{"updated": len(req.DefectIDs)}, "Defects updated")
 }
 
 // GetProjectDefectSummary handles GET /projects/{project_id}/defects/summary
 func (h *DefectHandler) GetProjectDefectSummary(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -302,17 +266,13 @@ func (h *DefectHandler) GetProjectDefectSummary(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     summary,
-		"metadata": map[string]string{"message": "Defect summary successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, summary, "Defect summary successfully obtained")
 }
 
 // GetBuildDefectSummary handles GET /projects/{project_id}/builds/{build_id}/defects/summary
 func (h *DefectHandler) GetBuildDefectSummary(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -330,8 +290,5 @@ func (h *DefectHandler) GetBuildDefectSummary(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     summary,
-		"metadata": map[string]string{"message": "Build defect summary successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, summary, "Build defect summary successfully obtained")
 }

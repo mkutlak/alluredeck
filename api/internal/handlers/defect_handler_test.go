@@ -16,7 +16,7 @@ import (
 func newTestDefectHandler(t *testing.T) *DefectHandler {
 	t.Helper()
 	mocks := testutil.New()
-	return NewDefectHandler(mocks.Defects, zap.NewNop())
+	return NewDefectHandler(mocks.Defects, t.TempDir(), zap.NewNop())
 }
 
 func TestListProjectDefects_Empty(t *testing.T) {
@@ -43,8 +43,12 @@ func TestListProjectDefects_Empty(t *testing.T) {
 	if len(data) != 0 {
 		t.Fatalf("expected empty data array, got %d items", len(data))
 	}
-	if resp["total"] == nil {
-		t.Fatal("expected total field in response")
+	pg, _ := resp["pagination"].(map[string]any)
+	if pg == nil {
+		t.Fatal("expected pagination field in response")
+	}
+	if pg["total"] == nil {
+		t.Fatal("expected total in pagination")
 	}
 }
 

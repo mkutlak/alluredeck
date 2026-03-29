@@ -81,10 +81,7 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := range keys {
 		resp = append(resp, keyToResponse(&keys[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     resp,
-		"metadata": map[string]string{"message": "API keys retrieved"},
-	})
+	writeSuccess(w, http.StatusOK, resp, "API keys retrieved")
 }
 
 // Create godoc
@@ -177,10 +174,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		apiKeyResponse: keyToResponse(created),
 		Key:            fullKey,
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"data":     resp,
-		"metadata": map[string]string{"message": "API key created. Copy it now — it won't be shown again."},
-	})
+	writeSuccess(w, http.StatusCreated, resp, "API key created. Copy it now — it won't be shown again.")
 }
 
 // Delete godoc
@@ -219,8 +213,5 @@ func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]any{"id": id},
-		"metadata": map[string]string{"message": "API key deleted"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]any{"id": id}, "API key deleted")
 }

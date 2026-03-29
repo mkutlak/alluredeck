@@ -20,7 +20,7 @@ import (
 func newTestWebhookHandler(t *testing.T) (*WebhookHandler, *testutil.MemWebhookStore) {
 	t.Helper()
 	whs := testutil.NewMemWebhookStore()
-	h := NewWebhookHandler(whs, zap.NewNop())
+	h := NewWebhookHandler(whs, t.TempDir(), zap.NewNop())
 	return h, whs
 }
 
@@ -748,11 +748,12 @@ func TestWebhookHandler_ListDeliveries_Pagination(t *testing.T) {
 	if len(data) != 3 {
 		t.Fatalf("expected 3 items on page 1, got %d", len(data))
 	}
-	total, _ := resp["total"].(float64)
+	pg, _ := resp["pagination"].(map[string]any)
+	total, _ := pg["total"].(float64)
 	if int(total) != 5 {
 		t.Errorf("total = %v, want 5", total)
 	}
-	pageNum, _ := resp["page"].(float64)
+	pageNum, _ := pg["page"].(float64)
 	if int(pageNum) != 1 {
 		t.Errorf("page = %v, want 1", pageNum)
 	}

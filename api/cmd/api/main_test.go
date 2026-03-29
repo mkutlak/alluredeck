@@ -32,7 +32,7 @@ func TestRegisterRoutes(t *testing.T) {
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
-	adminHandler := handlers.NewAdminHandler(nil, nil, zap.NewNop())
+	adminHandler := handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop())
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	tests := []struct {
@@ -80,7 +80,7 @@ func TestBareRoutes_Return404(t *testing.T) {
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
-	adminHandler := handlers.NewAdminHandler(nil, nil, zap.NewNop())
+	adminHandler := handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop())
 	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// Bare routes (no /api/v1 prefix) should return 404.

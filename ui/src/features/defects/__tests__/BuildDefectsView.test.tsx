@@ -40,10 +40,8 @@ describe('BuildDefectsView', () => {
     vi.mocked(defectsApi.fetchBuildDefectSummary).mockResolvedValue(makeBuildSummary())
     vi.mocked(defectsApi.fetchBuildDefects).mockResolvedValue({
       data: [],
-      total: 0,
-      page: 1,
-      per_page: 25,
       metadata: { message: 'ok' },
+      pagination: { total: 0, page: 1, per_page: 25, total_pages: 0 },
     })
     renderPage()
     await waitFor(() => {
@@ -56,10 +54,8 @@ describe('BuildDefectsView', () => {
     vi.mocked(defectsApi.fetchBuildDefectSummary).mockResolvedValue(makeBuildSummary())
     vi.mocked(defectsApi.fetchBuildDefects).mockResolvedValue({
       data: [],
-      total: 0,
-      page: 1,
-      per_page: 25,
       metadata: { message: 'ok' },
+      pagination: { total: 0, page: 1, per_page: 25, total_pages: 0 },
     })
     renderPage()
     await waitFor(() => {
@@ -74,10 +70,8 @@ describe('BuildDefectsView', () => {
     vi.mocked(defectsApi.fetchBuildDefectSummary).mockResolvedValue(makeBuildSummary())
     vi.mocked(defectsApi.fetchBuildDefects).mockResolvedValue({
       data: [],
-      total: 0,
-      page: 1,
-      per_page: 25,
       metadata: { message: 'ok' },
+      pagination: { total: 0, page: 1, per_page: 25, total_pages: 0 },
     })
     renderPage()
     await waitFor(() => {

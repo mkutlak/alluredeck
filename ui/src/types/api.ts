@@ -536,7 +536,7 @@ export interface LabelCount {
 
 export interface AnalyticsResponse<T> {
   data: T[]
-  project_id: string
+  metadata: { message: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -655,10 +655,8 @@ export interface DefectProjectSummary {
 
 export interface DefectListResponse {
   data: DefectListRow[]
-  total: number
-  page: number
-  per_page: number
   metadata: { message: string }
+  pagination: PaginationMeta
 }
 
 // ---------------------------------------------------------------------------

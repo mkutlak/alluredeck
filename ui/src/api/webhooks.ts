@@ -57,9 +57,10 @@ export async function fetchWebhookDeliveries(
 ): Promise<{ data: WebhookDelivery[]; total: number }> {
   const { data } = await apiClient.get<{
     data: WebhookDelivery[]
-    metadata: { total: number }
+    metadata: { message: string }
+    pagination: { total: number; page: number; per_page: number; total_pages: number }
   }>(`/projects/${projectId}/webhooks/${webhookId}/deliveries`, {
     params: { page, per_page: perPage },
   })
-  return { data: data.data, total: data.metadata.total }
+  return { data: data.data, total: data.pagination.total }
 }

@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
@@ -18,13 +17,14 @@ import (
 
 // WebhookHandler handles HTTP requests for webhook management.
 type WebhookHandler struct {
-	store  store.WebhookStorer
-	logger *zap.Logger
+	store       store.WebhookStorer
+	projectsDir string
+	logger      *zap.Logger
 }
 
 // NewWebhookHandler creates a WebhookHandler.
-func NewWebhookHandler(s store.WebhookStorer, logger *zap.Logger) *WebhookHandler {
-	return &WebhookHandler{store: s, logger: logger}
+func NewWebhookHandler(s store.WebhookStorer, projectsDir string, logger *zap.Logger) *WebhookHandler {
+	return &WebhookHandler{store: s, projectsDir: projectsDir, logger: logger}
 }
 
 // createWebhookRequest is the payload for POST /projects/{project_id}/webhooks.
@@ -152,9 +152,8 @@ const maxWebhooksPerProject = 10
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks [get]
 func (h *WebhookHandler) List(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -173,10 +172,7 @@ func (h *WebhookHandler) List(w http.ResponseWriter, r *http.Request) {
 		responses = append(responses, toWebhookResponse(webhooks[i]))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     responses,
-		"metadata": map[string]string{"message": "Webhooks successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, responses, "Webhooks successfully obtained")
 }
 
 // Create godoc
@@ -192,9 +188,8 @@ func (h *WebhookHandler) List(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks [post]
 func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
 
@@ -271,10 +266,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"data":     toWebhookResponse(*created),
-		"metadata": map[string]string{"message": "Webhook created"},
-	})
+	writeSuccess(w, http.StatusCreated, toWebhookResponse(*created), "Webhook created")
 }
 
 // Get godoc
@@ -290,12 +282,11 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id} [get]
 func (h *WebhookHandler) Get(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	webhookID := r.PathValue("webhook_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
+	webhookID := r.PathValue("webhook_id")
 	if webhookID == "" {
 		writeError(w, http.StatusBadRequest, "webhook_id is required")
 		return
@@ -318,10 +309,7 @@ func (h *WebhookHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     toWebhookResponse(*wh),
-		"metadata": map[string]string{"message": "Webhook successfully obtained"},
-	})
+	writeSuccess(w, http.StatusOK, toWebhookResponse(*wh), "Webhook successfully obtained")
 }
 
 // Update godoc
@@ -338,12 +326,11 @@ func (h *WebhookHandler) Get(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id} [put]
 func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	webhookID := r.PathValue("webhook_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
+	webhookID := r.PathValue("webhook_id")
 	if webhookID == "" {
 		writeError(w, http.StatusBadRequest, "webhook_id is required")
 		return
@@ -428,10 +415,7 @@ func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     toWebhookResponse(*updated),
-		"metadata": map[string]string{"message": "Webhook updated"},
-	})
+	writeSuccess(w, http.StatusOK, toWebhookResponse(*updated), "Webhook updated")
 }
 
 // Delete godoc
@@ -447,12 +431,11 @@ func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id} [delete]
 func (h *WebhookHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	webhookID := r.PathValue("webhook_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
+	webhookID := r.PathValue("webhook_id")
 	if webhookID == "" {
 		writeError(w, http.StatusBadRequest, "webhook_id is required")
 		return
@@ -468,10 +451,7 @@ func (h *WebhookHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]string{"id": webhookID},
-		"metadata": map[string]string{"message": "Webhook deleted"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]string{"id": webhookID}, "Webhook deleted")
 }
 
 // Test godoc
@@ -487,12 +467,11 @@ func (h *WebhookHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id}/test [post]
 func (h *WebhookHandler) Test(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	webhookID := r.PathValue("webhook_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
+	webhookID := r.PathValue("webhook_id")
 	if webhookID == "" {
 		writeError(w, http.StatusBadRequest, "webhook_id is required")
 		return
@@ -513,10 +492,7 @@ func (h *WebhookHandler) Test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]string{"message": "test notification queued"},
-		"metadata": map[string]string{"message": "Test delivery queued"},
-	})
+	writeSuccess(w, http.StatusOK, map[string]string{"message": "test notification queued"}, "Test delivery queued")
 }
 
 // ListDeliveries godoc
@@ -534,26 +510,17 @@ func (h *WebhookHandler) Test(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id}/deliveries [get]
 func (h *WebhookHandler) ListDeliveries(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("project_id")
-	webhookID := r.PathValue("webhook_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	if !ok {
 		return
 	}
+	webhookID := r.PathValue("webhook_id")
 	if webhookID == "" {
 		writeError(w, http.StatusBadRequest, "webhook_id is required")
 		return
 	}
 
-	q := r.URL.Query()
-	page, _ := strconv.Atoi(q.Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	perPage, _ := strconv.Atoi(q.Get("per_page"))
-	if perPage < 1 || perPage > 100 {
-		perPage = 20
-	}
+	pg := parsePagination(r)
 
 	// Verify webhook exists and belongs to this project.
 	wh, err := h.store.GetByID(r.Context(), webhookID)
@@ -571,7 +538,7 @@ func (h *WebhookHandler) ListDeliveries(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	deliveries, total, err := h.store.ListDeliveries(r.Context(), webhookID, page, perPage)
+	deliveries, total, err := h.store.ListDeliveries(r.Context(), webhookID, pg.Page, pg.PerPage)
 	if err != nil {
 		h.logger.Error("list deliveries", zap.String("webhook_id", webhookID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error listing deliveries")
@@ -581,11 +548,5 @@ func (h *WebhookHandler) ListDeliveries(w http.ResponseWriter, r *http.Request) 
 		deliveries = []store.WebhookDelivery{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     deliveries,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
-		"metadata": map[string]string{"message": "Deliveries successfully obtained"},
-	})
+	writePagedSuccess(w, http.StatusOK, deliveries, "Deliveries successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
