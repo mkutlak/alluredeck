@@ -1,3 +1,17 @@
+## [0.11.0](https://github.com/mkutlak/alluredeck/compare/v0.10.1...v0.11.0) (2026-03-29)
+
+### Features
+
+* **db,store:** add defect fingerprinting schema and DefectStorer interface ([9b08b2d](https://github.com/mkutlak/alluredeck/commit/9b08b2d863efd0a679f1ac72ab04e15a0edefa81))
+* **handlers:** add DefectHandler with all endpoints and route registration ([b0f60e1](https://github.com/mkutlak/alluredeck/commit/b0f60e1d207bd9ddd103444b49cdd0ad7a4fa37f))
+* **runner:** add fingerprint normalization, hashing, and heuristic categorization ([5d03581](https://github.com/mkutlak/alluredeck/commit/5d0358187b64eb28407487a81520b5616242a92d))
+* **store,runner:** add PGDefectStore, mock, and runner integration ([106aee0](https://github.com/mkutlak/alluredeck/commit/106aee01885f8165ac2e5768aa4586aa0aba7802))
+* **ui:** add complete defect grouping frontend ([90bfc27](https://github.com/mkutlak/alluredeck/commit/90bfc2707cd314f5f750cfac19a8888e5ac29acb))
+
+### Bug Fixes
+
+* resolve lint issues in defect store and fingerprint tests ([b871823](https://github.com/mkutlak/alluredeck/commit/b8718231a1e8abb7d56fd77a6a4bf837d63f00ed))
+
 ## [0.10.1](https://github.com/mkutlak/alluredeck/compare/v0.10.0...v0.10.1) (2026-03-28)
 
 ### Bug Fixes
