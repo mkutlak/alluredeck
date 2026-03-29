@@ -1,3 +1,13 @@
+## [0.12.0](https://github.com/mkutlak/alluredeck/compare/v0.11.0...v0.12.0) (2026-03-29)
+
+### Features
+
+* add webhook notifications for Slack, Discord, Teams, and generic HTTP ([d9496ab](https://github.com/mkutlak/alluredeck/commit/d9496ab884d9accad7cdf1e6445ece0e84e30349))
+
+### Bug Fixes
+
+* resolve attachment display issues and add text preview ([68cabd8](https://github.com/mkutlak/alluredeck/commit/68cabd883fffba73030dfb7615d6582465290865))
+
 ## [0.11.0](https://github.com/mkutlak/alluredeck/compare/v0.10.1...v0.11.0) (2026-03-29)
 
 ### Features
