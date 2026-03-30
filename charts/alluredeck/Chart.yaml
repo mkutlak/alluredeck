@@ -2,8 +2,8 @@ apiVersion: v2
 name: alluredeck
 description: Allure Reports Dashboard
 type: application
-version: 0.8.0
-appVersion: "0.9.1"
+version: 0.9.0
+appVersion: "0.12.0"
 home: https://github.com/mkutlak/alluredeck
 sources:
   - https://github.com/mkutlak/alluredeck
