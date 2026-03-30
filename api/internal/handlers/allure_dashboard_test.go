@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -18,7 +20,7 @@ func TestGetDashboard_Empty(t *testing.T) {
 		return []store.DashboardProject{}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	h := NewDashboardHandler(mocks.Builds, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
@@ -71,7 +73,7 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 		}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	h := NewDashboardHandler(mocks.Builds, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
@@ -154,7 +156,7 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 		}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	h := NewDashboardHandler(mocks.Builds, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)
@@ -196,7 +198,7 @@ func TestGetDashboard_ProjectWithNoBuilds(t *testing.T) {
 		}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, t.TempDir(), mocks)
+	h := NewDashboardHandler(mocks.Builds, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
 	rr := httptest.NewRecorder()
 	h.GetDashboard(rr, req)

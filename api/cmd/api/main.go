@@ -115,15 +115,19 @@ func main() {
 	}
 	var jobManager runner.JobQueuer = rjm
 
-	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore, logger)
 	apiReportHandler := handlers.NewReportHandler(jobManager, allureCore, buildStore, branchStore, testResultStore, knownIssueStore, dataStore, cfg, logger)
 	projectHandler := handlers.NewProjectHandler(projectStore, allureCore, dataStore, cfg, logger)
 	resultUploadHandler := handlers.NewResultUploadHandler(dataStore, projectStore, allureCore, cfg, logger)
 	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger)
 	branchHandler := handlers.NewBranchHandler(branchStore, buildStore, cfg.ProjectsPath)
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore, cfg.ProjectsPath)
-	allureHandler.SetBranchStore(branchStore)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, branchStore, cfg.ProjectsPath, logger)
+	searchHandler := handlers.NewSearchHandler(searchStore, cfg.ProjectsPath)
+	compareHandler := handlers.NewCompareHandler(testResultStore, cfg.ProjectsPath)
+	dashboardHandler := handlers.NewDashboardHandler(buildStore, logger)
+	lowPerfHandler := handlers.NewLowPerformingHandler(testResultStore, branchStore, cfg.ProjectsPath, logger)
+	projectTimelineHandler := handlers.NewProjectTimelineHandler(buildStore, testResultStore, branchStore, cfg.ProjectsPath)
+	knownIssueHandler := handlers.NewKnownIssueHandler(knownIssueStore, dataStore, cfg.ProjectsPath, logger)
 	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, cfg.ProjectsPath, logger)
 	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
 	parentHandler := handlers.NewProjectParentHandler(projectStore, buildStore, cfg.ProjectsPath, logger)
@@ -196,7 +200,7 @@ func main() {
 
 	defectHandler := handlers.NewDefectHandler(defectStore, cfg.ProjectsPath, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookStore, cfg.ProjectsPath, logger)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, apiReportHandler, projectHandler, resultUploadHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, apiReportHandler, projectHandler, resultUploadHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler, searchHandler, compareHandler, dashboardHandler, lowPerfHandler, projectTimelineHandler, knownIssueHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -357,7 +361,6 @@ func registerRoutes(
 	loginLimiter *middleware.IPRateLimiter,
 	system *handlers.SystemHandler,
 	authHandler *handlers.AuthHandler,
-	allure *handlers.AllureHandler,
 	report *handlers.ReportHandler,
 	projectHandler *handlers.ProjectHandler,
 	resultUploadHandler *handlers.ResultUploadHandler,
@@ -372,6 +375,12 @@ func registerRoutes(
 	parentHandler *handlers.ProjectParentHandler,
 	defectHandler *handlers.DefectHandler,
 	webhookHandler *handlers.WebhookHandler,
+	searchHandler *handlers.SearchHandler,
+	compareHandler *handlers.CompareHandler,
+	dashboardHandler *handlers.DashboardHandler,
+	lowPerfHandler *handlers.LowPerformingHandler,
+	projectTimelineHandler *handlers.ProjectTimelineHandler,
+	knownIssueHandler *handlers.KnownIssueHandler,
 ) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
@@ -408,7 +417,7 @@ func registerRoutes(
 	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(authHandler.Logout)))
 
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
-	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
+	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(searchHandler.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(projectHandler.GetProjects)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(report.GetReportHistory)))
 
@@ -424,30 +433,30 @@ func registerRoutes(
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(report.DeleteReport)))
 
 	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(allure.GetProjectTimeline))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(projectTimelineHandler.GetProjectTimeline))
 
 	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(report.GetReportCategories)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(report.GetReportEnvironment)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(allure.GetReportKnownFailures)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(knownIssueHandler.GetReportKnownFailures)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(report.GetReportTimeline)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(report.GetReportStability)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(report.GetReportSummary)))
 
 	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(allure.ListKnownIssues)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", editorUp(noStore(allure.CreateKnownIssue)))
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(allure.UpdateKnownIssue)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(allure.DeleteKnownIssue)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(knownIssueHandler.ListKnownIssues)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", editorUp(noStore(knownIssueHandler.CreateKnownIssue)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(knownIssueHandler.UpdateKnownIssue)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(knownIssueHandler.DeleteKnownIssue)))
 
 	// Analytics — short-lived cache.
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(allure.GetLowPerformingTests)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(lowPerfHandler.GetLowPerformingTests)))
 
 	// Compare — short-lived cache.
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(allure.CompareBuilds)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(compareHandler.CompareBuilds)))
 
 	// Dashboard — no-store (TanStack Query manages client-side freshness).
-	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(noStore(allure.GetDashboard)))
+	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(noStore(dashboardHandler.GetDashboard)))
 
 	// Project parent-child — admin write, viewer read.
 	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(parentHandler.SetParent)))

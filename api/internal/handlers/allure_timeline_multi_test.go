@@ -63,8 +63,7 @@ func buildMocksForMultiTimeline() *testutil.MockStores {
 func TestGetProjectTimeline_SingleBuild_Default(t *testing.T) {
 	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
-	h.SetBranchStore(mocks.Branches)
+	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/timeline", nil)
@@ -131,8 +130,7 @@ func TestGetProjectTimeline_BranchFilter(t *testing.T) {
 		}, 1, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
-	h.SetBranchStore(mocks.Branches)
+	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/timeline?branch=main", nil)
@@ -175,8 +173,7 @@ func TestGetProjectTimeline_DateRange(t *testing.T) {
 		}, 5, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
-	h.SetBranchStore(mocks.Branches)
+	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/timeline?from=2026-03-20&to=2026-03-25&limit=3", nil)
@@ -219,8 +216,7 @@ func TestGetProjectTimeline_MaxBuildsWarning(t *testing.T) {
 		}, 15, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
-	h.SetBranchStore(mocks.Branches)
+	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/timeline?limit=1", nil)
@@ -253,8 +249,7 @@ func TestGetProjectTimeline_MaxBuildsWarning(t *testing.T) {
 func TestGetProjectTimeline_InvalidDateFormat(t *testing.T) {
 	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
-	h.SetBranchStore(mocks.Branches)
+	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/timeline?from=not-a-date", nil)
@@ -284,8 +279,7 @@ func TestGetProjectTimeline_LimitCap(t *testing.T) {
 		}, 1, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
-	h.SetBranchStore(mocks.Branches)
+	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
 
 	// Request limit=50 — should be capped to 10.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,

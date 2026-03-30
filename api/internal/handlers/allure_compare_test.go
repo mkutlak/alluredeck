@@ -33,7 +33,7 @@ func TestCompareBuilds_Success(t *testing.T) {
 		}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestCompareHandler(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/compare?a=1&b=2", projectID), nil)
@@ -108,7 +108,7 @@ func TestCompareBuilds_Success(t *testing.T) {
 
 func TestCompareBuilds_MissingParams(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h := newTestCompareHandler(t, projectsDir, testutil.New())
 
 	cases := []struct {
 		name  string
@@ -142,7 +142,7 @@ func TestCompareBuilds_MissingParams(t *testing.T) {
 
 func TestCompareBuilds_SameBuild(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h := newTestCompareHandler(t, projectsDir, testutil.New())
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj/compare?a=1&b=1", nil)
@@ -176,7 +176,7 @@ func TestCompareBuilds_BuildNotFound(t *testing.T) {
 		return 10, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestCompareHandler(t, projectsDir, mocks)
 
 	// Build 99 does not exist
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -193,7 +193,7 @@ func TestCompareBuilds_BuildNotFound(t *testing.T) {
 
 func TestCompareBuilds_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h := newTestCompareHandler(t, projectsDir, testutil.New())
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/compare?a=1&b=2", nil)
@@ -210,7 +210,8 @@ func TestCompareBuilds_InvalidProjectID(t *testing.T) {
 func TestCompareBuilds_NoStore(t *testing.T) {
 	// When testResultStore is nil, handler returns empty data (same pattern as analytics)
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir) // newTestAllureHandler sets testResultStore=nil
+	// newTestCompareHandler with nil testResultStore
+	h := NewCompareHandler(nil, projectsDir)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/someproj/compare?a=1&b=2", nil)

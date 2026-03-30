@@ -216,6 +216,37 @@ func newTestResultUploadHandler(t *testing.T, projectsDir string) (*ResultUpload
 	return h, mocks
 }
 
+// newTestSearchHandler creates a SearchHandler backed by an in-memory search store.
+func newTestSearchHandler(t *testing.T, projectsDir string) *SearchHandler {
+	t.Helper()
+	mocks := testutil.New()
+	return NewSearchHandler(mocks.Search, projectsDir)
+}
+
+// newTestCompareHandler creates a CompareHandler with the given mock stores.
+func newTestCompareHandler(t *testing.T, projectsDir string, mocks *testutil.MockStores) *CompareHandler {
+	t.Helper()
+	return NewCompareHandler(mocks.TestResults, projectsDir)
+}
+
+// newTestProjectTimelineHandler creates a ProjectTimelineHandler with the given mock stores.
+func newTestProjectTimelineHandler(t *testing.T, projectsDir string, mocks *testutil.MockStores) *ProjectTimelineHandler {
+	t.Helper()
+	return NewProjectTimelineHandler(mocks.Builds, mocks.TestResults, mocks.Branches, projectsDir)
+}
+
+// newTestKnownIssueHandler creates a KnownIssueHandler backed by in-memory stores
+// and returns both the handler and the mocks so tests can pre-seed data.
+func newTestKnownIssueHandler(t *testing.T, projectsDir string) (*KnownIssueHandler, *testutil.MockStores) {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	h := NewKnownIssueHandler(mocks.KnownIssues, st, projectsDir, logger)
+	return h, mocks
+}
+
 // writeSummaryJSON creates widgets/summary.json under the given report dir.
 func writeSummaryJSON(t *testing.T, reportDir string, content string) {
 	t.Helper()

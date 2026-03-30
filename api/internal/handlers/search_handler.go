@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 const (
@@ -12,9 +14,23 @@ const (
 	searchMaxLim     = 50
 )
 
+// SearchHandler handles HTTP requests for search operations.
+type SearchHandler struct {
+	searchStore store.SearchStorer
+	projectsDir string
+}
+
+// NewSearchHandler creates and returns a new SearchHandler.
+func NewSearchHandler(ss store.SearchStorer, projectsDir string) *SearchHandler {
+	return &SearchHandler{
+		searchStore: ss,
+		projectsDir: projectsDir,
+	}
+}
+
 // Search handles GET /api/v1/search?q=<term>&limit=<n>.
 // Returns matching projects and test names from latest builds.
-func (h *AllureHandler) Search(w http.ResponseWriter, r *http.Request) {
+func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {
 		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")

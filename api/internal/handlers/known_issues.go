@@ -6,8 +6,29 @@ import (
 	"net/http"
 	"strconv"
 
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
+
+// KnownIssueHandler handles HTTP requests for known issue management.
+type KnownIssueHandler struct {
+	knownIssueStore store.KnownIssueStorer
+	store           storage.Store
+	projectsDir     string
+	logger          *zap.Logger
+}
+
+// NewKnownIssueHandler creates and returns a new KnownIssueHandler.
+func NewKnownIssueHandler(kis store.KnownIssueStorer, st storage.Store, projectsDir string, logger *zap.Logger) *KnownIssueHandler {
+	return &KnownIssueHandler{
+		knownIssueStore: kis,
+		store:           st,
+		projectsDir:     projectsDir,
+		logger:          logger,
+	}
+}
 
 // knownIssueResponse is the JSON representation of a KnownIssue.
 type knownIssueResponse struct {
@@ -46,10 +67,10 @@ func kiToResponse(ki *store.KnownIssue) knownIssueResponse {
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues [get]
-func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) {
+func (h *KnownIssueHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}
@@ -79,10 +100,10 @@ func (h *AllureHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) 
 // @Failure      400  {object}  map[string]any
 // @Failure      409  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues [post]
-func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request) {
+func (h *KnownIssueHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}
@@ -135,10 +156,10 @@ func (h *AllureHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request)
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues/{issue_id} [put]
-func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request) {
+func (h *KnownIssueHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}
@@ -199,10 +220,10 @@ func (h *AllureHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request)
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/known-issues/{issue_id} [delete]
-func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request) {
+func (h *KnownIssueHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}
@@ -235,10 +256,10 @@ func (h *AllureHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request)
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/known-failures [get]
-func (h *AllureHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Request) {
+func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 const (
@@ -23,6 +25,24 @@ type multiTimelineBuild struct {
 	Summary    timelineSummary    `json:"summary"`
 }
 
+// ProjectTimelineHandler handles HTTP requests for multi-build project timelines.
+type ProjectTimelineHandler struct {
+	buildStore      store.BuildStorer
+	testResultStore store.TestResultStorer
+	branchStore     store.BranchStorer
+	projectsDir     string
+}
+
+// NewProjectTimelineHandler creates and returns a new ProjectTimelineHandler.
+func NewProjectTimelineHandler(bs store.BuildStorer, trs store.TestResultStorer, brs store.BranchStorer, projectsDir string) *ProjectTimelineHandler {
+	return &ProjectTimelineHandler{
+		buildStore:      bs,
+		testResultStore: trs,
+		branchStore:     brs,
+		projectsDir:     projectsDir,
+	}
+}
+
 // GetProjectTimeline godoc
 // @Summary      Get multi-build test execution timeline
 // @Description  Returns test execution timeline data across one or more builds, with optional branch and date range filters.
@@ -37,10 +57,10 @@ type multiTimelineBuild struct {
 // @Failure      400  {object}  map[string]any
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/timeline [get]
-func (h *AllureHandler) GetProjectTimeline(w http.ResponseWriter, r *http.Request) {
+func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}

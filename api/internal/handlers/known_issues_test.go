@@ -12,7 +12,7 @@ import (
 
 func TestListKnownIssues_Empty(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestKnownIssueHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/default/known-issues", nil)
@@ -39,11 +39,11 @@ func TestListKnownIssues_Empty(t *testing.T) {
 
 func TestListKnownIssues_WithEntries(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	// Pre-create project and known issue via store
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "testproj"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "testproj"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.knownIssueStore.Create(ctx, "testproj", "My flaky test", "", "http://ticket/1", "desc"); err != nil {
@@ -75,10 +75,10 @@ func TestListKnownIssues_WithEntries(t *testing.T) {
 
 func TestCreateKnownIssue_Success(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "cproj"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "cproj"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,10 +120,10 @@ func TestCreateKnownIssue_Success(t *testing.T) {
 
 func TestCreateKnownIssue_Duplicate(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "dproj"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "dproj"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.knownIssueStore.Create(ctx, "dproj", "Dup test", "", "", ""); err != nil {
@@ -152,7 +152,7 @@ func TestCreateKnownIssue_Duplicate(t *testing.T) {
 
 func TestCreateKnownIssue_InvalidProject(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestKnownIssueHandler(t, projectsDir)
 
 	body := map[string]any{"test_name": "Any test"}
 	bodyBytes, _ := json.Marshal(body)
@@ -176,10 +176,10 @@ func TestCreateKnownIssue_InvalidProject(t *testing.T) {
 
 func TestUpdateKnownIssue_ToggleActive(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "uproj"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "uproj"); err != nil {
 		t.Fatal(err)
 	}
 	issue, err := h.knownIssueStore.Create(ctx, "uproj", "Toggle me", "", "", "")
@@ -214,10 +214,10 @@ func TestUpdateKnownIssue_ToggleActive(t *testing.T) {
 
 func TestDeleteKnownIssue_Success(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "delproj"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "delproj"); err != nil {
 		t.Fatal(err)
 	}
 	issue, err := h.knownIssueStore.Create(ctx, "delproj", "Delete me", "", "", "")
@@ -243,13 +243,13 @@ func TestDeleteKnownIssue_Success(t *testing.T) {
 
 func TestUpdateKnownIssue_CrossProjectRejected(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "projA"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "projA"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.projectStore.CreateProject(ctx, "projB"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "projB"); err != nil {
 		t.Fatal(err)
 	}
 	issue, err := h.knownIssueStore.Create(ctx, "projA", "Test in projA", "", "http://ticket/1", "desc")
@@ -285,13 +285,13 @@ func TestUpdateKnownIssue_CrossProjectRejected(t *testing.T) {
 
 func TestDeleteKnownIssue_CrossProjectRejected(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "projA"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "projA"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.projectStore.CreateProject(ctx, "projB"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "projB"); err != nil {
 		t.Fatal(err)
 	}
 	issue, err := h.knownIssueStore.Create(ctx, "projA", "Test in projA", "", "", "")
@@ -323,10 +323,10 @@ func TestDeleteKnownIssue_CrossProjectRejected(t *testing.T) {
 
 func TestCreateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "xss"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "xss"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -355,10 +355,10 @@ func TestCreateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 
 func TestUpdateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "xss2"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "xss2"); err != nil {
 		t.Fatal(err)
 	}
 	issue, err := h.knownIssueStore.Create(ctx, "xss2", "Some test", "", "http://valid", "desc")
@@ -393,10 +393,10 @@ func TestUpdateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 
 func TestGetReportKnownFailures_NoKnown(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := h.projectStore.CreateProject(ctx, "kfproj"); err != nil {
+	if err := mocks.Projects.CreateProject(ctx, "kfproj"); err != nil {
 		t.Fatal(err)
 	}
 

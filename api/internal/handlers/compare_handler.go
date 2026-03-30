@@ -30,6 +30,20 @@ type compareSummary struct {
 	Total     int `json:"total"`
 }
 
+// CompareHandler handles HTTP requests for build comparison.
+type CompareHandler struct {
+	testResultStore store.TestResultStorer
+	projectsDir     string
+}
+
+// NewCompareHandler creates and returns a new CompareHandler.
+func NewCompareHandler(trs store.TestResultStorer, projectsDir string) *CompareHandler {
+	return &CompareHandler{
+		testResultStore: trs,
+		projectsDir:     projectsDir,
+	}
+}
+
 // CompareBuilds godoc
 // @Summary      Compare two builds
 // @Description  Returns a diff of test statuses between two builds within a project.
@@ -41,10 +55,10 @@ type compareSummary struct {
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/compare [get]
-func (h *AllureHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
+func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}

@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 
+	"go.uber.org/zap"
+
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
@@ -64,6 +66,20 @@ type dashboardSummaryResp struct {
 	Failing       int `json:"failing"`
 }
 
+// DashboardHandler handles HTTP requests for the cross-project dashboard.
+type DashboardHandler struct {
+	buildStore store.BuildStorer
+	logger     *zap.Logger
+}
+
+// NewDashboardHandler creates and returns a new DashboardHandler.
+func NewDashboardHandler(bs store.BuildStorer, logger *zap.Logger) *DashboardHandler {
+	return &DashboardHandler{
+		buildStore: bs,
+		logger:     logger,
+	}
+}
+
 // GetDashboard godoc
 // @Summary      Get cross-project dashboard data
 // @Description  Returns all projects with their latest build status and pass rate sparklines.
@@ -72,7 +88,7 @@ type dashboardSummaryResp struct {
 // @Success      200  {object}  map[string]any
 // @Failure      500  {object}  map[string]any
 // @Router       /dashboard [get]
-func (h *AllureHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
+func (h *DashboardHandler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	projects, err := h.buildStore.GetDashboardData(ctx, 10)

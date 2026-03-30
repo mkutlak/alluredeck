@@ -10,13 +10,12 @@ import (
 
 func TestExtractProjectID_ValidID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.SetPathValue("project_id", "my-project")
 	w := httptest.NewRecorder()
 
-	got, ok := h.extractProjectID(w, req)
+	got, ok := extractProjectID(w, req, projectsDir)
 	if !ok {
 		t.Fatalf("extractProjectID returned false, body: %s", w.Body.String())
 	}
@@ -27,13 +26,12 @@ func TestExtractProjectID_ValidID(t *testing.T) {
 
 func TestExtractProjectID_EmptyDefaultsToDefault(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.SetPathValue("project_id", "")
 	w := httptest.NewRecorder()
 
-	got, ok := h.extractProjectID(w, req)
+	got, ok := extractProjectID(w, req, projectsDir)
 	if !ok {
 		t.Fatalf("extractProjectID returned false, body: %s", w.Body.String())
 	}
@@ -44,13 +42,12 @@ func TestExtractProjectID_EmptyDefaultsToDefault(t *testing.T) {
 
 func TestExtractProjectID_TraversalRejected(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.SetPathValue("project_id", "../evil")
 	w := httptest.NewRecorder()
 
-	_, ok := h.extractProjectID(w, req)
+	_, ok := extractProjectID(w, req, projectsDir)
 	if ok {
 		t.Fatal("extractProjectID returned true for traversal attack")
 	}
@@ -61,13 +58,12 @@ func TestExtractProjectID_TraversalRejected(t *testing.T) {
 
 func TestExtractProjectID_InvalidEncoding(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	req.SetPathValue("project_id", "%zz")
 	w := httptest.NewRecorder()
 
-	_, ok := h.extractProjectID(w, req)
+	_, ok := extractProjectID(w, req, projectsDir)
 	if ok {
 		t.Fatal("extractProjectID returned true for invalid encoding")
 	}

@@ -153,7 +153,7 @@ func TestGetReportCategories_TraversalReportID(t *testing.T) {
 
 func TestGetReportKnownFailures_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestKnownIssueHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/default/reports/../evil/known-failures", nil)

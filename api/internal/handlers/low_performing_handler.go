@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"go.uber.org/zap"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 const (
@@ -24,6 +26,24 @@ type analyticsTestEntry struct {
 	Trend      []float64 `json:"trend"`
 }
 
+// LowPerformingHandler handles HTTP requests for low-performing test analytics.
+type LowPerformingHandler struct {
+	testResultStore store.TestResultStorer
+	branchStore     store.BranchStorer
+	projectsDir     string
+	logger          *zap.Logger
+}
+
+// NewLowPerformingHandler creates and returns a new LowPerformingHandler.
+func NewLowPerformingHandler(trs store.TestResultStorer, brs store.BranchStorer, projectsDir string, logger *zap.Logger) *LowPerformingHandler {
+	return &LowPerformingHandler{
+		testResultStore: trs,
+		branchStore:     brs,
+		projectsDir:     projectsDir,
+		logger:          logger,
+	}
+}
+
 // GetLowPerformingTests godoc
 // @Summary      Get low-performing tests
 // @Description  Returns tests ranked by average duration or failure rate across recent builds.
@@ -36,10 +56,10 @@ type analyticsTestEntry struct {
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/analytics/low-performing [get]
-func (h *AllureHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Request) {
+func (h *LowPerformingHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.projectsDir)
 	if !ok {
 		return
 	}
