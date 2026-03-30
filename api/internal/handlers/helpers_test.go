@@ -145,6 +145,52 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, st, logger)
 }
 
+// newTestReportHandler creates a ReportHandler backed by stateful in-memory stores.
+// After construction it scans projectsDir and populates the build store with any
+// numbered report directories found, so GetReportHistory tests see the expected
+// DB-backed entries without a real PostgreSQL connection.
+func newTestReportHandler(t *testing.T, projectsDir string) (*ReportHandler, *testutil.MockStores) {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	// testResultStore is nil so GetReportTimeline's "latest" resolution is skipped,
+	// letting filesystem-based tests work correctly (same as original newTestAllureHandler).
+	h := NewReportHandler(nil, r, mocks.MemBuilds, mocks.Branches, nil, mocks.KnownIssues, st, cfg, logger)
+	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
+	return h, mocks
+}
+
+// newTestReportHandlerWithMocks creates a ReportHandler wired to caller-provided
+// mock stores. Use this when tests pre-seed mock Fn fields before handler construction.
+func newTestReportHandlerWithMocks(t *testing.T, projectsDir string, mocks *testutil.MockStores) *ReportHandler {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, nil, logger)
+	return NewReportHandler(nil, r, mocks.Builds, mocks.Branches, mocks.TestResults, mocks.KnownIssues, st, cfg, logger)
+}
+
+// newTestReportHandlerWithJobManager builds a ReportHandler with a real JobManager
+// backed by the provided generator, for async job handler tests.
+func newTestReportHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) *ReportHandler {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir, KeepHistory: false}
+	logger := zap.NewNop()
+	st := storage.NewLocalStore(cfg)
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, logger)
+
+	jm := runner.NewMemJobManager(gen, 2, logger)
+	jm.Start(context.Background())
+	t.Cleanup(func() { jm.Shutdown() })
+
+	return NewReportHandler(jm, r, mocks.Builds, mocks.Branches, nil, nil, st, cfg, logger)
+}
+
 // newTestProjectHandler creates a ProjectHandler backed by stateful in-memory stores.
 func newTestProjectHandler(t *testing.T, projectsDir string) (*ProjectHandler, *testutil.MockStores) {
 	t.Helper()

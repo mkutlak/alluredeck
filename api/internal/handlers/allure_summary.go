@@ -102,11 +102,11 @@ func pct(count, total int) float64 {
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/summary [get]
-func (h *AllureHandler) GetReportSummary(w http.ResponseWriter, r *http.Request) {
+func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Validate project_id.
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
 	if !ok {
 		return
 	}

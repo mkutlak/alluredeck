@@ -56,7 +56,7 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 		}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/summary-proj/reports/3/summary", nil)
 	if err != nil {
@@ -160,7 +160,7 @@ func TestGetReportSummary_Latest(t *testing.T) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/latest-proj/reports/latest/summary", nil)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 		}, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/trend-proj/reports/2/summary", nil)
 	if err != nil {
@@ -279,7 +279,7 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/notfound-proj/reports/99/summary", nil)
 	if err != nil {
@@ -299,7 +299,7 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 func TestGetReportSummary_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/reports/1/summary", nil)
 	if err != nil {
@@ -358,7 +358,7 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 		return batch, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/limit-proj/reports/1/summary", nil)
 	if err != nil {

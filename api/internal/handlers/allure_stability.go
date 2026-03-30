@@ -47,10 +47,10 @@ type stabilityRawEntry struct {
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/stability [get]
-func (h *AllureHandler) GetReportStability(w http.ResponseWriter, r *http.Request) {
+func (h *ReportHandler) GetReportStability(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
 	if !ok {
 		return
 	}

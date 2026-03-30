@@ -89,7 +89,7 @@ func TestGetReportHistory_StoreError_NoLeakage(t *testing.T) {
 		return nil, 0, fmt.Errorf("pq: connection refused")
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/reports", nil)

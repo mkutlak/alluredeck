@@ -40,10 +40,10 @@ type timelineSummary struct {
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id}/timeline [get]
-func (h *AllureHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request) {
+func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := h.extractProjectID(w, r)
+	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
 	if !ok {
 		return
 	}

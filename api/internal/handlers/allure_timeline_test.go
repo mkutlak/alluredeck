@@ -33,7 +33,7 @@ func TestGetReportTimeline_LatestReport(t *testing.T) {
 		}
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/timelineproj/reports/latest/timeline", nil)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestGetReportTimeline_TopLevelStartStop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/rawfmt/reports/latest/timeline", nil)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestGetReportTimeline_EmptyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/emptyproj/reports/latest/timeline", nil)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestGetReportTimeline_EmptyDir(t *testing.T) {
 
 func TestGetReportTimeline_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/reports/latest/timeline", nil)
@@ -188,7 +188,7 @@ func TestGetReportTimeline_MissingDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/nodirproj/reports/latest/timeline", nil)
 	if err != nil {
@@ -235,7 +235,7 @@ func TestGetReportTimeline_DBFastPath(t *testing.T) {
 		return nil, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 
 	// Request with numeric report_id "5" — should hit DB fast path.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -306,7 +306,7 @@ func TestGetReportTimeline_FallbackToS3(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	// "latest" is non-numeric — should fall back to S3.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -366,7 +366,7 @@ func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
 		return nil, nil
 	}
 
-	h := newTestAllureHandlerWithMocks(t, projectsDir, mocks)
+	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/latestdbproj/reports/latest/timeline", nil)
@@ -418,7 +418,7 @@ func TestGetReportTimeline_Truncation(t *testing.T) {
 		}
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/truncproj/reports/latest/timeline", nil)
 	if err != nil {

@@ -116,6 +116,7 @@ func main() {
 	var jobManager runner.JobQueuer = rjm
 
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore, logger)
+	apiReportHandler := handlers.NewReportHandler(jobManager, allureCore, buildStore, branchStore, testResultStore, knownIssueStore, dataStore, cfg, logger)
 	projectHandler := handlers.NewProjectHandler(projectStore, allureCore, dataStore, cfg, logger)
 	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger)
 	branchHandler := handlers.NewBranchHandler(branchStore, buildStore, cfg.ProjectsPath)
@@ -194,7 +195,7 @@ func main() {
 
 	defectHandler := handlers.NewDefectHandler(defectStore, cfg.ProjectsPath, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookStore, cfg.ProjectsPath, logger)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, projectHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, apiReportHandler, projectHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -356,6 +357,7 @@ func registerRoutes(
 	system *handlers.SystemHandler,
 	authHandler *handlers.AuthHandler,
 	allure *handlers.AllureHandler,
+	report *handlers.ReportHandler,
 	projectHandler *handlers.ProjectHandler,
 	admin *handlers.AdminHandler,
 	branchHandler *handlers.BranchHandler,
@@ -406,29 +408,29 @@ func registerRoutes(
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(projectHandler.GetProjects)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(report.GetReportHistory)))
 
 	// Admin write endpoints — no-store.
 	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(projectHandler.CreateProject)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(projectHandler.DeleteProject)))
 	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(projectHandler.RenameProject)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(allure.GenerateReport)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(allure.GetJobStatus)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(allure.CleanHistory)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(report.GenerateReport)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(report.GetJobStatus)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(report.CleanHistory)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.CleanResults)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(allure.SendResults)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(allure.DeleteReport)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(report.DeleteReport)))
 
 	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(allure.GetProjectTimeline))
 
 	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(allure.GetReportCategories)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(allure.GetReportEnvironment)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(report.GetReportCategories)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(report.GetReportEnvironment)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(allure.GetReportKnownFailures)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(allure.GetReportTimeline)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(allure.GetReportStability)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(allure.GetReportSummary)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(report.GetReportTimeline)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(report.GetReportStability)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(report.GetReportSummary)))
 
 	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(allure.ListKnownIssues)))

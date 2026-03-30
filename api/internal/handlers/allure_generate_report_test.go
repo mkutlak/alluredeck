@@ -53,7 +53,7 @@ func makeGetJobStatusReq(t *testing.T, projectID, jobID string) *http.Request {
 func TestGenerateReport_Returns202WithJobID(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestAllureHandlerWithJobManager(t, projectsDir, gen)
+	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	rr := httptest.NewRecorder()
 	h.GenerateReport(rr, makeGenerateReportReq(t, "myproject"))
@@ -87,7 +87,7 @@ func TestGenerateReport_Returns202WithJobID(t *testing.T) {
 func TestGenerateReport_ReservedProjectID_Returns400(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestAllureHandlerWithJobManager(t, projectsDir, gen)
+	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	rr := httptest.NewRecorder()
 	h.GenerateReport(rr, makeGenerateReportReq(t, "login"))
@@ -101,7 +101,7 @@ func TestGenerateReport_ReservedProjectID_Returns400(t *testing.T) {
 func TestGenerateReport_InvalidProjectID_Returns400(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestAllureHandlerWithJobManager(t, projectsDir, gen)
+	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	rr := httptest.NewRecorder()
 	h.GenerateReport(rr, makeGenerateReportReq(t, "../evil"))
@@ -118,7 +118,7 @@ func TestGetJobStatus_Returns200ForValidJob(t *testing.T) {
 	blockCh := make(chan struct{})
 	defer close(blockCh)
 	gen := &blockingMockGenerator{ch: blockCh}
-	h := newTestAllureHandlerWithJobManager(t, projectsDir, gen)
+	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	// First, queue a job.
 	genRR := httptest.NewRecorder()
@@ -167,7 +167,7 @@ func TestGetJobStatus_Returns200ForValidJob(t *testing.T) {
 func TestGetJobStatus_Returns404ForUnknownJobID(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestAllureHandlerWithJobManager(t, projectsDir, gen)
+	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	rr := httptest.NewRecorder()
 	h.GetJobStatus(rr, makeGetJobStatusReq(t, "myproject", "nonexistent-job-id"))
@@ -184,7 +184,7 @@ func TestGetJobStatus_Returns404WhenProjectIDMismatch(t *testing.T) {
 	blockCh := make(chan struct{})
 	defer close(blockCh)
 	gen := &blockingMockGenerator{ch: blockCh}
-	h := newTestAllureHandlerWithJobManager(t, projectsDir, gen)
+	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	// Queue a job for "project-a".
 	genRR := httptest.NewRecorder()

@@ -24,7 +24,7 @@ func TestGetReportCategories_LatestReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/catproject/reports/latest/categories", nil)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestGetReportCategories_MissingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/nocat/reports/latest/categories", nil)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestGetReportCategories_MissingFile(t *testing.T) {
 
 func TestGetReportCategories_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/reports/latest/categories", nil)
@@ -115,7 +115,7 @@ func TestGetReportCategories_EmptyCategories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/emptycat/reports/latest/categories", nil)
 	if err != nil {
@@ -154,7 +154,7 @@ func TestGetReportEnvironment_LatestReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproject/reports/latest/environment", nil)
 	if err != nil {
@@ -195,7 +195,7 @@ func TestGetReportEnvironment_SpecificBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj/reports/5/environment", nil)
 	if err != nil {
@@ -227,7 +227,7 @@ func TestGetReportEnvironment_MissingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/noreports/reports/latest/environment", nil)
 	if err != nil {
@@ -254,7 +254,7 @@ func TestGetReportEnvironment_MissingFile(t *testing.T) {
 
 func TestGetReportEnvironment_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/reports/latest/environment", nil)
@@ -283,7 +283,7 @@ func TestGetReportEnvironment_EmptyJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/empty/reports/latest/environment", nil)
 	if err != nil {

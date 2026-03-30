@@ -37,7 +37,7 @@ func TestGetReportHistory_EmptyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 
@@ -75,7 +75,7 @@ func TestGetReportHistory_MultipleReports(t *testing.T) {
 	}
 
 	// newTestAllureHandler calls SyncFromFilesystem which imports builds 1 and 3.
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 
@@ -138,7 +138,7 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 
@@ -178,7 +178,7 @@ func TestGetReportHistory_CancelledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately — handler should propagate this to DB queries
@@ -206,7 +206,7 @@ func TestGetReportHistory_WithCIMetadata(t *testing.T) {
 	summary := `{"statistic":{"passed":5,"failed":1,"broken":0,"skipped":0,"unknown":0,"total":6},"time":{"stop":1700000000000,"duration":3000}}`
 	writeSummaryJSON(t, dir, summary)
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	// Set CI metadata on the imported build via the handler's buildStore.
 	ctx := context.Background()
@@ -262,7 +262,7 @@ func TestGetReportHistory_WithCIMetadata(t *testing.T) {
 
 func TestGetReportHistory_InvalidProjectID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, "../evil"))
@@ -302,7 +302,7 @@ func TestGetReportHistory_Allure3LatestWithTiming(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 

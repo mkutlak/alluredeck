@@ -65,7 +65,7 @@ func TestValidateTicketURL(t *testing.T) {
 
 func TestGetReportEnvironment_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/default/reports/../evil/environment", nil)
@@ -93,7 +93,7 @@ func TestGetReportEnvironment_TraversalReportID(t *testing.T) {
 
 func TestGetReportTimeline_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/default/reports/../evil/timeline", nil)
@@ -113,7 +113,7 @@ func TestGetReportTimeline_TraversalReportID(t *testing.T) {
 
 func TestGetReportStability_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/default/reports/../evil/stability", nil)
@@ -133,7 +133,7 @@ func TestGetReportStability_TraversalReportID(t *testing.T) {
 
 func TestGetReportCategories_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/default/reports/../evil/categories", nil)
@@ -173,7 +173,7 @@ func TestGetReportKnownFailures_TraversalReportID(t *testing.T) {
 
 func TestDeleteReport_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestReportHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
 		"/api/v1/projects/default/reports/../evil", nil)
