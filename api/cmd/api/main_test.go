@@ -29,12 +29,13 @@ func TestRegisterRoutes(t *testing.T) {
 	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, localStore, zap.NewNop())
 	projectHandler := handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop())
+	resultUploadHandler := handlers.NewResultUploadHandler(localStore, mocks.Projects, allureCore, cfg, zap.NewNop())
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	adminHandler := handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, projectHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, nil, projectHandler, resultUploadHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	tests := []struct {
 		method string
@@ -78,12 +79,13 @@ func TestBareRoutes_Return404(t *testing.T) {
 	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, nil, mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, localStore, zap.NewNop())
 	projectHandler := handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop())
+	resultUploadHandler := handlers.NewResultUploadHandler(localStore, mocks.Projects, allureCore, cfg, zap.NewNop())
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
 	adminHandler := handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, projectHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, nil, projectHandler, resultUploadHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// Bare routes (no /api/v1 prefix) should return 404.
 	bareRoutes := []struct {

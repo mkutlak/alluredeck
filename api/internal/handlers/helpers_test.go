@@ -203,6 +203,19 @@ func newTestProjectHandler(t *testing.T, projectsDir string) (*ProjectHandler, *
 	return h, mocks
 }
 
+// newTestResultUploadHandler creates a ResultUploadHandler backed by stateful
+// in-memory stores for upload/cleanup tests.
+func newTestResultUploadHandler(t *testing.T, projectsDir string) (*ResultUploadHandler, *testutil.MockStores) {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 100}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	h := NewResultUploadHandler(st, mocks.Projects, r, cfg, logger)
+	return h, mocks
+}
+
 // writeSummaryJSON creates widgets/summary.json under the given report dir.
 func writeSummaryJSON(t *testing.T, reportDir string, content string) {
 	t.Helper()

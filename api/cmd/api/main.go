@@ -118,6 +118,7 @@ func main() {
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore, logger)
 	apiReportHandler := handlers.NewReportHandler(jobManager, allureCore, buildStore, branchStore, testResultStore, knownIssueStore, dataStore, cfg, logger)
 	projectHandler := handlers.NewProjectHandler(projectStore, allureCore, dataStore, cfg, logger)
+	resultUploadHandler := handlers.NewResultUploadHandler(dataStore, projectStore, allureCore, cfg, logger)
 	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger)
 	branchHandler := handlers.NewBranchHandler(branchStore, buildStore, cfg.ProjectsPath)
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore, cfg.ProjectsPath)
@@ -195,7 +196,7 @@ func main() {
 
 	defectHandler := handlers.NewDefectHandler(defectStore, cfg.ProjectsPath, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookStore, cfg.ProjectsPath, logger)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, apiReportHandler, projectHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, apiReportHandler, projectHandler, resultUploadHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -359,6 +360,7 @@ func registerRoutes(
 	allure *handlers.AllureHandler,
 	report *handlers.ReportHandler,
 	projectHandler *handlers.ProjectHandler,
+	resultUploadHandler *handlers.ResultUploadHandler,
 	admin *handlers.AdminHandler,
 	branchHandler *handlers.BranchHandler,
 	testHistoryHandler *handlers.TestHistoryHandler,
@@ -417,8 +419,8 @@ func registerRoutes(
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(report.GenerateReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(report.GetJobStatus)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(report.CleanHistory)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(allure.CleanResults)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(allure.SendResults)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(resultUploadHandler.CleanResults)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(resultUploadHandler.SendResults)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(report.DeleteReport)))
 
 	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").

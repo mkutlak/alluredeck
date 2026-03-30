@@ -63,7 +63,7 @@ func TestSendJSONResults_WritesFileCorrectly(t *testing.T) {
 		{"file_name": "test-result.xml", "content_base64": encoded},
 	})
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestResultUploadHandler(t, projectsDir)
 	processed, failed, err := h.sendJSONResults(req, projectID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -111,7 +111,7 @@ func TestSendJSONResults_MultipleFiles(t *testing.T) {
 		}
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestResultUploadHandler(t, projectsDir)
 	processed, failed, err := h.sendJSONResults(makeJSONSendResultsReq(t, projectID, results), projectID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,7 +148,7 @@ func TestSendJSONResults_InvalidBase64(t *testing.T) {
 		{"file_name": "bad.xml", "content_base64": "not!valid!base64!!!"},
 	})
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestResultUploadHandler(t, projectsDir)
 	_, _, err := h.sendJSONResults(req, projectID)
 	if err == nil {
 		t.Fatal("expected error for invalid base64, got nil")
@@ -171,7 +171,7 @@ func TestSendJSONResults_DuplicateFileNames(t *testing.T) {
 		{"file_name": "dup.xml", "content_base64": encoded},
 	})
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestResultUploadHandler(t, projectsDir)
 	_, _, err := h.sendJSONResults(req, projectID)
 	if err == nil {
 		t.Fatal("expected error for duplicate file names, got nil")
@@ -192,7 +192,7 @@ func TestSendJSONResults_MissingContentBase64(t *testing.T) {
 		{"file_name": "missing-content.xml"},
 	})
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestResultUploadHandler(t, projectsDir)
 	_, _, err := h.sendJSONResults(req, projectID)
 	if err == nil {
 		t.Fatal("expected error for missing content_base64, got nil")
@@ -210,7 +210,7 @@ func TestSendJSONResults_EmptyResults(t *testing.T) {
 
 	req := makeJSONSendResultsReq(t, projectID, []map[string]string{})
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestResultUploadHandler(t, projectsDir)
 	_, _, err := h.sendJSONResults(req, projectID)
 	if err == nil {
 		t.Fatal("expected error for empty results array, got nil")
@@ -296,7 +296,7 @@ func makeTarGzRequest(t *testing.T, projectID string, body []byte) *http.Request
 }
 
 // setupTarGzTest creates a temporary project directory and returns handler + projectID.
-func setupTarGzTest(t *testing.T) (*AllureHandler, string, string) {
+func setupTarGzTest(t *testing.T) (*ResultUploadHandler, string, string) {
 	t.Helper()
 	projectsDir := t.TempDir()
 	projectID := "targz-proj"
@@ -304,7 +304,8 @@ func setupTarGzTest(t *testing.T) (*AllureHandler, string, string) {
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return newTestAllureHandler(t, projectsDir), projectID, resultsDir
+	h, _ := newTestResultUploadHandler(t, projectsDir)
+	return h, projectID, resultsDir
 }
 
 // ---------------------------------------------------------------------------
@@ -648,8 +649,7 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 	logger := zap.NewNop()
 	mocks := testutil.New()
 	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
-	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, zap.NewNop())
+	h := NewResultUploadHandler(st, mocks.Projects, r, cfg, logger)
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
 	req := makeJSONSendResultsReq(t, projectID, []map[string]string{

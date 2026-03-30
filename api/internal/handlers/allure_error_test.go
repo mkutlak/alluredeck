@@ -139,8 +139,7 @@ func TestSendResults_ProjectCheckError_NoLeakage(t *testing.T) {
 	}
 	logger := zap.NewNop()
 	r := runner.NewAllure(cfg, mockSt, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
-	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, mocks.Search, mockSt, logger)
+	h := NewResultUploadHandler(mockSt, mocks.Projects, r, cfg, logger)
 
 	body := strings.NewReader(`{"results":[]}`)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
