@@ -145,6 +145,18 @@ func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, st, logger)
 }
 
+// newTestProjectHandler creates a ProjectHandler backed by stateful in-memory stores.
+func newTestProjectHandler(t *testing.T, projectsDir string) (*ProjectHandler, *testutil.MockStores) {
+	t.Helper()
+	cfg := &config.Config{ProjectsPath: projectsDir}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	h := NewProjectHandler(mocks.Projects, r, st, cfg, logger)
+	return h, mocks
+}
+
 // writeSummaryJSON creates widgets/summary.json under the given report dir.
 func writeSummaryJSON(t *testing.T, reportDir string, content string) {
 	t.Helper()

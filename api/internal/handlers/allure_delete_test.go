@@ -39,7 +39,7 @@ func TestDeleteProject_OK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestProjectHandler(t, projectsDir)
 
 	rr := httptest.NewRecorder()
 	h.DeleteProject(rr, makeDeleteProjectReq(t, projectID))
@@ -68,7 +68,7 @@ func TestDeleteProject_OK(t *testing.T) {
 
 func TestDeleteProject_NotFound(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestProjectHandler(t, projectsDir)
 
 	rr := httptest.NewRecorder()
 	h.DeleteProject(rr, makeDeleteProjectReq(t, "ghost"))
@@ -86,7 +86,7 @@ func TestDeleteProject_StaleDBRecord_Cleaned(t *testing.T) {
 	projectID := "stale-proj"
 
 	// Project is in DB but NOT on filesystem — the half-synced state.
-	h, mocks := newTestAllureHandlerAndMocks(t, projectsDir)
+	h, mocks := newTestProjectHandler(t, projectsDir)
 	if err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestDeleteProject_StaleDBRecord_Cleaned(t *testing.T) {
 
 func TestDeleteProject_InvalidID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h := newTestAllureHandler(t, projectsDir)
+	h, _ := newTestProjectHandler(t, projectsDir)
 
 	rr := httptest.NewRecorder()
 	h.DeleteProject(rr, makeDeleteProjectReq(t, "../evil"))

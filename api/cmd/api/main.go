@@ -116,6 +116,7 @@ func main() {
 	var jobManager runner.JobQueuer = rjm
 
 	allureHandler := handlers.NewAllureHandler(cfg, allureCore, jobManager, projectStore, buildStore, knownIssueStore, testResultStore, searchStore, dataStore, logger)
+	projectHandler := handlers.NewProjectHandler(projectStore, allureCore, dataStore, cfg, logger)
 	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger)
 	branchHandler := handlers.NewBranchHandler(branchStore, buildStore, cfg.ProjectsPath)
 	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore, cfg.ProjectsPath)
@@ -193,7 +194,7 @@ func main() {
 
 	defectHandler := handlers.NewDefectHandler(defectStore, cfg.ProjectsPath, logger)
 	webhookHandler := handlers.NewWebhookHandler(webhookStore, cfg.ProjectsPath, logger)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
+	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, allureHandler, projectHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler)
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -355,6 +356,7 @@ func registerRoutes(
 	system *handlers.SystemHandler,
 	authHandler *handlers.AuthHandler,
 	allure *handlers.AllureHandler,
+	projectHandler *handlers.ProjectHandler,
 	admin *handlers.AdminHandler,
 	branchHandler *handlers.BranchHandler,
 	testHistoryHandler *handlers.TestHistoryHandler,
@@ -403,13 +405,13 @@ func registerRoutes(
 
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(allure.Search)))
-	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(allure.GetProjects)))
+	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(projectHandler.GetProjects)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(allure.GetReportHistory)))
 
 	// Admin write endpoints — no-store.
-	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(allure.CreateProject)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(allure.DeleteProject)))
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(allure.RenameProject)))
+	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(projectHandler.CreateProject)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(projectHandler.DeleteProject)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(projectHandler.RenameProject)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(allure.GenerateReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(allure.GetJobStatus)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(allure.CleanHistory)))
