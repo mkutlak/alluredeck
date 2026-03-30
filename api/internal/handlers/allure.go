@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,48 +23,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
-)
-
-// Sentinel errors for HTTP request validation.
-var (
-	ErrProjectRequired       = errors.New("project_id is required")
-	ErrProjectTooLong        = errors.New("project_id must not exceed 100 characters")
-	ErrProjectInvalidChars   = errors.New("project_id contains invalid characters")
-	ErrProjectReserved       = errors.New("project_id is reserved")
-	ErrProjectInvalid        = errors.New("invalid project_id")
-	ErrResultsRequired       = errors.New("'results' array is required in the body")
-	ErrResultsEmpty          = errors.New("'results' array is empty")
-	ErrFileNameRequired      = errors.New("'file_name' attribute is required for all results")
-	ErrDuplicateFileNames    = errors.New("duplicated file names in 'results'")
-	ErrContentBase64Required = errors.New("'content_base64' attribute is required")
-	ErrNoFilesProvided       = errors.New("no files provided in 'files[]' field")
-
-	// tar.gz archive validation errors.
-	ErrArchiveEmpty         = errors.New("archive contains no files")
-	ErrArchiveTooManyFiles  = errors.New("archive exceeds maximum file count")
-	ErrArchiveDecompBomb    = errors.New("decompressed archive exceeds size limit")
-	ErrArchiveNestedPath    = errors.New("archive entry contains nested path")
-	ErrArchiveInvalidEntry  = errors.New("archive entry is not a regular file")
-	ErrArchiveDuplicateFile = errors.New("archive contains duplicate file names")
-
-	// report_id validation errors.
-	ErrReportIDRequired = errors.New("report_id is required")
-	ErrReportIDInvalid  = errors.New("report_id must be 'latest' or a positive integer")
-
-	// ticket_url validation errors.
-	ErrTicketURLInvalidScheme = errors.New("ticket_url must use http or https scheme")
-
-	// errUnsupportedContentType is returned by parseResultsBody when the
-	// Content-Type header is not application/json, multipart/form-data, or application/gzip.
-	errUnsupportedContentType = errors.New("unsupported Content-Type")
-)
-
-// Package-level limits for tar.gz extraction (vars for testability).
-//
-//nolint:gochecknoglobals // overridden in tests to avoid creating huge archives
-var (
-	maxDecompressedBytes int64 = 1 << 30 // 1 GB
-	maxArchiveFileCount        = 5000
 )
 
 // AllureHandler handles HTTP requests for Allure report management.
@@ -104,67 +61,14 @@ func (h *AllureHandler) SetBranchStore(bs store.BranchStorer) {
 	h.branchStore = bs
 }
 
-// ProjectEntry holds a single project in the paginated project listing.
-type ProjectEntry struct {
-	ProjectID string   `json:"project_id"`
-	CreatedAt string   `json:"created_at"`
-	ParentID  *string  `json:"parent_id,omitempty"`
-	Children  []string `json:"children,omitempty"`
-}
-
 // NOTE: reservedProjectNames, validateProjectID, safeProjectID, and the
 // package-level extractProjectID function are defined in project_id.go.
-
-// validateReportID rejects report IDs that could cause path traversal.
-// Accepts "latest" or non-empty all-digit strings (positive integers).
-func validateReportID(reportID string) error {
-	if reportID == "" {
-		return ErrReportIDRequired
-	}
-	if reportID == "latest" {
-		return nil
-	}
-	for _, c := range reportID {
-		if c < '0' || c > '9' {
-			return ErrReportIDInvalid
-		}
-	}
-	return nil
-}
-
-// validateTicketURL rejects URLs with non-http(s) schemes (e.g. javascript:, data:).
-// An empty URL is allowed (optional field). Returns an error for dangerous schemes.
-func validateTicketURL(rawURL string) error {
-	if rawURL == "" {
-		return nil
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return ErrTicketURLInvalidScheme
-	}
-	switch parsed.Scheme {
-	case "http", "https":
-		return nil
-	default:
-		return ErrTicketURLInvalidScheme
-	}
-}
+// Types, errors, and validation helpers are defined in types.go, errors.go, and project_id.go.
 
 // extractProjectID delegates to the package-level extractProjectID using the
 // handler's configured projects directory.
 func (h *AllureHandler) extractProjectID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return extractProjectID(w, r, h.cfg.ProjectsPath)
-}
-
-// extractReportID extracts and validates the "report_id" path parameter.
-// On failure it writes a 400 response and returns ("", false).
-func extractReportID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	reportID := r.PathValue("report_id")
-	if err := validateReportID(reportID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return "", false
-	}
-	return reportID, true
 }
 
 // GetProjects godoc
@@ -616,26 +520,6 @@ func (h *AllureHandler) sendMultipartResults(r *http.Request, projectID string) 
 	return processed, failed, nil
 }
 
-// countingReader wraps an io.Reader and tracks cumulative bytes read.
-// When the limit is exceeded it returns an explicit error instead of silently
-// truncating (which io.LimitReader would do).
-type countingReader struct {
-	r        io.Reader
-	n        int64
-	limit    int64
-	exceeded bool
-}
-
-func (cr *countingReader) Read(p []byte) (int, error) {
-	n, err := cr.r.Read(p)
-	cr.n += int64(n)
-	if cr.n > cr.limit {
-		cr.exceeded = true
-		return n, fmt.Errorf("decompressed size exceeds %d bytes: %w", cr.limit, ErrArchiveDecompBomb)
-	}
-	return n, err
-}
-
 // sendTarGzResults extracts a tar.gz archive to a temp directory, validates
 // all entries, then writes them to storage. Atomic: rejects all on any error.
 func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (processed []string, failed []map[string]string, _ error) {
@@ -745,47 +629,6 @@ func (h *AllureHandler) sendTarGzResults(r *http.Request, projectID string) (pro
 	return processed, nil, nil
 }
 
-// secureFilename strips path components so only the base filename remains
-func secureFilename(name string) string {
-	return filepath.Base(filepath.Clean(name))
-}
-
-// ReportHistoryEntry holds metadata for a single generated report.
-type ReportHistoryEntry struct {
-	ReportID       string           `json:"report_id"`
-	IsLatest       bool             `json:"is_latest"`
-	GeneratedAt    *string          `json:"generated_at"`
-	DurationMs     *int64           `json:"duration_ms"`
-	Statistic      *AllureStatistic `json:"statistic"`
-	FlakyCount     *int             `json:"flaky_count,omitempty"`
-	RetriedCount   *int             `json:"retried_count,omitempty"`
-	NewFailedCount *int             `json:"new_failed_count,omitempty"`
-	NewPassedCount *int             `json:"new_passed_count,omitempty"`
-	CIProvider     *string          `json:"ci_provider,omitempty"`
-	CIBuildURL     *string          `json:"ci_build_url,omitempty"`
-	CIBranch       *string          `json:"ci_branch,omitempty"`
-	CICommitSHA    *string          `json:"ci_commit_sha,omitempty"`
-}
-
-// AllureStatistic mirrors the statistic block in Allure's widgets/summary.json.
-type AllureStatistic struct {
-	Passed  int `json:"passed"`
-	Failed  int `json:"failed"`
-	Broken  int `json:"broken"`
-	Skipped int `json:"skipped"`
-	Unknown int `json:"unknown"`
-	Total   int `json:"total"`
-}
-
-// allureSummaryFile is the shape of widgets/summary.json we care about.
-type allureSummaryFile struct {
-	Statistic *AllureStatistic `json:"statistic"`
-	Time      *struct {
-		Stop     int64 `json:"stop"`
-		Duration int64 `json:"duration"`
-	} `json:"time"`
-}
-
 // GetReportHistory returns metadata for all generated reports of a project.
 // Numbered reports are served from the database (cached stats, no filesystem scan).
 // The "latest" entry is still read from the filesystem since it is always regenerated.
@@ -851,45 +694,6 @@ func (h *AllureHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// buildEntryFromDB converts a store.Build to a ReportHistoryEntry without filesystem I/O.
-func buildEntryFromDB(b *store.Build) ReportHistoryEntry {
-	reportID := strconv.Itoa(b.BuildOrder)
-	entry := ReportHistoryEntry{
-		ReportID: reportID,
-		IsLatest: b.IsLatest,
-	}
-	t := b.CreatedAt.UTC().Format(time.RFC3339)
-	entry.GeneratedAt = &t
-	entry.DurationMs = b.DurationMs
-	entry.FlakyCount = b.FlakyCount
-	entry.RetriedCount = b.RetriedCount
-	entry.NewFailedCount = b.NewFailedCount
-	entry.NewPassedCount = b.NewPassedCount
-	entry.CIProvider = b.CIProvider
-	entry.CIBuildURL = b.CIBuildURL
-	entry.CIBranch = b.CIBranch
-	entry.CICommitSHA = b.CICommitSHA
-
-	if b.StatTotal != nil && *b.StatTotal > 0 {
-		entry.Statistic = &AllureStatistic{
-			Passed:  derefInt(b.StatPassed),
-			Failed:  derefInt(b.StatFailed),
-			Broken:  derefInt(b.StatBroken),
-			Skipped: derefInt(b.StatSkipped),
-			Unknown: derefInt(b.StatUnknown),
-			Total:   *b.StatTotal,
-		}
-	}
-	return entry
-}
-
-func derefInt(p *int) int {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
 // readJSONViaStore reads a project-relative path via the store and unmarshals JSON into v.
 // Returns true only when both the read and unmarshal succeed.
 func (h *AllureHandler) readJSONViaStore(ctx context.Context, projectID, relPath string, v any) bool {
@@ -898,12 +702,6 @@ func (h *AllureHandler) readJSONViaStore(ctx context.Context, projectID, relPath
 		return false
 	}
 	return json.Unmarshal(data, v) == nil
-}
-
-// EnvironmentEntry represents one row in the Allure environment widget.
-type EnvironmentEntry struct {
-	Name   string   `json:"name"`
-	Values []string `json:"values"`
 }
 
 // GetReportEnvironment godoc
@@ -958,12 +756,6 @@ func (h *AllureHandler) applySummaryFile(ctx context.Context, projectID string, 
 		}
 	}
 	return true
-}
-
-// testResultTiming holds the start/stop epoch milliseconds from an Allure test result file.
-type testResultTiming struct {
-	Start int64 `json:"start"`
-	Stop  int64 `json:"stop"`
 }
 
 // applyTimingFromTestResults scans data/test-results/*.json to derive timing for Allure 3 reports.
@@ -1022,21 +814,6 @@ func (h *AllureHandler) buildReportEntry(ctx context.Context, projectID, name st
 	// Allure 3 has no timing in statistic.json; derive from test result files.
 	h.applyTimingFromTestResults(ctx, projectID, &entry, "reports/"+name+"/data/test-results")
 	return entry
-}
-
-// CategoryMatchedStatistic holds the defect count breakdown for one category.
-type CategoryMatchedStatistic struct {
-	Failed  int `json:"failed"`
-	Broken  int `json:"broken"`
-	Known   int `json:"known"`
-	Unknown int `json:"unknown"`
-	Total   int `json:"total"`
-}
-
-// CategoryEntry represents one row in the Allure categories widget.
-type CategoryEntry struct {
-	Name             string                    `json:"name"`
-	MatchedStatistic *CategoryMatchedStatistic `json:"matchedStatistic"`
 }
 
 // GetReportCategories godoc

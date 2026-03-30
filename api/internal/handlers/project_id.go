@@ -1,12 +1,68 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
 )
+
+// Sentinel errors for project_id validation.
+var (
+	ErrProjectRequired     = errors.New("project_id is required")
+	ErrProjectTooLong      = errors.New("project_id must not exceed 100 characters")
+	ErrProjectInvalidChars = errors.New("project_id contains invalid characters")
+	ErrProjectReserved     = errors.New("project_id is reserved")
+	ErrProjectInvalid      = errors.New("invalid project_id")
+)
+
+// validateReportID rejects report IDs that could cause path traversal.
+// Accepts "latest" or non-empty all-digit strings (positive integers).
+func validateReportID(reportID string) error {
+	if reportID == "" {
+		return ErrReportIDRequired
+	}
+	if reportID == "latest" {
+		return nil
+	}
+	for _, c := range reportID {
+		if c < '0' || c > '9' {
+			return ErrReportIDInvalid
+		}
+	}
+	return nil
+}
+
+// validateTicketURL rejects URLs with non-http(s) schemes (e.g. javascript:, data:).
+// An empty URL is allowed (optional field). Returns an error for dangerous schemes.
+func validateTicketURL(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ErrTicketURLInvalidScheme
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+		return nil
+	default:
+		return ErrTicketURLInvalidScheme
+	}
+}
+
+// extractReportID extracts and validates the "report_id" path parameter.
+// On failure it writes a 400 response and returns ("", false).
+func extractReportID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	reportID := r.PathValue("report_id")
+	if err := validateReportID(reportID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	return reportID, true
+}
 
 // reservedProjectNames lists names that clash with API route segments.
 //
