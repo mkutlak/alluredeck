@@ -17,23 +17,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// newTestAllureHandler creates an AllureHandler backed by stateful in-memory
-// stores. After construction it scans projectsDir and populates the build store
-// with any numbered report directories found, so GetReportHistory tests see the
-// expected DB-backed entries without a real PostgreSQL connection.
-func newTestAllureHandler(t *testing.T, projectsDir string) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsPath: projectsDir}
-	st := storage.NewLocalStore(cfg)
-	logger := zap.NewNop()
-	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
-	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, logger)
-	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
-	return h
-}
-
 // syncTestBuildsFromFilesystem scans projectsDir for numbered report directories
 // and inserts them into builds, optionally populating stats from summary.json.
 func syncTestBuildsFromFilesystem(t *testing.T, projectsDir string, builds *testutil.MemBuildStore) {
@@ -99,52 +82,6 @@ func syncTestBuildsFromFilesystem(t *testing.T, projectsDir string, builds *test
 	}
 }
 
-// newTestAllureHandlerAndMocks is like newTestAllureHandler but also returns the
-// mock bundle so callers can pre-seed stores or make assertions against them.
-func newTestAllureHandlerAndMocks(t *testing.T, projectsDir string) (*AllureHandler, *testutil.MockStores) {
-	t.Helper()
-	cfg := &config.Config{ProjectsPath: projectsDir}
-	st := storage.NewLocalStore(cfg)
-	logger := zap.NewNop()
-	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
-	h := NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.MemBuilds, mocks.KnownIssues, nil, mocks.Search, st, logger)
-	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
-	return h, mocks
-}
-
-// newTestAllureHandlerWithMocks creates an AllureHandler wired to caller-provided
-// mock stores. Use this when tests pre-seed mock Fn fields before handler construction.
-func newTestAllureHandlerWithMocks(t *testing.T, projectsDir string, mocks *testutil.MockStores) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsPath: projectsDir}
-	st := storage.NewLocalStore(cfg)
-	logger := zap.NewNop()
-	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, nil, logger)
-	return NewAllureHandler(cfg, r, nil,
-		mocks.Projects, mocks.Builds, mocks.KnownIssues, mocks.TestResults, mocks.Search, st, logger)
-}
-
-// newTestAllureHandlerWithJobManager builds an AllureHandler with a real JobManager
-// backed by the provided generator, for async job handler tests.
-// Uses mock stores since job manager tests do not require DB-level persistence.
-func newTestAllureHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) *AllureHandler {
-	t.Helper()
-	cfg := &config.Config{ProjectsPath: projectsDir, KeepHistory: false}
-	logger := zap.NewNop()
-	st := storage.NewLocalStore(cfg)
-	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, logger)
-
-	jm := runner.NewMemJobManager(gen, 2, logger)
-	jm.Start(context.Background())
-	t.Cleanup(func() { jm.Shutdown() })
-
-	return NewAllureHandler(cfg, r, jm,
-		mocks.Projects, mocks.Builds, mocks.KnownIssues, nil, nil, st, logger)
-}
-
 // newTestReportHandler creates a ReportHandler backed by stateful in-memory stores.
 // After construction it scans projectsDir and populates the build store with any
 // numbered report directories found, so GetReportHistory tests see the expected
@@ -157,7 +94,7 @@ func newTestReportHandler(t *testing.T, projectsDir string) (*ReportHandler, *te
 	mocks := testutil.New()
 	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
 	// testResultStore is nil so GetReportTimeline's "latest" resolution is skipped,
-	// letting filesystem-based tests work correctly (same as original newTestAllureHandler).
+	// letting filesystem-based tests work correctly.
 	h := NewReportHandler(nil, r, mocks.MemBuilds, mocks.Branches, nil, mocks.KnownIssues, st, cfg, logger)
 	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
 	return h, mocks

@@ -74,7 +74,7 @@ func TestGetReportHistory_MultipleReports(t *testing.T) {
 		writeSummaryJSON(t, dir, summary)
 	}
 
-	// newTestAllureHandler calls SyncFromFilesystem which imports builds 1 and 3.
+	// newTestReportHandler calls syncTestBuildsFromFilesystem which imports builds 1 and 3.
 	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
