@@ -469,15 +469,16 @@ func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, p
 		err := tx.QueryRow(ctx, `
 			INSERT INTO test_results
 				(build_id, project_id, test_name, full_name, status, duration_ms,
-				 history_id, start_ms, stop_ms, status_message, description)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+				 history_id, start_ms, stop_ms, status_message, status_trace, description)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 			ON CONFLICT (build_id, history_id) WHERE history_id != ''
 			DO UPDATE SET
 				status_message = EXCLUDED.status_message,
+				status_trace   = EXCLUDED.status_trace,
 				description    = EXCLUDED.description
 			RETURNING id`,
 			buildID, projectID, r.Name, r.FullName, r.Status, r.StopMs-r.StartMs,
-			r.HistoryID, r.StartMs, r.StopMs, r.StatusMessage, r.Description,
+			r.HistoryID, r.StartMs, r.StopMs, r.StatusMessage, r.StatusTrace, r.Description,
 		).Scan(&testResultID)
 		if err != nil {
 			return fmt.Errorf("insert test result %q: %w", r.Name, err)

@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { AttachmentCard } from './AttachmentCard'
+import { AttachmentRow } from './AttachmentRow'
 import { AttachmentLightbox } from './AttachmentLightbox'
 import { isPlaywrightTrace } from '@/features/trace/utils'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
@@ -83,9 +83,9 @@ export function AttachmentsTab() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="space-y-2">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-square rounded-lg" />
+            <Skeleton key={i} className="h-6 w-full rounded" />
           ))}
         </div>
       </div>
@@ -197,12 +197,12 @@ export function AttachmentsTab() {
                 </button>
                 {!isCollapsed && (
                   <div className="border-t px-4 py-3">
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                    <div className="grid grid-cols-[1.25rem_1fr_auto_auto_auto] items-center gap-x-3 gap-y-1">
                       {group.attachments.map((attachment) => (
-                        <AttachmentCard
+                        <AttachmentRow
                           key={attachment.id}
                           attachment={attachment}
-                          onClick={() => {
+                          onView={() => {
                             if (isPlaywrightTrace(attachment.name, attachment.mime_type)) {
                               void navigate(
                                 `/projects/${encodeURIComponent(projectId)}/trace/${encodeURIComponent(attachment.source)}?reportId=${encodeURIComponent(selectedReport)}`,

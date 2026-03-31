@@ -159,7 +159,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
       </Button>
 
       <div
-        className="max-h-[70vh] overflow-auto rounded-md text-sm [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre-wrap [&_pre]:!break-words [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:text-muted-foreground/50 [&_code_.line]:before:content-[counter(line)] [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line]"
+        className="max-h-[70vh] overflow-auto rounded-md text-sm [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre [&_pre]:!overflow-x-auto [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:text-muted-foreground/50 [&_code_.line]:before:content-[counter(line)] [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line]"
         data-testid="text-preview-content"
         dangerouslySetInnerHTML={{ __html: html }}
       />

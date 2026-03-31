@@ -1,3 +1,3 @@
 export { AttachmentsTab } from './AttachmentsTab'
-export { AttachmentCard } from './AttachmentCard'
+export { AttachmentRow } from './AttachmentRow'
 export { AttachmentLightbox } from './AttachmentLightbox'
