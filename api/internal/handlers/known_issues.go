@@ -8,8 +8,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // KnownIssueHandler handles HTTP requests for known issue management.

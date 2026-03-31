@@ -7,6 +7,10 @@ api/bin/
 # Go swagger security (may contain secrets)
 api/static/swagger/swagger_security.json
 
+# Playwright trace viewer (fetched at build time)
+api/static/trace/*
+!api/static/trace/.gitkeep
+
 # Node dependencies
 ui/node_modules/
 node_modules/

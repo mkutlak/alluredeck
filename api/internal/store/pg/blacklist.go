@@ -11,18 +11,18 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGBlacklistStore provides persistent JWT revocation storage backed by PostgreSQL.
-type PGBlacklistStore struct {
+// BlacklistStore provides persistent JWT revocation storage backed by PostgreSQL.
+type BlacklistStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewBlacklistStore creates a PGBlacklistStore backed by the given PGStore.
-func NewBlacklistStore(s *PGStore) *PGBlacklistStore {
-	return &PGBlacklistStore{pool: s.pool}
+// NewBlacklistStore creates a BlacklistStore backed by the given PGStore.
+func NewBlacklistStore(s *PGStore) *BlacklistStore {
+	return &BlacklistStore{pool: s.pool}
 }
 
 // AddToBlacklist records a revoked JWT JTI with its expiry time.
-func (bl *PGBlacklistStore) AddToBlacklist(ctx context.Context, jti string, expiresAt time.Time) error {
+func (bl *BlacklistStore) AddToBlacklist(ctx context.Context, jti string, expiresAt time.Time) error {
 	_, err := bl.pool.Exec(ctx,
 		"INSERT INTO jwt_blacklist(jti, expires_at) VALUES($1,$2) ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at",
 		jti, expiresAt.UTC())
@@ -33,7 +33,7 @@ func (bl *PGBlacklistStore) AddToBlacklist(ctx context.Context, jti string, expi
 }
 
 // IsBlacklisted returns true if the JTI is present and has not yet expired.
-func (bl *PGBlacklistStore) IsBlacklisted(ctx context.Context, jti string) (bool, error) {
+func (bl *BlacklistStore) IsBlacklisted(ctx context.Context, jti string) (bool, error) {
 	var expiry time.Time
 	err := bl.pool.QueryRow(ctx,
 		"SELECT expires_at FROM jwt_blacklist WHERE jti = $1", jti,
@@ -48,7 +48,7 @@ func (bl *PGBlacklistStore) IsBlacklisted(ctx context.Context, jti string) (bool
 }
 
 // PruneExpired removes all expired entries. Returns the number of rows deleted.
-func (bl *PGBlacklistStore) PruneExpired(ctx context.Context) (int64, error) {
+func (bl *BlacklistStore) PruneExpired(ctx context.Context) (int64, error) {
 	tag, err := bl.pool.Exec(ctx,
 		"DELETE FROM jwt_blacklist WHERE expires_at <= $1", time.Now().UTC())
 	if err != nil {
@@ -57,4 +57,4 @@ func (bl *PGBlacklistStore) PruneExpired(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
-var _ store.BlacklistStorer = (*PGBlacklistStore)(nil)
+var _ store.BlacklistStorer = (*BlacklistStore)(nil)

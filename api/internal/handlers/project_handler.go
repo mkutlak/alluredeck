@@ -90,7 +90,7 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writePagedSuccess(w, http.StatusOK, entries, "Projects successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
+	writePagedSuccess(w, entries, "Projects successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
 
 // CreateProject godoc

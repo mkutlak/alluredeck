@@ -53,13 +53,19 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  // Fetch content.
-  useEffect(() => {
-    let cancelled = false
+  // Reset state when the URL changes (React-recommended render-time pattern).
+  const [prevUrl, setPrevUrl] = useState(url)
+  if (url !== prevUrl) {
+    setPrevUrl(url)
     setRawText(null)
     setHtml(null)
     setError(null)
     setTruncated(false)
+  }
+
+  // Fetch content.
+  useEffect(() => {
+    let cancelled = false
 
     fetchAttachmentContent(url)
       .then((text) => {

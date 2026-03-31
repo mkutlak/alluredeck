@@ -148,7 +148,7 @@ func TestDeleteReport_OK(t *testing.T) {
 
 	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
-	h.DeleteReport(rr, makeDeleteReportReq(t, projectID,"3"))
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, "3"))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -183,7 +183,7 @@ func TestDeleteReport_NotFound(t *testing.T) {
 
 	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
-	h.DeleteReport(rr, makeDeleteReportReq(t, projectID,"999"))
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, "999"))
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rr.Code, rr.Body.String())
@@ -200,7 +200,7 @@ func TestDeleteReport_InvalidID(t *testing.T) {
 
 	h, _ := newTestReportHandler(t, projectsDir)
 	rr := httptest.NewRecorder()
-	h.DeleteReport(rr, makeDeleteReportReq(t, projectID,"abc"))
+	h.DeleteReport(rr, makeDeleteReportReq(t, projectID, "abc"))
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d: %s", rr.Code, rr.Body.String())

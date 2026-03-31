@@ -13,19 +13,19 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGProjectStore provides CRUD operations on the projects table using PostgreSQL.
-type PGProjectStore struct {
+// ProjectStore provides CRUD operations on the projects table using PostgreSQL.
+type ProjectStore struct {
 	pool   *pgxpool.Pool
 	logger *zap.Logger
 }
 
-// NewProjectStore creates a PGProjectStore backed by the given PGStore.
-func NewProjectStore(s *PGStore, logger *zap.Logger) *PGProjectStore {
-	return &PGProjectStore{pool: s.pool, logger: logger}
+// NewProjectStore creates a ProjectStore backed by the given PGStore.
+func NewProjectStore(s *PGStore, logger *zap.Logger) *ProjectStore {
+	return &ProjectStore{pool: s.pool, logger: logger}
 }
 
 // CreateProject inserts a new project. Returns store.ErrProjectExists if the ID is taken.
-func (ps *PGProjectStore) CreateProject(ctx context.Context, id string) error {
+func (ps *ProjectStore) CreateProject(ctx context.Context, id string) error {
 	_, err := ps.pool.Exec(ctx,
 		"INSERT INTO projects(id) VALUES($1)", id)
 	if err != nil {
@@ -39,7 +39,7 @@ func (ps *PGProjectStore) CreateProject(ctx context.Context, id string) error {
 
 // CreateProjectWithParent inserts a new project with the given parent ID.
 // Returns store.ErrProjectExists if the ID is taken.
-func (ps *PGProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
+func (ps *ProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
 	_, err := ps.pool.Exec(ctx,
 		"INSERT INTO projects(id, parent_id) VALUES($1, $2)", id, parentID)
 	if err != nil {
@@ -52,7 +52,7 @@ func (ps *PGProjectStore) CreateProjectWithParent(ctx context.Context, id string
 }
 
 // GetProject returns the project with the given ID or store.ErrProjectNotFound.
-func (ps *PGProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
+func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
 		"SELECT id, parent_id, created_at FROM projects WHERE id = $1", id,
@@ -67,7 +67,7 @@ func (ps *PGProjectStore) GetProject(ctx context.Context, id string) (*store.Pro
 }
 
 // ListProjects returns all projects ordered by ID.
-func (ps *PGProjectStore) ListProjects(ctx context.Context) ([]store.Project, error) {
+func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
 		"SELECT id, parent_id, created_at FROM projects ORDER BY id")
 	if err != nil {
@@ -90,7 +90,7 @@ func (ps *PGProjectStore) ListProjects(ctx context.Context) ([]store.Project, er
 }
 
 // ListProjectsPaginated returns a page of projects, plus the total count.
-func (ps *PGProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
+func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
 	var total int
 	if err := ps.pool.QueryRow(ctx, "SELECT COUNT(*) FROM projects").Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count projects: %w", err)
@@ -120,7 +120,7 @@ func (ps *PGProjectStore) ListProjectsPaginated(ctx context.Context, page, perPa
 }
 
 // ListProjectsPaginatedTopLevel returns a page of top-level projects (parent_id IS NULL), plus the total count.
-func (ps *PGProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
+func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]store.Project, int, error) {
 	var total int
 	if err := ps.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM projects WHERE parent_id IS NULL",
@@ -152,7 +152,7 @@ func (ps *PGProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, pag
 }
 
 // ListChildren returns all child projects for a given parent project ID, ordered by ID.
-func (ps *PGProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+func (ps *ProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
 		"SELECT id, parent_id, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
 	if err != nil {
@@ -175,7 +175,7 @@ func (ps *PGProjectStore) ListChildren(ctx context.Context, parentID string) ([]
 }
 
 // HasChildren returns true if any project has the given projectID as its parent.
-func (ps *PGProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+func (ps *ProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
 	var exists bool
 	err := ps.pool.QueryRow(ctx,
 		"SELECT EXISTS(SELECT 1 FROM projects WHERE parent_id = $1)", projectID,
@@ -187,7 +187,7 @@ func (ps *PGProjectStore) HasChildren(ctx context.Context, projectID string) (bo
 }
 
 // SetParent sets the parent_id for a project. Returns store.ErrProjectNotFound if the project does not exist.
-func (ps *PGProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
+func (ps *ProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
 	tag, err := ps.pool.Exec(ctx,
 		"UPDATE projects SET parent_id = $1 WHERE id = $2", parentID, projectID)
 	if err != nil {
@@ -200,7 +200,7 @@ func (ps *PGProjectStore) SetParent(ctx context.Context, projectID, parentID str
 }
 
 // ClearParent sets parent_id to NULL for a project. Returns store.ErrProjectNotFound if the project does not exist.
-func (ps *PGProjectStore) ClearParent(ctx context.Context, projectID string) error {
+func (ps *ProjectStore) ClearParent(ctx context.Context, projectID string) error {
 	tag, err := ps.pool.Exec(ctx,
 		"UPDATE projects SET parent_id = NULL WHERE id = $1", projectID)
 	if err != nil {
@@ -213,7 +213,7 @@ func (ps *PGProjectStore) ClearParent(ctx context.Context, projectID string) err
 }
 
 // DeleteProject removes a project and all its builds (CASCADE).
-func (ps *PGProjectStore) DeleteProject(ctx context.Context, id string) error {
+func (ps *ProjectStore) DeleteProject(ctx context.Context, id string) error {
 	tag, err := ps.pool.Exec(ctx, "DELETE FROM projects WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
@@ -225,7 +225,7 @@ func (ps *PGProjectStore) DeleteProject(ctx context.Context, id string) error {
 }
 
 // RenameProject changes a project's ID. ON UPDATE CASCADE propagates to all child tables.
-func (ps *PGProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
+func (ps *ProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
 	tag, err := ps.pool.Exec(ctx, "UPDATE projects SET id = $1 WHERE id = $2", newID, oldID)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -240,7 +240,7 @@ func (ps *PGProjectStore) RenameProject(ctx context.Context, oldID, newID string
 }
 
 // ProjectExists returns true if a project with the given ID exists.
-func (ps *PGProjectStore) ProjectExists(ctx context.Context, id string) (bool, error) {
+func (ps *ProjectStore) ProjectExists(ctx context.Context, id string) (bool, error) {
 	var count int
 	err := ps.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM projects WHERE id = $1", id,
@@ -253,7 +253,7 @@ func (ps *PGProjectStore) ProjectExists(ctx context.Context, id string) (bool, e
 
 // InsertOrIgnore inserts a project row, silently ignoring duplicate-key errors.
 // Used by SyncMetadata.
-func (ps *PGProjectStore) InsertOrIgnore(ctx context.Context, id string) error {
+func (ps *ProjectStore) InsertOrIgnore(ctx context.Context, id string) error {
 	_, err := ps.pool.Exec(ctx,
 		"INSERT INTO projects(id) VALUES($1) ON CONFLICT (id) DO NOTHING", id)
 	if err != nil {
@@ -269,4 +269,4 @@ func isUniqueViolation(err error) bool {
 }
 
 // Compile-time interface check.
-var _ store.ProjectStorer = (*PGProjectStore)(nil)
+var _ store.ProjectStorer = (*ProjectStore)(nil)

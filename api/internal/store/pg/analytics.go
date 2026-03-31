@@ -3,24 +3,25 @@ package pg
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGAnalyticsStore provides analytics queries over the expanded PG schema.
-type PGAnalyticsStore struct {
+// AnalyticsStore provides analytics queries over the expanded PG schema.
+type AnalyticsStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewAnalyticsStore creates a PGAnalyticsStore backed by the given PGStore.
-func NewAnalyticsStore(s *PGStore) *PGAnalyticsStore {
-	return &PGAnalyticsStore{pool: s.pool}
+// NewAnalyticsStore creates a AnalyticsStore backed by the given PGStore.
+func NewAnalyticsStore(s *PGStore) *AnalyticsStore {
+	return &AnalyticsStore{pool: s.pool}
 }
 
 // ListTopErrors returns the most common failure messages across the last N builds.
-func (a *PGAnalyticsStore) ListTopErrors(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
+func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectID, builds, projectID, limit}
 	if branchID != nil {
@@ -63,7 +64,7 @@ func (a *PGAnalyticsStore) ListTopErrors(ctx context.Context, projectID string, 
 }
 
 // ListSuitePassRates returns per-suite pass rates across the last N builds.
-func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.SuitePassRate, error) {
+func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.SuitePassRate, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectID, builds, projectID}
 	if branchID != nil {
@@ -96,7 +97,7 @@ func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID str
 			return nil, fmt.Errorf("scan suite pass rate: %w", err)
 		}
 		if spr.Total > 0 {
-			spr.PassRate = float64(spr.Passed) / float64(spr.Total) * 100
+			spr.PassRate = math.Round(float64(spr.Passed)/float64(spr.Total)*10000) / 100
 		}
 		result = append(result, spr)
 	}
@@ -110,7 +111,7 @@ func (a *PGAnalyticsStore) ListSuitePassRates(ctx context.Context, projectID str
 }
 
 // ListLabelBreakdown returns counts grouped by label value for a given label name.
-func (a *PGAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
+func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectID, builds, projectID, labelName}
 	if branchID != nil {
@@ -152,7 +153,7 @@ func (a *PGAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, la
 }
 
 // ListTrendPoints returns per-build statistics for the last N builds, ordered chronologically (oldest first).
-func (a *PGAnalyticsStore) ListTrendPoints(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.TrendPoint, error) {
+func (a *AnalyticsStore) ListTrendPoints(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.TrendPoint, error) {
 	query := `SELECT build_order,
        COALESCE(stat_passed, 0),
        COALESCE(stat_failed, 0),
@@ -182,7 +183,7 @@ WHERE project_id = $1`
 			return nil, fmt.Errorf("scan trend point: %w", err)
 		}
 		if tp.Total > 0 {
-			tp.PassRate = float64(tp.Passed) / float64(tp.Total) * 100
+			tp.PassRate = math.Round(float64(tp.Passed)/float64(tp.Total)*10000) / 100
 		}
 		result = append(result, tp)
 	}
@@ -200,4 +201,4 @@ WHERE project_id = $1`
 }
 
 // Compile-time interface compliance check.
-var _ store.AnalyticsStorer = (*PGAnalyticsStore)(nil)
+var _ store.AnalyticsStorer = (*AnalyticsStore)(nil)

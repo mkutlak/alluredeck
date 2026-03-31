@@ -11,7 +11,7 @@ import (
 
 // SyncMetadata syncs projects via the storage store and imports any projects and builds
 // not yet recorded in the PostgreSQL database.
-func SyncMetadata(ctx context.Context, st storage.Store, projectStore *PGProjectStore, buildStore *PGBuildStore, logger *zap.Logger) error {
+func SyncMetadata(ctx context.Context, st storage.Store, projectStore *ProjectStore, buildStore *BuildStore, logger *zap.Logger) error {
 	projects, err := st.ListProjects(ctx)
 	if err != nil {
 		logger.Info("SyncMetadata: could not list projects (non-fatal)", zap.Error(err))
@@ -27,7 +27,7 @@ func SyncMetadata(ctx context.Context, st storage.Store, projectStore *PGProject
 }
 
 // pgSyncProject inserts or updates a single project and all its builds in the PostgreSQL database.
-func pgSyncProject(ctx context.Context, st storage.Store, ps *PGProjectStore, bs *PGBuildStore, projectID string) error {
+func pgSyncProject(ctx context.Context, st storage.Store, ps *ProjectStore, bs *BuildStore, projectID string) error {
 	if err := ps.InsertOrIgnore(ctx, projectID); err != nil {
 		return err
 	}

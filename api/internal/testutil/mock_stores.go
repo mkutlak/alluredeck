@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	parser "github.com/mkutlak/alluredeck/api/internal/parser"
+	"github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 

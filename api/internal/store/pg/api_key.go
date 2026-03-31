@@ -11,20 +11,20 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGAPIKeyStore provides API key storage backed by PostgreSQL.
-type PGAPIKeyStore struct {
+// APIKeyStore provides API key storage backed by PostgreSQL.
+type APIKeyStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewAPIKeyStore creates a PGAPIKeyStore backed by the given PGStore.
-func NewAPIKeyStore(s *PGStore) *PGAPIKeyStore {
-	return &PGAPIKeyStore{pool: s.pool}
+// NewAPIKeyStore creates a APIKeyStore backed by the given PGStore.
+func NewAPIKeyStore(s *PGStore) *APIKeyStore {
+	return &APIKeyStore{pool: s.pool}
 }
 
-var _ store.APIKeyStorer = (*PGAPIKeyStore)(nil)
+var _ store.APIKeyStorer = (*APIKeyStore)(nil)
 
 // Create inserts a new API key record and returns it with ID and created_at populated.
-func (s *PGAPIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.APIKey, error) {
+func (s *APIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.APIKey, error) {
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO api_keys (name, prefix, key_hash, username, role, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -38,7 +38,7 @@ func (s *PGAPIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.A
 }
 
 // ListByUsername returns all API keys for the given username, newest first.
-func (s *PGAPIKeyStore) ListByUsername(ctx context.Context, username string) ([]store.APIKey, error) {
+func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]store.APIKey, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at
 		FROM api_keys
@@ -68,7 +68,7 @@ func (s *PGAPIKeyStore) ListByUsername(ctx context.Context, username string) ([]
 
 // GetByHash looks up an API key by its SHA-256 hash.
 // Returns ErrAPIKeyNotFound when no matching key exists.
-func (s *PGAPIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.APIKey, error) {
+func (s *APIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.APIKey, error) {
 	var k store.APIKey
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at
@@ -87,7 +87,7 @@ func (s *PGAPIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.A
 }
 
 // UpdateLastUsed sets last_used to the current time for the given key ID.
-func (s *PGAPIKeyStore) UpdateLastUsed(ctx context.Context, id int64) error {
+func (s *APIKeyStore) UpdateLastUsed(ctx context.Context, id int64) error {
 	_, err := s.pool.Exec(ctx,
 		"UPDATE api_keys SET last_used = NOW() WHERE id = $1", id)
 	if err != nil {
@@ -98,7 +98,7 @@ func (s *PGAPIKeyStore) UpdateLastUsed(ctx context.Context, id int64) error {
 
 // Delete removes an API key by ID scoped to the given username (IDOR prevention).
 // Returns ErrAPIKeyNotFound if no row was deleted.
-func (s *PGAPIKeyStore) Delete(ctx context.Context, id int64, username string) error {
+func (s *APIKeyStore) Delete(ctx context.Context, id int64, username string) error {
 	tag, err := s.pool.Exec(ctx,
 		"DELETE FROM api_keys WHERE id = $1 AND username = $2", id, username)
 	if err != nil {
@@ -111,7 +111,7 @@ func (s *PGAPIKeyStore) Delete(ctx context.Context, id int64, username string) e
 }
 
 // CountByUsername returns the number of API keys owned by the given username.
-func (s *PGAPIKeyStore) CountByUsername(ctx context.Context, username string) (int, error) {
+func (s *APIKeyStore) CountByUsername(ctx context.Context, username string) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM api_keys WHERE username = $1", username,

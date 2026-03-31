@@ -10,15 +10,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// PGSearchStore provides cross-entity search using LIKE queries backed by PostgreSQL.
-type PGSearchStore struct {
+// SearchStore provides cross-entity search using LIKE queries backed by PostgreSQL.
+type SearchStore struct {
 	pool   *pgxpool.Pool
 	logger *zap.Logger
 }
 
-// NewSearchStore creates a PGSearchStore backed by the given PGStore.
-func NewSearchStore(s *PGStore, logger *zap.Logger) *PGSearchStore {
-	return &PGSearchStore{pool: s.pool, logger: logger}
+// NewSearchStore creates a SearchStore backed by the given PGStore.
+func NewSearchStore(s *PGStore, logger *zap.Logger) *SearchStore {
+	return &SearchStore{pool: s.pool, logger: logger}
 }
 
 // escapeLike escapes SQL LIKE wildcards so user input is treated literally.
@@ -30,7 +30,7 @@ func escapeLike(s string) string {
 }
 
 // SearchProjects returns projects whose ID contains the query substring (case-insensitive).
-func (ss *PGSearchStore) SearchProjects(ctx context.Context, query string, limit int) ([]store.ProjectMatch, error) {
+func (ss *SearchStore) SearchProjects(ctx context.Context, query string, limit int) ([]store.ProjectMatch, error) {
 	pattern := "%" + escapeLike(query) + "%"
 	rows, err := ss.pool.Query(ctx,
 		`SELECT id, created_at FROM projects
@@ -62,7 +62,7 @@ func (ss *PGSearchStore) SearchProjects(ctx context.Context, query string, limit
 
 // SearchTests returns test results from latest builds whose search_vector matches
 // the query using PostgreSQL full-text search (plainto_tsquery).
-func (ss *PGSearchStore) SearchTests(ctx context.Context, query string, limit int) ([]store.TestMatch, error) {
+func (ss *SearchStore) SearchTests(ctx context.Context, query string, limit int) ([]store.TestMatch, error) {
 	rows, err := ss.pool.Query(ctx,
 		`SELECT DISTINCT tr.project_id, tr.test_name, tr.full_name, tr.status
 		 FROM test_results tr
@@ -94,4 +94,4 @@ func (ss *PGSearchStore) SearchTests(ctx context.Context, query string, limit in
 	return results, nil
 }
 
-var _ store.SearchStorer = (*PGSearchStore)(nil)
+var _ store.SearchStorer = (*SearchStore)(nil)

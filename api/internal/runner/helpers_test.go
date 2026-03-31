@@ -20,7 +20,13 @@ func newTestAllure(t *testing.T, projectsDir string) *Allure {
 	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
 	mocks := testutil.New()
-	return NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
+	return NewAllure(AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.Builds,
+		Locker:     mocks.Locker,
+		Logger:     zap.NewNop(),
+	})
 }
 
 // mustWriteFile creates parent dirs and writes content to path.

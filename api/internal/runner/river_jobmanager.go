@@ -86,7 +86,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 	}
 
 	// Construct payload
-	payload := store.WebhookPayload{
+	payload := WebhookPayload{
 		Event:      "report_completed",
 		ProjectID:  projectID,
 		BuildOrder: build.BuildOrder,
@@ -100,7 +100,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 
 	// Stats
 	if build.StatTotal != nil && *build.StatTotal > 0 {
-		payload.Stats = store.WebhookStats{
+		payload.Stats = WebhookStats{
 			Total:   derefInt(build.StatTotal),
 			Passed:  derefInt(build.StatPassed),
 			Failed:  derefInt(build.StatFailed),
@@ -114,7 +114,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 	prev, err := w.buildStore.GetPreviousBuild(ctx, projectID, build.BuildOrder)
 	if err == nil && prev.StatTotal != nil && *prev.StatTotal > 0 {
 		prevPassRate := float64(derefInt(prev.StatPassed)) / float64(derefInt(prev.StatTotal)) * 100
-		payload.Delta = &store.WebhookDelta{
+		payload.Delta = &WebhookDelta{
 			PassRateChange: payload.Stats.PassRate - prevPassRate,
 			NewFailures:    derefInt(build.StatFailed) - derefInt(prev.StatFailed),
 			FixedTests:     derefInt(prev.StatFailed) - derefInt(build.StatFailed),
@@ -129,7 +129,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 
 	// CI metadata
 	if build.CIProvider != nil || build.CIBranch != nil {
-		payload.CI = &store.WebhookCI{
+		payload.CI = &WebhookCI{
 			Provider:  derefStr(build.CIProvider),
 			BuildURL:  derefStr(build.CIBuildURL),
 			Branch:    derefStr(build.CIBranch),

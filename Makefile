@@ -191,6 +191,13 @@ docker-clean: ## Remove all built Docker images
 	docker rmi $(IMAGE_API):$(IMAGE_TAG) 2>/dev/null || true
 	docker rmi $(IMAGE_UI):$(IMAGE_TAG) 2>/dev/null || true
 
+# ── Utilities ─────────────────────────────────────────────────
+
+.PHONY: fetch-trace-viewer
+
+fetch-trace-viewer: ## Fetch Playwright trace viewer static assets for embedding
+	@bash scripts/fetch-trace-viewer.sh
+
 # ── Helm ──────────────────────────────────────────────────────
 
 .PHONY: helm-lint helm-template helm-package helm-release

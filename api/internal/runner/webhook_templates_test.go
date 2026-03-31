@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 func TestRenderWebhookPayload_Slack(t *testing.T) {
@@ -82,7 +80,7 @@ func TestRenderWebhookPayload_Generic(t *testing.T) {
 		t.Errorf("output is not valid JSON: %s", body)
 	}
 	// Generic output should be the payload marshalled as JSON.
-	var roundtrip store.WebhookPayload
+	var roundtrip WebhookPayload
 	if err := json.Unmarshal(body, &roundtrip); err != nil {
 		t.Fatalf("failed to unmarshal generic output: %v", err)
 	}

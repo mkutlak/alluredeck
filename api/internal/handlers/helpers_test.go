@@ -92,10 +92,24 @@ func newTestReportHandler(t *testing.T, projectsDir string) (*ReportHandler, *te
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	// testResultStore is nil so GetReportTimeline's "latest" resolution is skipped,
 	// letting filesystem-based tests work correctly.
-	h := NewReportHandler(nil, r, mocks.MemBuilds, mocks.Branches, nil, mocks.KnownIssues, st, cfg, logger)
+	h := NewReportHandler(ReportHandlerDeps{
+		Runner:          r,
+		BuildStore:      mocks.MemBuilds,
+		BranchStore:     mocks.Branches,
+		KnownIssueStore: mocks.KnownIssues,
+		Store:           st,
+		Config:          cfg,
+		Logger:          logger,
+	})
 	syncTestBuildsFromFilesystem(t, projectsDir, mocks.MemBuilds)
 	return h, mocks
 }
@@ -107,8 +121,25 @@ func newTestReportHandlerWithMocks(t *testing.T, projectsDir string, mocks *test
 	cfg := &config.Config{ProjectsPath: projectsDir}
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
-	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, mocks.TestResults, mocks.Branches, nil, logger)
-	return NewReportHandler(nil, r, mocks.Builds, mocks.Branches, mocks.TestResults, mocks.KnownIssues, st, cfg, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:          cfg,
+		Store:           st,
+		BuildStore:      mocks.Builds,
+		Locker:          mocks.Locker,
+		TestResultStore: mocks.TestResults,
+		BranchStore:     mocks.Branches,
+		Logger:          logger,
+	})
+	return NewReportHandler(ReportHandlerDeps{
+		Runner:          r,
+		BuildStore:      mocks.Builds,
+		BranchStore:     mocks.Branches,
+		TestResultStore: mocks.TestResults,
+		KnownIssueStore: mocks.KnownIssues,
+		Store:           st,
+		Config:          cfg,
+		Logger:          logger,
+	})
 }
 
 // newTestReportHandlerWithJobManager builds a ReportHandler with a real JobManager
@@ -119,13 +150,27 @@ func newTestReportHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 	logger := zap.NewNop()
 	st := storage.NewLocalStore(cfg)
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.Builds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 
 	jm := runner.NewMemJobManager(gen, 2, logger)
 	jm.Start(context.Background())
 	t.Cleanup(func() { jm.Shutdown() })
 
-	return NewReportHandler(jm, r, mocks.Builds, mocks.Branches, nil, nil, st, cfg, logger)
+	return NewReportHandler(ReportHandlerDeps{
+		JobManager:  jm,
+		Runner:      r,
+		BuildStore:  mocks.Builds,
+		BranchStore: mocks.Branches,
+		Store:       st,
+		Config:      cfg,
+		Logger:      logger,
+	})
 }
 
 // newTestProjectHandler creates a ProjectHandler backed by stateful in-memory stores.
@@ -135,7 +180,13 @@ func newTestProjectHandler(t *testing.T, projectsDir string) (*ProjectHandler, *
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewProjectHandler(mocks.Projects, r, st, cfg, logger)
 	return h, mocks
 }
@@ -148,7 +199,13 @@ func newTestResultUploadHandler(t *testing.T, projectsDir string) (*ResultUpload
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewResultUploadHandler(st, mocks.Projects, r, cfg, logger)
 	return h, mocks
 }

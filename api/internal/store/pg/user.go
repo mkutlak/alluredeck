@@ -11,21 +11,21 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGUserStore provides user storage backed by PostgreSQL.
-type PGUserStore struct {
+// UserStore provides user storage backed by PostgreSQL.
+type UserStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewUserStore creates a PGUserStore backed by the given PGStore.
-func NewUserStore(s *PGStore) *PGUserStore {
-	return &PGUserStore{pool: s.pool}
+// NewUserStore creates a UserStore backed by the given PGStore.
+func NewUserStore(s *PGStore) *UserStore {
+	return &UserStore{pool: s.pool}
 }
 
-var _ store.UserStorer = (*PGUserStore)(nil)
+var _ store.UserStorer = (*UserStore)(nil)
 
 // UpsertByOIDC inserts a new user or updates email, name, role, and last_login on conflict.
 // The conflict target is (provider, provider_sub) filtered by provider_sub != ”.
-func (s *PGUserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
+func (s *UserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
 	var u store.User
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO users (email, name, provider, provider_sub, role, last_login, updated_at)
@@ -48,7 +48,7 @@ func (s *PGUserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, na
 }
 
 // GetByID retrieves a user by primary key.
-func (s *PGUserStore) GetByID(ctx context.Context, id int64) (*store.User, error) {
+func (s *UserStore) GetByID(ctx context.Context, id int64) (*store.User, error) {
 	var u store.User
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, email, name, provider, provider_sub, role, is_active, last_login, created_at, updated_at
@@ -65,7 +65,7 @@ func (s *PGUserStore) GetByID(ctx context.Context, id int64) (*store.User, error
 }
 
 // GetByEmail retrieves a user by email address.
-func (s *PGUserStore) GetByEmail(ctx context.Context, email string) (*store.User, error) {
+func (s *UserStore) GetByEmail(ctx context.Context, email string) (*store.User, error) {
 	var u store.User
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, email, name, provider, provider_sub, role, is_active, last_login, created_at, updated_at
@@ -82,7 +82,7 @@ func (s *PGUserStore) GetByEmail(ctx context.Context, email string) (*store.User
 }
 
 // List returns all users ordered by created_at descending.
-func (s *PGUserStore) List(ctx context.Context) ([]store.User, error) {
+func (s *UserStore) List(ctx context.Context) ([]store.User, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, email, name, provider, provider_sub, role, is_active, last_login, created_at, updated_at
 		FROM users ORDER BY created_at DESC`)
@@ -107,7 +107,7 @@ func (s *PGUserStore) List(ctx context.Context) ([]store.User, error) {
 }
 
 // Deactivate sets is_active=false for the given user ID.
-func (s *PGUserStore) Deactivate(ctx context.Context, id int64) error {
+func (s *UserStore) Deactivate(ctx context.Context, id int64) error {
 	tag, err := s.pool.Exec(ctx,
 		"UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1", id)
 	if err != nil {

@@ -13,24 +13,24 @@ import (
 )
 
 // Compile-time interface compliance check.
-var _ store.DefectStorer = (*PGDefectStore)(nil)
+var _ store.DefectStorer = (*DefectStore)(nil)
 
-// PGDefectStore provides operations on the defect_fingerprints, defect_occurrences,
+// DefectStore provides operations on the defect_fingerprints, defect_occurrences,
 // and related tables using PostgreSQL.
-type PGDefectStore struct {
+type DefectStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewDefectStore creates a PGDefectStore backed by the given PGStore.
-func NewDefectStore(s *PGStore) *PGDefectStore {
-	return &PGDefectStore{pool: s.pool}
+// NewDefectStore creates a DefectStore backed by the given PGStore.
+func NewDefectStore(s *PGStore) *DefectStore {
+	return &DefectStore{pool: s.pool}
 }
 
 // UpsertFingerprints bulk-upserts fingerprints in a transaction. On conflict
 // (project_id, fingerprint_hash) it updates last_seen_build_id, adds to
 // occurrence_count, resets consecutive_clean_builds to 0, and reopens
 // previously "fixed" fingerprints (regression).
-func (ds *PGDefectStore) UpsertFingerprints(ctx context.Context, projectID string, buildID int64, fingerprints []store.DefectFingerprint) error {
+func (ds *DefectStore) UpsertFingerprints(ctx context.Context, projectID string, buildID int64, fingerprints []store.DefectFingerprint) error {
 	if len(fingerprints) == 0 {
 		return nil
 	}
@@ -82,7 +82,7 @@ func (ds *PGDefectStore) UpsertFingerprints(ctx context.Context, projectID strin
 // LinkTestResults associates individual test result rows with a fingerprint for
 // a given build. It updates test_results.defect_fingerprint_id and upserts a
 // defect_occurrences row with the test_result_count.
-func (ds *PGDefectStore) LinkTestResults(ctx context.Context, fingerprintID string, buildID int64, testResultIDs []int64) error {
+func (ds *DefectStore) LinkTestResults(ctx context.Context, fingerprintID string, buildID int64, testResultIDs []int64) error {
 	if len(testResultIDs) == 0 {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (ds *PGDefectStore) LinkTestResults(ctx context.Context, fingerprintID stri
 
 // UpdateCleanBuildCounts increments consecutive_clean_builds for all open
 // fingerprints in the project that were NOT seen in this build.
-func (ds *PGDefectStore) UpdateCleanBuildCounts(ctx context.Context, projectID string, buildID int64) error {
+func (ds *DefectStore) UpdateCleanBuildCounts(ctx context.Context, projectID string, buildID int64) error {
 	const q = `
 		UPDATE defect_fingerprints
 		SET consecutive_clean_builds = consecutive_clean_builds + 1,
@@ -125,7 +125,7 @@ func (ds *PGDefectStore) UpdateCleanBuildCounts(ctx context.Context, projectID s
 
 // AutoResolveFixed sets resolution='fixed' for open fingerprints where
 // consecutive_clean_builds >= threshold. Returns count of affected rows.
-func (ds *PGDefectStore) AutoResolveFixed(ctx context.Context, projectID string, threshold int) (int, error) {
+func (ds *DefectStore) AutoResolveFixed(ctx context.Context, projectID string, threshold int) (int, error) {
 	const q = `
 		UPDATE defect_fingerprints
 		SET resolution = 'fixed', updated_at = NOW()
@@ -143,7 +143,7 @@ func (ds *PGDefectStore) AutoResolveFixed(ctx context.Context, projectID string,
 // in this build. A regression is a fingerprint where: it appears in this build's
 // occurrences, was NOT in the immediately preceding build's occurrences, and
 // first_seen_build_id != this build (not new).
-func (ds *PGDefectStore) DetectRegressions(ctx context.Context, projectID string, buildID int64) ([]string, error) {
+func (ds *DefectStore) DetectRegressions(ctx context.Context, projectID string, buildID int64) ([]string, error) {
 	const q = `
 		WITH prev_build AS (
 			SELECT id FROM builds
@@ -185,7 +185,7 @@ func (ds *PGDefectStore) DetectRegressions(ctx context.Context, projectID string
 }
 
 // GetByHash retrieves a fingerprint by its project-scoped hash.
-func (ds *PGDefectStore) GetByHash(ctx context.Context, projectID, hash string) (*store.DefectFingerprint, error) {
+func (ds *DefectStore) GetByHash(ctx context.Context, projectID, hash string) (*store.DefectFingerprint, error) {
 	var fp store.DefectFingerprint
 	err := ds.pool.QueryRow(ctx, `
 		SELECT id, project_id, fingerprint_hash, normalized_message, sample_trace,
@@ -208,7 +208,7 @@ func (ds *PGDefectStore) GetByHash(ctx context.Context, projectID, hash string) 
 
 // listDefects is a shared helper for ListByProject and ListByBuild. When buildID
 // is non-nil the query is scoped through defect_occurrences.
-func (ds *PGDefectStore) listDefects(ctx context.Context, projectID string, buildID *int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (ds *DefectStore) listDefects(ctx context.Context, projectID string, buildID *int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
 	// --- build WHERE clause ---
 	where := "WHERE df.project_id = $1"
 	args := []any{projectID}
@@ -380,17 +380,17 @@ func derefBool(p *bool) bool {
 }
 
 // ListByProject returns a paginated list of defects for a project with optional filters.
-func (ds *PGDefectStore) ListByProject(ctx context.Context, projectID string, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (ds *DefectStore) ListByProject(ctx context.Context, projectID string, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
 	return ds.listDefects(ctx, projectID, nil, filter)
 }
 
 // ListByBuild returns a paginated list of defects observed in a specific build.
-func (ds *PGDefectStore) ListByBuild(ctx context.Context, projectID string, buildID int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (ds *DefectStore) ListByBuild(ctx context.Context, projectID string, buildID int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
 	return ds.listDefects(ctx, projectID, &buildID, filter)
 }
 
 // GetByID retrieves a single defect fingerprint by its UUID.
-func (ds *PGDefectStore) GetByID(ctx context.Context, defectID string) (*store.DefectFingerprint, error) {
+func (ds *DefectStore) GetByID(ctx context.Context, defectID string) (*store.DefectFingerprint, error) {
 	var fp store.DefectFingerprint
 	err := ds.pool.QueryRow(ctx, `
 		SELECT id, project_id, fingerprint_hash, normalized_message, sample_trace,
@@ -413,7 +413,7 @@ func (ds *PGDefectStore) GetByID(ctx context.Context, defectID string) (*store.D
 
 // GetTestResults returns paginated test results linked to a defect, optionally
 // scoped to a build.
-func (ds *PGDefectStore) GetTestResults(ctx context.Context, defectID string, buildID *int64, page, perPage int) ([]store.TestResult, int, error) {
+func (ds *DefectStore) GetTestResults(ctx context.Context, defectID string, buildID *int64, page, perPage int) ([]store.TestResult, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -481,7 +481,7 @@ func (ds *PGDefectStore) GetTestResults(ctx context.Context, defectID string, bu
 
 // GetProjectSummary returns aggregated defect counts for a project:
 // count by resolution + count open by category.
-func (ds *PGDefectStore) GetProjectSummary(ctx context.Context, projectID string) (*store.DefectProjectSummary, error) {
+func (ds *DefectStore) GetProjectSummary(ctx context.Context, projectID string) (*store.DefectProjectSummary, error) {
 	summary := &store.DefectProjectSummary{
 		ByCategory: make(map[string]int),
 	}
@@ -569,7 +569,7 @@ func (ds *PGDefectStore) GetProjectSummary(ctx context.Context, projectID string
 }
 
 // GetBuildSummary returns aggregated defect counts for a single build.
-func (ds *PGDefectStore) GetBuildSummary(ctx context.Context, projectID string, buildID int64) (*store.DefectBuildSummary, error) {
+func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID string, buildID int64) (*store.DefectBuildSummary, error) {
 	summary := &store.DefectBuildSummary{
 		ByCategory:   make(map[string]int),
 		ByResolution: make(map[string]int),
@@ -657,7 +657,7 @@ func (ds *PGDefectStore) GetBuildSummary(ctx context.Context, projectID string, 
 // UpdateDefect updates the category, resolution, or known-issue link for a
 // single defect. Only non-nil fields are set. When knownIssueID is 0 the
 // known_issue_id column is set to NULL.
-func (ds *PGDefectStore) UpdateDefect(ctx context.Context, defectID string, category, resolution *string, knownIssueID *int64) error {
+func (ds *DefectStore) UpdateDefect(ctx context.Context, defectID string, category, resolution *string, knownIssueID *int64) error {
 	setClauses := []string{"updated_at = NOW()"}
 	args := []any{}
 	argIdx := 1
@@ -698,7 +698,7 @@ func (ds *PGDefectStore) UpdateDefect(ctx context.Context, defectID string, cate
 }
 
 // BulkUpdate applies category and/or resolution changes to multiple defects atomically.
-func (ds *PGDefectStore) BulkUpdate(ctx context.Context, defectIDs []string, category, resolution *string) error {
+func (ds *DefectStore) BulkUpdate(ctx context.Context, defectIDs []string, category, resolution *string) error {
 	if len(defectIDs) == 0 {
 		return nil
 	}

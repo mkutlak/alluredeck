@@ -33,7 +33,7 @@ func pgClassifyDiff(statusA, statusB string) (store.DiffCategory, bool) {
 // history_id. Only tests whose status changed are returned. Tests without a
 // history_id are excluded.
 // Uses PostgreSQL's native FULL OUTER JOIN.
-func (ts *PGTestResultStore) CompareBuildsByHistoryID(
+func (ts *TestResultStore) CompareBuildsByHistoryID(
 	ctx context.Context,
 	projectID string,
 	buildIDA, buildIDB int64,

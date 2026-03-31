@@ -11,19 +11,19 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGAttachmentStore provides attachment queries backed by PostgreSQL.
-type PGAttachmentStore struct {
+// AttachmentStore provides attachment queries backed by PostgreSQL.
+type AttachmentStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewAttachmentStore creates a PGAttachmentStore backed by the given PGStore.
-func NewAttachmentStore(s *PGStore) *PGAttachmentStore {
-	return &PGAttachmentStore{pool: s.pool}
+// NewAttachmentStore creates a AttachmentStore backed by the given PGStore.
+func NewAttachmentStore(s *PGStore) *AttachmentStore {
+	return &AttachmentStore{pool: s.pool}
 }
 
 // ListByBuild returns attachment metadata for all attachments belonging to a
 // specific build, with optional MIME type prefix filtering and pagination.
-func (a *PGAttachmentStore) ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
+func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
 	var rows pgx.Rows
 	var err error
 
@@ -80,7 +80,7 @@ func (a *PGAttachmentStore) ListByBuild(ctx context.Context, projectID string, b
 
 // GetBySource returns the attachment metadata for the given source path within
 // the specified build. Returns store.ErrAttachmentNotFound when no match exists.
-func (a *PGAttachmentStore) GetBySource(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error) {
+func (a *AttachmentStore) GetBySource(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error) {
 	var at store.TestAttachment
 	err := a.pool.QueryRow(ctx, `
 		SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes
@@ -101,4 +101,4 @@ func (a *PGAttachmentStore) GetBySource(ctx context.Context, buildID int64, sour
 }
 
 // Compile-time interface compliance check.
-var _ store.AttachmentStorer = (*PGAttachmentStore)(nil)
+var _ store.AttachmentStorer = (*AttachmentStore)(nil)

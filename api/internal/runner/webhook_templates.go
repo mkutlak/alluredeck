@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"text/template"
 	"time"
-
-	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 const slackDefaultTemplate = `{
@@ -113,7 +111,7 @@ var defaultTemplates = map[string]string{
 // For the "generic" target type with no custom template, the payload is
 // marshalled directly as indented JSON.
 // Returns the rendered body bytes, the content-type string, and any error.
-func RenderWebhookPayload(targetType string, customTemplate *string, payload store.WebhookPayload) ([]byte, string, error) {
+func RenderWebhookPayload(targetType string, customTemplate *string, payload WebhookPayload) ([]byte, string, error) {
 	const contentType = "application/json"
 
 	// Custom template overrides everything.
@@ -158,18 +156,18 @@ func ValidateWebhookTemplate(tplStr string) error {
 
 // SampleWebhookPayload returns a realistic payload suitable for template
 // validation and test/preview endpoints.
-func SampleWebhookPayload() store.WebhookPayload {
+func SampleWebhookPayload() WebhookPayload {
 	passRateChange := 2.5
 	branch := "main"
 	commitSHA := "abc1234def5678"
 	buildURL := "https://ci.example.com/builds/42"
 
-	return store.WebhookPayload{
+	return WebhookPayload{
 		Event:        "report_completed",
 		ProjectID:    "my-project",
 		BuildOrder:   42,
 		DashboardURL: "https://alluredeck.example.com/projects/my-project/builds/42",
-		Stats: store.WebhookStats{
+		Stats: WebhookStats{
 			Total:    100,
 			Passed:   95,
 			Failed:   3,
@@ -177,12 +175,12 @@ func SampleWebhookPayload() store.WebhookPayload {
 			Skipped:  1,
 			PassRate: 95.0,
 		},
-		Delta: &store.WebhookDelta{
+		Delta: &WebhookDelta{
 			PassRateChange: passRateChange,
 			NewFailures:    1,
 			FixedTests:     3,
 		},
-		CI: &store.WebhookCI{
+		CI: &WebhookCI{
 			Provider:  "github-actions",
 			BuildURL:  buildURL,
 			Branch:    branch,
@@ -193,7 +191,7 @@ func SampleWebhookPayload() store.WebhookPayload {
 }
 
 // renderTemplate is a shared helper that parses and executes a named template.
-func renderTemplate(name, tplStr string, payload store.WebhookPayload) ([]byte, error) {
+func renderTemplate(name, tplStr string, payload WebhookPayload) ([]byte, error) {
 	tpl, err := template.New(name).Parse(tplStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)

@@ -30,12 +30,6 @@ type APIKey struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// CreateAPIKeyRequest holds the fields needed to create an API key.
-type CreateAPIKeyRequest struct {
-	Name      string     `json:"name"`
-	ExpiresAt *time.Time `json:"expires_at"`
-}
-
 // Project represents a registered allure project.
 type Project struct {
 	ID        string
@@ -228,6 +222,27 @@ const (
 	DiffRemoved   DiffCategory = "removed"
 )
 
+// TestStatus represents the execution status of a test result.
+type TestStatus string
+
+const (
+	TestStatusPassed  TestStatus = "passed"
+	TestStatusFailed  TestStatus = "failed"
+	TestStatusBroken  TestStatus = "broken"
+	TestStatusSkipped TestStatus = "skipped"
+	TestStatusUnknown TestStatus = "unknown"
+)
+
+// WebhookTargetType represents a supported webhook target platform.
+type WebhookTargetType string
+
+const (
+	WebhookTargetSlack   WebhookTargetType = "slack"
+	WebhookTargetDiscord WebhookTargetType = "discord"
+	WebhookTargetTeams   WebhookTargetType = "teams"
+	WebhookTargetGeneric WebhookTargetType = "generic"
+)
+
 // DiffEntry represents a single test in a build comparison result.
 type DiffEntry struct {
 	TestName  string
@@ -242,17 +257,17 @@ type DiffEntry struct {
 
 // Webhook represents a per-project webhook notification target.
 type Webhook struct {
-	ID         string    `json:"id"`
-	ProjectID  string    `json:"project_id"`
-	Name       string    `json:"name"`
-	TargetType string    `json:"target_type"`
-	URL        string    `json:"-"`
-	Secret     *string   `json:"-"`
-	Template   *string   `json:"template,omitempty"`
-	Events     []string  `json:"events"`
-	IsActive   bool      `json:"is_active"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID         string            `json:"id"`
+	ProjectID  string            `json:"project_id"`
+	Name       string            `json:"name"`
+	TargetType WebhookTargetType `json:"target_type"`
+	URL        string            `json:"-"`
+	Secret     *string           `json:"-"`
+	Template   *string           `json:"template,omitempty"`
+	Events     []string          `json:"events"`
+	IsActive   bool              `json:"is_active"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
 // WebhookDelivery records one delivery attempt for audit/debugging.
@@ -268,41 +283,4 @@ type WebhookDelivery struct {
 	Attempt      int       `json:"attempt"`
 	DurationMs   *int      `json:"duration_ms,omitempty"`
 	DeliveredAt  time.Time `json:"delivered_at"`
-}
-
-// WebhookPayload is the canonical summary sent on report_completed events.
-type WebhookPayload struct {
-	Event        string        `json:"event"`
-	ProjectID    string        `json:"project_id"`
-	BuildOrder   int           `json:"build_order"`
-	DashboardURL string        `json:"dashboard_url,omitempty"`
-	Stats        WebhookStats  `json:"stats"`
-	Delta        *WebhookDelta `json:"delta,omitempty"`
-	CI           *WebhookCI    `json:"ci,omitempty"`
-	Timestamp    time.Time     `json:"timestamp"`
-}
-
-// WebhookStats holds test result statistics for a webhook payload.
-type WebhookStats struct {
-	Total    int     `json:"total"`
-	Passed   int     `json:"passed"`
-	Failed   int     `json:"failed"`
-	Broken   int     `json:"broken"`
-	Skipped  int     `json:"skipped"`
-	PassRate float64 `json:"pass_rate"`
-}
-
-// WebhookDelta holds the change in metrics compared to the previous build.
-type WebhookDelta struct {
-	PassRateChange float64 `json:"pass_rate_change"`
-	NewFailures    int     `json:"new_failures"`
-	FixedTests     int     `json:"fixed_tests"`
-}
-
-// WebhookCI holds CI/CD context for a webhook payload.
-type WebhookCI struct {
-	Provider  string `json:"provider,omitempty"`
-	BuildURL  string `json:"build_url,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	CommitSHA string `json:"commit_sha,omitempty"`
 }

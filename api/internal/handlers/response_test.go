@@ -36,7 +36,7 @@ func TestWritePagedSuccess(t *testing.T) {
 	t.Parallel()
 	rr := httptest.NewRecorder()
 	pg := newPaginationMeta(1, 20, 42)
-	writePagedSuccess(rr, 200, []string{"a", "b"}, "Items listed", pg)
+	writePagedSuccess(rr, []string{"a", "b"}, "Items listed", pg)
 
 	if rr.Code != 200 {
 		t.Fatalf("want 200, got %d", rr.Code)

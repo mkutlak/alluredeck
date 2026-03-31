@@ -7,7 +7,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// compile-time check that PGStore implements store.Locker.
+// compile-time check that Store implements store.Locker.
 var _ store.Locker = (*PGStore)(nil)
 
 // AcquireLock acquires a PostgreSQL session-level advisory lock for the given key,

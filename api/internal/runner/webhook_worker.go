@@ -20,8 +20,8 @@ import (
 
 // SendWebhookArgs holds the River job arguments for async webhook delivery.
 type SendWebhookArgs struct {
-	WebhookID string               `json:"webhook_id"`
-	Payload   store.WebhookPayload `json:"payload"`
+	WebhookID string         `json:"webhook_id"`
+	Payload   WebhookPayload `json:"payload"`
 }
 
 // Kind returns the River job kind identifier.
@@ -52,7 +52,7 @@ func (w *SendWebhookWorker) Work(ctx context.Context, job *river.Job[SendWebhook
 	}
 
 	// 2. Render the message body using the template engine.
-	body, contentType, err := RenderWebhookPayload(wh.TargetType, wh.Template, a.Payload)
+	body, contentType, err := RenderWebhookPayload(string(wh.TargetType), wh.Template, a.Payload)
 	if err != nil {
 		w.logger.Error("webhook worker: template render failed",
 			zap.String("webhook_id", a.WebhookID), zap.Error(err))

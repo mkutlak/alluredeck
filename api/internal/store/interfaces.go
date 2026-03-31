@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	parser "github.com/mkutlak/alluredeck/api/internal/parser"
+	"github.com/mkutlak/alluredeck/api/internal/parser"
 )
 
 // Sentinel errors returned by store operations.
@@ -119,22 +119,22 @@ type SearchStorer interface {
 
 // ErrorCluster holds a grouped failure message and its occurrence count.
 type ErrorCluster struct {
-	Message string
-	Count   int
+	Message string `json:"message"`
+	Count   int    `json:"count"`
 }
 
 // SuitePassRate holds per-suite pass rate data across recent builds.
 type SuitePassRate struct {
-	Suite    string
-	Total    int
-	Passed   int
-	PassRate float64
+	Suite    string  `json:"suite"`
+	Total    int     `json:"total"`
+	Passed   int     `json:"passed"`
+	PassRate float64 `json:"pass_rate"`
 }
 
 // LabelCount holds a label value and the count of distinct tests carrying it.
 type LabelCount struct {
-	Value string
-	Count int
+	Value string `json:"value"`
+	Count int    `json:"count"`
 }
 
 // TrendPoint holds per-build statistics for analytics trend charts.
@@ -178,7 +178,7 @@ type APIKeyStorer interface {
 }
 
 // Locker serialises per-project operations using PostgreSQL advisory locks
-// for multi-instance safety. Implemented by *pg.PGStore.
+// for multi-instance safety. Implemented by *pg.Store.
 type Locker interface {
 	AcquireLock(ctx context.Context, key string) (func(), error)
 }

@@ -25,7 +25,7 @@ func webhookProjectID() string {
 }
 
 // ensureProject inserts a project row so FK constraints are satisfied.
-func ensureProject(t *testing.T, s *pg.PGStore, projectID string) {
+func ensureProject(t *testing.T, s *pg.Store, projectID string) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := s.Pool().Exec(ctx,

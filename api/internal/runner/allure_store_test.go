@@ -130,7 +130,13 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	mocks.Builds.InsertBuildFn = func(_ context.Context, _ string, _ int) error {
 		return store.ErrBuildNotFound // any non-nil error
 	}
-	a := NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
+	a := NewAllure(AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.Builds,
+		Locker:     mocks.Locker,
+		Logger:     zap.NewNop(),
+	})
 
 	err := a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{}, nil)
 	if err == nil {
@@ -157,7 +163,13 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 		return []store.Build{expectedBuild}, nil
 	}
 
-	a := NewAllure(cfg, st, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
+	a := NewAllure(AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.Builds,
+		Locker:     mocks.Locker,
+		Logger:     zap.NewNop(),
+	})
 
 	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
 		t.Fatalf("recordBuild: %v", err)

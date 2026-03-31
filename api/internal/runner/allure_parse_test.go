@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	parser "github.com/mkutlak/alluredeck/api/internal/parser"
+	"github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )

@@ -16,19 +16,19 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGBuildStore provides operations on the builds table backed by PostgreSQL.
-type PGBuildStore struct {
+// BuildStore provides operations on the builds table backed by PostgreSQL.
+type BuildStore struct {
 	pool   *pgxpool.Pool
 	logger *zap.Logger
 }
 
-// NewBuildStore creates a PGBuildStore backed by the given PGStore.
-func NewBuildStore(s *PGStore, logger *zap.Logger) *PGBuildStore {
-	return &PGBuildStore{pool: s.pool, logger: logger}
+// NewBuildStore creates a BuildStore backed by the given PGStore.
+func NewBuildStore(s *PGStore, logger *zap.Logger) *BuildStore {
+	return &BuildStore{pool: s.pool, logger: logger}
 }
 
 // NextBuildOrder atomically determines the next build order for a project (MAX+1, min 1).
-func (bs *PGBuildStore) NextBuildOrder(ctx context.Context, projectID string) (int, error) {
+func (bs *BuildStore) NextBuildOrder(ctx context.Context, projectID string) (int, error) {
 	var maxOrder *int64
 	err := bs.pool.QueryRow(ctx,
 		"SELECT MAX(build_order) FROM builds WHERE project_id = $1", projectID,
@@ -43,7 +43,7 @@ func (bs *PGBuildStore) NextBuildOrder(ctx context.Context, projectID string) (i
 }
 
 // InsertBuild records a new build with the given order.
-func (bs *PGBuildStore) InsertBuild(ctx context.Context, projectID string, buildOrder int) error {
+func (bs *BuildStore) InsertBuild(ctx context.Context, projectID string, buildOrder int) error {
 	_, err := bs.pool.Exec(ctx,
 		"INSERT INTO builds(project_id, build_order) VALUES($1,$2)", projectID, buildOrder)
 	if err != nil {
@@ -53,7 +53,7 @@ func (bs *PGBuildStore) InsertBuild(ctx context.Context, projectID string, build
 }
 
 // UpdateBuildStats updates statistics for the given build.
-func (bs *PGBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildOrder int, stats store.BuildStats) error {
+func (bs *BuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildOrder int, stats store.BuildStats) error {
 	tag, err := bs.pool.Exec(ctx, `
 		UPDATE builds
 		SET stat_passed=$1, stat_failed=$2, stat_broken=$3,
@@ -76,7 +76,7 @@ func (bs *PGBuildStore) UpdateBuildStats(ctx context.Context, projectID string, 
 }
 
 // UpdateBuildCIMetadata stores CI context for the given build.
-func (bs *PGBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta store.CIMetadata) error {
+func (bs *BuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta store.CIMetadata) error {
 	nullStr := func(s string) *string {
 		if s == "" {
 			return nil
@@ -183,7 +183,7 @@ func assignBuildStats(b *store.Build,
 }
 
 // GetBuildByOrder returns a single build for project_id + build_order.
-func (bs *PGBuildStore) GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
+func (bs *BuildStore) GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
 	row := bs.pool.QueryRow(ctx, buildSelectCols+`
 		WHERE project_id=$1 AND build_order=$2`, projectID, buildOrder)
 	b, err := scanBuildRow(row)
@@ -197,7 +197,7 @@ func (bs *PGBuildStore) GetBuildByOrder(ctx context.Context, projectID string, b
 }
 
 // GetPreviousBuild returns the build immediately before the given build_order.
-func (bs *PGBuildStore) GetPreviousBuild(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
+func (bs *BuildStore) GetPreviousBuild(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
 	row := bs.pool.QueryRow(ctx, buildSelectCols+`
 		WHERE project_id=$1 AND build_order<$2
 		ORDER BY build_order DESC LIMIT 1`, projectID, buildOrder)
@@ -212,7 +212,7 @@ func (bs *PGBuildStore) GetPreviousBuild(ctx context.Context, projectID string, 
 }
 
 // GetLatestBuild returns the build marked is_latest=TRUE for a project.
-func (bs *PGBuildStore) GetLatestBuild(ctx context.Context, projectID string) (store.Build, error) {
+func (bs *BuildStore) GetLatestBuild(ctx context.Context, projectID string) (store.Build, error) {
 	row := bs.pool.QueryRow(ctx, buildSelectCols+`
 		WHERE project_id=$1 AND is_latest=TRUE`, projectID)
 	b, err := scanBuildRow(row)
@@ -226,7 +226,7 @@ func (bs *PGBuildStore) GetLatestBuild(ctx context.Context, projectID string) (s
 }
 
 // ListBuilds returns all builds for a project in descending build_order.
-func (bs *PGBuildStore) ListBuilds(ctx context.Context, projectID string) ([]store.Build, error) {
+func (bs *BuildStore) ListBuilds(ctx context.Context, projectID string) ([]store.Build, error) {
 	rows, err := bs.pool.Query(ctx, buildSelectCols+`
 		WHERE project_id=$1 ORDER BY build_order DESC`, projectID)
 	if err != nil {
@@ -237,18 +237,18 @@ func (bs *PGBuildStore) ListBuilds(ctx context.Context, projectID string) ([]sto
 }
 
 // ListBuildsPaginated returns a page of builds for a project in descending build_order, plus the total count.
-func (bs *PGBuildStore) ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]store.Build, int, error) {
+func (bs *BuildStore) ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]store.Build, int, error) {
 	return bs.ListBuildsPaginatedBranch(ctx, projectID, page, perPage, nil)
 }
 
 // PruneBuilds removes the oldest builds exceeding `keep` count.
 // Returns the build_orders of removed builds.
-func (bs *PGBuildStore) PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error) {
+func (bs *BuildStore) PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error) {
 	return bs.PruneBuildsBranch(ctx, projectID, keep, nil)
 }
 
 // SetLatest marks the given build_order as latest and clears the flag on all others.
-func (bs *PGBuildStore) SetLatest(ctx context.Context, projectID string, buildOrder int) error {
+func (bs *BuildStore) SetLatest(ctx context.Context, projectID string, buildOrder int) error {
 	tx, err := bs.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -271,7 +271,7 @@ func (bs *PGBuildStore) SetLatest(ctx context.Context, projectID string, buildOr
 }
 
 // DeleteAllBuilds removes all builds for a project from the database.
-func (bs *PGBuildStore) DeleteAllBuilds(ctx context.Context, projectID string) error {
+func (bs *BuildStore) DeleteAllBuilds(ctx context.Context, projectID string) error {
 	_, err := bs.pool.Exec(ctx, "DELETE FROM builds WHERE project_id=$1", projectID)
 	if err != nil {
 		return fmt.Errorf("delete all builds for project %q: %w", projectID, err)
@@ -280,7 +280,7 @@ func (bs *PGBuildStore) DeleteAllBuilds(ctx context.Context, projectID string) e
 }
 
 // GetDashboardData returns all projects with their latest build and sparkline data.
-func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
+func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 	query := `
 		SELECT DISTINCT ON (p.id)
 		    p.id, p.parent_id, p.created_at,
@@ -431,7 +431,7 @@ func (bs *PGBuildStore) GetDashboardData(ctx context.Context, sparklineDepth int
 }
 
 // DeleteBuild removes a single build by build_order from the database.
-func (bs *PGBuildStore) DeleteBuild(ctx context.Context, projectID string, buildOrder int) error {
+func (bs *BuildStore) DeleteBuild(ctx context.Context, projectID string, buildOrder int) error {
 	_, err := bs.pool.Exec(ctx,
 		"DELETE FROM builds WHERE project_id=$1 AND build_order=$2", projectID, buildOrder)
 	if err != nil {
@@ -441,7 +441,7 @@ func (bs *PGBuildStore) DeleteBuild(ctx context.Context, projectID string, build
 }
 
 // UpdateBuildBranchID sets the branch_id on a build row.
-func (bs *PGBuildStore) UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error {
+func (bs *BuildStore) UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error {
 	tag, err := bs.pool.Exec(ctx,
 		"UPDATE builds SET branch_id=$1 WHERE project_id=$2 AND build_order=$3",
 		branchID, projectID, buildOrder)
@@ -455,7 +455,7 @@ func (bs *PGBuildStore) UpdateBuildBranchID(ctx context.Context, projectID strin
 }
 
 // SetLatestBranch marks the given build_order as latest, optionally scoped to a branch.
-func (bs *PGBuildStore) SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error {
+func (bs *BuildStore) SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error {
 	if branchID == nil {
 		return bs.SetLatest(ctx, projectID, buildOrder)
 	}
@@ -482,7 +482,7 @@ func (bs *PGBuildStore) SetLatestBranch(ctx context.Context, projectID string, b
 }
 
 // PruneBuildsBranch removes oldest builds exceeding `keep` count, optionally scoped to a branch.
-func (bs *PGBuildStore) PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error) {
+func (bs *BuildStore) PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error) {
 	if keep <= 0 {
 		return nil, nil
 	}
@@ -530,7 +530,7 @@ func (bs *PGBuildStore) PruneBuildsBranch(ctx context.Context, projectID string,
 
 // PruneBuildsByAge removes builds older than olderThan that are not the latest build.
 // Returns the build_orders of removed builds.
-func (bs *PGBuildStore) PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error) {
+func (bs *BuildStore) PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error) {
 	rows, err := bs.pool.Query(ctx, `
 		SELECT build_order FROM builds
 		WHERE project_id = $1 AND created_at < $2 AND is_latest = FALSE
@@ -562,7 +562,7 @@ func (bs *PGBuildStore) PruneBuildsByAge(ctx context.Context, projectID string, 
 }
 
 // ListBuildsPaginatedBranch returns a page of builds, optionally filtered by branch.
-func (bs *PGBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error) {
+func (bs *BuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error) {
 	var totalCount int
 	var err error
 	if branchID != nil {
@@ -605,7 +605,7 @@ func (bs *PGBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID
 
 // ListBuildsInRange returns up to limit builds in [from, to), optionally filtered by branchID.
 // Returns builds (descending by build_order) and the total count of matching builds.
-func (bs *PGBuildStore) ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
+func (bs *BuildStore) ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
 	var totalCount int
 	var err error
 	if branchID != nil {
@@ -664,7 +664,7 @@ func scanBuildRowsAll(rows pgx.Rows) ([]store.Build, error) {
 }
 
 // ExistingBuildOrders returns the set of build orders already in the DB for a project.
-func (bs *PGBuildStore) ExistingBuildOrders(ctx context.Context, projectID string) (map[int]struct{}, error) {
+func (bs *BuildStore) ExistingBuildOrders(ctx context.Context, projectID string) (map[int]struct{}, error) {
 	rows, err := bs.pool.Query(ctx,
 		"SELECT build_order FROM builds WHERE project_id=$1", projectID)
 	if err != nil {
@@ -687,7 +687,7 @@ func (bs *PGBuildStore) ExistingBuildOrders(ctx context.Context, projectID strin
 }
 
 // InsertMissingBuilds inserts builds using ON CONFLICT DO NOTHING for idempotency.
-func (bs *PGBuildStore) InsertMissingBuilds(ctx context.Context, projectID string, missing []int) error {
+func (bs *BuildStore) InsertMissingBuilds(ctx context.Context, projectID string, missing []int) error {
 	if len(missing) == 0 {
 		return nil
 	}
@@ -711,7 +711,7 @@ func (bs *PGBuildStore) InsertMissingBuilds(ctx context.Context, projectID strin
 }
 
 // BuildsWithMissingStats returns build orders where stat_total is NULL.
-func (bs *PGBuildStore) BuildsWithMissingStats(ctx context.Context, projectID string) ([]int, error) {
+func (bs *BuildStore) BuildsWithMissingStats(ctx context.Context, projectID string) ([]int, error) {
 	rows, err := bs.pool.Query(ctx,
 		"SELECT build_order FROM builds WHERE project_id=$1 AND stat_total IS NULL", projectID)
 	if err != nil {
@@ -739,7 +739,7 @@ type statsResult struct {
 }
 
 // BatchSyncStats reads stats from storage concurrently and writes them in one transaction.
-func (bs *PGBuildStore) BatchSyncStats(ctx context.Context, projectID string, buildOrders []int, st storage.Store) error {
+func (bs *BuildStore) BatchSyncStats(ctx context.Context, projectID string, buildOrders []int, st storage.Store) error {
 	if len(buildOrders) == 0 {
 		return nil
 	}
@@ -797,4 +797,4 @@ func (bs *PGBuildStore) BatchSyncStats(ctx context.Context, projectID string, bu
 	return nil
 }
 
-var _ store.BuildStorer = (*PGBuildStore)(nil)
+var _ store.BuildStorer = (*BuildStore)(nil)

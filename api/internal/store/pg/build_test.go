@@ -13,7 +13,7 @@ import (
 )
 
 // insertBuildAt inserts a build and back-dates its created_at to ts via a direct UPDATE.
-func insertBuildAt(t *testing.T, ctx context.Context, buildStore *pg.PGBuildStore, s *pg.PGStore, projectID string, order int, ts time.Time) {
+func insertBuildAt(t *testing.T, ctx context.Context, buildStore *pg.BuildStore, s *pg.PGStore, projectID string, order int, ts time.Time) {
 	t.Helper()
 	if err := buildStore.InsertBuild(ctx, projectID, order); err != nil {
 		t.Fatalf("InsertBuild %d: %v", order, err)

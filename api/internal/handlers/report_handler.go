@@ -31,11 +31,31 @@ type ReportHandler struct {
 	logger          *zap.Logger
 }
 
+// ReportHandlerDeps holds the dependencies for creating a ReportHandler.
+type ReportHandlerDeps struct {
+	JobManager      runner.JobQueuer
+	Runner          *runner.Allure
+	BuildStore      store.BuildStorer
+	BranchStore     store.BranchStorer
+	TestResultStore store.TestResultStorer
+	KnownIssueStore store.KnownIssueStorer
+	Store           storage.Store
+	Config          *config.Config
+	Logger          *zap.Logger
+}
+
 // NewReportHandler creates a ReportHandler.
-func NewReportHandler(jm runner.JobQueuer, r *runner.Allure, bs store.BuildStorer, brs store.BranchStorer, trs store.TestResultStorer, kis store.KnownIssueStorer, st storage.Store, cfg *config.Config, logger *zap.Logger) *ReportHandler {
+func NewReportHandler(deps ReportHandlerDeps) *ReportHandler {
 	return &ReportHandler{
-		jobManager: jm, runner: r, buildStore: bs, branchStore: brs,
-		testResultStore: trs, knownIssueStore: kis, store: st, cfg: cfg, logger: logger,
+		jobManager:      deps.JobManager,
+		runner:          deps.Runner,
+		buildStore:      deps.BuildStore,
+		branchStore:     deps.BranchStore,
+		testResultStore: deps.TestResultStore,
+		knownIssueStore: deps.KnownIssueStore,
+		store:           deps.Store,
+		cfg:             deps.Config,
+		logger:          deps.Logger,
 	}
 }
 

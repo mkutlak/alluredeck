@@ -23,18 +23,33 @@ func TestRegisterRoutes(t *testing.T) {
 	mocks := testutil.New()
 
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	systemHandler := handlers.NewSystemHandler(cfg, nil)
-	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
-	projectHandler := handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop())
-	resultUploadHandler := handlers.NewResultUploadHandler(localStore, mocks.Projects, allureCore, cfg, zap.NewNop())
+	allureCore := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      localStore,
+		BuildStore: mocks.Builds,
+		Locker:     mocks.Locker,
+		Logger:     zap.NewNop(),
+	})
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
-	adminHandler := handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, nil, projectHandler, resultUploadHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	registerRoutes(routeDeps{
+		mux:          mux,
+		prefix:       "/api/v1",
+		cfg:          cfg,
+		jwtManager:   jwtManager,
+		loginLimiter: loginLimiter,
+		apiKeyStore:  mocks.APIKeys,
+		h: handlerSet{
+			system:       handlers.NewSystemHandler(cfg, nil),
+			auth:         handlers.NewAuthHandler(cfg, jwtManager),
+			project:      handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop()),
+			resultUpload: handlers.NewResultUploadHandler(localStore, mocks.Projects, allureCore, cfg, zap.NewNop()),
+			admin:        handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop()),
+		},
+	})
 
 	tests := []struct {
 		method string
@@ -72,18 +87,33 @@ func TestBareRoutes_Return404(t *testing.T) {
 	mocks := testutil.New()
 
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	systemHandler := handlers.NewSystemHandler(cfg, nil)
-	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
 	localStore := storage.NewLocalStore(cfg)
-	allureCore := runner.NewAllure(cfg, localStore, mocks.Builds, mocks.Locker, nil, nil, nil, zap.NewNop())
-	projectHandler := handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop())
-	resultUploadHandler := handlers.NewResultUploadHandler(localStore, mocks.Projects, allureCore, cfg, zap.NewNop())
+	allureCore := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      localStore,
+		BuildStore: mocks.Builds,
+		Locker:     mocks.Locker,
+		Logger:     zap.NewNop(),
+	})
 
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, false)
 
 	mux := http.NewServeMux()
-	adminHandler := handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop())
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, nil, projectHandler, resultUploadHandler, adminHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	registerRoutes(routeDeps{
+		mux:          mux,
+		prefix:       "/api/v1",
+		cfg:          cfg,
+		jwtManager:   jwtManager,
+		loginLimiter: loginLimiter,
+		apiKeyStore:  mocks.APIKeys,
+		h: handlerSet{
+			system:       handlers.NewSystemHandler(cfg, nil),
+			auth:         handlers.NewAuthHandler(cfg, jwtManager),
+			project:      handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop()),
+			resultUpload: handlers.NewResultUploadHandler(localStore, mocks.Projects, allureCore, cfg, zap.NewNop()),
+			admin:        handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop()),
+		},
+	})
 
 	// Bare routes (no /api/v1 prefix) should return 404.
 	bareRoutes := []struct {

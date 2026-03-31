@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { formatBytes } from '@/lib/utils'
 import { downloadAttachment } from '@/api/attachments'
+import { isPlaywrightTrace } from '@/features/trace/utils'
 import { AttachmentTextPreview } from './AttachmentTextPreview'
 import type { AttachmentEntry } from '@/types/api'
 
@@ -26,6 +27,9 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
     attachment.mime_type.startsWith('text/') ||
     attachment.mime_type === 'application/json' ||
     attachment.mime_type === 'application/xml'
+
+  // Playwright traces are handled by the card navigation — never open in lightbox.
+  if (isPlaywrightTrace(attachment.name, attachment.mime_type)) return null
 
   async function handleDownload() {
     setDownloading(true)

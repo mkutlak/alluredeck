@@ -14,23 +14,23 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// PGWebhookStore implements store.WebhookStorer using PostgreSQL.
-type PGWebhookStore struct {
+// WebhookStore implements store.WebhookStorer using PostgreSQL.
+type WebhookStore struct {
 	pool   *pgxpool.Pool
 	encKey []byte
 	logger *zap.Logger
 }
 
-// NewWebhookStore creates a new PGWebhookStore.
-func NewWebhookStore(s *PGStore, encKey []byte, logger *zap.Logger) *PGWebhookStore {
-	return &PGWebhookStore{pool: s.pool, encKey: encKey, logger: logger}
+// NewWebhookStore creates a new WebhookStore.
+func NewWebhookStore(s *PGStore, encKey []byte, logger *zap.Logger) *WebhookStore {
+	return &WebhookStore{pool: s.pool, encKey: encKey, logger: logger}
 }
 
-var _ store.WebhookStorer = (*PGWebhookStore)(nil)
+var _ store.WebhookStorer = (*WebhookStore)(nil)
 
 // Create inserts a new webhook, encrypting URL and Secret before storage.
 // Returns the created webhook with generated ID and timestamps.
-func (ws *PGWebhookStore) Create(ctx context.Context, wh *store.Webhook) (*store.Webhook, error) {
+func (ws *WebhookStore) Create(ctx context.Context, wh *store.Webhook) (*store.Webhook, error) {
 	encURL, err := security.Encrypt(wh.URL, ws.encKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt webhook url: %w", err)
@@ -62,7 +62,7 @@ func (ws *PGWebhookStore) Create(ctx context.Context, wh *store.Webhook) (*store
 
 // GetByID retrieves a single webhook by its UUID, decrypting URL and Secret.
 // Returns store.ErrWebhookNotFound when no matching row exists.
-func (ws *PGWebhookStore) GetByID(ctx context.Context, webhookID string) (*store.Webhook, error) {
+func (ws *WebhookStore) GetByID(ctx context.Context, webhookID string) (*store.Webhook, error) {
 	var wh store.Webhook
 	var encURL string
 	var encSecret *string
@@ -98,7 +98,7 @@ func (ws *PGWebhookStore) GetByID(ctx context.Context, webhookID string) (*store
 
 // List returns all webhooks for the given project, ordered by created_at DESC.
 // URLs are decrypted; Secrets are not returned in list responses.
-func (ws *PGWebhookStore) List(ctx context.Context, projectID string) ([]store.Webhook, error) {
+func (ws *WebhookStore) List(ctx context.Context, projectID string) ([]store.Webhook, error) {
 	rows, err := ws.pool.Query(ctx, `
 		SELECT id, project_id, name, target_type, url, template, events, is_active, created_at, updated_at
 		FROM webhooks
@@ -139,7 +139,7 @@ func (ws *PGWebhookStore) List(ctx context.Context, projectID string) ([]store.W
 
 // Update updates a webhook's mutable fields. The URL and Secret are re-encrypted.
 // Returns store.ErrWebhookNotFound if no rows were affected.
-func (ws *PGWebhookStore) Update(ctx context.Context, wh *store.Webhook) error {
+func (ws *WebhookStore) Update(ctx context.Context, wh *store.Webhook) error {
 	encURL, err := security.Encrypt(wh.URL, ws.encKey)
 	if err != nil {
 		return fmt.Errorf("encrypt webhook url: %w", err)
@@ -179,7 +179,7 @@ func (ws *PGWebhookStore) Update(ctx context.Context, wh *store.Webhook) error {
 
 // Delete removes a webhook scoped to a project (IDOR prevention).
 // Returns store.ErrWebhookNotFound if no rows were affected.
-func (ws *PGWebhookStore) Delete(ctx context.Context, webhookID, projectID string) error {
+func (ws *WebhookStore) Delete(ctx context.Context, webhookID, projectID string) error {
 	tag, err := ws.pool.Exec(ctx,
 		"DELETE FROM webhooks WHERE id = $1 AND project_id = $2", webhookID, projectID)
 	if err != nil {
@@ -193,7 +193,7 @@ func (ws *PGWebhookStore) Delete(ctx context.Context, webhookID, projectID strin
 
 // ListActiveForEvent returns all active webhooks for a project that subscribe
 // to the given event. This is the hot-path query used by the delivery engine.
-func (ws *PGWebhookStore) ListActiveForEvent(ctx context.Context, projectID, event string) ([]store.Webhook, error) {
+func (ws *WebhookStore) ListActiveForEvent(ctx context.Context, projectID, event string) ([]store.Webhook, error) {
 	rows, err := ws.pool.Query(ctx, `
 		SELECT id, project_id, name, target_type, url, secret, template, events, is_active, created_at, updated_at
 		FROM webhooks
@@ -244,7 +244,7 @@ func (ws *PGWebhookStore) ListActiveForEvent(ctx context.Context, projectID, eve
 }
 
 // InsertDelivery records a single webhook delivery attempt.
-func (ws *PGWebhookStore) InsertDelivery(ctx context.Context, d *store.WebhookDelivery) error {
+func (ws *WebhookStore) InsertDelivery(ctx context.Context, d *store.WebhookDelivery) error {
 	err := ws.pool.QueryRow(ctx, `
 		INSERT INTO webhook_deliveries
 		    (webhook_id, build_id, event, payload, status_code, response_body, error, attempt, duration_ms, delivered_at)
@@ -262,7 +262,7 @@ func (ws *PGWebhookStore) InsertDelivery(ctx context.Context, d *store.WebhookDe
 
 // ListDeliveries returns a paginated list of delivery attempts for a webhook,
 // ordered by delivered_at DESC. Total count is returned alongside the page.
-func (ws *PGWebhookStore) ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]store.WebhookDelivery, int, error) {
+func (ws *WebhookStore) ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]store.WebhookDelivery, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -311,7 +311,7 @@ func (ws *PGWebhookStore) ListDeliveries(ctx context.Context, webhookID string, 
 
 // PruneDeliveries deletes delivery records older than the given cutoff time.
 // Returns the number of rows deleted.
-func (ws *PGWebhookStore) PruneDeliveries(ctx context.Context, olderThan time.Time) (int64, error) {
+func (ws *WebhookStore) PruneDeliveries(ctx context.Context, olderThan time.Time) (int64, error) {
 	tag, err := ws.pool.Exec(ctx,
 		"DELETE FROM webhook_deliveries WHERE delivered_at < $1", olderThan)
 	if err != nil {

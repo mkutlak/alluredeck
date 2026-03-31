@@ -80,7 +80,7 @@ func toWebhookResponse(wh store.Webhook) webhookResponse {
 		ID:         wh.ID,
 		ProjectID:  wh.ProjectID,
 		Name:       wh.Name,
-		TargetType: wh.TargetType,
+		TargetType: string(wh.TargetType),
 		URL:        maskURL(wh.URL),
 		HasSecret:  wh.Secret != nil && *wh.Secret != "",
 		Template:   wh.Template,
@@ -134,8 +134,9 @@ func validateWebhookURL(rawURL string) error {
 }
 
 // validTargetTypes is the allowed set of webhook target types.
-var validTargetTypes = map[string]bool{
-	"slack": true, "discord": true, "teams": true, "generic": true,
+var validTargetTypes = map[store.WebhookTargetType]bool{
+	store.WebhookTargetSlack: true, store.WebhookTargetDiscord: true,
+	store.WebhookTargetTeams: true, store.WebhookTargetGeneric: true,
 }
 
 // maxWebhooksPerProject is the maximum number of webhooks allowed per project.
@@ -213,7 +214,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "target_type is required")
 		return
 	}
-	if !validTargetTypes[req.TargetType] {
+	if !validTargetTypes[store.WebhookTargetType(req.TargetType)] {
 		writeError(w, http.StatusBadRequest, "target_type must be one of: slack, discord, teams, generic")
 		return
 	}
@@ -251,7 +252,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 	wh := store.Webhook{
 		ProjectID:  projectID,
 		Name:       req.Name,
-		TargetType: req.TargetType,
+		TargetType: store.WebhookTargetType(req.TargetType),
 		URL:        req.URL,
 		Secret:     req.Secret,
 		Template:   req.Template,
@@ -371,11 +372,11 @@ func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
 		wh.Name = name
 	}
 	if req.TargetType != nil {
-		if !validTargetTypes[*req.TargetType] {
+		if !validTargetTypes[store.WebhookTargetType(*req.TargetType)] {
 			writeError(w, http.StatusBadRequest, "target_type must be one of: slack, discord, teams, generic")
 			return
 		}
-		wh.TargetType = *req.TargetType
+		wh.TargetType = store.WebhookTargetType(*req.TargetType)
 	}
 	if req.URL != nil {
 		if err := validateWebhookURL(*req.URL); err != nil {
@@ -548,5 +549,5 @@ func (h *WebhookHandler) ListDeliveries(w http.ResponseWriter, r *http.Request) 
 		deliveries = []store.WebhookDelivery{}
 	}
 
-	writePagedSuccess(w, http.StatusOK, deliveries, "Deliveries successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
+	writePagedSuccess(w, deliveries, "Deliveries successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }

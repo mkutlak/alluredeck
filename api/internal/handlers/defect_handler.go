@@ -26,22 +26,15 @@ func NewDefectHandler(defectStore store.DefectStorer, projectsDir string, logger
 // parseDefectFilter extracts a DefectFilter from query parameters.
 func (h *DefectHandler) parseDefectFilter(r *http.Request) store.DefectFilter {
 	q := r.URL.Query()
-	page, _ := strconv.Atoi(q.Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	perPage, _ := strconv.Atoi(q.Get("per_page"))
-	if perPage < 1 || perPage > 100 {
-		perPage = 20
-	}
+	pg := parsePagination(r)
 	return store.DefectFilter{
 		Resolution: q.Get("resolution"),
 		Category:   q.Get("category"),
 		Search:     q.Get("search"),
 		SortBy:     q.Get("sort_by"),
 		Order:      q.Get("order"),
-		Page:       page,
-		PerPage:    perPage,
+		Page:       pg.Page,
+		PerPage:    pg.PerPage,
 	}
 }
 
@@ -88,7 +81,7 @@ func (h *DefectHandler) ListProjectDefects(w http.ResponseWriter, r *http.Reques
 		rows = []store.DefectListRow{}
 	}
 
-	writePagedSuccess(w, http.StatusOK, rows, "Defects successfully obtained", newPaginationMeta(filter.Page, filter.PerPage, total))
+	writePagedSuccess(w, rows, "Defects successfully obtained", newPaginationMeta(filter.Page, filter.PerPage, total))
 }
 
 // ListBuildDefects handles GET /projects/{project_id}/builds/{build_id}/defects
@@ -117,7 +110,7 @@ func (h *DefectHandler) ListBuildDefects(w http.ResponseWriter, r *http.Request)
 		rows = []store.DefectListRow{}
 	}
 
-	writePagedSuccess(w, http.StatusOK, rows, "Defects successfully obtained", newPaginationMeta(filter.Page, filter.PerPage, total))
+	writePagedSuccess(w, rows, "Defects successfully obtained", newPaginationMeta(filter.Page, filter.PerPage, total))
 }
 
 // GetDefect handles GET /projects/{project_id}/defects/{defect_id}
@@ -174,7 +167,7 @@ func (h *DefectHandler) GetDefectTests(w http.ResponseWriter, r *http.Request) {
 		results = []store.TestResult{}
 	}
 
-	writePagedSuccess(w, http.StatusOK, results, "Defect tests successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
+	writePagedSuccess(w, results, "Defect tests successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
 
 // UpdateDefect handles PATCH /projects/{project_id}/defects/{defect_id}

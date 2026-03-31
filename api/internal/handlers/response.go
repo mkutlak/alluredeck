@@ -20,8 +20,8 @@ func writeSuccess(w http.ResponseWriter, status int, data any, msg string) {
 // writePagedSuccess writes a typed paginated JSON response:
 //
 //	{"data": ..., "metadata": {"message": "..."}, "pagination": {...}}
-func writePagedSuccess(w http.ResponseWriter, status int, data any, msg string, pg PaginationMeta) {
-	writeJSON(w, status, map[string]any{
+func writePagedSuccess(w http.ResponseWriter, data any, msg string, pg PaginationMeta) {
+	writeJSON(w, http.StatusOK, map[string]any{
 		"data":       data,
 		"metadata":   ResponseMeta{Message: msg},
 		"pagination": pg,

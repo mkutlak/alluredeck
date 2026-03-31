@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Paperclip, ChevronDown, ChevronRight } from 'lucide-react'
 import { fetchAttachments } from '@/api/attachments'
@@ -16,12 +16,14 @@ import {
 } from '@/components/ui/select'
 import { AttachmentCard } from './AttachmentCard'
 import { AttachmentLightbox } from './AttachmentLightbox'
+import { isPlaywrightTrace } from '@/features/trace/utils'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
 
 const MIME_FILTERS = [
   { label: 'All', value: '' },
   { label: 'Images', value: 'image' },
   { label: 'Logs', value: 'text' },
+  { label: 'Traces', value: 'trace' },
   { label: 'Other', value: 'other' },
 ] as const
 
@@ -39,13 +41,20 @@ function filterAttachments(attachments: AttachmentEntry[], mimeFilter: MimeFilte
   if (mimeFilter === '') return attachments
   if (mimeFilter === 'image') return attachments.filter((a) => a.mime_type.startsWith('image/'))
   if (mimeFilter === 'text') return attachments.filter((a) => a.mime_type.startsWith('text/'))
+  if (mimeFilter === 'trace') return attachments.filter((a) => isPlaywrightTrace(a.name, a.mime_type))
   if (mimeFilter === 'other')
-    return attachments.filter((a) => !a.mime_type.startsWith('image/') && !a.mime_type.startsWith('text/'))
+    return attachments.filter(
+      (a) =>
+        !a.mime_type.startsWith('image/') &&
+        !a.mime_type.startsWith('text/') &&
+        !isPlaywrightTrace(a.name, a.mime_type),
+    )
   return attachments
 }
 
 export function AttachmentsTab() {
   const { id: projectId } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [selectedAttachment, setSelectedAttachment] = useState<AttachmentEntry | null>(null)
   const [mimeFilter, setMimeFilter] = useState<MimeFilter>('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -193,7 +202,15 @@ export function AttachmentsTab() {
                         <AttachmentCard
                           key={attachment.id}
                           attachment={attachment}
-                          onClick={() => setSelectedAttachment(attachment)}
+                          onClick={() => {
+                            if (isPlaywrightTrace(attachment.name, attachment.mime_type)) {
+                              void navigate(
+                                `/projects/${encodeURIComponent(projectId)}/trace/${encodeURIComponent(attachment.source)}?reportId=${encodeURIComponent(selectedReport)}`,
+                              )
+                              return
+                            }
+                            setSelectedAttachment(attachment)
+                          }}
                         />
                       ))}
                     </div>

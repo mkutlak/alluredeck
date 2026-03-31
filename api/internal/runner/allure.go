@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	parser "github.com/mkutlak/alluredeck/api/internal/parser"
+	"github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -68,17 +68,29 @@ type Allure struct {
 	logger          *zap.Logger
 }
 
+// AllureDeps holds the dependencies for creating an Allure runner.
+type AllureDeps struct {
+	Config          *config.Config
+	Store           storage.Store
+	BuildStore      store.BuildStorer
+	Locker          store.Locker
+	TestResultStore store.TestResultStorer
+	BranchStore     store.BranchStorer
+	DefectStore     store.DefectStorer
+	Logger          *zap.Logger
+}
+
 // NewAllure creates a new Allure runner
-func NewAllure(cfg *config.Config, dataStore storage.Store, buildStore store.BuildStorer, locker store.Locker, testResultStore store.TestResultStorer, branchStore store.BranchStorer, defectStore store.DefectStorer, logger *zap.Logger) *Allure {
+func NewAllure(deps AllureDeps) *Allure {
 	return &Allure{
-		cfg:             cfg,
-		store:           dataStore,
-		buildStore:      buildStore,
-		lockManager:     locker,
-		testResultStore: testResultStore,
-		branchStore:     branchStore,
-		defectStore:     defectStore,
-		logger:          logger,
+		cfg:             deps.Config,
+		store:           deps.Store,
+		buildStore:      deps.BuildStore,
+		lockManager:     deps.Locker,
+		testResultStore: deps.TestResultStore,
+		branchStore:     deps.BranchStore,
+		defectStore:     deps.DefectStore,
+		logger:          deps.Logger,
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,132 +27,106 @@ import (
 	swaggerDocs "github.com/mkutlak/alluredeck/api/internal/swagger"
 )
 
+// stores groups all database store instances.
+type stores struct {
+	project    store.ProjectStorer
+	build      store.BuildStorer
+	blacklist  store.BlacklistStorer
+	testResult store.TestResultStorer
+	branch     store.BranchStorer
+	knownIssue store.KnownIssueStorer
+	search     store.SearchStorer
+	analytics  store.AnalyticsStorer
+	apiKey     store.APIKeyStorer
+	attachment store.AttachmentStorer
+	user       store.UserStorer
+	defect     store.DefectStorer
+	webhook    store.WebhookStorer
+}
+
+// handlerSet groups all HTTP handler instances.
+type handlerSet struct {
+	system          *handlers.SystemHandler
+	auth            *handlers.AuthHandler
+	report          *handlers.ReportHandler
+	project         *handlers.ProjectHandler
+	resultUpload    *handlers.ResultUploadHandler
+	admin           *handlers.AdminHandler
+	branch          *handlers.BranchHandler
+	testHistory     *handlers.TestHistoryHandler
+	analytics       *handlers.AnalyticsHandler
+	search          *handlers.SearchHandler
+	compare         *handlers.CompareHandler
+	dashboard       *handlers.DashboardHandler
+	lowPerf         *handlers.LowPerformingHandler
+	projectTimeline *handlers.ProjectTimelineHandler
+	knownIssue      *handlers.KnownIssueHandler
+	attachment      *handlers.AttachmentHandler
+	apiKey          *handlers.APIKeyHandler
+	parent          *handlers.ProjectParentHandler
+	defect          *handlers.DefectHandler
+	webhook         *handlers.WebhookHandler
+	oidc            *handlers.OIDCHandler // may be nil
+}
+
+// routeDeps bundles all dependencies needed by registerRoutes.
+type routeDeps struct {
+	mux          *http.ServeMux
+	prefix       string
+	cfg          *config.Config
+	jwtManager   *security.JWTManager
+	loginLimiter *middleware.IPRateLimiter
+	apiKeyStore  store.APIKeyStorer
+	h            handlerSet
+}
+
 // @title           AllureDeck API
 // @version         2.0.0
 // @description     API for managing Allure test reports.
 // @host            localhost:8080
 // @BasePath        /api/v1
 func main() {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		// Logger is not yet initialised; write to stderr and exit.
-		fmt.Fprintf(os.Stderr, "FATAL: configuration error: %v\n", err)
-		os.Exit(1)
-	}
-
-	logger := logging.Setup(cfg.DevMode, cfg.LogLevel)
+	cfg, encKey, logger := mustLoadConfig()
 	defer func() { _ = logger.Sync() }()
-
-	// Fail fast if security is enabled with an insecure default secret (AUDIT 1.3).
-	if err := cfg.Validate(); err != nil {
-		logger.Fatal("configuration error", zap.Error(err))
-	}
-
-	// Bcrypt-hash plaintext passwords and zero out the originals (C3 fix).
-	if cfg.SecurityEnabled {
-		if err := cfg.HashPasswords(); err != nil {
-			logger.Fatal("failed to hash passwords", zap.Error(err))
-		}
-	}
-
-	encKey := security.DeriveEncryptionKey(cfg.JWTSecret)
-
-	// Declare metadata store interfaces — populated below by the PostgreSQL backend.
-	var (
-		projectStore    store.ProjectStorer
-		buildStore      store.BuildStorer
-		blacklistStore  store.BlacklistStorer
-		testResultStore store.TestResultStorer
-		branchStore     store.BranchStorer
-		knownIssueStore store.KnownIssueStorer
-		searchStore     store.SearchStorer
-		analyticsStore  store.AnalyticsStorer
-		apiKeyStore     store.APIKeyStorer
-	)
 
 	dataStore, err := createDataStore(cfg, logger)
 	if err != nil {
 		logger.Fatal("failed to initialize storage", zap.Error(err))
 	}
 
-	initCtx := context.Background()
-
-	pgDB, err := pg.Open(initCtx, cfg)
-	if err != nil {
-		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
-	}
+	s, sqlDB, locker, pgDB := mustInitStores(cfg, dataStore, encKey, logger)
 	defer func() { _ = pgDB.Close() }()
 
-	pgProj := pg.NewProjectStore(pgDB, logger)
-	pgBuild := pg.NewBuildStore(pgDB, logger)
-	projectStore = pgProj
-	buildStore = pgBuild
-	blacklistStore = pg.NewBlacklistStore(pgDB)
-	testResultStore = pg.NewTestResultStore(pgDB, logger)
-	branchStore = pg.NewBranchStore(pgDB)
-	knownIssueStore = pg.NewKnownIssueStore(pgDB)
-	searchStore = pg.NewSearchStore(pgDB, logger)
-	analyticsStore = pg.NewAnalyticsStore(pgDB)
-	apiKeyStore = pg.NewAPIKeyStore(pgDB)
-	attachmentStore := pg.NewAttachmentStore(pgDB)
-	userStore := pg.NewUserStore(pgDB)
-	sqlDB := pgDB.DB()
-	var locker store.Locker = pgDB
+	allureCore := runner.NewAllure(runner.AllureDeps{
+		Config:          cfg,
+		Store:           dataStore,
+		BuildStore:      s.build,
+		Locker:          locker,
+		TestResultStore: s.testResult,
+		BranchStore:     s.branch,
+		DefectStore:     s.defect,
+		Logger:          logger,
+	})
 
-	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
-		logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
-	}
-
-	jwtManager := security.NewJWTManager(cfg, blacklistStore, logger)
-	systemHandler := handlers.NewSystemHandler(cfg, sqlDB)
-	authHandler := handlers.NewAuthHandler(cfg, jwtManager)
-	defectStore := pg.NewDefectStore(pgDB)
-	webhookStore := pg.NewWebhookStore(pgDB, encKey, logger)
-	allureCore := runner.NewAllure(cfg, dataStore, buildStore, locker, testResultStore, branchStore, defectStore, logger)
-
-	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, webhookStore, buildStore, encKey, cfg.ExternalURL, 2, logger)
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, s.webhook, s.build, encKey, cfg.ExternalURL, 2, logger)
 	if err != nil {
 		logger.Fatal("failed to create River job manager", zap.Error(err))
 	}
 	var jobManager runner.JobQueuer = rjm
 
-	apiReportHandler := handlers.NewReportHandler(jobManager, allureCore, buildStore, branchStore, testResultStore, knownIssueStore, dataStore, cfg, logger)
-	projectHandler := handlers.NewProjectHandler(projectStore, allureCore, dataStore, cfg, logger)
-	resultUploadHandler := handlers.NewResultUploadHandler(dataStore, projectStore, allureCore, cfg, logger)
-	adminHandler := handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger)
-	branchHandler := handlers.NewBranchHandler(branchStore, buildStore, cfg.ProjectsPath)
-	testHistoryHandler := handlers.NewTestHistoryHandler(testResultStore, buildStore, branchStore, cfg.ProjectsPath)
-	analyticsHandler := handlers.NewAnalyticsHandler(analyticsStore, branchStore, cfg.ProjectsPath, logger)
-	searchHandler := handlers.NewSearchHandler(searchStore, cfg.ProjectsPath)
-	compareHandler := handlers.NewCompareHandler(testResultStore, cfg.ProjectsPath)
-	dashboardHandler := handlers.NewDashboardHandler(buildStore, logger)
-	lowPerfHandler := handlers.NewLowPerformingHandler(testResultStore, branchStore, cfg.ProjectsPath, logger)
-	projectTimelineHandler := handlers.NewProjectTimelineHandler(buildStore, testResultStore, branchStore, cfg.ProjectsPath)
-	knownIssueHandler := handlers.NewKnownIssueHandler(knownIssueStore, dataStore, cfg.ProjectsPath, logger)
-	attachmentHandler := handlers.NewAttachmentHandler(attachmentStore, buildStore, dataStore, cfg.ProjectsPath, logger)
-	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyStore)
-	parentHandler := handlers.NewProjectParentHandler(projectStore, buildStore, cfg.ProjectsPath, logger)
+	jwtManager := security.NewJWTManager(cfg, s.blacklist, logger)
 
-	// Conditionally construct OIDC provider and handler (Stage 2 SSO).
-	var oidcHandler *handlers.OIDCHandler
-	if cfg.OIDC.Enabled {
-		oidcProv, oidcErr := security.NewOIDCProvider(initCtx, &cfg.OIDC, logger)
-		if oidcErr != nil {
-			logger.Fatal("OIDC discovery failed", zap.Error(oidcErr))
-		}
-		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, userStore, logger)
-		logger.Info("OIDC SSO enabled", zap.String("issuer", cfg.OIDC.IssuerURL))
-	}
+	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, logger)
 
-	backgroundWatcher := runner.NewWatcher(cfg, allureCore, projectStore, dataStore, logger)
+	backgroundWatcher := runner.NewWatcher(cfg, allureCore, s.project, dataStore, logger)
 
 	mux := http.NewServeMux()
 
 	// Infrastructure endpoints (outside /api/v1)
-	mux.HandleFunc("GET /health", systemHandler.Health)
-	mux.HandleFunc("GET /healthz", systemHandler.Health)
-	mux.HandleFunc("GET /ready", systemHandler.Ready)
-	mux.HandleFunc("GET /readyz", systemHandler.Ready)
+	mux.HandleFunc("GET /health", h.system.Health)
+	mux.HandleFunc("GET /healthz", h.system.Health)
+	mux.HandleFunc("GET /ready", h.system.Ready)
+	mux.HandleFunc("GET /readyz", h.system.Ready)
 
 	// Override Swagger host: empty string = use browser's current host (works for all environments).
 	swaggerDocs.SwaggerInfo.Host = cfg.SwaggerHost
@@ -163,6 +138,9 @@ func main() {
 			httpSwagger.URL("/swagger/doc.json"),
 		))
 	}
+
+	// Playwright trace viewer — serves embedded static files; no auth required.
+	mux.Handle("/trace/", traceViewerHandler)
 
 	// Overlay file server — serves generated Allure HTML reports.
 	// Numbered build dirs contain only variable content (data/, widgets/, history/).
@@ -198,9 +176,15 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
-	defectHandler := handlers.NewDefectHandler(defectStore, cfg.ProjectsPath, logger)
-	webhookHandler := handlers.NewWebhookHandler(webhookStore, cfg.ProjectsPath, logger)
-	registerRoutes(mux, "/api/v1", cfg, jwtManager, loginLimiter, systemHandler, authHandler, apiReportHandler, projectHandler, resultUploadHandler, adminHandler, branchHandler, testHistoryHandler, analyticsHandler, attachmentHandler, apiKeyHandler, apiKeyStore, oidcHandler, parentHandler, defectHandler, webhookHandler, searchHandler, compareHandler, dashboardHandler, lowPerfHandler, projectTimelineHandler, knownIssueHandler)
+	registerRoutes(routeDeps{
+		mux:          mux,
+		prefix:       "/api/v1",
+		cfg:          cfg,
+		jwtManager:   jwtManager,
+		loginLimiter: loginLimiter,
+		apiKeyStore:  s.apiKey,
+		h:            h,
+	})
 
 	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
 	handler := middleware.Recovery(
@@ -233,7 +217,7 @@ func main() {
 	// Start JWT blacklist cleanup goroutine — prunes expired JTIs every 15 min (AUDIT 2.1).
 	jwtManager.StartCleanup(ctx, 15*time.Minute)
 
-	startRetentionScheduler(ctx, cfg, projectStore, buildStore, dataStore, webhookStore, logger)
+	startRetentionScheduler(ctx, cfg, s.project, s.build, dataStore, s.webhook, logger)
 
 	if cfg.StorageType != "s3" {
 		backgroundWatcher.Start()
@@ -249,6 +233,134 @@ func main() {
 	}()
 
 	awaitShutdown(ctx, srv, backgroundWatcher, jobManager, cfg, limiterDone, logger)
+}
+
+// mustLoadConfig loads and validates configuration, sets up the logger,
+// hashes passwords (if security is enabled), and derives the encryption key.
+// It terminates the process on any fatal configuration error.
+func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		// Logger is not yet initialised; write to stderr and exit.
+		fmt.Fprintf(os.Stderr, "FATAL: configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	logger := logging.Setup(cfg.DevMode, cfg.LogLevel)
+
+	// Fail fast if security is enabled with an insecure default secret (AUDIT 1.3).
+	if err := cfg.Validate(); err != nil {
+		logger.Fatal("configuration error", zap.Error(err))
+	}
+
+	// Bcrypt-hash plaintext passwords and zero out the originals (C3 fix).
+	if cfg.SecurityEnabled {
+		if err := cfg.HashPasswords(); err != nil {
+			logger.Fatal("failed to hash passwords", zap.Error(err))
+		}
+	}
+
+	encKey := security.DeriveEncryptionKey(cfg.JWTSecret)
+	return cfg, encKey, logger
+}
+
+// mustInitStores opens the PostgreSQL database connection and initialises all
+// store instances. encKey is required for the webhook store. Returns the
+// populated stores struct, the *sql.DB handle needed by SystemHandler, the
+// Locker interface, and the raw *pg.PGStore so the caller can pass its pool
+// to the job manager and register a deferred close.
+func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
+	initCtx := context.Background()
+
+	pgDB, err := pg.Open(initCtx, cfg)
+	if err != nil {
+		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
+	}
+
+	pgProj := pg.NewProjectStore(pgDB, logger)
+	pgBuild := pg.NewBuildStore(pgDB, logger)
+
+	s := stores{
+		project:    pgProj,
+		build:      pgBuild,
+		blacklist:  pg.NewBlacklistStore(pgDB),
+		testResult: pg.NewTestResultStore(pgDB, logger),
+		branch:     pg.NewBranchStore(pgDB),
+		knownIssue: pg.NewKnownIssueStore(pgDB),
+		search:     pg.NewSearchStore(pgDB, logger),
+		analytics:  pg.NewAnalyticsStore(pgDB),
+		apiKey:     pg.NewAPIKeyStore(pgDB),
+		attachment: pg.NewAttachmentStore(pgDB),
+		user:       pg.NewUserStore(pgDB),
+		defect:     pg.NewDefectStore(pgDB),
+		webhook:    pg.NewWebhookStore(pgDB, encKey, logger),
+	}
+
+	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
+		logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
+	}
+
+	sqlDB := pgDB.DB()
+	var locker store.Locker = pgDB
+	return s, sqlDB, locker, pgDB
+}
+
+// wireHandlers constructs every HTTP handler and returns them in a handlerSet.
+// The conditional OIDC handler is nil when OIDC is not enabled.
+func wireHandlers(
+	cfg *config.Config,
+	s stores,
+	sqlDB *sql.DB,
+	dataStore storage.Store,
+	allureCore *runner.Allure,
+	jobManager runner.JobQueuer,
+	jwtManager *security.JWTManager,
+	logger *zap.Logger,
+) handlerSet {
+	var oidcHandler *handlers.OIDCHandler
+	if cfg.OIDC.Enabled {
+		initCtx := context.Background()
+		oidcProv, oidcErr := security.NewOIDCProvider(initCtx, &cfg.OIDC, logger)
+		if oidcErr != nil {
+			logger.Fatal("OIDC discovery failed", zap.Error(oidcErr))
+		}
+		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, s.user, logger)
+		logger.Info("OIDC SSO enabled", zap.String("issuer", cfg.OIDC.IssuerURL))
+	}
+
+	return handlerSet{
+		system: handlers.NewSystemHandler(cfg, sqlDB),
+		auth:   handlers.NewAuthHandler(cfg, jwtManager),
+		report: handlers.NewReportHandler(handlers.ReportHandlerDeps{
+			JobManager:      jobManager,
+			Runner:          allureCore,
+			BuildStore:      s.build,
+			BranchStore:     s.branch,
+			TestResultStore: s.testResult,
+			KnownIssueStore: s.knownIssue,
+			Store:           dataStore,
+			Config:          cfg,
+			Logger:          logger,
+		}),
+		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
+		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, allureCore, cfg, logger),
+		admin:           handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger),
+		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),
+		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, cfg.ProjectsPath),
+		analytics:       handlers.NewAnalyticsHandler(s.analytics, s.branch, cfg.ProjectsPath, logger),
+		search:          handlers.NewSearchHandler(s.search, cfg.ProjectsPath),
+		compare:         handlers.NewCompareHandler(s.testResult, cfg.ProjectsPath),
+		dashboard:       handlers.NewDashboardHandler(s.build, logger),
+		lowPerf:         handlers.NewLowPerformingHandler(s.testResult, s.branch, cfg.ProjectsPath, logger),
+		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, cfg.ProjectsPath),
+		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, dataStore, cfg.ProjectsPath, logger),
+		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, dataStore, cfg.ProjectsPath, logger),
+		apiKey:          handlers.NewAPIKeyHandler(s.apiKey),
+		parent:          handlers.NewProjectParentHandler(s.project, s.build, cfg.ProjectsPath, logger),
+		defect:          handlers.NewDefectHandler(s.defect, cfg.ProjectsPath, logger),
+		webhook:         handlers.NewWebhookHandler(s.webhook, cfg.ProjectsPath, logger),
+		oidc:            oidcHandler,
+	}
 }
 
 // awaitShutdown waits for the context to be cancelled then drains the HTTP
@@ -353,39 +465,11 @@ func createDataStore(cfg *config.Config, logger *zap.Logger) (storage.Store, err
 }
 
 // registerRoutes mounts all API routes under the given URL prefix.
-func registerRoutes(
-	mux *http.ServeMux,
-	prefix string,
-	cfg *config.Config,
-	jwtManager *security.JWTManager,
-	loginLimiter *middleware.IPRateLimiter,
-	system *handlers.SystemHandler,
-	authHandler *handlers.AuthHandler,
-	report *handlers.ReportHandler,
-	projectHandler *handlers.ProjectHandler,
-	resultUploadHandler *handlers.ResultUploadHandler,
-	admin *handlers.AdminHandler,
-	branchHandler *handlers.BranchHandler,
-	testHistoryHandler *handlers.TestHistoryHandler,
-	analyticsHandler *handlers.AnalyticsHandler,
-	attachmentHandler *handlers.AttachmentHandler,
-	apiKeyHandler *handlers.APIKeyHandler,
-	apiKeyStore store.APIKeyStorer,
-	oidcHandler *handlers.OIDCHandler,
-	parentHandler *handlers.ProjectParentHandler,
-	defectHandler *handlers.DefectHandler,
-	webhookHandler *handlers.WebhookHandler,
-	searchHandler *handlers.SearchHandler,
-	compareHandler *handlers.CompareHandler,
-	dashboardHandler *handlers.DashboardHandler,
-	lowPerfHandler *handlers.LowPerformingHandler,
-	projectTimelineHandler *handlers.ProjectTimelineHandler,
-	knownIssueHandler *handlers.KnownIssueHandler,
-) {
+func registerRoutes(d routeDeps) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
-		return middleware.AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(h)
+		return middleware.AuthMiddleware(d.cfg, d.jwtManager, false, d.apiKeyStore)(h)
 	}
-	rateLimit := middleware.RateLimitMiddleware(loginLimiter)
+	rateLimit := middleware.RateLimitMiddleware(d.loginLimiter)
 
 	// RBAC wrappers (REVIEW #9): auth + role enforcement.
 	adminOnly := func(h http.HandlerFunc) http.HandlerFunc {
@@ -396,7 +480,7 @@ func registerRoutes(
 	}
 	// viewerUp: when MakeViewerEndpointsPublic is true, these endpoints are public (no auth).
 	viewerUp := func(h http.HandlerFunc) http.HandlerFunc {
-		if cfg.MakeViewerEndpointsPublic {
+		if d.cfg.MakeViewerEndpointsPublic {
 			return h
 		}
 		return auth(middleware.RequireRole("viewer")(h))
@@ -408,126 +492,129 @@ func registerRoutes(
 	shortCache := middleware.CacheControl(middleware.CacheShortLived)
 	reportCache := middleware.ReportCache
 
+	prefix := d.prefix
+	mux := d.mux
+
 	// Public endpoints — no-store for config/version, rate-limited login.
-	mux.HandleFunc("GET "+prefix+"/version", noStore(system.Version))
-	mux.HandleFunc("GET "+prefix+"/config", noStore(system.ConfigEndpoint))
-	mux.HandleFunc("POST "+prefix+"/login", noStore(rateLimit(authHandler.Login)))
+	mux.HandleFunc("GET "+prefix+"/version", noStore(d.h.system.Version))
+	mux.HandleFunc("GET "+prefix+"/config", noStore(d.h.system.ConfigEndpoint))
+	mux.HandleFunc("POST "+prefix+"/login", noStore(rateLimit(d.h.auth.Login)))
 
 	// Auth only (no specific role required)
-	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(authHandler.Logout)))
+	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(d.h.auth.Logout)))
 
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
-	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(searchHandler.Search)))
-	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(projectHandler.GetProjects)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(report.GetReportHistory)))
+	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(d.h.search.Search)))
+	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(d.h.project.GetProjects)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(d.h.report.GetReportHistory)))
 
 	// Admin write endpoints — no-store.
-	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(projectHandler.CreateProject)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(projectHandler.DeleteProject)))
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(projectHandler.RenameProject)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(report.GenerateReport)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(report.GetJobStatus)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(report.CleanHistory)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(resultUploadHandler.CleanResults)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(resultUploadHandler.SendResults)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(report.DeleteReport)))
+	mux.HandleFunc("POST "+prefix+"/projects", adminOnly(noStore(d.h.project.CreateProject)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}", adminOnly(noStore(d.h.project.DeleteProject)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(d.h.project.RenameProject)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(d.h.report.GenerateReport)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(d.h.report.GetJobStatus)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(d.h.report.CleanHistory)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(d.h.resultUpload.CleanResults)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(d.h.resultUpload.SendResults)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(d.h.report.DeleteReport)))
 
 	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(projectTimelineHandler.GetProjectTimeline))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(d.h.projectTimeline.GetProjectTimeline))
 
 	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(report.GetReportCategories)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(report.GetReportEnvironment)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(knownIssueHandler.GetReportKnownFailures)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(report.GetReportTimeline)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(report.GetReportStability)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(report.GetReportSummary)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(d.h.report.GetReportCategories)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(d.h.report.GetReportEnvironment)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(d.h.knownIssue.GetReportKnownFailures)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(d.h.report.GetReportTimeline)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(d.h.report.GetReportStability)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(d.h.report.GetReportSummary)))
 
 	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(knownIssueHandler.ListKnownIssues)))
-	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", editorUp(noStore(knownIssueHandler.CreateKnownIssue)))
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(knownIssueHandler.UpdateKnownIssue)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(knownIssueHandler.DeleteKnownIssue)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(d.h.knownIssue.ListKnownIssues)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/known-issues", editorUp(noStore(d.h.knownIssue.CreateKnownIssue)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(d.h.knownIssue.UpdateKnownIssue)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/known-issues/{issue_id}", editorUp(noStore(d.h.knownIssue.DeleteKnownIssue)))
 
 	// Analytics — short-lived cache.
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(lowPerfHandler.GetLowPerformingTests)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/low-performing", viewerUp(shortCache(d.h.lowPerf.GetLowPerformingTests)))
 
 	// Compare — short-lived cache.
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(compareHandler.CompareBuilds)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(d.h.compare.CompareBuilds)))
 
 	// Dashboard — no-store (TanStack Query manages client-side freshness).
-	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(noStore(dashboardHandler.GetDashboard)))
+	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(noStore(d.h.dashboard.GetDashboard)))
 
 	// Project parent-child — admin write, viewer read.
-	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(parentHandler.SetParent)))
-	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(parentHandler.ClearParent)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/children", viewerUp(mutableCache(parentHandler.ListChildren)))
+	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(d.h.parent.SetParent)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(d.h.parent.ClearParent)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/children", viewerUp(mutableCache(d.h.parent.ListChildren)))
 
 	// Admin system monitor endpoints.
-	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(admin.ListJobs)))
-	mux.HandleFunc("GET "+prefix+"/admin/results", adminOnly(noStore(admin.ListPendingResults)))
-	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(admin.CancelJob)))
-	mux.HandleFunc("DELETE "+prefix+"/admin/jobs/{job_id}", adminOnly(noStore(admin.DeleteJob)))
-	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(admin.CleanProjectResults)))
+	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(d.h.admin.ListJobs)))
+	mux.HandleFunc("GET "+prefix+"/admin/results", adminOnly(noStore(d.h.admin.ListPendingResults)))
+	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(d.h.admin.CancelJob)))
+	mux.HandleFunc("DELETE "+prefix+"/admin/jobs/{job_id}", adminOnly(noStore(d.h.admin.DeleteJob)))
+	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(d.h.admin.CleanProjectResults)))
 
 	// Branch management endpoints.
-	if branchHandler != nil {
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/branches", viewerUp(mutableCache(branchHandler.ListBranches)))
-		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/branches/{branch_id}/default", editorUp(noStore(branchHandler.SetDefaultBranch)))
-		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/branches/{branch_id}", adminOnly(noStore(branchHandler.DeleteBranch)))
+	if d.h.branch != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/branches", viewerUp(mutableCache(d.h.branch.ListBranches)))
+		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/branches/{branch_id}/default", editorUp(noStore(d.h.branch.SetDefaultBranch)))
+		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/branches/{branch_id}", adminOnly(noStore(d.h.branch.DeleteBranch)))
 	}
 
 	// Per-test history endpoint.
-	if testHistoryHandler != nil {
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/tests/history", viewerUp(shortCache(testHistoryHandler.GetTestHistory)))
+	if d.h.testHistory != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/tests/history", viewerUp(shortCache(d.h.testHistory.GetTestHistory)))
 	}
 
 	// Expanded analytics endpoints (PostgreSQL-backed analytics).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/errors", viewerUp(shortCache(analyticsHandler.GetTopErrors)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(analyticsHandler.GetSuitePassRates)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(analyticsHandler.GetLabelBreakdown)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/trends", viewerUp(shortCache(analyticsHandler.GetTrends)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/errors", viewerUp(shortCache(d.h.analytics.GetTopErrors)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(d.h.analytics.GetSuitePassRates)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(d.h.analytics.GetLabelBreakdown)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/trends", viewerUp(shortCache(d.h.analytics.GetTrends)))
 
 	// Attachment viewer endpoints.
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(attachmentHandler.ListAttachments)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments/{source}", viewerUp(reportCache(attachmentHandler.ServeAttachment)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(d.h.attachment.ListAttachments)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments/{source}", viewerUp(reportCache(d.h.attachment.ServeAttachment)))
 
 	// API Keys (any authenticated user).
-	if apiKeyHandler != nil {
-		mux.HandleFunc("GET "+prefix+"/api-keys", auth(noStore(apiKeyHandler.List)))
-		mux.HandleFunc("POST "+prefix+"/api-keys", auth(noStore(apiKeyHandler.Create)))
-		mux.HandleFunc("DELETE "+prefix+"/api-keys/{id}", auth(noStore(apiKeyHandler.Delete)))
+	if d.h.apiKey != nil {
+		mux.HandleFunc("GET "+prefix+"/api-keys", auth(noStore(d.h.apiKey.List)))
+		mux.HandleFunc("POST "+prefix+"/api-keys", auth(noStore(d.h.apiKey.Create)))
+		mux.HandleFunc("DELETE "+prefix+"/api-keys/{id}", auth(noStore(d.h.apiKey.Delete)))
 	}
 
 	// Session endpoint (auth-required).
-	mux.HandleFunc("GET "+prefix+"/auth/session", auth(noStore(authHandler.Session)))
+	mux.HandleFunc("GET "+prefix+"/auth/session", auth(noStore(d.h.auth.Session)))
 
 	// OIDC SSO routes (public, rate-limited).
-	if oidcHandler != nil {
-		mux.HandleFunc("GET "+prefix+"/auth/oidc/login", noStore(rateLimit(oidcHandler.Login)))
-		mux.HandleFunc("GET "+prefix+"/auth/oidc/callback", noStore(rateLimit(oidcHandler.Callback)))
+	if d.h.oidc != nil {
+		mux.HandleFunc("GET "+prefix+"/auth/oidc/login", noStore(rateLimit(d.h.oidc.Login)))
+		mux.HandleFunc("GET "+prefix+"/auth/oidc/callback", noStore(rateLimit(d.h.oidc.Callback)))
 	}
 
 	// Defect fingerprint endpoints.
-	if defectHandler != nil {
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects", viewerUp(noStore(defectHandler.ListProjectDefects)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/summary", viewerUp(mutableCache(defectHandler.GetProjectDefectSummary)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/{defect_id}", viewerUp(noStore(defectHandler.GetDefect)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/{defect_id}/tests", viewerUp(noStore(defectHandler.GetDefectTests)))
-		mux.HandleFunc("PATCH "+prefix+"/projects/{project_id}/defects/{defect_id}", editorUp(noStore(defectHandler.UpdateDefect)))
-		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/defects/bulk", editorUp(noStore(defectHandler.BulkUpdateDefects)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects", viewerUp(noStore(defectHandler.ListBuildDefects)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects/summary", viewerUp(mutableCache(defectHandler.GetBuildDefectSummary)))
+	if d.h.defect != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects", viewerUp(noStore(d.h.defect.ListProjectDefects)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/summary", viewerUp(mutableCache(d.h.defect.GetProjectDefectSummary)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/{defect_id}", viewerUp(noStore(d.h.defect.GetDefect)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/defects/{defect_id}/tests", viewerUp(noStore(d.h.defect.GetDefectTests)))
+		mux.HandleFunc("PATCH "+prefix+"/projects/{project_id}/defects/{defect_id}", editorUp(noStore(d.h.defect.UpdateDefect)))
+		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/defects/bulk", editorUp(noStore(d.h.defect.BulkUpdateDefects)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects", viewerUp(noStore(d.h.defect.ListBuildDefects)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects/summary", viewerUp(mutableCache(d.h.defect.GetBuildDefectSummary)))
 	}
 
 	// Webhook management endpoints.
-	if webhookHandler != nil {
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks", editorUp(noStore(webhookHandler.List)))
-		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/webhooks", editorUp(noStore(webhookHandler.Create)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(webhookHandler.Get)))
-		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(webhookHandler.Update)))
-		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(webhookHandler.Delete)))
-		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/webhooks/{webhook_id}/test", editorUp(noStore(webhookHandler.Test)))
-		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks/{webhook_id}/deliveries", editorUp(noStore(webhookHandler.ListDeliveries)))
+	if d.h.webhook != nil {
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks", editorUp(noStore(d.h.webhook.List)))
+		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/webhooks", editorUp(noStore(d.h.webhook.Create)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(d.h.webhook.Get)))
+		mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(d.h.webhook.Update)))
+		mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/webhooks/{webhook_id}", editorUp(noStore(d.h.webhook.Delete)))
+		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/webhooks/{webhook_id}/test", editorUp(noStore(d.h.webhook.Test)))
+		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/webhooks/{webhook_id}/deliveries", editorUp(noStore(d.h.webhook.ListDeliveries)))
 	}
 }

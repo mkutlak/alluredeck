@@ -47,6 +47,7 @@ const ProjectDefectsView = lazy(() =>
 const BuildDefectsView = lazy(() =>
   import('@/features/defects/BuildDefectsView').then((m) => ({ default: m.BuildDefectsView })),
 )
+const TraceViewerPage = lazy(() => import('@/features/trace/TraceViewerPage'))
 
 function PageLoader() {
   return (
@@ -164,6 +165,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <ReportViewerPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects/:id/trace/:source"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <TraceViewerPage />
               </Suspense>
             }
           />

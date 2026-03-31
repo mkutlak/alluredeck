@@ -648,7 +648,13 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewResultUploadHandler(st, mocks.Projects, r, cfg, logger)
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))

@@ -45,7 +45,13 @@ func TestListProjects_StoreError_NoLeakage(t *testing.T) {
 		},
 	}
 
-	r := runner.NewAllure(cfg, st, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewProjectHandler(mockProj, r, st, cfg, logger)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/projects", nil)
@@ -68,7 +74,13 @@ func TestCreateProject_RunnerError_NoLeakage(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	r := runner.NewAllure(cfg, mockSt, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      mockSt,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewProjectHandler(mocks.Projects, r, mockSt, cfg, logger)
 
 	body := strings.NewReader(`{"id":"newproject"}`)
@@ -113,7 +125,13 @@ func TestDeleteProject_RunnerError_NoLeakage(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	r := runner.NewAllure(cfg, mockSt, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      mockSt,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewProjectHandler(mocks.Projects, r, mockSt, cfg, logger)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
@@ -138,7 +156,13 @@ func TestSendResults_ProjectCheckError_NoLeakage(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	r := runner.NewAllure(cfg, mockSt, mocks.MemBuilds, mocks.Locker, nil, nil, nil, logger)
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      mockSt,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
 	h := NewResultUploadHandler(mockSt, mocks.Projects, r, cfg, logger)
 
 	body := strings.NewReader(`{"results":[]}`)
