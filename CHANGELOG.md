@@ -1,3 +1,9 @@
+## [0.14.0](https://github.com/mkutlak/alluredeck/compare/v0.13.0...v0.14.0) (2026-03-31)
+
+### Features
+
+* compact attachment rows with MIME badges and fix defect fingerprinting ([82bff45](https://github.com/mkutlak/alluredeck/commit/82bff45487f41b4f08b20c6227835795cd81274c))
+
 ## [0.13.0](https://github.com/mkutlak/alluredeck/compare/v0.12.0...v0.13.0) (2026-03-31)
 
 ### Features
