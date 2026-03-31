@@ -1,3 +1,13 @@
+## [0.13.0](https://github.com/mkutlak/alluredeck/compare/v0.12.0...v0.13.0) (2026-03-31)
+
+### Features
+
+* add embedded Playwright trace viewer for test attachments ([f012c90](https://github.com/mkutlak/alluredeck/commit/f012c901e815458e41577941aad75abe80fe1a25))
+
+### Bug Fixes
+
+* harden API security and standardize response envelope ([269fdc0](https://github.com/mkutlak/alluredeck/commit/269fdc026951043b76498d1e3e8db42012adb3e7))
+
 ## [0.12.0](https://github.com/mkutlak/alluredeck/compare/v0.11.0...v0.12.0) (2026-03-29)
 
 ### Features
