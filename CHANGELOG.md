@@ -1,3 +1,9 @@
+## [0.14.2](https://github.com/mkutlak/alluredeck/compare/v0.14.1...v0.14.2) (2026-04-01)
+
+### Bug Fixes
+
+* **helm,ui:** simplify ingress paths and fix lightbox overflow ([fda38eb](https://github.com/mkutlak/alluredeck/commit/fda38ebe92a248769a28418f36e2534c58a2c75d))
+
 ## [0.14.1](https://github.com/mkutlak/alluredeck/compare/v0.14.0...v0.14.1) (2026-04-01)
 
 ### Bug Fixes
