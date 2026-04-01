@@ -28,24 +28,44 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          - path: {{ .Values.ingress.api.path }}
-            pathType: {{ .Values.ingress.api.pathType }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "alluredeck.api.fullname" . }}
+                port:
+                  name: http-api
+          - path: /trace
+            pathType: Prefix
             backend:
               service:
                 name: {{ include "alluredeck.api.fullname" . }}
                 port:
                   name: http-api
           {{- if .Values.ingress.swagger.enabled }}
-          - path: {{ .Values.ingress.swagger.path }}
-            pathType: {{ .Values.ingress.swagger.pathType }}
+          - path: /swagger
+            pathType: Prefix
             backend:
               service:
                 name: {{ include "alluredeck.api.fullname" . }}
                 port:
                   name: http-api
           {{- end }}
-          - path: {{ .Values.ingress.ui.path }}
-            pathType: {{ .Values.ingress.ui.pathType }}
+          {{- range .Values.ingress.extraPaths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ .serviceName }}
+                port:
+                  {{- if .servicePort }}
+                  number: {{ .servicePort }}
+                  {{- else }}
+                  name: {{ .servicePortName | default "http" }}
+                  {{- end }}
+          {{- end }}
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: {{ include "alluredeck.ui.fullname" . }}

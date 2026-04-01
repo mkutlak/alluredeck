@@ -10,7 +10,7 @@ charts/alluredeck/
   .helmignore
   templates/
     _helpers.tpl          # shared template helpers
-    ingress.yaml          # unified path-based Ingress (API + UI + Swagger)
+    ingress.yaml          # unified path-based Ingress (API + trace + UI + optional Swagger)
     networkpolicy.yaml    # optional NetworkPolicy
     extra-resources.yaml  # arbitrary extra K8s resources via extraResources[]
     NOTES.txt
@@ -34,12 +34,12 @@ charts/alluredeck/
 ## values.yaml Sections
 - **api**: `image`, `config` (logLevel, storageType, CORS, upload limits, goMemLimit), `s3` (endpoint, bucket, region, credentials), `security` (users, passwords, JWT keys), `persistence` (projects PVC + database PVC), `resources`, `probes`, `kind` (Deployment or StatefulSet)
 - **ui**: `image`, `config` (apiUrl, appTitle), `resources`, `probes`
-- **ingress**: path-based routing — `api.path: /api`, `ui.path: /`, optional `swagger.path: /swagger`
+- **ingress**: path-based routing — hardcoded `/api` + `/trace` → API, `/` → UI, optional `/swagger` → API; `extraPaths` for custom rules
 - **networkPolicy**: optional allow rules for ingress controller pods
 - **extraResources**: arbitrary K8s manifests injected alongside the chart
 
 ## Helm Conventions
-- Path-based Ingress: UI at `/`, API at `/api`, optional Swagger at `/swagger`
+- Path-based Ingress: API at `/api`, trace viewer at `/trace`, UI at `/`, optional Swagger at `/swagger`; `extraPaths` for custom rules
 - Non-root security contexts: `runAsNonRoot: true`, `readOnlyRootFilesystem: true`, drop all capabilities
 - PVCs: `api.persistence.projects` (local file storage) + `api.persistence.database` (DB data)
 - Use `api.kind: StatefulSet` for stable PVC binding with local storage; `Deployment` for S3 or dev

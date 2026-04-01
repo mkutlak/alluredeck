@@ -16,7 +16,7 @@ Storage mode: {{ .Values.api.config.storageType }}
 Access the application:
 {{- if .Values.ingress.host }}
   URL: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}
-  API: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.api.path }}
+  API: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}/api
 {{- end }}
 {{- else }}
 

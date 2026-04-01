@@ -298,16 +298,18 @@ ingress:
   # - secretName: alluredeck-tls
   #   hosts:
   #     - alluredeck.example.com
-  api:
-    path: /api
-    pathType: Prefix
+  # Hardcoded paths: /api and /trace → API service, / → UI service.
+  # Swagger (/swagger → API service) is toggled here:
   swagger:
     enabled: false
-    path: /swagger
-    pathType: Prefix
-  ui:
-    path: /
-    pathType: Prefix
+  # Extra ingress paths inserted before the catch-all UI rule.
+  # Example:
+  #   extraPaths:
+  #     - path: /custom
+  #       pathType: Prefix
+  #       serviceName: my-service
+  #       servicePortName: http
+  extraPaths: []
 
 # ---------------------------------------------------------------------------
 # Network Policy

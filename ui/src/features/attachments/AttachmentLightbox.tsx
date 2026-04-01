@@ -42,13 +42,13 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={isImage || isText ? 'max-w-[90vw] w-full' : undefined}>
+      <DialogContent className={isImage || isText ? 'max-w-[90vw] w-full max-h-[85vh] grid-rows-[auto_1fr_auto]' : undefined}>
         <DialogHeader>
           <DialogTitle>{attachment.name}</DialogTitle>
           <DialogDescription>{formatBytes(attachment.size_bytes)}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
           {isImage ? (
             <img
               src={attachment.url}
