@@ -1,3 +1,9 @@
+## [0.14.1](https://github.com/mkutlak/alluredeck/compare/v0.14.0...v0.14.1) (2026-04-01)
+
+### Bug Fixes
+
+* detect Playwright trace attachments without .zip name suffix ([c0026ed](https://github.com/mkutlak/alluredeck/commit/c0026ed0f9cc5972ecb13b29868c93e4f8a42a4e))
+
 ## [0.14.0](https://github.com/mkutlak/alluredeck/compare/v0.13.0...v0.14.0) (2026-03-31)
 
 ### Features
