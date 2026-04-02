@@ -104,6 +104,11 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Mark as Playwright project.
+	if err := h.projectStore.SetReportType(r.Context(), projectID, "playwright"); err != nil {
+		h.logger.Warn("failed to set project report type", zap.String("project_id", projectID), zap.Error(err))
+	}
+
 	// Limit request body to prevent memory exhaustion.
 	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)

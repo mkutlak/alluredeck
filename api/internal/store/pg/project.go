@@ -55,8 +55,8 @@ func (ps *ProjectStore) CreateProjectWithParent(ctx context.Context, id string, 
 func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		"SELECT id, parent_id, created_at FROM projects WHERE id = $1", id,
-	).Scan(&p.ID, &p.ParentID, &p.CreatedAt)
+		"SELECT id, parent_id, report_type, created_at FROM projects WHERE id = $1", id,
+	).Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, id)
 	}
@@ -69,7 +69,7 @@ func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*store.Proje
 // ListProjects returns all projects ordered by ID.
 func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, created_at FROM projects ORDER BY id")
+		"SELECT id, parent_id, report_type, created_at FROM projects ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -78,7 +78,7 @@ func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, erro
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -98,7 +98,7 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 
 	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
+		"SELECT id, parent_id, report_type, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
 		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list projects paginated: %w", err)
@@ -108,7 +108,7 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -130,7 +130,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 
 	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
+		"SELECT id, parent_id, report_type, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
 		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list top-level projects paginated: %w", err)
@@ -140,7 +140,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -154,7 +154,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 // ListChildren returns all child projects for a given parent project ID, ordered by ID.
 func (ps *ProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
+		"SELECT id, parent_id, report_type, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
 	if err != nil {
 		return nil, fmt.Errorf("list children: %w", err)
 	}
@@ -163,7 +163,7 @@ func (ps *ProjectStore) ListChildren(ctx context.Context, parentID string) ([]st
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -258,6 +258,16 @@ func (ps *ProjectStore) InsertOrIgnore(ctx context.Context, id string) error {
 		"INSERT INTO projects(id) VALUES($1) ON CONFLICT (id) DO NOTHING", id)
 	if err != nil {
 		return fmt.Errorf("insert project %q: %w", id, err)
+	}
+	return nil
+}
+
+// SetReportType updates the report_type for a project.
+func (ps *ProjectStore) SetReportType(ctx context.Context, id, reportType string) error {
+	_, err := ps.pool.Exec(ctx,
+		"UPDATE projects SET report_type = $1 WHERE id = $2", reportType, id)
+	if err != nil {
+		return fmt.Errorf("set report type: %w", err)
 	}
 	return nil
 }

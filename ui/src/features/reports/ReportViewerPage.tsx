@@ -1,10 +1,14 @@
 import { Link, useParams } from 'react-router'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { env } from '@/lib/env'
 import { Button } from '@/components/ui/button'
+import { projectListOptions } from '@/lib/queries/projects'
 
 export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
+  const { data: projectsResp } = useQuery(projectListOptions())
+  const reportType = projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)?.report_type ?? 'allure'
 
   if (!projectId || !reportId) return null
 
@@ -36,7 +40,7 @@ export function ReportViewerPage() {
       {/* Iframe — full remaining height */}
       <iframe
         src={reportUrl}
-        title={`Allure report #${reportId} — ${projectId}`}
+        title={`${reportType === 'playwright' ? 'Playwright' : 'Allure'} report #${reportId} — ${projectId}`}
         className="flex-1 border-0"
         sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
       />

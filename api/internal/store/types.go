@@ -32,9 +32,10 @@ type APIKey struct {
 
 // Project represents a registered allure project.
 type Project struct {
-	ID        string
-	ParentID  *string
-	CreatedAt time.Time
+	ID         string
+	ParentID   *string
+	ReportType string // "allure" or "playwright"
+	CreatedAt  time.Time
 }
 
 // BuildStats holds aggregated test statistics for a build.
@@ -93,11 +94,12 @@ type SparklinePoint struct {
 
 // DashboardProject bundles a project with its latest build and sparkline data.
 type DashboardProject struct {
-	ProjectID string
-	ParentID  *string
-	CreatedAt time.Time
-	Latest    *Build
-	Sparkline []SparklinePoint
+	ProjectID  string
+	ParentID   *string
+	ReportType string
+	CreatedAt  time.Time
+	Latest     *Build
+	Sparkline  []SparklinePoint
 }
 
 // TestResult represents a single test execution result stored in the database.

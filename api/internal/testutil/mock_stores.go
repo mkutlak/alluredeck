@@ -83,6 +83,7 @@ type MockProjectStore struct {
 	DeleteProjectFn                 func(ctx context.Context, id string) error
 	RenameProjectFn                 func(ctx context.Context, oldID, newID string) error
 	ProjectExistsFn                 func(ctx context.Context, id string) (bool, error)
+	SetReportTypeFn                 func(ctx context.Context, id, reportType string) error
 }
 
 func (m *MockProjectStore) CreateProject(ctx context.Context, id string) error {
@@ -174,6 +175,13 @@ func (m *MockProjectStore) ProjectExists(ctx context.Context, id string) (bool, 
 		return m.ProjectExistsFn(ctx, id)
 	}
 	return false, nil
+}
+
+func (m *MockProjectStore) SetReportType(ctx context.Context, id, reportType string) error {
+	if m.SetReportTypeFn != nil {
+		return m.SetReportTypeFn(ctx, id, reportType)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

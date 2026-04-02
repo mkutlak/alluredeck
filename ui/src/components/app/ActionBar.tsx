@@ -1,17 +1,22 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
 import { Upload, Play, Trash2 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
+import { projectListOptions } from '@/lib/queries/projects'
 
 export function ActionBar() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore(selectIsAdmin)
   const isEditor = useAuthStore(selectIsEditor)
+  const { data: projectsResp } = useQuery(projectListOptions())
+  const reportType = projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)?.report_type ?? 'allure'
+  const isAllure = reportType !== 'playwright'
   const [sendOpen, setSendOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [cleanResultsOpen, setCleanResultsOpen] = useState(false)
@@ -21,25 +26,29 @@ export function ActionBar() {
 
   return (
     <div className="bg-muted/30 flex items-center justify-end gap-2 border-b px-6 py-2">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>
-            <Upload size={14} />
-            Send results
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Upload Allure result files</TooltipContent>
-      </Tooltip>
+      {isAllure && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>
+                <Upload size={14} />
+                Send results
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Upload Allure result files</TooltipContent>
+          </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
-            <Play size={14} />
-            Generate report
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Generate report from current results</TooltipContent>
-      </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
+                <Play size={14} />
+                Generate report
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Generate report from current results</TooltipContent>
+          </Tooltip>
+        </>
+      )}
 
       {isAdmin && (
         <>

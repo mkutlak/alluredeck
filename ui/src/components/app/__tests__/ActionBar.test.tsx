@@ -14,6 +14,25 @@ vi.mock('@/store/auth', () => ({
     (s.roles ?? []).includes('admin') || (s.roles ?? []).includes('editor'),
 }))
 
+vi.mock('@/lib/queries/projects', () => ({
+  projectListOptions: () => ({
+    queryKey: ['projects'],
+    queryFn: () => Promise.resolve([{ project_id: 'my-project', report_type: 'allure' }]),
+  }),
+}))
+
+vi.mock('@tanstack/react-query', async () => {
+  const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query')
+  return {
+    ...actual,
+    useQuery: () => ({
+      data: [{ project_id: 'my-project', report_type: 'allure' }],
+      isLoading: false,
+      error: null,
+    }),
+  }
+})
+
 vi.mock('@/features/reports/SendResultsDialog', () => ({
   SendResultsDialog: vi.fn(({ open }: { open: boolean }) =>
     open ? <div data-testid="send-dialog">SendDialog</div> : null,

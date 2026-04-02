@@ -283,7 +283,7 @@ func (bs *BuildStore) DeleteAllBuilds(ctx context.Context, projectID string) err
 func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 	query := `
 		SELECT DISTINCT ON (p.id)
-		    p.id, p.parent_id, p.created_at,
+		    p.id, p.parent_id, p.report_type, p.created_at,
 		    b.id, b.project_id, b.build_order, b.created_at,
 		    b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_unknown, b.stat_total,
 		    b.duration_ms, b.is_latest,
@@ -305,6 +305,7 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 	for rows.Next() {
 		var projID string
 		var projParentID *string
+		var projReportType string
 		var projCreatedAt time.Time
 		// Nullable build fields (LEFT JOIN may produce NULLs).
 		var buildID *int64
@@ -318,7 +319,7 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		var ciProvider, ciBuildURL, ciBranch, ciCommitSHA *string
 
 		if err := rows.Scan(
-			&projID, &projParentID, &projCreatedAt,
+			&projID, &projParentID, &projReportType, &projCreatedAt,
 			&buildID, &buildProjID, &buildOrder, &buildCreatedAt,
 			&statPassed, &statFailed, &statBroken, &statSkipped, &statUnknown, &statTotal,
 			&durationMs, &isLatest,
@@ -329,9 +330,10 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		}
 
 		dp := &store.DashboardProject{
-			ProjectID: projID,
-			ParentID:  projParentID,
-			CreatedAt: projCreatedAt,
+			ProjectID:  projID,
+			ParentID:   projParentID,
+			ReportType: projReportType,
+			CreatedAt:  projCreatedAt,
 		}
 
 		if buildID != nil {

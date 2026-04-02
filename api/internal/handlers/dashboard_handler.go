@@ -51,6 +51,7 @@ type aggregateStats struct {
 
 type dashboardProjectResp struct {
 	ProjectID   string                 `json:"project_id"`
+	ReportType  string                 `json:"report_type"`
 	CreatedAt   string                 `json:"created_at"`
 	LatestBuild *latestBuildResp       `json:"latest_build"`
 	Sparkline   []sparklinePointResp   `json:"sparkline"`
@@ -188,10 +189,15 @@ func buildLatestResp(b *store.Build) *latestBuildResp {
 
 // buildProjectResp converts a store.DashboardProject into a dashboardProjectResp.
 func buildProjectResp(dp store.DashboardProject) dashboardProjectResp {
+	reportType := dp.ReportType
+	if reportType == "" {
+		reportType = "allure"
+	}
 	pr := dashboardProjectResp{
-		ProjectID: dp.ProjectID,
-		CreatedAt: dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		Sparkline: buildSparkline(dp.Sparkline),
+		ProjectID:  dp.ProjectID,
+		ReportType: reportType,
+		CreatedAt:  dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		Sparkline:  buildSparkline(dp.Sparkline),
 	}
 	if dp.Latest != nil {
 		pr.LatestBuild = buildLatestResp(dp.Latest)

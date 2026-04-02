@@ -236,6 +236,18 @@ func (m *MemProjectStore) ProjectExists(ctx context.Context, id string) (bool, e
 	return ok, nil
 }
 
+func (m *MemProjectStore) SetReportType(_ context.Context, id, reportType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.projects[id]
+	if !ok {
+		return store.ErrProjectNotFound
+	}
+	p.ReportType = reportType
+	m.projects[id] = p
+	return nil
+}
+
 func (m *MemProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -40,6 +40,7 @@ type ProjectStorer interface {
 	DeleteProject(ctx context.Context, id string) error
 	RenameProject(ctx context.Context, oldID, newID string) error
 	ProjectExists(ctx context.Context, id string) (bool, error)
+	SetReportType(ctx context.Context, id, reportType string) error
 }
 
 // BuildStorer is the interface for build operations.

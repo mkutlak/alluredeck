@@ -131,19 +131,19 @@ func ExtractPlaywrightData(r io.Reader) (reportJSON []byte, fileJSONs map[string
 	var encoded string
 	for scanner.Scan() {
 		line := scanner.Text()
-		idx := strings.Index(line, pwBase64Marker)
-		if idx == -1 {
+		_, after, ok := strings.Cut(line, pwBase64Marker)
+		if !ok {
 			continue
 		}
 		// Advance past the marker.
-		rest := line[idx+len(pwBase64Marker):]
+		rest := after
 		// The base64 data ends at the closing `";`.
-		end := strings.Index(rest, `";`)
-		if end == -1 {
+		before, _, ok := strings.Cut(rest, `";`)
+		if !ok {
 			// Closing marker not found on same line — treat remainder as data.
 			encoded = rest
 		} else {
-			encoded = rest[:end]
+			encoded = before
 		}
 		break
 	}

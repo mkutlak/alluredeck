@@ -37,6 +37,7 @@ export interface ProjectEntry {
   project_id: string
   created_at?: string
   parent_id?: string | null
+  report_type?: 'allure' | 'playwright'
   children?: string[]
 }
 
@@ -434,6 +435,7 @@ export interface DashboardSparklinePoint {
 
 export interface DashboardProjectEntry {
   project_id: string
+  report_type?: 'allure' | 'playwright'
   created_at: string
   latest_build: DashboardLatestBuild | null
   sparkline: DashboardSparklinePoint[]
