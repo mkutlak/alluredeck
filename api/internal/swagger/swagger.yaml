@@ -20,6 +20,8 @@ definitions:
         type: integer
       make_viewer_endpoints_public:
         type: boolean
+      oidc_enabled:
+        type: boolean
       security_enabled:
         type: boolean
       tls:
@@ -63,12 +65,10 @@ definitions:
       metadata:
         $ref: '#/definitions/internal_handlers.VersionMetaData'
     type: object
-  internal_handlers.updateTagsRequest:
+  internal_handlers.setParentRequest:
     properties:
-      tags:
-        items:
-          type: string
-        type: array
+      parent_id:
+        type: string
     type: object
 host: localhost:8080
 info:
@@ -279,6 +279,25 @@ paths:
       summary: Delete an API key
       tags:
       - api-keys
+  /auth/session:
+    get:
+      description: Returns the authenticated user's session information from JWT claims.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get current session info
+      tags:
+      - auth
   /config:
     get:
       description: Returns the current AllureDeck service configuration.
@@ -377,7 +396,9 @@ paths:
       - auth
   /projects:
     get:
-      description: Returns a paginated list of all existing projects.
+      description: Returns a paginated list of all existing projects. Supports top_level=true
+        to return only top-level projects and parent_id=<id> to list children of a
+        specific project.
       parameters:
       - default: 1
         description: Page number
@@ -389,6 +410,14 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: Return only top-level projects
+        in: query
+        name: top_level
+        type: boolean
+      - description: Return children of this project ID
+        in: query
+        name: parent_id
+        type: string
       produces:
       - application/json
       responses:
@@ -610,6 +639,36 @@ paths:
       summary: Set default branch
       tags:
       - branches
+  /projects/{project_id}/children:
+    get:
+      description: Returns all projects that have the given project as their parent.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List child projects
+      tags:
+      - projects
   /projects/{project_id}/compare:
     get:
       description: Returns a diff of test statuses between two builds within a project.
@@ -811,6 +870,188 @@ paths:
       summary: Update a known issue
       tags:
       - known-issues
+  /projects/{project_id}/parent:
+    delete:
+      description: Removes the parent assignment from the given project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Remove project parent
+      tags:
+      - projects
+    put:
+      consumes:
+      - application/json
+      description: Assigns a parent project to the given project. The parent must
+        exist, must not itself be a child, and the target must have no children and
+        no existing builds.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Parent payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.setParentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Set project parent
+      tags:
+      - projects
+  /projects/{project_id}/playwright:
+    post:
+      consumes:
+      - application/gzip
+      description: Uploads a Playwright HTML report as a tar.gz archive. The archive
+        must contain index.html at its root and may include a data/ subdirectory with
+        attachments.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Auto-create project if missing
+        in: query
+        name: force_project_creation
+        type: string
+      - description: Parent project ID (used with force_project_creation)
+        in: query
+        name: parent_id
+        type: string
+      - description: Execution name
+        in: query
+        name: execution_name
+        type: string
+      - description: Execution from
+        in: query
+        name: execution_from
+        type: string
+      - description: CI branch name
+        in: query
+        name: ci_branch
+        type: string
+      - description: CI commit SHA
+        in: query
+        name: ci_commit_sha
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "413":
+          description: Request Entity Too Large
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Upload Playwright HTML report
+      tags:
+      - playwright
+  /projects/{project_id}/rename:
+    put:
+      consumes:
+      - application/json
+      description: 'Changes the project ID. All builds, results, and storage are updated.
+        Warning: this operation may cause data loss if interrupted during S3 storage
+        migration.'
+      parameters:
+      - description: Current project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: New project ID
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Rename a project
+      tags:
+      - projects
   /projects/{project_id}/reports:
     get:
       description: Returns paginated metadata for all generated reports of a project.
@@ -944,6 +1185,92 @@ paths:
       summary: Delete a report
       tags:
       - reports
+  /projects/{project_id}/reports/{report_id}/attachments:
+    get:
+      description: Returns paginated attachment metadata for all test attachments
+        in a build.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Build order number or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      - description: MIME type prefix filter (e.g. 'image')
+        in: query
+        name: mime_type
+        type: string
+      - description: Max results (default 100, max 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List attachments for a build
+      tags:
+      - attachments
+  /projects/{project_id}/reports/{report_id}/attachments/{source}:
+    get:
+      description: Streams the raw attachment file with the correct Content-Type for
+        inline viewing.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Build order number or 'latest'
+        in: path
+        name: report_id
+        required: true
+        type: string
+      - description: Attachment source filename
+        in: path
+        name: source
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Serve an attachment file inline
+      tags:
+      - attachments
   /projects/{project_id}/reports/{report_id}/categories:
     get:
       description: Returns the failure categories from the categories widget JSON
@@ -1250,44 +1577,6 @@ paths:
       summary: Upload test results
       tags:
       - results
-  /projects/{project_id}/tags:
-    put:
-      consumes:
-      - application/json
-      description: Replaces the tags on a project. Admin only.
-      parameters:
-      - description: Project ID
-        in: path
-        name: project_id
-        required: true
-        type: string
-      - description: Tags payload
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_handlers.updateTagsRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      summary: Set project tags
-      tags:
-      - projects
   /projects/{project_id}/test-history:
     get:
       description: Returns the run history for a specific test (identified by history_id)
@@ -1333,6 +1622,329 @@ paths:
       summary: Get test history
       tags:
       - tests
+  /projects/{project_id}/timeline:
+    get:
+      description: Returns test execution timeline data across one or more builds,
+        with optional branch and date range filters.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Branch name filter
+        in: query
+        name: branch
+        type: string
+      - description: Start date (YYYY-MM-DD, inclusive)
+        in: query
+        name: from
+        type: string
+      - description: End date (YYYY-MM-DD, inclusive end-of-day)
+        in: query
+        name: to
+        type: string
+      - description: Max builds (1-10, default 1)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get multi-build test execution timeline
+      tags:
+      - timeline
+  /projects/{project_id}/webhooks:
+    get:
+      description: Returns all webhooks configured for the given project
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List webhooks for a project
+      tags:
+      - webhooks
+    post:
+      consumes:
+      - application/json
+      description: Adds a new webhook notification target to the given project (max
+        10 per project)
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create a webhook for a project
+      tags:
+      - webhooks
+  /projects/{project_id}/webhooks/{webhook_id}:
+    delete:
+      description: Permanently removes a webhook from the given project
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Webhook ID
+        in: path
+        name: webhook_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete a webhook
+      tags:
+      - webhooks
+    get:
+      description: Returns a single webhook by ID for the given project
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Webhook ID
+        in: path
+        name: webhook_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get a webhook
+      tags:
+      - webhooks
+    put:
+      consumes:
+      - application/json
+      description: Applies a partial update to an existing webhook
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Webhook ID
+        in: path
+        name: webhook_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Update a webhook
+      tags:
+      - webhooks
+  /projects/{project_id}/webhooks/{webhook_id}/deliveries:
+    get:
+      description: Returns paginated delivery log entries for the given webhook
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Webhook ID
+        in: path
+        name: webhook_id
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List delivery attempts for a webhook
+      tags:
+      - webhooks
+  /projects/{project_id}/webhooks/{webhook_id}/test:
+    post:
+      description: Queues a test notification for the given webhook (verifies the
+        webhook exists)
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Webhook ID
+        in: path
+        name: webhook_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Trigger a test delivery for a webhook
+      tags:
+      - webhooks
   /ready:
     get:
       description: Returns 200 when the database is reachable, 503 otherwise.
@@ -1354,25 +1966,6 @@ paths:
       summary: Readiness probe
       tags:
       - infrastructure
-  /tags:
-    get:
-      description: Returns all distinct tags across all projects, sorted alphabetically.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      summary: List all distinct tags
-      tags:
-      - projects
   /version:
     get:
       description: Returns the installed Allure CLI version.

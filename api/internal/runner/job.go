@@ -50,6 +50,7 @@ type Job struct {
 // Implemented by RiverJobManager (PostgreSQL-backed).
 type JobQueuer interface {
 	Submit(projectID string, params JobParams) *Job
+	SubmitPlaywright(projectID string, execName, execFrom, ciBranch, ciCommitSHA string) *Job
 	ListJobs() []*Job
 	Cancel(jobID string) error
 	Delete(jobID string) error

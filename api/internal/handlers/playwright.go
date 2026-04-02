@@ -1,0 +1,226 @@
+package handlers
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"go.uber.org/zap"
+
+	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/runner"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
+)
+
+// PlaywrightHandler handles Playwright HTML report uploads.
+type PlaywrightHandler struct {
+	store        storage.Store
+	projectStore store.ProjectStorer
+	jobManager   runner.JobQueuer
+	cfg          *config.Config
+	logger       *zap.Logger
+}
+
+// NewPlaywrightHandler creates and returns a new PlaywrightHandler.
+func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, jm runner.JobQueuer, cfg *config.Config, logger *zap.Logger) *PlaywrightHandler {
+	return &PlaywrightHandler{store: st, projectStore: ps, jobManager: jm, cfg: cfg, logger: logger}
+}
+
+// UploadReport godoc
+// @Summary      Upload Playwright HTML report
+// @Description  Uploads a Playwright HTML report as a tar.gz archive. The archive must contain index.html at its root and may include a data/ subdirectory with attachments.
+// @Tags         playwright
+// @Accept       application/gzip
+// @Produce      json
+// @Param        project_id              path   string  true   "Project ID"
+// @Param        force_project_creation  query  string  false  "Auto-create project if missing"
+// @Param        parent_id               query  string  false  "Parent project ID (used with force_project_creation)"
+// @Param        execution_name          query  string  false  "Execution name"
+// @Param        execution_from          query  string  false  "Execution from"
+// @Param        ci_branch               query  string  false  "CI branch name"
+// @Param        ci_commit_sha           query  string  false  "CI commit SHA"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Failure      413  {object}  map[string]any
+// @Router       /projects/{project_id}/playwright [post]
+func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
+	if !ok {
+		return
+	}
+
+	parentID := r.URL.Query().Get("parent_id")
+	execName := r.URL.Query().Get("execution_name")
+	execFrom := r.URL.Query().Get("execution_from")
+	ciBranch := r.URL.Query().Get("ci_branch")
+	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
+
+	// Ensure project exists (auto-create if requested)
+	exists, err := h.store.ProjectExists(r.Context(), projectID)
+	if err != nil {
+		h.logger.Error("checking project existence failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "failed to check project")
+		return
+	}
+	if !exists {
+		if r.URL.Query().Get("force_project_creation") == "true" {
+			if err := h.store.CreateProject(r.Context(), projectID); err != nil {
+				h.logger.Error("auto-creating project failed", zap.String("project_id", projectID), zap.Error(err))
+				writeError(w, http.StatusInternalServerError, "failed to create project")
+				return
+			}
+			if parentID != "" {
+				// Ensure parent project exists in DB; create it if missing.
+				if dbErr := h.projectStore.CreateProject(r.Context(), parentID); dbErr != nil {
+					if !errors.Is(dbErr, store.ErrProjectExists) {
+						h.logger.Error("db parent project registration failed", zap.String("parent_id", parentID), zap.Error(dbErr))
+					}
+				}
+				// Register child project with parent link in DB.
+				if dbErr := h.projectStore.CreateProjectWithParent(r.Context(), projectID, parentID); dbErr != nil {
+					if !errors.Is(dbErr, store.ErrProjectExists) {
+						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+					}
+				}
+			} else {
+				// Register in database so downstream jobs can reference the project.
+				if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
+					if !errors.Is(dbErr, store.ErrProjectExists) {
+						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+					}
+				}
+			}
+		} else {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id '%s' not found", projectID))
+			return
+		}
+	}
+
+	// Limit request body to prevent memory exhaustion.
+	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+	contentType := r.Header.Get("Content-Type")
+	switch contentType {
+	case "application/gzip",
+		"application/x-gzip",
+		"application/x-tar+gzip":
+		// handled below
+	default:
+		writeError(w, http.StatusBadRequest, "Content-Type must be application/gzip")
+		return
+	}
+
+	if err := h.extractPlaywrightArchive(r, projectID); err != nil {
+		code := http.StatusBadRequest
+		msg := err.Error()
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			code = http.StatusRequestEntityTooLarge
+			msg = "request body too large"
+		}
+		writeError(w, code, msg)
+		return
+	}
+
+	job := h.jobManager.Submit(projectID, runner.JobParams{
+		ExecName:     execName,
+		ExecFrom:     execFrom,
+		StoreResults: true,
+		CIBranch:     ciBranch,
+		CICommitSHA:  ciCommitSHA,
+	})
+
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"job_id": job.ID,
+	}, "Playwright report uploaded successfully")
+}
+
+// extractPlaywrightArchive extracts a tar.gz Playwright report archive to the
+// project's results directory, preserving subdirectory structure. Unlike the
+// Allure handler, nested paths (e.g. data/screenshot.png) are preserved.
+// It validates that index.html is present in the extracted contents.
+func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID string) error {
+	gz, err := gzip.NewReader(r.Body)
+	if err != nil {
+		return fmt.Errorf("invalid gzip stream: %w", err)
+	}
+	defer func() { _ = gz.Close() }()
+
+	tr := tar.NewReader(gz)
+
+	const maxFiles = 10000
+	fileCount := 0
+	foundIndex := false
+
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read tar entry: %w", err)
+		}
+
+		// Skip directories (created implicitly when writing nested files).
+		if hdr.Typeflag == tar.TypeDir {
+			continue
+		}
+		// Skip non-regular files (symlinks, hard links, etc.).
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+
+		fileCount++
+		if fileCount > maxFiles {
+			return fmt.Errorf("archive exceeds maximum file count (%d)", maxFiles)
+		}
+
+		// Clean and validate the path — preserve subdirs but prevent traversal.
+		cleanName := filepath.ToSlash(filepath.Clean(hdr.Name))
+		if strings.Contains(cleanName, "..") {
+			return fmt.Errorf("invalid path in archive: %s", hdr.Name)
+		}
+		// Strip leading "./" or "/"
+		cleanName = strings.TrimPrefix(cleanName, "./")
+		cleanName = strings.TrimPrefix(cleanName, "/")
+
+		if cleanName == "" {
+			continue
+		}
+
+		if cleanName == "index.html" {
+			foundIndex = true
+		}
+
+		// Ensure parent subdirectory exists before writing (e.g. data/ for attachments).
+		if dir := filepath.Dir(cleanName); dir != "." {
+			subDir := filepath.Join(h.cfg.ProjectsPath, projectID, "results", dir)
+			//nolint:gosec // G301: 0o755 required for web server to read report dirs
+			if err := os.MkdirAll(subDir, 0o755); err != nil {
+				return fmt.Errorf("create subdir %q: %w", dir, err)
+			}
+		}
+
+		// Write to the project's results directory using the relative path
+		// (including any data/ prefix) as the filename. The Playwright runner
+		// will process files from there.
+		if err := h.store.WriteResultFile(r.Context(), projectID, cleanName, tr); err != nil {
+			return fmt.Errorf("write %q: %w", cleanName, err)
+		}
+	}
+
+	if !foundIndex {
+		return fmt.Errorf("archive does not contain index.html")
+	}
+
+	return nil
+}

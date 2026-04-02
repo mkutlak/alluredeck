@@ -51,6 +51,7 @@ type handlerSet struct {
 	report          *handlers.ReportHandler
 	project         *handlers.ProjectHandler
 	resultUpload    *handlers.ResultUploadHandler
+	playwright      *handlers.PlaywrightHandler
 	admin           *handlers.AdminHandler
 	branch          *handlers.BranchHandler
 	testHistory     *handlers.TestHistoryHandler
@@ -108,7 +109,18 @@ func main() {
 		Logger:          logger,
 	})
 
-	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, s.webhook, s.build, encKey, cfg.ExternalURL, 2, logger)
+	pwRunner := runner.NewPlaywrightRunner(runner.PlaywrightRunnerDeps{
+		Config:          cfg,
+		Store:           dataStore,
+		BuildStore:      s.build,
+		Locker:          locker,
+		TestResultStore: s.testResult,
+		BranchStore:     s.branch,
+		DefectStore:     s.defect,
+		Logger:          logger,
+	})
+
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, encKey, cfg.ExternalURL, 2, logger)
 	if err != nil {
 		logger.Fatal("failed to create River job manager", zap.Error(err))
 	}
@@ -344,6 +356,7 @@ func wireHandlers(
 		}),
 		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
 		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, allureCore, cfg, logger),
+		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, jobManager, cfg, logger),
 		admin:           handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger),
 		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),
 		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, cfg.ProjectsPath),
@@ -517,6 +530,7 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(d.h.report.CleanHistory)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(d.h.resultUpload.CleanResults)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(d.h.resultUpload.SendResults)))
+	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/playwright", editorUp(noStore(d.h.playwright.UploadReport)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/{report_id}", adminOnly(noStore(d.h.report.DeleteReport)))
 
 	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").

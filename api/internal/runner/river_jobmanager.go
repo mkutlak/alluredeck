@@ -33,6 +33,18 @@ type GenerateReportArgs struct {
 // Kind returns the River job kind identifier.
 func (GenerateReportArgs) Kind() string { return "generate_report" }
 
+// PlaywrightIngestArgs holds the River job arguments for async Playwright report ingestion.
+type PlaywrightIngestArgs struct {
+	ProjectID   string `json:"project_id"`
+	ExecName    string `json:"exec_name"`
+	ExecFrom    string `json:"exec_from"`
+	CIBranch    string `json:"ci_branch"`
+	CICommitSHA string `json:"ci_commit_sha"`
+}
+
+// Kind returns the River job kind identifier.
+func (PlaywrightIngestArgs) Kind() string { return "playwright_ingest" }
+
 // GenerateReportWorker is a River worker that executes Allure report generation.
 type GenerateReportWorker struct {
 	river.WorkerDefaults[GenerateReportArgs]
@@ -70,8 +82,52 @@ func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[Generate
 // enqueueWebhooks constructs a WebhookPayload from the latest build and enqueues
 // delivery jobs for all active webhooks. Errors are non-fatal.
 func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID string) error {
+	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.webhookStore, w.riverClient, w.externalURL, w.logger)
+}
+
+// PlaywrightIngestWorker is a River worker that processes Playwright report ingestion.
+type PlaywrightIngestWorker struct {
+	river.WorkerDefaults[PlaywrightIngestArgs]
+	runner       *PlaywrightRunner
+	buildStore   store.BuildStorer
+	webhookStore store.WebhookStorer
+	externalURL  string
+	riverClient  *river.Client[pgx.Tx]
+	logger       *zap.Logger
+}
+
+// Work implements river.Worker for Playwright report ingestion.
+func (w *PlaywrightIngestWorker) Work(ctx context.Context, job *river.Job[PlaywrightIngestArgs]) error {
+	a := job.Args
+	if _, err := w.runner.IngestReport(ctx, a.ProjectID, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA); err != nil {
+		w.logger.Error("river: playwright ingest failed",
+			zap.Int64("job_id", job.ID),
+			zap.String("project_id", a.ProjectID),
+			zap.Error(err),
+		)
+		return err
+	}
+	w.logger.Info("river: playwright ingest completed",
+		zap.Int64("job_id", job.ID),
+		zap.String("project_id", a.ProjectID),
+	)
+	// Fire-and-forget: enqueue webhook notifications.
+	if err := w.enqueueWebhooks(ctx, a.ProjectID); err != nil {
+		w.logger.Warn("river: failed to enqueue webhook notifications",
+			zap.String("project_id", a.ProjectID), zap.Error(err))
+	}
+	return nil
+}
+
+func (w *PlaywrightIngestWorker) enqueueWebhooks(ctx context.Context, projectID string) error {
+	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.webhookStore, w.riverClient, w.externalURL, w.logger)
+}
+
+// enqueueWebhooksForProject constructs a WebhookPayload from the latest build
+// and enqueues delivery jobs for all active webhooks.
+func enqueueWebhooksForProject(ctx context.Context, projectID string, buildStore store.BuildStorer, webhookStore store.WebhookStorer, riverClient *river.Client[pgx.Tx], externalURL string, logger *zap.Logger) error {
 	// Get active webhooks for this project
-	webhooks, err := w.webhookStore.ListActiveForEvent(ctx, projectID, "report_completed")
+	webhooks, err := webhookStore.ListActiveForEvent(ctx, projectID, "report_completed")
 	if err != nil {
 		return fmt.Errorf("list active webhooks: %w", err)
 	}
@@ -80,7 +136,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 	}
 
 	// Get latest build for stats
-	build, err := w.buildStore.GetLatestBuild(ctx, projectID)
+	build, err := buildStore.GetLatestBuild(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("get latest build: %w", err)
 	}
@@ -94,8 +150,8 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 	}
 
 	// Dashboard URL
-	if w.externalURL != "" {
-		payload.DashboardURL = w.externalURL + "/projects/" + projectID
+	if externalURL != "" {
+		payload.DashboardURL = externalURL + "/projects/" + projectID
 	}
 
 	// Stats
@@ -111,7 +167,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 	}
 
 	// Delta vs previous build
-	prev, err := w.buildStore.GetPreviousBuild(ctx, projectID, build.BuildOrder)
+	prev, err := buildStore.GetPreviousBuild(ctx, projectID, build.BuildOrder)
 	if err == nil && prev.StatTotal != nil && *prev.StatTotal > 0 {
 		prevPassRate := float64(derefInt(prev.StatPassed)) / float64(derefInt(prev.StatTotal)) * 100
 		payload.Delta = &WebhookDelta{
@@ -139,7 +195,7 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 
 	// Enqueue one job per webhook
 	for i := range webhooks {
-		_, err := w.riverClient.Insert(ctx, SendWebhookArgs{
+		_, err := riverClient.Insert(ctx, SendWebhookArgs{
 			WebhookID: webhooks[i].ID,
 			Payload:   payload,
 		}, &river.InsertOpts{
@@ -147,12 +203,12 @@ func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID st
 			MaxAttempts: 5,
 		})
 		if err != nil {
-			w.logger.Warn("river: failed to enqueue webhook",
+			logger.Warn("river: failed to enqueue webhook",
 				zap.String("webhook_id", webhooks[i].ID), zap.Error(err))
 		}
 	}
 
-	w.logger.Info("river: enqueued webhook notifications",
+	logger.Info("river: enqueued webhook notifications",
 		zap.String("project_id", projectID),
 		zap.Int("count", len(webhooks)))
 	return nil
@@ -187,7 +243,7 @@ type RiverJobManager struct {
 var _ JobQueuer = (*RiverJobManager)(nil)
 
 // NewRiverJobManager creates a new RiverJobManager. Call Start to begin processing jobs.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, logger *zap.Logger) (*RiverJobManager, error) {
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, logger *zap.Logger) (*RiverJobManager, error) {
 	workers := river.NewWorkers()
 	reportWorker := &GenerateReportWorker{
 		generator:    generator,
@@ -204,6 +260,18 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, webhookSt
 		logger:       logger,
 	})
 
+	var pwWorker *PlaywrightIngestWorker
+	if pwRunner != nil {
+		pwWorker = &PlaywrightIngestWorker{
+			runner:       pwRunner,
+			buildStore:   buildStore,
+			webhookStore: webhookStore,
+			externalURL:  externalURL,
+			logger:       logger,
+		}
+		river.AddWorker(workers, pwWorker)
+	}
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: maxWorkers},
@@ -215,8 +283,11 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, webhookSt
 		return nil, fmt.Errorf("create River client: %w", err)
 	}
 
-	// Wire the client back into the report worker so it can enqueue webhook jobs.
+	// Wire the client back into workers so they can enqueue webhook jobs.
 	reportWorker.riverClient = client
+	if pwWorker != nil {
+		pwWorker.riverClient = client
+	}
 
 	return &RiverJobManager{client: client, pool: pool, logger: logger}, nil
 }
@@ -262,6 +333,28 @@ func (jm *RiverJobManager) Submit(projectID string, params JobParams) *Job {
 	return riverRowToJob(res.Job)
 }
 
+// SubmitPlaywright enqueues a new Playwright report ingestion job.
+func (jm *RiverJobManager) SubmitPlaywright(projectID string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
+	args := PlaywrightIngestArgs{
+		ProjectID:   projectID,
+		ExecName:    execName,
+		ExecFrom:    execFrom,
+		CIBranch:    ciBranch,
+		CICommitSHA: ciCommitSHA,
+	}
+	res, err := jm.client.Insert(jm.ctx, args, nil)
+	if err != nil {
+		jm.logger.Error("river insert failed", zap.String("project_id", projectID), zap.Error(err))
+		return &Job{
+			ProjectID: projectID,
+			Status:    JobStatusFailed,
+			CreatedAt: time.Now(),
+			Error:     err.Error(),
+		}
+	}
+	return riverRowToJob(res.Job)
+}
+
 // Get returns the job with the given string ID (River int64 rendered as decimal string), or nil.
 func (jm *RiverJobManager) Get(jobID string) *Job {
 	id, err := strconv.ParseInt(jobID, 10, 64)
@@ -275,10 +368,10 @@ func (jm *RiverJobManager) Get(jobID string) *Job {
 	return riverRowToJob(row)
 }
 
-// ListJobs returns all generate_report jobs known to River, newest first (capped at 200).
+// ListJobs returns all generate_report and playwright_ingest jobs known to River, newest first (capped at 200).
 func (jm *RiverJobManager) ListJobs() []*Job {
 	params := river.NewJobListParams().
-		Kinds("generate_report").
+		Kinds("generate_report", "playwright_ingest").
 		First(200)
 
 	res, err := jm.client.JobList(jm.ctx, params)
@@ -354,10 +447,15 @@ func riverRowToJob(r *rivertype.JobRow) *Job {
 		t := *r.FinalizedAt
 		j.CompletedAt = &t
 	}
-	// Decode project_id from the encoded job args.
-	var args GenerateReportArgs
-	if err := json.Unmarshal(r.EncodedArgs, &args); err == nil {
-		j.ProjectID = args.ProjectID
+	// Try to decode project_id from either job arg type.
+	var genArgs GenerateReportArgs
+	if err := json.Unmarshal(r.EncodedArgs, &genArgs); err == nil && genArgs.ProjectID != "" {
+		j.ProjectID = genArgs.ProjectID
+	} else {
+		var pwArgs PlaywrightIngestArgs
+		if err := json.Unmarshal(r.EncodedArgs, &pwArgs); err == nil {
+			j.ProjectID = pwArgs.ProjectID
+		}
 	}
 	// Use the last attempt error message if present.
 	if len(r.Errors) > 0 {

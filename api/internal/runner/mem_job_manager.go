@@ -65,6 +65,29 @@ func (m *MemJobManager) Submit(projectID string, params JobParams) *Job {
 	return j
 }
 
+// SubmitPlaywright enqueues a new Playwright ingestion job.
+// MemJobManager does not execute Playwright ingestion; it records the job as completed immediately.
+func (m *MemJobManager) SubmitPlaywright(projectID string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
+	now := time.Now()
+	j := &Job{
+		ID:          newMemJobID(),
+		ProjectID:   projectID,
+		Status:      JobStatusCompleted,
+		CreatedAt:   now,
+		CompletedAt: &now,
+		Params: JobParams{
+			ExecName:    execName,
+			ExecFrom:    execFrom,
+			CIBranch:    ciBranch,
+			CICommitSHA: ciCommitSHA,
+		},
+	}
+	m.mu.Lock()
+	m.jobs[j.ID] = j
+	m.mu.Unlock()
+	return j
+}
+
 // ListJobs returns a snapshot of all known jobs.
 // Each element is a copy so callers can safely read fields without holding the lock.
 func (m *MemJobManager) ListJobs() []*Job {
