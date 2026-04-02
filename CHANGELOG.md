@@ -1,3 +1,9 @@
+## [0.15.0](https://github.com/mkutlak/alluredeck/compare/v0.14.2...v0.15.0) (2026-04-02)
+
+### Features
+
+* **api:** add Playwright HTML report upload support ([1764e4a](https://github.com/mkutlak/alluredeck/commit/1764e4accf279510730db3a733fc27596222292e))
+
 ## [0.14.2](https://github.com/mkutlak/alluredeck/compare/v0.14.1...v0.14.2) (2026-04-01)
 
 ### Bug Fixes
