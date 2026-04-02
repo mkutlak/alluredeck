@@ -1,3 +1,9 @@
+## [0.16.0](https://github.com/mkutlak/alluredeck/compare/v0.15.0...v0.16.0) (2026-04-02)
+
+### Features
+
+* add report_type to projects for Allure/Playwright distinction ([1dc0c16](https://github.com/mkutlak/alluredeck/commit/1dc0c162beddcf3418d1c80e12cacd39513e8c91))
+
 ## [0.15.0](https://github.com/mkutlak/alluredeck/compare/v0.14.2...v0.15.0) (2026-04-02)
 
 ### Features
