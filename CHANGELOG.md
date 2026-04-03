@@ -1,3 +1,9 @@
+## [0.17.0](https://github.com/mkutlak/alluredeck/compare/v0.16.0...v0.17.0) (2026-04-03)
+
+### Features
+
+* **api:** auto-generate reports on result upload and fix Playwright S3 uploads ([830e48e](https://github.com/mkutlak/alluredeck/commit/830e48e57182d5d2a0524e0e46b87269eded3af6))
+
 ## [0.16.0](https://github.com/mkutlak/alluredeck/compare/v0.15.0...v0.16.0) (2026-04-02)
 
 ### Features
