@@ -1,3 +1,9 @@
+## [0.17.1](https://github.com/mkutlak/alluredeck/compare/v0.17.0...v0.17.1) (2026-04-03)
+
+### Bug Fixes
+
+* **api:** resolve Playwright S3 upload timeout and add parent project features ([26814dc](https://github.com/mkutlak/alluredeck/commit/26814dcefd3c949f383a54f216b07ba42ec3cc20))
+
 ## [0.17.0](https://github.com/mkutlak/alluredeck/compare/v0.16.0...v0.17.0) (2026-04-03)
 
 ### Features
