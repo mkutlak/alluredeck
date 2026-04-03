@@ -99,14 +99,15 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 // @Tags         projects
 // @Accept       json
 // @Produce      json
-// @Param        body  body      object  true  "Project ID"
+// @Param        body  body      object  true  "Project ID and optional parent"
 // @Success      201   {object}  map[string]any
 // @Failure      400   {object}  map[string]any
 // @Failure      409   {object}  map[string]any
 // @Router       /projects [post]
 func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	var reqBody struct {
-		ID string `json:"id"`
+		ID       string `json:"id"`
+		ParentID string `json:"parent_id,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
@@ -132,14 +133,25 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register in database (INSERT OR IGNORE so an already-synced project is not an error).
-	if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
+	parentID := strings.TrimSpace(reqBody.ParentID)
+	var dbErr error
+	if parentID != "" {
+		dbErr = h.projectStore.CreateProjectWithParent(r.Context(), projectID, parentID)
+	} else {
+		dbErr = h.projectStore.CreateProject(r.Context(), projectID)
+	}
+	if dbErr != nil {
 		if !errors.Is(dbErr, store.ErrProjectExists) {
 			// Log but don't fail — filesystem project was already created successfully.
 			h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
 		}
 	}
 
-	writeSuccess(w, http.StatusCreated, ProjectEntry{ProjectID: projectID}, "Project successfully created")
+	entry := ProjectEntry{ProjectID: projectID}
+	if parentID != "" {
+		entry.ParentID = &parentID
+	}
+	writeSuccess(w, http.StatusCreated, entry, "Project successfully created")
 }
 
 // DeleteProject godoc

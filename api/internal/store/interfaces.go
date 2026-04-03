@@ -34,6 +34,7 @@ type ProjectStorer interface {
 	ListProjectsPaginated(ctx context.Context, page, perPage int) ([]Project, int, error)
 	ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]Project, int, error)
 	ListChildren(ctx context.Context, parentID string) ([]Project, error)
+	ListChildIDs(ctx context.Context, parentID string) ([]string, error)
 	HasChildren(ctx context.Context, projectID string) (bool, error)
 	SetParent(ctx context.Context, projectID, parentID string) error
 	ClearParent(ctx context.Context, projectID string) error
@@ -153,13 +154,13 @@ type TrendPoint struct {
 // AnalyticsStorer provides analytics queries over the expanded test data schema.
 type AnalyticsStorer interface {
 	// ListTopErrors returns the most common failure messages across recent builds.
-	ListTopErrors(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]ErrorCluster, error)
+	ListTopErrors(ctx context.Context, projectIDs []string, builds, limit int, branchID *int64) ([]ErrorCluster, error)
 	// ListSuitePassRates returns per-suite pass rates across recent builds.
-	ListSuitePassRates(ctx context.Context, projectID string, builds int, branchID *int64) ([]SuitePassRate, error)
+	ListSuitePassRates(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]SuitePassRate, error)
 	// ListLabelBreakdown returns counts grouped by label value for a given label name.
-	ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int, branchID *int64) ([]LabelCount, error)
+	ListLabelBreakdown(ctx context.Context, projectIDs []string, labelName string, builds int, branchID *int64) ([]LabelCount, error)
 	// ListTrendPoints returns per-build statistics for the last N builds, ordered chronologically (oldest first).
-	ListTrendPoints(ctx context.Context, projectID string, builds int, branchID *int64) ([]TrendPoint, error)
+	ListTrendPoints(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]TrendPoint, error)
 }
 
 // AttachmentStorer provides queries over test attachment metadata.

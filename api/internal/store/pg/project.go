@@ -272,6 +272,25 @@ func (ps *ProjectStore) SetReportType(ctx context.Context, id, reportType string
 	return nil
 }
 
+// ListChildIDs returns the IDs of all projects whose parent_id matches the given ID.
+func (ps *ProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]string, error) {
+	rows, err := ps.pool.Query(ctx, "SELECT id FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
+	if err != nil {
+		return nil, fmt.Errorf("list children: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan child id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // isUniqueViolation returns true if err is a PostgreSQL unique constraint violation (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError

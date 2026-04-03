@@ -128,7 +128,13 @@ export function ProjectStatusCard({ project }: Props) {
       <Card className="group flex flex-col">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-semibold">{project.project_id}</span>
+            <NavLink
+              to={`/projects/${project.project_id}`}
+              className="truncate font-semibold hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {project.project_id}
+            </NavLink>
             <div className="flex items-center gap-1">
               {latest_build ? (
                 <Badge
@@ -192,12 +198,6 @@ export function ProjectStatusCard({ project }: Props) {
             <p className="text-muted-foreground text-sm">No runs yet</p>
           )}
 
-          <NavLink
-            to={`/projects/${project.project_id}`}
-            className="text-primary mt-auto text-sm hover:underline"
-          >
-            View project
-          </NavLink>
         </CardContent>
       </Card>
     </>

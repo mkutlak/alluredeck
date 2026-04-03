@@ -60,6 +60,14 @@ export async function cleanResults(projectId: string): Promise<ApiResponse<{ out
   return res.data
 }
 
+export async function cleanGroupResults(parentId: string): Promise<void> {
+  await apiClient.delete(`/admin/results/group/${encodeURIComponent(parentId)}`)
+}
+
+export async function cleanGroupHistory(parentId: string): Promise<void> {
+  await apiClient.delete(`/projects/${encodeURIComponent(parentId)}/reports/history/group`)
+}
+
 const TARGZ_EXTENSIONS = ['.tar.gz', '.tgz']
 
 function isTarGzFile(file: File): boolean {

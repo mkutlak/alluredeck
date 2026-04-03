@@ -26,6 +26,7 @@ type ReportHandler struct {
 	branchStore     store.BranchStorer
 	testResultStore store.TestResultStorer
 	knownIssueStore store.KnownIssueStorer
+	projectStore    store.ProjectStorer
 	store           storage.Store
 	cfg             *config.Config
 	logger          *zap.Logger
@@ -39,6 +40,7 @@ type ReportHandlerDeps struct {
 	BranchStore     store.BranchStorer
 	TestResultStore store.TestResultStorer
 	KnownIssueStore store.KnownIssueStorer
+	ProjectStore    store.ProjectStorer
 	Store           storage.Store
 	Config          *config.Config
 	Logger          *zap.Logger
@@ -53,6 +55,7 @@ func NewReportHandler(deps ReportHandlerDeps) *ReportHandler {
 		branchStore:     deps.BranchStore,
 		testResultStore: deps.TestResultStore,
 		knownIssueStore: deps.KnownIssueStore,
+		projectStore:    deps.ProjectStore,
 		store:           deps.Store,
 		cfg:             deps.Config,
 		logger:          deps.Logger,
@@ -344,6 +347,57 @@ func (h *ReportHandler) buildReportEntry(ctx context.Context, projectID, name st
 	// Allure 3 has no timing in statistic.json; derive from test result files.
 	h.applyTimingFromTestResults(ctx, projectID, &entry, "reports/"+name+"/data/test-results")
 	return entry
+}
+
+// CleanGroupHistory godoc
+// @Summary      Clean history for all projects in a group
+// @Description  Deletes all report history for all child projects of the given parent.
+// @Tags         reports
+// @Produce      json
+// @Param        project_id  path  string  true  "Parent project ID"
+// @Success      200  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Router       /projects/{project_id}/reports/history/group [delete]
+func (h *ReportHandler) CleanGroupHistory(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
+	if !ok {
+		return
+	}
+
+	if h.projectStore == nil {
+		writeError(w, http.StatusInternalServerError, "project store not available")
+		return
+	}
+
+	childIDs, err := h.projectStore.ListChildIDs(ctx, projectID)
+	if err != nil {
+		h.logger.Error("clean group history: list child IDs failed", zap.String("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if len(childIDs) == 0 {
+		writeError(w, http.StatusNotFound, "no child projects found")
+		return
+	}
+
+	cleaned := 0
+	// Clean each child project.
+	for _, childID := range childIDs {
+		if err := h.runner.CleanHistory(ctx, childID); err != nil {
+			h.logger.Warn("clean group history: failed for child", zap.String("child_id", childID), zap.Error(err))
+			continue
+		}
+		cleaned++
+	}
+	// Also clean the parent itself.
+	if err := h.runner.CleanHistory(ctx, projectID); err != nil {
+		h.logger.Warn("clean group history: failed for parent", zap.String("project_id", projectID), zap.Error(err))
+	} else {
+		cleaned++
+	}
+
+	writeSuccess(w, http.StatusOK, map[string]any{"cleaned": cleaned}, fmt.Sprintf("history cleaned for %d project(s)", cleaned))
 }
 
 // GetReportCategories godoc

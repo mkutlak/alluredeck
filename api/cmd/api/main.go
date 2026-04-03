@@ -350,6 +350,7 @@ func wireHandlers(
 			BranchStore:     s.branch,
 			TestResultStore: s.testResult,
 			KnownIssueStore: s.knownIssue,
+			ProjectStore:    s.project,
 			Store:           dataStore,
 			Config:          cfg,
 			Logger:          logger,
@@ -357,10 +358,10 @@ func wireHandlers(
 		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
 		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, jobManager, allureCore, cfg, logger),
 		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, jobManager, cfg, logger),
-		admin:           handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger),
+		admin:           handlers.NewAdminHandlerWithProjects(jobManager, dataStore, s.project, cfg.ProjectsPath, logger),
 		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),
 		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, cfg.ProjectsPath),
-		analytics:       handlers.NewAnalyticsHandler(s.analytics, s.branch, cfg.ProjectsPath, logger),
+		analytics:       handlers.NewAnalyticsHandler(s.analytics, s.branch, s.project, cfg.ProjectsPath, logger),
 		search:          handlers.NewSearchHandler(s.search, cfg.ProjectsPath),
 		compare:         handlers.NewCompareHandler(s.testResult, cfg.ProjectsPath),
 		dashboard:       handlers.NewDashboardHandler(s.build, logger),
@@ -527,6 +528,7 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/rename", adminOnly(noStore(d.h.project.RenameProject)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/reports", editorUp(noStore(d.h.report.GenerateReport)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/jobs/{job_id}", adminOnly(noStore(d.h.report.GetJobStatus)))
+	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history/group", adminOnly(noStore(d.h.report.CleanGroupHistory)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/reports/history", adminOnly(noStore(d.h.report.CleanHistory)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/results", adminOnly(noStore(d.h.resultUpload.CleanResults)))
 	mux.HandleFunc("POST "+prefix+"/projects/{project_id}/results", editorUp(noStore(d.h.resultUpload.SendResults)))
@@ -570,6 +572,7 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(d.h.admin.CancelJob)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/jobs/{job_id}", adminOnly(noStore(d.h.admin.DeleteJob)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(d.h.admin.CleanProjectResults)))
+	mux.HandleFunc("DELETE "+prefix+"/admin/results/group/{project_id}", adminOnly(noStore(d.h.admin.CleanGroupResults)))
 
 	// Branch management endpoints.
 	if d.h.branch != nil {

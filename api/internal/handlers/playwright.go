@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
@@ -55,6 +58,12 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+
+	// Extend HTTP deadlines — Playwright archives can contain hundreds of files,
+	// each requiring an S3 round-trip during extraction.
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(5 * time.Minute))
+	_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Minute))
 
 	parentID := r.URL.Query().Get("parent_id")
 	execName := r.URL.Query().Get("execution_name")
@@ -165,6 +174,12 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID 
 	fileCount := 0
 	foundIndex := false
 
+	// Upload files to S3 concurrently — Playwright reports can contain hundreds
+	// of files and sequential uploads easily exceed HTTP timeouts.
+	const uploadConcurrency = 10
+	g, ctx := errgroup.WithContext(r.Context())
+	g.SetLimit(uploadConcurrency)
+
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -205,12 +220,21 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID 
 			foundIndex = true
 		}
 
-		// Write to the project's results directory using the relative path
-		// (including any data/ prefix) as the filename. The Playwright runner
-		// will process files from there.
-		if err := h.store.WriteResultFile(r.Context(), projectID, cleanName, tr); err != nil {
-			return fmt.Errorf("write %q: %w", cleanName, err)
+		// Buffer file content so the tar reader can advance while S3 uploads
+		// proceed concurrently.
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return fmt.Errorf("read %q from archive: %w", cleanName, err)
 		}
+
+		name := cleanName
+		g.Go(func() error {
+			return h.store.WriteResultFile(ctx, projectID, name, bytes.NewReader(data))
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	if !foundIndex {

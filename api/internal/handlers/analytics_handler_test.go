@@ -39,7 +39,7 @@ func TestAnalyticsHandler_GetTopErrors_NoBranch(t *testing.T) {
 	type capturingStore struct{ *mockAnalyticsStore }
 	_ = capturingStore{}
 
-	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors?builds=5&limit=3", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -72,7 +72,7 @@ func TestAnalyticsHandler_GetTopErrors_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors?branch=main", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -95,7 +95,7 @@ func TestAnalyticsHandler_GetSuitePassRates_NoBranch(t *testing.T) {
 	analyticsStore := &captureAnalyticsStore{
 		suitePassRates: []store.SuitePassRate{{Suite: "Smoke", Total: 10, Passed: 9, PassRate: 90}},
 	}
-	h := NewAnalyticsHandler(analyticsStore, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj2/analytics/suites?builds=10", nil)
 	req.SetPathValue("project_id", "proj2")
@@ -127,7 +127,7 @@ func TestAnalyticsHandler_GetSuitePassRates_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj2/analytics/suites?branch=main", nil)
 	req.SetPathValue("project_id", "proj2")
@@ -150,7 +150,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_NoBranch(t *testing.T) {
 	analyticsStore := &captureAnalyticsStore{
 		labelCounts: []store.LabelCount{{Value: "critical", Count: 5}},
 	}
-	h := NewAnalyticsHandler(analyticsStore, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj3/analytics/labels?name=severity&builds=5", nil)
 	req.SetPathValue("project_id", "proj3")
@@ -182,7 +182,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj3/analytics/labels?name=severity&branch=main", nil)
 	req.SetPathValue("project_id", "proj3")
@@ -212,7 +212,7 @@ func TestAnalyticsHandler_GetTopErrors_UnknownBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics() // only "main" resolves
 
-	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors?branch=nonexistent", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -235,7 +235,7 @@ func TestAnalyticsHandler_GetTrends_NoBranch(t *testing.T) {
 			{BuildOrder: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj5/analytics/trends?builds=5", nil)
 	req.SetPathValue("project_id", "proj5")
@@ -269,7 +269,7 @@ func TestAnalyticsHandler_GetTrends_WithBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics()
 
-	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj5/analytics/trends?branch=main", nil)
 	req.SetPathValue("project_id", "proj5")
@@ -299,7 +299,7 @@ func TestAnalyticsHandler_GetTrends_UnknownBranch(t *testing.T) {
 	}
 	branches := newBranchStoreForAnalytics() // only "main" resolves
 
-	h := NewAnalyticsHandler(analyticsStore, branches, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(analyticsStore, branches, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj5/analytics/trends?branch=nonexistent", nil)
 	req.SetPathValue("project_id", "proj5")
@@ -330,28 +330,28 @@ type captureAnalyticsStore struct {
 	onListTrendPoints    func(*int64)
 }
 
-func (c *captureAnalyticsStore) ListTopErrors(_ context.Context, _ string, _, _ int, branchID *int64) ([]store.ErrorCluster, error) {
+func (c *captureAnalyticsStore) ListTopErrors(_ context.Context, _ []string, _, _ int, branchID *int64) ([]store.ErrorCluster, error) {
 	if c.onListTopErrors != nil {
 		c.onListTopErrors(branchID)
 	}
 	return c.topErrors, nil
 }
 
-func (c *captureAnalyticsStore) ListSuitePassRates(_ context.Context, _ string, _ int, branchID *int64) ([]store.SuitePassRate, error) {
+func (c *captureAnalyticsStore) ListSuitePassRates(_ context.Context, _ []string, _ int, branchID *int64) ([]store.SuitePassRate, error) {
 	if c.onListSuitePassRates != nil {
 		c.onListSuitePassRates(branchID)
 	}
 	return c.suitePassRates, nil
 }
 
-func (c *captureAnalyticsStore) ListLabelBreakdown(_ context.Context, _, _ string, _ int, branchID *int64) ([]store.LabelCount, error) {
+func (c *captureAnalyticsStore) ListLabelBreakdown(_ context.Context, _ []string, _ string, _ int, branchID *int64) ([]store.LabelCount, error) {
 	if c.onListLabelBreakdown != nil {
 		c.onListLabelBreakdown(branchID)
 	}
 	return c.labelCounts, nil
 }
 
-func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ string, _ int, branchID *int64) ([]store.TrendPoint, error) {
+func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ []string, _ int, branchID *int64) ([]store.TrendPoint, error) {
 	if c.onListTrendPoints != nil {
 		c.onListTrendPoints(branchID)
 	}
@@ -364,7 +364,7 @@ func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ string, _ i
 
 func TestAnalyticsHandler_GetTopErrors_StoreError_Returns500(t *testing.T) {
 	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
-	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/errors", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -381,7 +381,7 @@ func TestAnalyticsHandler_GetTopErrors_StoreError_Returns500(t *testing.T) {
 
 func TestAnalyticsHandler_GetSuitePassRates_StoreError_Returns500(t *testing.T) {
 	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
-	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/suites", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -398,7 +398,7 @@ func TestAnalyticsHandler_GetSuitePassRates_StoreError_Returns500(t *testing.T) 
 
 func TestAnalyticsHandler_GetLabelBreakdown_StoreError_Returns500(t *testing.T) {
 	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
-	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/labels", nil)
 	req.SetPathValue("project_id", "proj1")
@@ -415,7 +415,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_StoreError_Returns500(t *testing.T) 
 
 func TestAnalyticsHandler_GetTrends_StoreError_Returns500(t *testing.T) {
 	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
-	h := NewAnalyticsHandler(mock, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/analytics/trends", nil)
 	req.SetPathValue("project_id", "proj1")

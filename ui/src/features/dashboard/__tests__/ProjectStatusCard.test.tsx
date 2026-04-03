@@ -93,7 +93,7 @@ describe('ProjectStatusCard', () => {
 
   it('renders a link to the project', () => {
     renderCard(healthyProject)
-    const link = screen.getByRole('link', { name: /view project/i })
+    const link = screen.getByRole('link', { name: 'my-project' })
     expect(link).toBeInTheDocument()
     expect(link.getAttribute('href')).toBe('/projects/my-project')
   })

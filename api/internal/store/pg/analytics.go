@@ -20,19 +20,19 @@ func NewAnalyticsStore(s *PGStore) *AnalyticsStore {
 	return &AnalyticsStore{pool: s.pool}
 }
 
-// ListTopErrors returns the most common failure messages across the last N builds.
-func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
-	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
-	args := []any{projectID, builds, projectID, limit}
+// ListTopErrors returns the most common failure messages across the last N builds for one or more projects.
+func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectIDs []string, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id = ANY($1) ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectIDs, builds, projectIDs, limit}
 	if branchID != nil {
-		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		recentCTE = "SELECT id FROM builds WHERE project_id = ANY($1) AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
 		args = append(args, *branchID)
 	}
 	query := fmt.Sprintf(`
 		WITH recent AS (%s)
 		SELECT status_message, COUNT(*) AS cnt
 		FROM test_results
-		WHERE project_id=$3
+		WHERE project_id = ANY($3)
 		  AND build_id IN (SELECT id FROM recent)
 		  AND status IN ('failed','broken')
 		  AND status_message IS NOT NULL AND status_message != ''
@@ -63,12 +63,12 @@ func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectID string, bu
 	return result, nil
 }
 
-// ListSuitePassRates returns per-suite pass rates across the last N builds.
-func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.SuitePassRate, error) {
-	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
-	args := []any{projectID, builds, projectID}
+// ListSuitePassRates returns per-suite pass rates across the last N builds for one or more projects.
+func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]store.SuitePassRate, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id = ANY($1) ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectIDs, builds, projectIDs}
 	if branchID != nil {
-		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$4 ORDER BY build_order DESC LIMIT $2"
+		recentCTE = "SELECT id FROM builds WHERE project_id = ANY($1) AND branch_id=$4 ORDER BY build_order DESC LIMIT $2"
 		args = append(args, *branchID)
 	}
 	query := fmt.Sprintf(`
@@ -78,7 +78,7 @@ func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectID strin
 		       SUM(CASE WHEN tr.status='passed' THEN 1 ELSE 0 END) AS passed
 		FROM test_results tr
 		JOIN test_labels tl ON tl.test_result_id = tr.id
-		WHERE tr.project_id=$3
+		WHERE tr.project_id = ANY($3)
 		  AND tr.build_id IN (SELECT id FROM recent)
 		  AND tl.name = 'suite'
 		GROUP BY tl.value
@@ -110,12 +110,12 @@ func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectID strin
 	return result, nil
 }
 
-// ListLabelBreakdown returns counts grouped by label value for a given label name.
-func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
-	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
-	args := []any{projectID, builds, projectID, labelName}
+// ListLabelBreakdown returns counts grouped by label value for a given label name across one or more projects.
+func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectIDs []string, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id = ANY($1) ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectIDs, builds, projectIDs, labelName}
 	if branchID != nil {
-		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		recentCTE = "SELECT id FROM builds WHERE project_id = ANY($1) AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
 		args = append(args, *branchID)
 	}
 	query := fmt.Sprintf(`
@@ -123,7 +123,7 @@ func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labe
 		SELECT tl.value, COUNT(DISTINCT tr.id) AS cnt
 		FROM test_results tr
 		JOIN test_labels tl ON tl.test_result_id = tr.id
-		WHERE tr.project_id=$3
+		WHERE tr.project_id = ANY($3)
 		  AND tr.build_id IN (SELECT id FROM recent)
 		  AND tl.name = $4
 		GROUP BY tl.value
@@ -152,8 +152,8 @@ func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectID, labe
 	return result, nil
 }
 
-// ListTrendPoints returns per-build statistics for the last N builds, ordered chronologically (oldest first).
-func (a *AnalyticsStore) ListTrendPoints(ctx context.Context, projectID string, builds int, branchID *int64) ([]store.TrendPoint, error) {
+// ListTrendPoints returns per-build statistics for the last N builds across one or more projects, ordered chronologically (oldest first).
+func (a *AnalyticsStore) ListTrendPoints(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]store.TrendPoint, error) {
 	query := `SELECT build_order,
        COALESCE(stat_passed, 0),
        COALESCE(stat_failed, 0),
@@ -162,8 +162,8 @@ func (a *AnalyticsStore) ListTrendPoints(ctx context.Context, projectID string, 
        COALESCE(stat_total, 0),
        COALESCE(duration_ms, 0)
 FROM builds
-WHERE project_id = $1`
-	args := []any{projectID, builds}
+WHERE project_id = ANY($1)`
+	args := []any{projectIDs, builds}
 	if branchID != nil {
 		query += " AND branch_id = $3"
 		args = append(args, *branchID)

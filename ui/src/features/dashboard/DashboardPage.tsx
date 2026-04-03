@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { NavLink } from 'react-router'
+import { ChevronDown, ChevronRight, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardOptions } from '@/lib/queries'
 import { ProjectStatusCard } from './ProjectStatusCard'
@@ -7,8 +8,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
+import { CleanDialog } from '@/features/reports/CleanDialog'
 import type { DashboardProjectEntry } from '@/types/api'
 
 export function DashboardPage() {
@@ -112,6 +120,8 @@ export function DashboardPage() {
 
 function ProjectGroup({ project }: { project: DashboardProjectEntry }) {
   const [expanded, setExpanded] = useState(false)
+  const [cleanMode, setCleanMode] = useState<'results' | 'history' | null>(null)
+  const isAdmin = useAuthStore(selectIsAdmin)
   const { aggregate } = project
   const children = project.children ?? []
 
@@ -119,25 +129,66 @@ function ProjectGroup({ project }: { project: DashboardProjectEntry }) {
     <div className="sm:col-span-2 lg:col-span-3">
       <Card>
         <CardContent className="p-4">
-          <button
-            className="flex w-full items-center justify-between gap-2 text-left"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-          >
+          <div className="flex items-center justify-between gap-2">
+            <button
+              className="flex flex-1 items-center gap-2 text-left"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+            >
+              <div className="flex items-center gap-2">
+                {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <NavLink
+                  to={`/projects/${project.project_id}`}
+                  className="font-semibold hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {project.project_id}
+                </NavLink>
+                {aggregate && (
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    {children.length} {children.length === 1 ? 'suite' : 'suites'} ·{' '}
+                    {aggregate.pass_rate.toFixed(0)}% pass rate
+                  </Badge>
+                )}
+              </div>
+            </button>
+
             <div className="flex items-center gap-2">
-              {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              <span className="font-semibold">{project.project_id}</span>
               {aggregate && (
-                <Badge variant="secondary" className="text-xs font-normal">
-                  {children.length} {children.length === 1 ? 'suite' : 'suites'} ·{' '}
-                  {aggregate.pass_rate.toFixed(0)}% pass rate
-                </Badge>
+                <span className="text-muted-foreground text-sm">{aggregate.total} total tests</span>
+              )}
+              {isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Group actions"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal size={16} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => setCleanMode('results')}
+                    >
+                      <Trash2 size={14} className="mr-2" />
+                      Clean all results
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => setCleanMode('history')}
+                    >
+                      <Trash2 size={14} className="mr-2" />
+                      Clean all history
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
-            {aggregate && (
-              <span className="text-muted-foreground text-sm">{aggregate.total} total tests</span>
-            )}
-          </button>
+          </div>
 
           {expanded && children.length > 0 && (
             <div className="mt-4 grid grid-cols-1 gap-4 pl-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -148,6 +199,18 @@ function ProjectGroup({ project }: { project: DashboardProjectEntry }) {
           )}
         </CardContent>
       </Card>
+
+      {cleanMode && (
+        <CleanDialog
+          projectId={project.project_id}
+          mode={cleanMode}
+          open={!!cleanMode}
+          onOpenChange={(open) => {
+            if (!open) setCleanMode(null)
+          }}
+          groupMode
+        />
+      )}
     </div>
   )
 }

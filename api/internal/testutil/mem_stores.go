@@ -295,6 +295,21 @@ func (m *MemProjectStore) ListChildren(ctx context.Context, parentID string) ([]
 	return out, nil
 }
 
+func (m *MemProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []string
+	for _, p := range m.projects {
+		if p.ParentID != nil && *p.ParentID == parentID {
+			out = append(out, p.ID)
+		}
+	}
+	return out, nil
+}
+
 func (m *MemProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err

@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, AlertTriangle } from 'lucide-react'
-import { cleanHistory, cleanResults } from '@/api/reports'
+import { cleanHistory, cleanResults, cleanGroupHistory, cleanGroupResults } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
-import { invalidateProjectQueries } from '@/lib/query-keys'
+import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -23,6 +23,7 @@ interface CleanDialogProps {
   mode: CleanMode
   open: boolean
   onOpenChange: (open: boolean) => void
+  groupMode?: boolean
 }
 
 const MESSAGES = {
@@ -42,15 +43,42 @@ const MESSAGES = {
   },
 }
 
-export function CleanDialog({ projectId, mode, open, onOpenChange }: CleanDialogProps) {
+const GROUP_MESSAGES = {
+  results: {
+    title: 'Clean all results',
+    description: 'This will delete all current test result files for ALL projects in this group.',
+    confirm: 'Clean all results',
+    successTitle: 'Group results cleaned',
+    successDesc: (id: string) => `All results for group "${id}" have been removed.`,
+  },
+  history: {
+    title: 'Clean all history',
+    description:
+      'This will permanently delete all historical report snapshots for ALL projects in this group.',
+    confirm: 'Clean all history',
+    successTitle: 'Group history cleaned',
+    successDesc: (id: string) => `All report history for group "${id}" has been removed.`,
+  },
+}
+
+export function CleanDialog({ projectId, mode, open, onOpenChange, groupMode }: CleanDialogProps) {
   const [error, setError] = useState('')
   const queryClient = useQueryClient()
-  const msg = MESSAGES[mode]
+  const msg = groupMode ? GROUP_MESSAGES[mode] : MESSAGES[mode]
 
   const mutation = useMutation({
-    mutationFn: () => (mode === 'history' ? cleanHistory(projectId) : cleanResults(projectId)),
+    mutationFn: async () => {
+      if (groupMode) {
+        await (mode === 'history' ? cleanGroupHistory(projectId) : cleanGroupResults(projectId))
+      } else {
+        await (mode === 'history' ? cleanHistory(projectId) : cleanResults(projectId))
+      }
+    },
     onSuccess: () => {
       void invalidateProjectQueries(queryClient, projectId)
+      if (groupMode) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
+      }
       toast({ title: msg.successTitle, description: msg.successDesc(projectId) })
       onOpenChange(false)
     },

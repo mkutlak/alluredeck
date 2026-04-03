@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -15,14 +16,35 @@ import (
 type AnalyticsHandler struct {
 	analyticsStore store.AnalyticsStorer
 	branchStore    store.BranchStorer
+	projectStore   store.ProjectStorer
 	projectsDir    string
 	logger         *zap.Logger
 }
 
 // NewAnalyticsHandler creates an AnalyticsHandler. analyticsStore may be nil
 // when analytics are unavailable — all endpoints return empty data in that case.
-func NewAnalyticsHandler(analyticsStore store.AnalyticsStorer, branchStore store.BranchStorer, projectsDir string, logger *zap.Logger) *AnalyticsHandler {
-	return &AnalyticsHandler{analyticsStore: analyticsStore, branchStore: branchStore, projectsDir: projectsDir, logger: logger}
+func NewAnalyticsHandler(analyticsStore store.AnalyticsStorer, branchStore store.BranchStorer, projectStore store.ProjectStorer, projectsDir string, logger *zap.Logger) *AnalyticsHandler {
+	return &AnalyticsHandler{
+		analyticsStore: analyticsStore,
+		branchStore:    branchStore,
+		projectStore:   projectStore,
+		projectsDir:    projectsDir,
+		logger:         logger,
+	}
+}
+
+// resolveProjectIDs returns the given project ID plus any child project IDs
+// if the project is a parent. For leaf projects it returns just the single ID.
+func (h *AnalyticsHandler) resolveProjectIDs(ctx context.Context, projectID string) []string {
+	ids := []string{projectID}
+	if h.projectStore == nil {
+		return ids
+	}
+	children, err := h.projectStore.ListChildIDs(ctx, projectID)
+	if err != nil || len(children) == 0 {
+		return ids
+	}
+	return append(ids, children...)
 }
 
 // parseClampedInt parses s as an int in [1,100], defaulting to 20.
@@ -67,8 +89,9 @@ func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) 
 	}
 
 	branchID := h.resolveBranchID(r, projectID, q.Get("branch"))
+	projectIDs := h.resolveProjectIDs(r.Context(), projectID)
 
-	data, err := h.analyticsStore.ListTopErrors(r.Context(), projectID, builds, limit, branchID)
+	data, err := h.analyticsStore.ListTopErrors(r.Context(), projectIDs, builds, limit, branchID)
 	if err != nil {
 		h.logger.Error("list top errors", zap.String("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
@@ -96,8 +119,9 @@ func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Requ
 	}
 
 	branchID := h.resolveBranchID(r, projectID, q.Get("branch"))
+	projectIDs := h.resolveProjectIDs(r.Context(), projectID)
 
-	data, err := h.analyticsStore.ListSuitePassRates(r.Context(), projectID, builds, branchID)
+	data, err := h.analyticsStore.ListSuitePassRates(r.Context(), projectIDs, builds, branchID)
 	if err != nil {
 		h.logger.Error("list suite pass rates", zap.String("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
@@ -129,8 +153,9 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 	}
 
 	branchID := h.resolveBranchID(r, projectID, q.Get("branch"))
+	projectIDs := h.resolveProjectIDs(r.Context(), projectID)
 
-	data, err := h.analyticsStore.ListLabelBreakdown(r.Context(), projectID, labelName, builds, branchID)
+	data, err := h.analyticsStore.ListLabelBreakdown(r.Context(), projectIDs, labelName, builds, branchID)
 	if err != nil {
 		h.logger.Error("list label breakdown", zap.String("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
@@ -157,8 +182,9 @@ func (h *AnalyticsHandler) GetTrends(w http.ResponseWriter, r *http.Request) {
 	}
 
 	branchID := h.resolveBranchID(r, projectID, q.Get("branch"))
+	projectIDs := h.resolveProjectIDs(r.Context(), projectID)
 
-	points, err := h.analyticsStore.ListTrendPoints(r.Context(), projectID, builds, branchID)
+	points, err := h.analyticsStore.ListTrendPoints(r.Context(), projectIDs, builds, branchID)
 	if err != nil {
 		h.logger.Error("list trend points", zap.String("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")

@@ -135,6 +135,10 @@ func (m *MockProjectStore) ListChildren(ctx context.Context, parentID string) ([
 	return nil, nil
 }
 
+func (m *MockProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *MockProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
 	if m.HasChildrenFn != nil {
 		return m.HasChildrenFn(ctx, projectID)
