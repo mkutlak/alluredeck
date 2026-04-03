@@ -120,13 +120,14 @@ func (ls *LocalStore) ListProjects(_ context.Context) ([]string, error) {
 }
 
 // WriteResultFile writes r to projectID/results/filename.
+// filename may contain subdirectories (e.g. "data/screenshot.png"); parent
+// directories are created automatically.
 func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, filename string, r io.Reader) error {
-	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results")
+	dest := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", filename)
 	//nolint:gosec // G301: 0o755 required for allure web server to read results
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("create results dir: %w", err)
 	}
-	dest := filepath.Join(resultsDir, filename)
 	f, err := os.Create(dest)
 	if err != nil {
 		return fmt.Errorf("create result file %q: %w", dest, err)

@@ -163,7 +163,8 @@ func TestSendResults_ProjectCheckError_NoLeakage(t *testing.T) {
 		Locker:     mocks.Locker,
 		Logger:     logger,
 	})
-	h := NewResultUploadHandler(mockSt, mocks.Projects, r, cfg, logger)
+	jm := runner.NewMemJobManager(nil, 0, logger)
+	h := NewResultUploadHandler(mockSt, mocks.Projects, jm, r, cfg, logger)
 
 	body := strings.NewReader(`{"results":[]}`)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,

@@ -355,7 +355,7 @@ func wireHandlers(
 			Logger:          logger,
 		}),
 		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
-		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, allureCore, cfg, logger),
+		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, jobManager, allureCore, cfg, logger),
 		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, jobManager, cfg, logger),
 		admin:           handlers.NewAdminHandler(jobManager, dataStore, cfg.ProjectsPath, logger),
 		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),

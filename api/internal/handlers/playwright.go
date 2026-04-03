@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -204,15 +203,6 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID 
 
 		if cleanName == "index.html" {
 			foundIndex = true
-		}
-
-		// Ensure parent subdirectory exists before writing (e.g. data/ for attachments).
-		if dir := filepath.Dir(cleanName); dir != "." {
-			subDir := filepath.Join(h.cfg.ProjectsPath, projectID, "results", dir)
-			//nolint:gosec // G301: 0o755 required for web server to read report dirs
-			if err := os.MkdirAll(subDir, 0o755); err != nil {
-				return fmt.Errorf("create subdir %q: %w", dir, err)
-			}
 		}
 
 		// Write to the project's results directory using the relative path

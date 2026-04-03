@@ -1537,10 +1537,10 @@ paths:
       - application/json
       - multipart/form-data
       - application/gzip
-      description: Uploads allure result files to a project. Supports JSON (deprecated),
-        multipart/form-data, and application/gzip (tar.gz archive). The JSON mode
-        (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz
-        or multipart uploads.
+      description: Uploads allure result files to a project and automatically triggers
+        report generation. Supports JSON (deprecated), multipart/form-data, and application/gzip
+        (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and
+        is deprecated in favor of tar.gz or multipart uploads.
       parameters:
       - description: Project ID
         in: path
@@ -1550,6 +1550,26 @@ paths:
       - description: Auto-create project if missing
         in: query
         name: force_project_creation
+        type: string
+      - description: Execution name (CI provider, e.g. 'GitHub Actions')
+        in: query
+        name: execution_name
+        type: string
+      - description: Execution from (CI build URL)
+        in: query
+        name: execution_from
+        type: string
+      - description: Execution type
+        in: query
+        name: execution_type
+        type: string
+      - description: CI branch name
+        in: query
+        name: ci_branch
+        type: string
+      - description: CI commit SHA
+        in: query
+        name: ci_commit_sha
         type: string
       produces:
       - application/json

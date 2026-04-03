@@ -72,36 +72,27 @@ fi
 echo "==> Packaging ${FILE_COUNT} result files from ${RESULTS_DIR}..."
 tar czf "$ARCHIVE" -C "$RESULTS_DIR" .
 
-echo "==> Uploading to project '${PROJECT}'..."
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+echo "==> Uploading to project '${PROJECT}' (report generation will start automatically)..."
+UPLOAD_PARAMS="force_project_creation=true"
+[ -n "${COMMIT_SHA}" ] && UPLOAD_PARAMS="${UPLOAD_PARAMS}&ci_commit_sha=${COMMIT_SHA}"
+[ -n "${CI_BRANCH}" ]  && UPLOAD_PARAMS="${UPLOAD_PARAMS}&ci_branch=${CI_BRANCH}"
+
+UPLOAD_RESP=$(curl -s -w "\n%{http_code}" \
   -b "$COOKIE_JAR" \
-  -X POST "${API_URL}/projects/${PROJECT}/results?force_project_creation=true" \
+  -X POST "${API_URL}/projects/${PROJECT}/results?${UPLOAD_PARAMS}" \
   -H "Content-Type: application/gzip" \
   -H "X-CSRF-Token: ${CSRF}" \
   --data-binary @"$ARCHIVE")
 
+HTTP_STATUS=$(echo "$UPLOAD_RESP" | tail -1)
 if [ "$HTTP_STATUS" != "200" ]; then
   echo "Error: Upload failed (HTTP ${HTTP_STATUS})."
+  echo "$UPLOAD_RESP" | head -n -1
   exit 1
 fi
 
-echo "    Upload OK"
-
-echo "==> Triggering report generation..."
-REPORT_PARAMS=""
-[ -n "${COMMIT_SHA}" ] && REPORT_PARAMS="${REPORT_PARAMS}&ci_commit_sha=${COMMIT_SHA}"
-[ -n "${CI_BRANCH}" ]  && REPORT_PARAMS="${REPORT_PARAMS}&ci_branch=${CI_BRANCH}"
-# Build query string: replace leading '&' with '?', or leave empty
-REPORT_QUERY="${REPORT_PARAMS:+?${REPORT_PARAMS#&}}"
-
-REPORT_RESP=$(curl -s \
-  -b "$COOKIE_JAR" \
-  -X POST "${API_URL}/projects/${PROJECT}/reports${REPORT_QUERY}" \
-  -H "Content-Length: 0" \
-  -H "X-CSRF-Token: ${CSRF}")
-
-JOB_ID=$(echo "$REPORT_RESP" | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
-echo "    Report generation queued (job_id: ${JOB_ID:-unknown})"
+JOB_ID=$(echo "$UPLOAD_RESP" | head -n -1 | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
+echo "    Upload OK — report generation queued (job_id: ${JOB_ID:-unknown})"
 [ -n "${COMMIT_SHA}" ] && echo "    commit: ${COMMIT_SHA}"
 [ -n "${CI_BRANCH}" ]  && echo "    branch: ${CI_BRANCH}"
 echo ""

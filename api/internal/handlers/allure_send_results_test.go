@@ -655,7 +655,8 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 		Locker:     mocks.Locker,
 		Logger:     logger,
 	})
-	h := NewResultUploadHandler(st, mocks.Projects, r, cfg, logger)
+	jm := runner.NewMemJobManager(nil, 0, logger)
+	h := NewResultUploadHandler(st, mocks.Projects, jm, r, cfg, logger)
 
 	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
 	req := makeJSONSendResultsReq(t, projectID, []map[string]string{

@@ -206,7 +206,8 @@ func newTestResultUploadHandler(t *testing.T, projectsDir string) (*ResultUpload
 		Locker:     mocks.Locker,
 		Logger:     logger,
 	})
-	h := NewResultUploadHandler(st, mocks.Projects, r, cfg, logger)
+	jm := runner.NewMemJobManager(nil, 0, logger)
+	h := NewResultUploadHandler(st, mocks.Projects, jm, r, cfg, logger)
 	return h, mocks
 }
 

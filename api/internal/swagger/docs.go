@@ -2077,7 +2077,7 @@ const docTemplate = `{
         },
         "/projects/{project_id}/results": {
             "post": {
-                "description": "Uploads allure result files to a project. Supports JSON (deprecated), multipart/form-data, and application/gzip (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz or multipart uploads.",
+                "description": "Uploads allure result files to a project and automatically triggers report generation. Supports JSON (deprecated), multipart/form-data, and application/gzip (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz or multipart uploads.",
                 "consumes": [
                     "application/json",
                     "multipart/form-data",
@@ -2102,6 +2102,36 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Auto-create project if missing",
                         "name": "force_project_creation",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Execution name (CI provider, e.g. 'GitHub Actions')",
+                        "name": "execution_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Execution from (CI build URL)",
+                        "name": "execution_from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Execution type",
+                        "name": "execution_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "CI branch name",
+                        "name": "ci_branch",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "CI commit SHA",
+                        "name": "ci_commit_sha",
                         "in": "query"
                     }
                 ],

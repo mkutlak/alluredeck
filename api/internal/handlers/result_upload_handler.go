@@ -26,14 +26,15 @@ import (
 type ResultUploadHandler struct {
 	store        storage.Store
 	projectStore store.ProjectStorer
+	jobManager   runner.JobQueuer
 	runner       *runner.Allure
 	cfg          *config.Config
 	logger       *zap.Logger
 }
 
 // NewResultUploadHandler creates and returns a new ResultUploadHandler.
-func NewResultUploadHandler(st storage.Store, ps store.ProjectStorer, r *runner.Allure, cfg *config.Config, logger *zap.Logger) *ResultUploadHandler {
-	return &ResultUploadHandler{store: st, projectStore: ps, runner: r, cfg: cfg, logger: logger}
+func NewResultUploadHandler(st storage.Store, ps store.ProjectStorer, jm runner.JobQueuer, r *runner.Allure, cfg *config.Config, logger *zap.Logger) *ResultUploadHandler {
+	return &ResultUploadHandler{store: st, projectStore: ps, jobManager: jm, runner: r, cfg: cfg, logger: logger}
 }
 
 // CleanResults godoc
@@ -63,12 +64,17 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 
 // SendResults godoc
 // @Summary      Upload test results
-// @Description  Uploads allure result files to a project. Supports JSON (deprecated), multipart/form-data, and application/gzip (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz or multipart uploads.
+// @Description  Uploads allure result files to a project and automatically triggers report generation. Supports JSON (deprecated), multipart/form-data, and application/gzip (tar.gz archive). The JSON mode (base64-encoded) has +33% size overhead and is deprecated in favor of tar.gz or multipart uploads.
 // @Tags         results
 // @Accept       json,mpfd,application/gzip
 // @Produce      json
 // @Param        project_id              path   string  true   "Project ID"
 // @Param        force_project_creation  query  string  false  "Auto-create project if missing"
+// @Param        execution_name          query  string  false  "Execution name (CI provider, e.g. 'GitHub Actions')"
+// @Param        execution_from          query  string  false  "Execution from (CI build URL)"
+// @Param        execution_type          query  string  false  "Execution type"
+// @Param        ci_branch               query  string  false  "CI branch name"
+// @Param        ci_commit_sha           query  string  false  "CI commit SHA"
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
@@ -81,6 +87,11 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	}
 
 	parentID := r.URL.Query().Get("parent_id")
+	execName := r.URL.Query().Get("execution_name")
+	execFrom := r.URL.Query().Get("execution_from")
+	execType := r.URL.Query().Get("execution_type")
+	ciBranch := r.URL.Query().Get("ci_branch")
+	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
 
 	// Ensure project exists (auto-create if requested)
 	exists, err := h.store.ProjectExists(r.Context(), projectID)
@@ -151,14 +162,27 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Auto-trigger report generation after successful upload.
+	job := h.jobManager.Submit(projectID, runner.JobParams{
+		ExecName:     execName,
+		ExecFrom:     execFrom,
+		ExecType:     execType,
+		StoreResults: true,
+		CIBranch:     ciBranch,
+		CICommitSHA:  ciCommitSHA,
+	})
+
 	if h.cfg.APIResponseLessVerbose {
-		writeSuccess(w, http.StatusOK, map[string]any{}, fmt.Sprintf("Results successfully sent for project_id '%s'", projectID))
+		writeSuccess(w, http.StatusOK, map[string]any{
+			"job_id": job.ID,
+		}, fmt.Sprintf("Results successfully sent for project_id '%s'", projectID))
 		return
 	}
 
 	currentFileNames, _ := h.store.ListResultFiles(r.Context(), projectID)
 
 	writeSuccess(w, http.StatusOK, map[string]any{
+		"job_id":                job.ID,
 		"current_files":         currentFileNames,
 		"current_files_count":   len(currentFileNames),
 		"failed_files":          failedFiles,
