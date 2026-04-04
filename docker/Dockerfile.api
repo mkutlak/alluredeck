@@ -9,7 +9,7 @@ RUN npm init -y && npm install playwright-core
 RUN cp -r node_modules/playwright-core/lib/vite/traceViewer /trace-viewer
 
 ###### Go Build Stage
-FROM golang:1.25-alpine AS build_stage
+FROM golang:1.26-alpine AS build_stage
 ARG BUILD_DATE
 ARG BUILD_VERSION
 ARG BUILD_REF
