@@ -168,6 +168,7 @@ export interface ReportHistoryEntry {
   generated_at: string | null
   duration_ms: number | null
   statistic: AllureStatistic | null
+  has_playwright_report?: boolean
   flaky_count?: number
   retried_count?: number
   new_failed_count?: number

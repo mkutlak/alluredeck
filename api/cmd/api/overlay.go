@@ -84,6 +84,39 @@ func stripIndexHTML(urlPath string) string {
 	return urlPath
 }
 
+// newPlaywrightReportHandler returns an HTTP handler that serves Playwright HTML report
+// files. Unlike the Allure overlay, no fallback is needed — each numbered build directory
+// is a complete self-contained report (index.html, data/, etc.).
+//
+// The handler reads path parameters directly from the request context (set by Go 1.22+
+// pattern matching): {projectID} and {reportID}. The wildcard segment {rest...} provides
+// the remaining file path within the report directory.
+func newPlaywrightReportHandler(st storage.Store) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("projectID")
+		reportID := r.PathValue("reportID")
+		rest := r.PathValue("rest")
+
+		// Serve index.html when no sub-path is requested.
+		if rest == "" || rest == "/" {
+			rest = "index.html"
+		}
+
+		// Build the subPath as "{reportID}/{rest}" — matches ReadPlaywrightFile's convention.
+		subPath := reportID + "/" + strings.TrimPrefix(rest, "/")
+
+		rc, contentType, err := st.ReadPlaywrightFile(r.Context(), projectID, subPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer func() { _ = rc.Close() }()
+
+		w.Header().Set("Content-Type", contentType)
+		_, _ = io.Copy(w, rc)
+	})
+}
+
 // newS3ReportHandler returns an HTTP handler that serves Allure report files from S3.
 // For numbered builds, it tries the build dir first, then falls back to latest/ for
 // static assets (same overlay pattern as the local filesystem handler).

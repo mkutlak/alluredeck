@@ -217,6 +217,7 @@ type MockBuildStore struct {
 	PruneBuildsByAgeFn          func(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error)
 	ListBuildsInRangeFn         func(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
+	SetHasPlaywrightReportFn    func(ctx context.Context, projectID string, buildOrder int, value bool) error
 }
 
 func (m *MockBuildStore) NextBuildOrder(ctx context.Context, projectID string) (int, error) {
@@ -357,6 +358,13 @@ func (m *MockBuildStore) ListBuildsInRange(ctx context.Context, projectID string
 		return m.ListBuildsInRangeFn(ctx, projectID, branchID, from, to, limit)
 	}
 	return nil, 0, nil
+}
+
+func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID string, buildOrder int, value bool) error {
+	if m.SetHasPlaywrightReportFn != nil {
+		return m.SetHasPlaywrightReportFn(ctx, projectID, buildOrder, value)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -773,8 +781,9 @@ func (m *MockUserStore) Deactivate(ctx context.Context, id int64) error {
 // MockAttachmentStore is a test double for store.AttachmentStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockAttachmentStore struct {
-	ListByBuildFn func(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error)
-	GetBySourceFn func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
+	ListByBuildFn            func(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error)
+	GetBySourceFn            func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
+	InsertBuildAttachmentsFn func(ctx context.Context, buildID int64, projectID string, attachments []store.TestAttachment) error
 }
 
 func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
@@ -789,6 +798,13 @@ func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, so
 		return m.GetBySourceFn(ctx, buildID, source)
 	}
 	return nil, nil
+}
+
+func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildID int64, projectID string, attachments []store.TestAttachment) error {
+	if m.InsertBuildAttachmentsFn != nil {
+		return m.InsertBuildAttachmentsFn(ctx, buildID, projectID, attachments)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

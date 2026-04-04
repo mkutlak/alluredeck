@@ -1,6 +1,6 @@
 import { useState, useMemo, Fragment } from 'react'
 import { Link } from 'react-router'
-import { ExternalLink, Trash2, GitBranch, ChevronRight } from 'lucide-react'
+import { ExternalLink, Trash2, GitBranch, ChevronRight, Clapperboard } from 'lucide-react'
 import { env } from '@/lib/env'
 import { isSafeUrl } from '@/lib/url'
 import { formatDate, calcPassRate } from '@/lib/utils'
@@ -65,9 +65,23 @@ function ReportRow({
         />
       </TableCell>
       <TableCell>
-        <Link to={reportUrl} className="text-primary font-mono text-sm font-medium hover:underline">
-          #{r.report_id}
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <Link
+            to={reportUrl}
+            className="text-primary font-mono text-sm font-medium hover:underline"
+          >
+            #{r.report_id}
+          </Link>
+          {r.has_playwright_report && (
+            <span
+              title="Has Playwright report"
+              aria-label="Has Playwright report"
+              className="text-muted-foreground"
+            >
+              <Clapperboard size={12} />
+            </span>
+          )}
+        </div>
       </TableCell>
       <TableCell className="text-muted-foreground text-sm">
         {r.generated_at ? formatDate(r.generated_at) : '—'}

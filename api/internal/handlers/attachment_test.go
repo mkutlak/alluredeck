@@ -39,6 +39,10 @@ func (m *mockAttachmentStore) GetBySource(_ context.Context, _ int64, _ string) 
 	return m.source, nil
 }
 
+func (m *mockAttachmentStore) InsertBuildAttachments(_ context.Context, _ int64, _ string, _ []store.TestAttachment) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // mockBuildStore (minimal — only the two methods used by AttachmentHandler)
 // ---------------------------------------------------------------------------
@@ -109,6 +113,10 @@ func (m *mockAttachmentBuildStore) ListBuildsInRange(_ context.Context, _ string
 	panic("not implemented")
 }
 
+func (m *mockAttachmentBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ int, _ bool) error {
+	panic("not implemented")
+}
+
 // ---------------------------------------------------------------------------
 // mockDataStore (minimal — only OpenReportFile used by AttachmentHandler)
 // ---------------------------------------------------------------------------
@@ -171,6 +179,24 @@ func (m *mockDataStore) LatestReportExists(_ context.Context, _ string) (bool, e
 	panic("not implemented")
 }
 func (m *mockDataStore) ResultsDirHash(_ context.Context, _ string) (string, error) {
+	panic("not implemented")
+}
+func (m *mockDataStore) WritePlaywrightFile(_ context.Context, _, _ string, _ io.Reader) error {
+	panic("not implemented")
+}
+func (m *mockDataStore) PlaywrightReportExists(_ context.Context, _ string, _ int) (bool, error) {
+	panic("not implemented")
+}
+func (m *mockDataStore) CopyPlaywrightLatestToBuild(_ context.Context, _ string, _ int) error {
+	panic("not implemented")
+}
+func (m *mockDataStore) CleanPlaywrightLatest(_ context.Context, _ string) error {
+	panic("not implemented")
+}
+func (m *mockDataStore) ListPlaywrightDataFiles(_ context.Context, _ string, _ int) ([]string, error) {
+	panic("not implemented")
+}
+func (m *mockDataStore) ReadPlaywrightFile(_ context.Context, _, _ string) (io.ReadCloser, string, error) {
 	panic("not implemented")
 }
 
@@ -349,6 +375,10 @@ func (c *captureMimeStore) ListByBuild(_ context.Context, _ string, _ int64, mim
 
 func (c *captureMimeStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
 	return c.inner.source, c.inner.errToReturn
+}
+
+func (c *captureMimeStore) InsertBuildAttachments(_ context.Context, _ int64, _ string, _ []store.TestAttachment) error {
+	return nil
 }
 
 // ---------------------------------------------------------------------------

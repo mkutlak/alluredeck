@@ -66,6 +66,7 @@ type BuildStorer interface {
 	PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]Build, int, error)
 	ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]Build, int, error)
+	SetHasPlaywrightReport(ctx context.Context, projectID string, buildOrder int, value bool) error
 }
 
 // TestResultStorer is the interface for test result operations.
@@ -175,6 +176,9 @@ type PipelineStorer interface {
 type AttachmentStorer interface {
 	ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]TestAttachment, int, error)
 	GetBySource(ctx context.Context, buildID int64, source string) (*TestAttachment, error)
+	// InsertBuildAttachments inserts build-level attachments (e.g. from Playwright
+	// data/ directory) that are not linked to a specific test result.
+	InsertBuildAttachments(ctx context.Context, buildID int64, projectID string, attachments []TestAttachment) error
 }
 
 // APIKeyStorer is the interface for API key operations.

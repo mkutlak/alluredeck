@@ -696,5 +696,126 @@ func (s *S3Store) RenameProject(ctx context.Context, oldID, newID string) error 
 	return deletePrefix(ctx, s.client, s.bucket, oldPrefix)
 }
 
+// WritePlaywrightFile uploads r to projects/{projectID}/playwright-reports/{subPath}.
+func (s *S3Store) WritePlaywrightFile(ctx context.Context, projectID, subPath string, r io.Reader) error {
+	key := s.s3Key("projects", projectID, "playwright-reports", subPath)
+	_, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Body:   r,
+	})
+	if err != nil {
+		return fmt.Errorf("put playwright file %q: %w", subPath, err)
+	}
+	return nil
+}
+
+// PlaywrightReportExists checks if playwright-reports/{buildOrder}/index.html exists in S3.
+func (s *S3Store) PlaywrightReportExists(ctx context.Context, projectID string, buildOrder int) (bool, error) {
+	key := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildOrder), "index.html")
+	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		// HeadObject returns a non-nil error for 404; treat any error as not found.
+		return false, nil
+	}
+	return true, nil
+}
+
+// CopyPlaywrightLatestToBuild copies all objects from playwright-reports/latest/ to playwright-reports/{buildOrder}/ in S3.
+func (s *S3Store) CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildOrder int) error {
+	srcPrefix := s.s3Key("projects", projectID, "playwright-reports", "latest") + "/"
+	dstPrefix := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildOrder)) + "/"
+
+	var srcKeys []string
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(srcPrefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list playwright latest objects: %w", err)
+		}
+		for _, obj := range page.Contents {
+			if obj.Key != nil {
+				srcKeys = append(srcKeys, *obj.Key)
+			}
+		}
+	}
+	if len(srcKeys) == 0 {
+		return nil
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(s.cfg.S3.Concurrency)
+	for _, srcKey := range srcKeys {
+		g.Go(func() error {
+			relPath := strings.TrimPrefix(srcKey, srcPrefix)
+			dstKey := dstPrefix + relPath
+			if _, err := s.client.CopyObject(gctx, &s3.CopyObjectInput{
+				Bucket:     aws.String(s.bucket),
+				CopySource: aws.String(s.bucket + "/" + srcKey),
+				Key:        aws.String(dstKey),
+			}); err != nil {
+				return fmt.Errorf("copy playwright object %q -> %q: %w", srcKey, dstKey, err)
+			}
+			return nil
+		})
+	}
+	return g.Wait()
+}
+
+// CleanPlaywrightLatest removes all S3 objects from playwright-reports/latest/.
+func (s *S3Store) CleanPlaywrightLatest(ctx context.Context, projectID string) error {
+	prefix := s.s3Key("projects", projectID, "playwright-reports", "latest") + "/"
+	return deletePrefix(ctx, s.client, s.bucket, prefix)
+}
+
+// ListPlaywrightDataFiles lists file names in playwright-reports/{buildOrder}/data/.
+func (s *S3Store) ListPlaywrightDataFiles(ctx context.Context, projectID string, buildOrder int) ([]string, error) {
+	prefix := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildOrder), "data") + "/"
+	var names []string
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list playwright data files: %w", err)
+		}
+		for _, obj := range page.Contents {
+			if obj.Key == nil {
+				continue
+			}
+			name := strings.TrimPrefix(*obj.Key, prefix)
+			if name != "" && !strings.Contains(name, "/") {
+				names = append(names, name)
+			}
+		}
+	}
+	return names, nil
+}
+
+// ReadPlaywrightFile downloads playwright-reports/{subPath} from S3 and returns a reader.
+func (s *S3Store) ReadPlaywrightFile(ctx context.Context, projectID, subPath string) (io.ReadCloser, string, error) {
+	key := s.s3Key("projects", projectID, "playwright-reports", subPath)
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("get playwright file %q: %w", subPath, err)
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(subPath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return out.Body, contentType, nil
+}
+
 // Ensure S3Store implements Store at compile time.
 var _ Store = (*S3Store)(nil)

@@ -195,6 +195,32 @@ paths:
       summary: Delete pending result files for a project
       tags:
       - admin
+  /admin/results/group/{project_id}:
+    delete:
+      description: Deletes pending result files for all child projects of the given
+        parent.
+      parameters:
+      - description: Parent project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Clean results for all projects in a group
+      tags:
+      - admin
   /api-keys:
     get:
       description: Returns all API keys for the authenticated user.
@@ -439,7 +465,7 @@ paths:
       - application/json
       description: Creates a new project directory and registers it in the database.
       parameters:
-      - description: Project ID
+      - description: Project ID and optional parent
         in: body
         name: body
         required: true
@@ -944,6 +970,50 @@ paths:
       summary: Set project parent
       tags:
       - projects
+  /projects/{project_id}/pipeline-runs:
+    get:
+      description: Returns child-suite builds grouped by commit SHA for a parent project.
+      parameters:
+      - description: Parent project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: Results per page
+        in: query
+        name: per_page
+        type: integer
+      - description: Filter by branch name
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List pipeline runs
+      tags:
+      - pipeline
   /projects/{project_id}/playwright:
     post:
       consumes:
@@ -1500,6 +1570,32 @@ paths:
             additionalProperties: true
             type: object
       summary: Clean report history
+      tags:
+      - reports
+  /projects/{project_id}/reports/history/group:
+    delete:
+      description: Deletes all report history for all child projects of the given
+        parent.
+      parameters:
+      - description: Parent project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Clean history for all projects in a group
       tags:
       - reports
   /projects/{project_id}/results:

@@ -682,6 +682,10 @@ func (m *MemBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64,
 	return nil, 0, nil
 }
 
+func (m *MemBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ int, _ bool) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // MemUserStore
 // ---------------------------------------------------------------------------

@@ -518,6 +518,101 @@ func (ls *LocalStore) ResultsDirHash(_ context.Context, projectID string) (strin
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// WritePlaywrightFile writes r to projects/{projectID}/playwright-reports/{subPath}.
+// Parent directories are created automatically.
+func (ls *LocalStore) WritePlaywrightFile(_ context.Context, projectID, subPath string, r io.Reader) error {
+	dest := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", filepath.FromSlash(subPath))
+	//nolint:gosec // G301: 0o755 required for web server to read playwright reports
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("create playwright report dir: %w", err)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("create playwright file %q: %w", dest, err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := io.Copy(f, r); err != nil {
+		return fmt.Errorf("write playwright file %q: %w", dest, err)
+	}
+	return nil
+}
+
+// PlaywrightReportExists checks if playwright-reports/{buildOrder}/index.html exists.
+func (ls *LocalStore) PlaywrightReportExists(_ context.Context, projectID string, buildOrder int) (bool, error) {
+	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildOrder), "index.html")
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("stat playwright report: %w", err)
+}
+
+// CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildOrder}/.
+func (ls *LocalStore) CopyPlaywrightLatestToBuild(_ context.Context, projectID string, buildOrder int) error {
+	src := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", "latest")
+	dst := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildOrder))
+
+	empty, err := isDirEmpty(src)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("checking playwright latest dir: %w", err)
+	}
+	if empty {
+		return nil
+	}
+
+	//nolint:gosec // G301: 0o755 required for web server to serve playwright reports
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return fmt.Errorf("create playwright build dir: %w", err)
+	}
+	return copyDir(src, dst)
+}
+
+// CleanPlaywrightLatest removes all files from playwright-reports/latest/.
+func (ls *LocalStore) CleanPlaywrightLatest(_ context.Context, projectID string) error {
+	dir := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", "latest")
+	return removeDirContents(dir)
+}
+
+// ListPlaywrightDataFiles lists files in playwright-reports/{buildOrder}/data/.
+func (ls *LocalStore) ListPlaywrightDataFiles(_ context.Context, projectID string, buildOrder int) ([]string, error) {
+	dataDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildOrder), "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read playwright data dir: %w", err)
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			files = append(files, e.Name())
+		}
+	}
+	return files, nil
+}
+
+// ReadPlaywrightFile reads a file from playwright-reports/{subPath} and returns a ReadCloser
+// and the detected MIME content type.
+func (ls *LocalStore) ReadPlaywrightFile(_ context.Context, projectID, subPath string) (io.ReadCloser, string, error) {
+	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", filepath.FromSlash(subPath))
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", fmt.Errorf("open playwright file %q: %w", path, err)
+	}
+	ct := mime.TypeByExtension(filepath.Ext(subPath))
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	return f, ct, nil
+}
+
 // --- Helper functions ---
 
 // removeDirContents removes all files and subdirectories inside the given directory.

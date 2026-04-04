@@ -14,21 +14,20 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // newTestPlaywrightHandler creates a PlaywrightHandler backed by a real local
-// store and stateful in-memory project/job stores, suitable for handler tests.
+// store and stateful in-memory project/build stores, suitable for handler tests.
 func newTestPlaywrightHandler(t *testing.T, projectsDir string) (*PlaywrightHandler, *testutil.MockStores) {
 	t.Helper()
 	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 100}
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	jm := runner.NewMemJobManager(nil, 0, logger)
-	h := NewPlaywrightHandler(st, mocks.Projects, jm, cfg, logger)
+	h := NewPlaywrightHandler(st, mocks.Projects, mocks.Builds, cfg, logger)
 	return h, mocks
 }
 
@@ -51,12 +50,13 @@ func makePlaywrightTarGzRequest(t *testing.T, projectID string, body []byte) *ht
 }
 
 // TestPlaywrightUpload_Success verifies that a valid tar.gz containing index.html
-// and a data/ attachment returns 200 with a job_id.
+// and a data/ attachment returns 200 with status "uploaded" and files go to
+// playwright-reports/latest/.
 func TestPlaywrightUpload_Success(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-success"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	if err := os.MkdirAll(latestDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,19 +77,19 @@ func TestPlaywrightUpload_Success(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			JobID string `json:"job_id"`
+			Status string `json:"status"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Data.JobID == "" {
-		t.Error("expected non-empty job_id in response")
+	if resp.Data.Status != "uploaded" {
+		t.Errorf("expected status=uploaded in response, got %q", resp.Data.Status)
 	}
 
-	// Verify index.html was written to the results directory.
-	if _, err := os.Stat(filepath.Join(resultsDir, "index.html")); err != nil {
-		t.Errorf("index.html not written to results dir: %v", err)
+	// Verify index.html was written to playwright-reports/latest/.
+	if _, err := os.Stat(filepath.Join(latestDir, "index.html")); err != nil {
+		t.Errorf("index.html not written to playwright-reports/latest/: %v", err)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestPlaywrightUpload_Success(t *testing.T) {
 func TestPlaywrightUpload_MissingIndex(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-no-index"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports", "latest"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +186,7 @@ func TestPlaywrightUpload_AutoCreateProject(t *testing.T) {
 func TestPlaywrightUpload_InvalidGzip(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-badgzip"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports", "latest"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -206,7 +206,7 @@ func TestPlaywrightUpload_InvalidGzip(t *testing.T) {
 func TestPlaywrightUpload_PathTraversal(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-traversal"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "results"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports", "latest"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -234,12 +234,12 @@ func TestPlaywrightUpload_PathTraversal(t *testing.T) {
 }
 
 // TestPlaywrightUpload_PreservesSubdirectory verifies that data/ subdirectory
-// files are written with their relative paths preserved.
+// files are written with their relative paths preserved under playwright-reports/latest/.
 func TestPlaywrightUpload_PreservesSubdirectory(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-subdir"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	if err := os.MkdirAll(latestDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -259,14 +259,111 @@ func TestPlaywrightUpload_PreservesSubdirectory(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// The local store writes to results/<filename>. For nested paths the filename
-	// includes the subdirectory component (data/screen.png).
-	got, err := os.ReadFile(filepath.Join(resultsDir, "data", "screen.png"))
+	// Files should be written to playwright-reports/latest/data/screen.png.
+	got, err := os.ReadFile(filepath.Join(latestDir, "data", "screen.png"))
 	if err != nil {
-		t.Fatalf("data/screen.png not written to results dir: %v", err)
+		t.Fatalf("data/screen.png not written to playwright-reports/latest/: %v", err)
 	}
 	if !bytes.Equal(got, pngContent) {
 		t.Errorf("data/screen.png content mismatch: got %q, want %q", got, pngContent)
+	}
+}
+
+// TestPlaywrightUpload_RaceCondition_BuildExists verifies that when a build already
+// exists, the report is copied from playwright-reports/latest/ to the numbered build
+// directory, has_playwright_report is set, and latest/ is cleaned up.
+func TestPlaywrightUpload_RaceCondition_BuildExists(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "pw-race"
+	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	if err := os.MkdirAll(latestDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := makeTarGz(t, map[string][]byte{
+		"index.html": []byte("<html><body>Race Report</body></html>"),
+	})
+
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+
+	// Simulate a build already existing with order 5.
+	const existingBuildOrder = 5
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
+		if pid == projectID {
+			return store.Build{ProjectID: pid, BuildOrder: existingBuildOrder}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+
+	var setHasPWReportCalled bool
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, pid string, buildOrder int, value bool) error {
+		if pid == projectID && buildOrder == existingBuildOrder && value {
+			setHasPWReportCalled = true
+		}
+		return nil
+	}
+
+	req := makePlaywrightTarGzRequest(t, projectID, archive)
+	w := httptest.NewRecorder()
+	h.UploadReport(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify the report was copied to the numbered build directory.
+	buildDir := filepath.Join(projectsDir, projectID, "playwright-reports", "5")
+	if _, err := os.Stat(filepath.Join(buildDir, "index.html")); err != nil {
+		t.Errorf("index.html not copied to playwright-reports/5/: %v", err)
+	}
+
+	// Verify has_playwright_report was set.
+	if !setHasPWReportCalled {
+		t.Error("SetHasPlaywrightReport was not called with (projectID, 5, true)")
+	}
+
+	// Verify latest/ was cleaned up.
+	entries, err := os.ReadDir(latestDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("reading latest dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("playwright-reports/latest/ should be empty after copy, got %d entries", len(entries))
+	}
+}
+
+// TestPlaywrightUpload_RaceCondition_NoBuild verifies that when no build exists,
+// the report stays in playwright-reports/latest/ for the runner to pick up.
+func TestPlaywrightUpload_RaceCondition_NoBuild(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "pw-no-build"
+	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	if err := os.MkdirAll(latestDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := makeTarGz(t, map[string][]byte{
+		"index.html": []byte("<html><body>No Build Report</body></html>"),
+	})
+
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+
+	// Simulate no build existing.
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, _ string) (store.Build, error) {
+		return store.Build{}, store.ErrBuildNotFound
+	}
+
+	req := makePlaywrightTarGzRequest(t, projectID, archive)
+	w := httptest.NewRecorder()
+	h.UploadReport(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify the report remains in playwright-reports/latest/.
+	if _, err := os.Stat(filepath.Join(latestDir, "index.html")); err != nil {
+		t.Errorf("index.html should remain in playwright-reports/latest/ when no build exists: %v", err)
 	}
 }
 

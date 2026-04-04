@@ -887,3 +887,200 @@ func TestLocalStore_ResultsDirHash(t *testing.T) {
 		t.Error("hash should not change when ignored files added")
 	}
 }
+
+// --- Playwright storage methods ---
+
+func TestLocalStore_WritePlaywrightFile(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	content := "playwright report content"
+	r := bytes.NewBufferString(content)
+	if err := ls.WritePlaywrightFile(ctx, "proj1", "latest/index.html", r); err != nil {
+		t.Fatalf("WritePlaywrightFile: %v", err)
+	}
+
+	dest := filepath.Join(root, "proj1", "playwright-reports", "latest", "index.html")
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(data) != content {
+		t.Errorf("content mismatch: got %q, want %q", string(data), content)
+	}
+}
+
+func TestLocalStore_WritePlaywrightFile_CreatesParentDirs(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	if err := ls.WritePlaywrightFile(ctx, "proj1", "latest/data/sub/file.json", bytes.NewBufferString("{}")); err != nil {
+		t.Fatalf("WritePlaywrightFile nested: %v", err)
+	}
+
+	dest := filepath.Join(root, "proj1", "playwright-reports", "latest", "data", "sub", "file.json")
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("expected nested file to exist: %v", err)
+	}
+}
+
+func TestLocalStore_PlaywrightReportExists(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	exists, err := ls.PlaywrightReportExists(ctx, "proj1", 1)
+	if err != nil {
+		t.Fatalf("PlaywrightReportExists (missing): %v", err)
+	}
+	if exists {
+		t.Fatal("expected false for non-existent report")
+	}
+
+	// Create index.html for build 1
+	indexPath := filepath.Join(root, "proj1", "playwright-reports", "1", "index.html")
+	writeFile(t, indexPath, "<html/>")
+
+	exists, err = ls.PlaywrightReportExists(ctx, "proj1", 1)
+	if err != nil {
+		t.Fatalf("PlaywrightReportExists (present): %v", err)
+	}
+	if !exists {
+		t.Fatal("expected true after creating index.html")
+	}
+}
+
+func TestLocalStore_CopyPlaywrightLatestToBuild(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	// Copy when latest is missing — must not error.
+	if err := ls.CopyPlaywrightLatestToBuild(ctx, "proj1", 1); err != nil {
+		t.Fatalf("CopyPlaywrightLatestToBuild missing latest: %v", err)
+	}
+
+	// Populate latest with files.
+	latestDir := filepath.Join(root, "proj1", "playwright-reports", "latest")
+	writeFile(t, filepath.Join(latestDir, "index.html"), "<html/>")
+	writeFile(t, filepath.Join(latestDir, "data", "results.json"), "{}")
+
+	if err := ls.CopyPlaywrightLatestToBuild(ctx, "proj1", 2); err != nil {
+		t.Fatalf("CopyPlaywrightLatestToBuild: %v", err)
+	}
+
+	buildDir := filepath.Join(root, "proj1", "playwright-reports", "2")
+	for _, rel := range []string{"index.html", "data/results.json"} {
+		p := filepath.Join(buildDir, filepath.FromSlash(rel))
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected copied file %q to exist: %v", rel, err)
+		}
+	}
+}
+
+func TestLocalStore_CleanPlaywrightLatest(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	latestDir := filepath.Join(root, "proj1", "playwright-reports", "latest")
+	writeFile(t, filepath.Join(latestDir, "index.html"), "<html/>")
+	writeFile(t, filepath.Join(latestDir, "app.js"), "// js")
+
+	if err := ls.CleanPlaywrightLatest(ctx, "proj1"); err != nil {
+		t.Fatalf("CleanPlaywrightLatest: %v", err)
+	}
+
+	entries, err := os.ReadDir(latestDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadDir after clean: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected empty dir, got %d entries", len(entries))
+	}
+}
+
+func TestLocalStore_CleanPlaywrightLatest_NonExistent(t *testing.T) {
+	t.Parallel()
+	ls, _ := makeLocalStore(t)
+	ctx := context.Background()
+
+	// Should not error when directory does not exist.
+	if err := ls.CleanPlaywrightLatest(ctx, "proj1"); err != nil {
+		t.Fatalf("CleanPlaywrightLatest non-existent: %v", err)
+	}
+}
+
+func TestLocalStore_ListPlaywrightDataFiles(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	// Empty / missing — must return nil, nil.
+	files, err := ls.ListPlaywrightDataFiles(ctx, "proj1", 1)
+	if err != nil {
+		t.Fatalf("ListPlaywrightDataFiles missing: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("expected empty, got %v", files)
+	}
+
+	// Create data files.
+	dataDir := filepath.Join(root, "proj1", "playwright-reports", "1", "data")
+	writeFile(t, filepath.Join(dataDir, "a.json"), "{}")
+	writeFile(t, filepath.Join(dataDir, "b.json"), "{}")
+	mkdirAll(t, filepath.Join(dataDir, "subdir"))
+
+	files, err = ls.ListPlaywrightDataFiles(ctx, "proj1", 1)
+	if err != nil {
+		t.Fatalf("ListPlaywrightDataFiles: %v", err)
+	}
+	if len(files) != 2 {
+		t.Errorf("expected 2 files, got %v", files)
+	}
+	for _, f := range files {
+		if f != "a.json" && f != "b.json" {
+			t.Errorf("unexpected file %q", f)
+		}
+	}
+}
+
+func TestLocalStore_ReadPlaywrightFile(t *testing.T) {
+	t.Parallel()
+	ls, root := makeLocalStore(t)
+	ctx := context.Background()
+
+	content := "<html>playwright</html>"
+	indexPath := filepath.Join(root, "proj1", "playwright-reports", "1", "index.html")
+	writeFile(t, indexPath, content)
+
+	rc, ct, err := ls.ReadPlaywrightFile(ctx, "proj1", "1/index.html")
+	if err != nil {
+		t.Fatalf("ReadPlaywrightFile: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(data) != content {
+		t.Errorf("content mismatch: got %q, want %q", string(data), content)
+	}
+	if ct == "" {
+		t.Error("expected non-empty content type")
+	}
+}
+
+func TestLocalStore_ReadPlaywrightFile_NotFound(t *testing.T) {
+	t.Parallel()
+	ls, _ := makeLocalStore(t)
+	ctx := context.Background()
+
+	_, _, err := ls.ReadPlaywrightFile(ctx, "proj1", "99/index.html")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}

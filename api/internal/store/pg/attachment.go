@@ -100,5 +100,33 @@ func (a *AttachmentStore) GetBySource(ctx context.Context, buildID int64, source
 	return &at, nil
 }
 
+// InsertBuildAttachments inserts build-level attachments (e.g. from a Playwright
+// data/ directory) that are not linked to a specific test result. Each attachment
+// is inserted with NULL test_result_id and test_step_id.
+func (a *AttachmentStore) InsertBuildAttachments(ctx context.Context, _ int64, _ string, attachments []store.TestAttachment) error {
+	if len(attachments) == 0 {
+		return nil
+	}
+	tx, err := a.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, att := range attachments {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO test_attachments(name, source, mime_type, size_bytes)
+			 VALUES ($1,$2,$3,$4)`,
+			att.Name, att.Source, att.MimeType, att.SizeBytes,
+		); err != nil {
+			return fmt.Errorf("insert build attachment %q: %w", att.Source, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // Compile-time interface compliance check.
 var _ store.AttachmentStorer = (*AttachmentStore)(nil)

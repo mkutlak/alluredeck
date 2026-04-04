@@ -77,4 +77,19 @@ type Store interface {
 	// ResultsDirHash returns a hash of the results directory contents for change detection.
 	// Returns ("", nil) for S3Store (watcher is disabled in S3 mode).
 	ResultsDirHash(ctx context.Context, projectID string) (string, error)
+
+	// Playwright report storage
+	// WritePlaywrightFile writes r to projects/{projectID}/playwright-reports/{subPath}.
+	// subPath may be "latest/filename" or "{buildN}/filename".
+	WritePlaywrightFile(ctx context.Context, projectID, subPath string, r io.Reader) error
+	// PlaywrightReportExists checks if playwright-reports/{buildOrder}/index.html exists.
+	PlaywrightReportExists(ctx context.Context, projectID string, buildOrder int) (bool, error)
+	// CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildOrder}/.
+	CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildOrder int) error
+	// CleanPlaywrightLatest removes all files from playwright-reports/latest/.
+	CleanPlaywrightLatest(ctx context.Context, projectID string) error
+	// ListPlaywrightDataFiles lists files in playwright-reports/{buildOrder}/data/ (for attachment extraction).
+	ListPlaywrightDataFiles(ctx context.Context, projectID string, buildOrder int) ([]string, error)
+	// ReadPlaywrightFile reads a file from playwright-reports/{subPath} (for serving).
+	ReadPlaywrightFile(ctx context.Context, projectID, subPath string) (io.ReadCloser, string, error)
 }

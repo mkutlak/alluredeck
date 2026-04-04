@@ -104,7 +104,8 @@ const buildSelectCols = `
 	       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
 	       duration_ms, is_latest,
 	       flaky_count, retried_count, new_failed_count, new_passed_count,
-	       ci_provider, ci_build_url, ci_branch, ci_commit_sha
+	       ci_provider, ci_build_url, ci_branch, ci_commit_sha,
+	       has_playwright_report
 	FROM builds`
 
 // buildRowScanner is satisfied by both pgx.Row and pgx.Rows.
@@ -126,6 +127,7 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 		&durationMs, &b.IsLatest,
 		&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
 		&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
+		&b.HasPlaywrightReport,
 	); err != nil {
 		return store.Build{}, err
 	}
@@ -795,6 +797,20 @@ func (bs *BuildStore) BatchSyncStats(ctx context.Context, projectID string, buil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit stats update: %w", err)
+	}
+	return nil
+}
+
+// SetHasPlaywrightReport sets the has_playwright_report flag for the given build.
+func (bs *BuildStore) SetHasPlaywrightReport(ctx context.Context, projectID string, buildOrder int, value bool) error {
+	tag, err := bs.pool.Exec(ctx,
+		"UPDATE builds SET has_playwright_report=$1 WHERE project_id=$2 AND build_order=$3",
+		value, projectID, buildOrder)
+	if err != nil {
+		return fmt.Errorf("set has_playwright_report: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: project=%s build=%d", store.ErrBuildNotFound, projectID, buildOrder)
 	}
 	return nil
 }

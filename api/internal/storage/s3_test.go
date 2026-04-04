@@ -639,3 +639,196 @@ func TestPrepareLocal_HistoryFailureNonFatal(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.CleanupLocal(tmpDir) })
 }
+
+// --- Playwright storage methods ---
+
+func TestS3Store_WritePlaywrightFile(t *testing.T) {
+	t.Parallel()
+	var capturedKey string
+	mock := &mockS3Client{}
+	uploader := &mockS3Uploader{
+		UploadObjectFn: func(_ context.Context, input *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
+			if input.Key != nil {
+				capturedKey = *input.Key
+			}
+			return &transfermanager.UploadObjectOutput{}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, uploader, zap.NewNop())
+
+	err := st.WritePlaywrightFile(context.Background(), "proj1", "latest/index.html", strings.NewReader("content"))
+	if err != nil {
+		t.Fatalf("WritePlaywrightFile: %v", err)
+	}
+	wantKey := "projects/proj1/playwright-reports/latest/index.html"
+	if capturedKey != wantKey {
+		t.Errorf("key = %q, want %q", capturedKey, wantKey)
+	}
+}
+
+func TestS3Store_PlaywrightReportExists_Found(t *testing.T) {
+	t.Parallel()
+	mock := &mockS3Client{
+		HeadObjectFn: func(_ context.Context, params *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+			return &s3.HeadObjectOutput{}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	exists, err := st.PlaywrightReportExists(context.Background(), "proj1", 3)
+	if err != nil {
+		t.Fatalf("PlaywrightReportExists: %v", err)
+	}
+	if !exists {
+		t.Error("expected true when HeadObject succeeds")
+	}
+}
+
+func TestS3Store_PlaywrightReportExists_NotFound(t *testing.T) {
+	t.Parallel()
+	mock := &mockS3Client{
+		HeadObjectFn: func(_ context.Context, _ *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+			return nil, errors.New("not found")
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	exists, err := st.PlaywrightReportExists(context.Background(), "proj1", 3)
+	if err != nil {
+		t.Fatalf("PlaywrightReportExists: %v", err)
+	}
+	if exists {
+		t.Error("expected false when HeadObject errors")
+	}
+}
+
+func TestS3Store_CopyPlaywrightLatestToBuild_Empty(t *testing.T) {
+	t.Parallel()
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	if err := st.CopyPlaywrightLatestToBuild(context.Background(), "proj1", 5); err != nil {
+		t.Fatalf("CopyPlaywrightLatestToBuild empty: %v", err)
+	}
+}
+
+func TestS3Store_CopyPlaywrightLatestToBuild_CopiesObjects(t *testing.T) {
+	t.Parallel()
+	var copiedSrc, copiedDst string
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			key := "projects/proj1/playwright-reports/latest/index.html"
+			return &s3.ListObjectsV2Output{
+				Contents:    []s3types.Object{{Key: aws.String(key)}},
+				IsTruncated: aws.Bool(false),
+			}, nil
+		},
+		CopyObjectFn: func(_ context.Context, params *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+			if params.CopySource != nil {
+				copiedSrc = *params.CopySource
+			}
+			if params.Key != nil {
+				copiedDst = *params.Key
+			}
+			return &s3.CopyObjectOutput{}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	if err := st.CopyPlaywrightLatestToBuild(context.Background(), "proj1", 7); err != nil {
+		t.Fatalf("CopyPlaywrightLatestToBuild: %v", err)
+	}
+	wantDst := "projects/proj1/playwright-reports/7/index.html"
+	if copiedDst != wantDst {
+		t.Errorf("dst key = %q, want %q", copiedDst, wantDst)
+	}
+	if copiedSrc == "" {
+		t.Error("expected non-empty copy source")
+	}
+}
+
+func TestS3Store_CleanPlaywrightLatest(t *testing.T) {
+	t.Parallel()
+	var deletedPrefix string
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			if params.Prefix != nil {
+				deletedPrefix = *params.Prefix
+			}
+			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	if err := st.CleanPlaywrightLatest(context.Background(), "proj1"); err != nil {
+		t.Fatalf("CleanPlaywrightLatest: %v", err)
+	}
+	wantPrefix := "projects/proj1/playwright-reports/latest/"
+	if deletedPrefix != wantPrefix {
+		t.Errorf("prefix = %q, want %q", deletedPrefix, wantPrefix)
+	}
+}
+
+func TestS3Store_ListPlaywrightDataFiles(t *testing.T) {
+	t.Parallel()
+	mock := &mockS3Client{
+		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			prefix := ""
+			if params.Prefix != nil {
+				prefix = *params.Prefix
+			}
+			return &s3.ListObjectsV2Output{
+				Contents: []s3types.Object{
+					{Key: aws.String(prefix + "a.json")},
+					{Key: aws.String(prefix + "b.json")},
+				},
+				IsTruncated: aws.Bool(false),
+			}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	files, err := st.ListPlaywrightDataFiles(context.Background(), "proj1", 2)
+	if err != nil {
+		t.Fatalf("ListPlaywrightDataFiles: %v", err)
+	}
+	if len(files) != 2 {
+		t.Errorf("expected 2 files, got %v", files)
+	}
+}
+
+func TestS3Store_ReadPlaywrightFile(t *testing.T) {
+	t.Parallel()
+	var capturedKey string
+	mock := &mockS3Client{
+		GetObjectFn: func(_ context.Context, params *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			if params.Key != nil {
+				capturedKey = *params.Key
+			}
+			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("pw-content"))}, nil
+		},
+	}
+	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
+
+	rc, ct, err := st.ReadPlaywrightFile(context.Background(), "proj1", "1/index.html")
+	if err != nil {
+		t.Fatalf("ReadPlaywrightFile: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	data, _ := io.ReadAll(rc)
+	if string(data) != "pw-content" {
+		t.Errorf("content = %q, want %q", string(data), "pw-content")
+	}
+	if ct == "" {
+		t.Error("expected non-empty content type")
+	}
+	wantKey := "projects/proj1/playwright-reports/1/index.html"
+	if capturedKey != wantKey {
+		t.Errorf("key = %q, want %q", capturedKey, wantKey)
+	}
+}

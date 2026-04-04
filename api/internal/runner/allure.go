@@ -65,6 +65,7 @@ type Allure struct {
 	testResultStore store.TestResultStorer
 	branchStore     store.BranchStorer
 	defectStore     store.DefectStorer
+	attachmentStore store.AttachmentStorer
 	logger          *zap.Logger
 }
 
@@ -77,6 +78,7 @@ type AllureDeps struct {
 	TestResultStore store.TestResultStorer
 	BranchStore     store.BranchStorer
 	DefectStore     store.DefectStorer
+	AttachmentStore store.AttachmentStorer
 	Logger          *zap.Logger
 }
 
@@ -90,6 +92,7 @@ func NewAllure(deps AllureDeps) *Allure {
 		testResultStore: deps.TestResultStore,
 		branchStore:     deps.BranchStore,
 		defectStore:     deps.DefectStore,
+		attachmentStore: deps.AttachmentStore,
 		logger:          deps.Logger,
 	}
 }
@@ -307,6 +310,10 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
 		}
 	}
+
+	// Copy any pending Playwright report from latest/ to the numbered build directory.
+	a.copyPlaywrightReport(ctx, projectID, buildOrder)
+
 	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildOrder, branchID); err != nil {
 		a.logger.Error("failed to set latest build",
 			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
@@ -587,6 +594,101 @@ func (a *Allure) runAllureCmd(ctx context.Context, args ...string) error {
 		a.logger.Debug("allure command output", zap.String("stdout", outBuff.String()))
 	}
 	return nil
+}
+
+// copyPlaywrightReport copies a Playwright report from playwright-reports/latest/
+// to the numbered build directory (if one was uploaded). CopyPlaywrightLatestToBuild
+// is a no-op when latest/ is absent or empty. After copying, sets
+// has_playwright_report on the build, extracts attachment metadata from data/,
+// inserts it, then cleans the latest/ directory.
+func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID string, buildOrder int) {
+	if err := a.store.CopyPlaywrightLatestToBuild(ctx, projectID, buildOrder); err != nil {
+		a.logger.Warn("failed to copy playwright latest to build",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+		return
+	}
+
+	// Check whether the copy produced a valid report directory.
+	exists, err := a.store.PlaywrightReportExists(ctx, projectID, buildOrder)
+	if err != nil {
+		a.logger.Warn("failed to check playwright report existence",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+		return
+	}
+	if !exists {
+		return
+	}
+
+	if err := a.buildStore.SetHasPlaywrightReport(ctx, projectID, buildOrder, true); err != nil {
+		a.logger.Warn("failed to set has_playwright_report",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+	}
+
+	// Extract attachment metadata from data/ and insert into test_attachments.
+	if a.attachmentStore != nil && a.testResultStore != nil {
+		files, err := a.store.ListPlaywrightDataFiles(ctx, projectID, buildOrder)
+		if err != nil {
+			a.logger.Warn("failed to list playwright data files",
+				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+		} else if len(files) > 0 {
+			buildID, idErr := a.testResultStore.GetBuildID(ctx, projectID, buildOrder)
+			if idErr != nil {
+				a.logger.Warn("failed to get build id for playwright attachments",
+					zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(idErr))
+			} else {
+				attachments := make([]store.TestAttachment, 0, len(files))
+				for _, f := range files {
+					mime := mimeTypeFromExt(filepath.Ext(f))
+					if mime == "" {
+						continue // skip .dat and unknown files
+					}
+					attachments = append(attachments, store.TestAttachment{
+						Name:     filepath.Base(f),
+						Source:   "data/" + f,
+						MimeType: mime,
+					})
+				}
+				if len(attachments) > 0 {
+					if insertErr := a.attachmentStore.InsertBuildAttachments(ctx, buildID, projectID, attachments); insertErr != nil {
+						a.logger.Warn("failed to insert playwright attachments",
+							zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(insertErr))
+					}
+				}
+			}
+		}
+	}
+
+	if err := a.store.CleanPlaywrightLatest(ctx, projectID); err != nil {
+		a.logger.Warn("failed to clean playwright latest",
+			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+	}
+}
+
+// mimeTypeFromExt returns the MIME type for a known Playwright attachment file
+// extension. Returns an empty string for extensions that should be skipped (e.g. .dat).
+func mimeTypeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	case ".zip":
+		return "application/zip"
+	case ".webm":
+		return "video/webm"
+	case ".mp4":
+		return "video/mp4"
+	case ".txt", ".log":
+		return "text/plain"
+	case ".dat":
+		return "" // allure step metadata — skip
+	default:
+		return ""
+	}
 }
 
 // computeDefectFingerprints queries failed test results, groups them by

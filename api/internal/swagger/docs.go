@@ -152,6 +152,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/results/group/{project_id}": {
+            "delete": {
+                "description": "Deletes pending result files for all child projects of the given parent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Clean results for all projects in a group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/admin/results/{project_id}": {
             "delete": {
                 "description": "Removes all unprocessed result files from a project's results directory.",
@@ -549,7 +586,7 @@ const docTemplate = `{
                 "summary": "Create a project",
                 "parameters": [
                     {
-                        "description": "Project ID",
+                        "description": "Project ID and optional parent",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -1276,6 +1313,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/{project_id}/pipeline-runs": {
+            "get": {
+                "description": "Returns child-suite builds grouped by commit SHA for a parent project.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pipeline"
+                ],
+                "summary": "List pipeline runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Results per page",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by branch name",
+                        "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}/playwright": {
             "post": {
                 "description": "Uploads a Playwright HTML report as a tar.gz archive. The archive must contain index.html at its root and may include a data/ subdirectory with attachments.",
@@ -1601,6 +1702,43 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/reports/history/group": {
+            "delete": {
+                "description": "Deletes all report history for all child projects of the given parent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reports"
+                ],
+                "summary": "Clean history for all projects in a group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

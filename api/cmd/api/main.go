@@ -108,6 +108,7 @@ func main() {
 		TestResultStore: s.testResult,
 		BranchStore:     s.branch,
 		DefectStore:     s.defect,
+		AttachmentStore: s.attachment,
 		Logger:          logger,
 	})
 
@@ -184,6 +185,17 @@ func main() {
 		overlayFS.ServeHTTP(w, r)
 	})
 	mux.Handle("/api/v1/projects/", http.StripPrefix("/api/v1/projects/", reportHandler))
+
+	// Playwright report file server — serves self-contained HTML reports from
+	// playwright-reports/{reportID}/. Each numbered build is a complete report so
+	// no overlay fallback is needed. The more-specific pattern takes precedence over
+	// the catch-all /api/v1/projects/ handle above (Go 1.22+ longest-match routing).
+	pwReportHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", reportCSP)
+		w.Header().Del("X-Frame-Options")
+		newPlaywrightReportHandler(dataStore).ServeHTTP(w, r)
+	})
+	mux.Handle("GET /api/v1/projects/{projectID}/playwright-reports/{reportID}/{rest...}", pwReportHandler)
 
 	// Rate limiter for login endpoint — 5 req/s, burst 10, 15min stale TTL (REVIEW #8).
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, cfg.TrustForwardedFor)
@@ -360,7 +372,7 @@ func wireHandlers(
 		}),
 		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
 		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, jobManager, allureCore, cfg, logger),
-		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, jobManager, cfg, logger),
+		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, s.build, cfg, logger),
 		admin:           handlers.NewAdminHandlerWithProjects(jobManager, dataStore, s.project, cfg.ProjectsPath, logger),
 		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),
 		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, cfg.ProjectsPath),

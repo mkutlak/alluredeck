@@ -16,7 +16,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -25,14 +24,14 @@ import (
 type PlaywrightHandler struct {
 	store        storage.Store
 	projectStore store.ProjectStorer
-	jobManager   runner.JobQueuer
+	buildStore   store.BuildStorer
 	cfg          *config.Config
 	logger       *zap.Logger
 }
 
 // NewPlaywrightHandler creates and returns a new PlaywrightHandler.
-func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, jm runner.JobQueuer, cfg *config.Config, logger *zap.Logger) *PlaywrightHandler {
-	return &PlaywrightHandler{store: st, projectStore: ps, jobManager: jm, cfg: cfg, logger: logger}
+func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.BuildStorer, cfg *config.Config, logger *zap.Logger) *PlaywrightHandler {
+	return &PlaywrightHandler{store: st, projectStore: ps, buildStore: bs, cfg: cfg, logger: logger}
 }
 
 // UploadReport godoc
@@ -44,10 +43,6 @@ func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, jm runner.Jo
 // @Param        project_id              path   string  true   "Project ID"
 // @Param        force_project_creation  query  string  false  "Auto-create project if missing"
 // @Param        parent_id               query  string  false  "Parent project ID (used with force_project_creation)"
-// @Param        execution_name          query  string  false  "Execution name"
-// @Param        execution_from          query  string  false  "Execution from"
-// @Param        ci_branch               query  string  false  "CI branch name"
-// @Param        ci_commit_sha           query  string  false  "CI commit SHA"
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
@@ -66,10 +61,6 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Minute))
 
 	parentID := r.URL.Query().Get("parent_id")
-	execName := r.URL.Query().Get("execution_name")
-	execFrom := r.URL.Query().Get("execution_from")
-	ciBranch := r.URL.Query().Get("ci_branch")
-	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
 
 	// Ensure project exists (auto-create if requested)
 	exists, err := h.store.ProjectExists(r.Context(), projectID)
@@ -144,16 +135,27 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	job := h.jobManager.Submit(projectID, runner.JobParams{
-		ExecName:     execName,
-		ExecFrom:     execFrom,
-		StoreResults: true,
-		CIBranch:     ciBranch,
-		CICommitSHA:  ciCommitSHA,
-	})
+	// Race condition handling: if a build already exists, copy the report from
+	// latest/ to the numbered build dir and mark the build. Otherwise leave it
+	// in latest/ for the runner to pick up when it creates the build.
+	build, err := h.buildStore.GetLatestBuild(r.Context(), projectID)
+	if err != nil && !errors.Is(err, store.ErrBuildNotFound) {
+		h.logger.Error("failed to get latest build after playwright upload", zap.String("project_id", projectID), zap.Error(err))
+	} else if err == nil && build.BuildOrder > 0 {
+		if copyErr := h.store.CopyPlaywrightLatestToBuild(r.Context(), projectID, build.BuildOrder); copyErr != nil {
+			h.logger.Error("failed to copy playwright latest to build dir", zap.String("project_id", projectID), zap.Int("build_order", build.BuildOrder), zap.Error(copyErr))
+		} else {
+			if setErr := h.buildStore.SetHasPlaywrightReport(r.Context(), projectID, build.BuildOrder, true); setErr != nil {
+				h.logger.Error("failed to set has_playwright_report", zap.String("project_id", projectID), zap.Int("build_order", build.BuildOrder), zap.Error(setErr))
+			}
+			if cleanErr := h.store.CleanPlaywrightLatest(r.Context(), projectID); cleanErr != nil {
+				h.logger.Warn("failed to clean playwright latest after copy", zap.String("project_id", projectID), zap.Error(cleanErr))
+			}
+		}
+	}
 
 	writeSuccess(w, http.StatusOK, map[string]any{
-		"job_id": job.ID,
+		"status": "uploaded",
 	}, "Playwright report uploaded successfully")
 }
 
@@ -229,7 +231,7 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID 
 
 		name := cleanName
 		g.Go(func() error {
-			return h.store.WriteResultFile(ctx, projectID, name, bytes.NewReader(data))
+			return h.store.WritePlaywrightFile(ctx, projectID, "latest/"+name, bytes.NewReader(data))
 		})
 	}
 

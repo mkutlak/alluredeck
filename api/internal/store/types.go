@@ -63,26 +63,27 @@ type CIMetadata struct {
 
 // Build represents a single report generation run for a project.
 type Build struct {
-	ID             int64
-	ProjectID      string
-	BuildOrder     int
-	CreatedAt      time.Time
-	StatPassed     *int
-	StatFailed     *int
-	StatBroken     *int
-	StatSkipped    *int
-	StatUnknown    *int
-	StatTotal      *int
-	DurationMs     *int64
-	FlakyCount     *int
-	RetriedCount   *int
-	NewFailedCount *int
-	NewPassedCount *int
-	IsLatest       bool
-	CIProvider     *string
-	CIBuildURL     *string
-	CIBranch       *string
-	CICommitSHA    *string
+	ID                  int64
+	ProjectID           string
+	BuildOrder          int
+	CreatedAt           time.Time
+	StatPassed          *int
+	StatFailed          *int
+	StatBroken          *int
+	StatSkipped         *int
+	StatUnknown         *int
+	StatTotal           *int
+	DurationMs          *int64
+	FlakyCount          *int
+	RetriedCount        *int
+	NewFailedCount      *int
+	NewPassedCount      *int
+	IsLatest            bool
+	CIProvider          *string
+	CIBuildURL          *string
+	CIBranch            *string
+	CICommitSHA         *string
+	HasPlaywrightReport bool
 }
 
 // SparklinePoint holds pass-rate data for a single build in a trend sparkline.

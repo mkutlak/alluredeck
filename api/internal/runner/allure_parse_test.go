@@ -73,6 +73,10 @@ func (s *spyBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64,
 	return nil, 0, nil
 }
 
+func (s *spyBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ int, _ bool) error {
+	return nil
+}
+
 // spyTestResultStore implements store.TestResultStorer and records InsertBatchFull calls.
 type spyTestResultStore struct {
 	insertBatchFullCount int

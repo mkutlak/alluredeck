@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -12,9 +13,21 @@ export function ReportViewerPage() {
     projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
       ?.report_type ?? 'allure'
 
+  const [viewMode, setViewMode] = useState<'playwright' | 'allure'>(() =>
+    reportType === 'playwright' ? 'playwright' : 'allure',
+  )
+
   if (!projectId || !reportId) return null
 
-  const reportUrl = `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/index.html`
+  const reportUrl =
+    viewMode === 'playwright'
+      ? `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/playwright-reports/${encodeURIComponent(reportId)}/index.html`
+      : `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/index.html`
+
+  const iframeTitle =
+    viewMode === 'playwright'
+      ? `Playwright report #${reportId} — ${projectId}`
+      : `Allure report #${reportId} — ${projectId}`
 
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
@@ -31,6 +44,29 @@ export function ReportViewerPage() {
 
         <div className="flex-1" />
 
+        {reportType === 'playwright' && (
+          <div className="flex items-center rounded-md border">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`rounded-r-none border-r px-3 py-1 text-xs ${viewMode === 'playwright' ? 'bg-muted font-semibold' : 'font-normal'}`}
+              onClick={() => setViewMode('playwright')}
+              aria-pressed={viewMode === 'playwright'}
+            >
+              Playwright
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`rounded-l-none px-3 py-1 text-xs ${viewMode === 'allure' ? 'bg-muted font-semibold' : 'font-normal'}`}
+              onClick={() => setViewMode('allure')}
+              aria-pressed={viewMode === 'allure'}
+            >
+              Allure
+            </Button>
+          </div>
+        )}
+
         <Button asChild variant="outline" size="sm">
           <a href={reportUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink size={14} />
@@ -42,7 +78,7 @@ export function ReportViewerPage() {
       {/* Iframe — full remaining height */}
       <iframe
         src={reportUrl}
-        title={`${reportType === 'playwright' ? 'Playwright' : 'Allure'} report #${reportId} — ${projectId}`}
+        title={iframeTitle}
         className="flex-1 border-0"
         sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
       />
