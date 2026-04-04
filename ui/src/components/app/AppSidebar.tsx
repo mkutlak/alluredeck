@@ -83,7 +83,11 @@ function ProjectGroupItem({ group }: { group: ProjectGroup }) {
       <SidebarMenuButton onClick={() => setOpen((v) => !v)} tooltip={group.parent.project_id}>
         <FolderOpen />
         <span className="truncate">{group.parent.project_id}</span>
-        {open ? <ChevronDown size={14} className="ml-auto" /> : <ChevronRight size={14} className="ml-auto" />}
+        {open ? (
+          <ChevronDown size={14} className="ml-auto" />
+        ) : (
+          <ChevronRight size={14} className="ml-auto" />
+        )}
       </SidebarMenuButton>
       {open && (
         <SidebarMenuSub>
@@ -154,20 +158,30 @@ export function AppSidebar() {
         {/* Project sub-nav (active project pages) */}
         <SidebarGroup>
           {!hasHierarchy && <SidebarGroupLabel>Projects</SidebarGroupLabel>}
-          {projectId && (
-            <SidebarMenu>
-              {navItems.map(({ label, path, icon: Icon, end }) => (
-                <SidebarMenuItem key={label}>
-                  <SidebarMenuButton asChild tooltip={label}>
-                    <NavLink to={`/projects/${projectId}${path}`} end={end}>
-                      <Icon />
-                      <span>{label}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          )}
+          {projectId &&
+            (() => {
+              const currentProject = allProjects.find((p) => p.project_id === projectId)
+              const isParent = (currentProject?.children?.length ?? 0) > 0
+              const parentHiddenTabs = ['Timeline', 'Known Issues', 'Attachments']
+              const visibleNavItems = isParent
+                ? navItems.filter((item) => !parentHiddenTabs.includes(item.label))
+                : navItems
+
+              return (
+                <SidebarMenu>
+                  {visibleNavItems.map(({ label, path, icon: Icon, end }) => (
+                    <SidebarMenuItem key={label}>
+                      <SidebarMenuButton asChild tooltip={label}>
+                        <NavLink to={`/projects/${projectId}${path}`} end={end}>
+                          <Icon />
+                          <span>{label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              )
+            })()}
         </SidebarGroup>
 
         {/* Administration (admin only) */}

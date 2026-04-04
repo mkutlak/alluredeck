@@ -23,7 +23,9 @@ type SearchCommandContextValue = {
 
 const SearchCommandContext = createContext<SearchCommandContextValue>({
   open: false,
-  setOpen: () => { throw new Error('useSearchCommand must be used within SearchCommand') },
+  setOpen: () => {
+    throw new Error('useSearchCommand must be used within SearchCommand')
+  },
 })
 
 // eslint-disable-next-line react-refresh/only-export-components -- hook intentionally co-located with its companion component

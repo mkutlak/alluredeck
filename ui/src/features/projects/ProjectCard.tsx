@@ -81,8 +81,16 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
 
       {isAdmin && (
         <>
-          <RenameProjectDialog projectId={projectId} open={renameOpen} onOpenChange={setRenameOpen} />
-          <DeleteProjectDialog projectId={projectId} open={deleteOpen} onOpenChange={setDeleteOpen} />
+          <RenameProjectDialog
+            projectId={projectId}
+            open={renameOpen}
+            onOpenChange={setRenameOpen}
+          />
+          <DeleteProjectDialog
+            projectId={projectId}
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+          />
           <SetParentDialog projectId={projectId} open={moveOpen} onOpenChange={setMoveOpen} />
         </>
       )}

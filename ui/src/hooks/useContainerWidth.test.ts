@@ -37,10 +37,7 @@ describe('useContainerWidth', () => {
     const { result } = renderHook(() => useContainerWidth(ref))
 
     act(() => {
-      resizeCallback(
-        [{ contentRect: { width: 400 } } as ResizeObserverEntry],
-        {} as ResizeObserver,
-      )
+      resizeCallback([{ contentRect: { width: 400 } } as ResizeObserverEntry], {} as ResizeObserver)
     })
 
     expect(result.current).toBe(400)
@@ -54,18 +51,12 @@ describe('useContainerWidth', () => {
     const { result } = renderHook(() => useContainerWidth(ref))
 
     act(() => {
-      resizeCallback(
-        [{ contentRect: { width: 200 } } as ResizeObserverEntry],
-        {} as ResizeObserver,
-      )
+      resizeCallback([{ contentRect: { width: 200 } } as ResizeObserverEntry], {} as ResizeObserver)
     })
     expect(result.current).toBe(200)
 
     act(() => {
-      resizeCallback(
-        [{ contentRect: { width: 800 } } as ResizeObserverEntry],
-        {} as ResizeObserver,
-      )
+      resizeCallback([{ contentRect: { width: 800 } } as ResizeObserverEntry], {} as ResizeObserver)
     })
     expect(result.current).toBe(800)
   })

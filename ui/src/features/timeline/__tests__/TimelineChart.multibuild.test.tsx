@@ -36,7 +36,12 @@ vi.mock('../TimelineDetailTable', () => ({
   ),
 }))
 vi.mock('@/hooks/useStatusColors', () => ({
-  useStatusColors: () => ({ passed: '#40a02b', failed: '#d20f39', broken: '#fe640b', skipped: '#8c8fa1' }),
+  useStatusColors: () => ({
+    passed: '#40a02b',
+    failed: '#d20f39',
+    broken: '#fe640b',
+    skipped: '#8c8fa1',
+  }),
 }))
 vi.mock('@/hooks/useContainerWidth', () => ({
   useContainerWidth: () => 1000,
@@ -114,12 +119,7 @@ describe('TimelineChart (multi-build data flow)', () => {
     const tc2 = makeTestCase({ name: 'b', start: 1010000, stop: 1015000 })
     const builds = [makeBuild(2, [tc1]), makeBuild(1, [tc2])]
     render(
-      <TimelineChart
-        builds={builds}
-        testCases={[tc1, tc2]}
-        minStart={1000000}
-        maxStop={1015000}
-      />,
+      <TimelineChart builds={builds} testCases={[tc1, tc2]} minStart={1000000} maxStop={1015000} />,
     )
 
     const gantt = screen.getByTestId('mock-gantt')

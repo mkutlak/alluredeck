@@ -42,7 +42,13 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={isImage || isText ? 'max-w-[90vw] w-full max-h-[85vh] grid-rows-[auto_1fr_auto]' : undefined}>
+      <DialogContent
+        className={
+          isImage || isText
+            ? 'max-h-[85vh] w-full max-w-[90vw] grid-rows-[auto_1fr_auto]'
+            : undefined
+        }
+      >
         <DialogHeader>
           <DialogTitle>{attachment.name}</DialogTitle>
           <DialogDescription>{formatBytes(attachment.size_bytes)}</DialogDescription>
@@ -63,18 +69,13 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
               fileName={attachment.name}
             />
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               {attachment.mime_type} · {formatBytes(attachment.size_bytes)}
             </p>
           )}
 
           <div className="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={downloading}
-              onClick={handleDownload}
-            >
+            <Button variant="outline" size="sm" disabled={downloading} onClick={handleDownload}>
               {downloading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

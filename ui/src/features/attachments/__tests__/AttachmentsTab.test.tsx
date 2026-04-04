@@ -16,8 +16,20 @@ vi.mock('@/api/reports', () => ({
   fetchReportHistory: vi.fn().mockResolvedValue({
     data: {
       reports: [
-        { report_id: '5', is_latest: true, generated_at: '2026-03-29T15:00:00Z', statistic: null, duration_ms: null },
-        { report_id: '4', is_latest: false, generated_at: '2026-03-28T15:00:00Z', statistic: null, duration_ms: null },
+        {
+          report_id: '5',
+          is_latest: true,
+          generated_at: '2026-03-29T15:00:00Z',
+          statistic: null,
+          duration_ms: null,
+        },
+        {
+          report_id: '4',
+          is_latest: false,
+          generated_at: '2026-03-28T15:00:00Z',
+          statistic: null,
+          duration_ms: null,
+        },
       ],
     },
     metadata: { page: 1, per_page: 50, total_items: 2, total_pages: 1 },
@@ -45,15 +57,36 @@ const mockData: AttachmentsData = {
       test_name: 'shouldRegisterNewUser',
       test_status: 'failed',
       attachments: [
-        { id: 1, name: 'screenshot.png', source: 'abc123.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/abc123.png' },
-        { id: 2, name: 'stdout.txt', source: 'def456.txt', mime_type: 'text/plain', size_bytes: 369, url: '/mock/def456.txt' },
+        {
+          id: 1,
+          name: 'screenshot.png',
+          source: 'abc123.png',
+          mime_type: 'image/png',
+          size_bytes: 1024,
+          url: '/mock/abc123.png',
+        },
+        {
+          id: 2,
+          name: 'stdout.txt',
+          source: 'def456.txt',
+          mime_type: 'text/plain',
+          size_bytes: 369,
+          url: '/mock/def456.txt',
+        },
       ],
     },
     {
       test_name: 'shouldLogin',
       test_status: 'passed',
       attachments: [
-        { id: 3, name: 'log.txt', source: 'ghi789.txt', mime_type: 'text/plain', size_bytes: 2048, url: '/mock/ghi789.txt' },
+        {
+          id: 3,
+          name: 'log.txt',
+          source: 'ghi789.txt',
+          mime_type: 'text/plain',
+          size_bytes: 2048,
+          url: '/mock/ghi789.txt',
+        },
       ],
     },
   ],

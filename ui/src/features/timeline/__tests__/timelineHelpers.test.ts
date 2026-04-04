@@ -71,4 +71,3 @@ describe('computeTicks', () => {
     expect(ticks[0]).toMatchObject({ ms: 0, label: '+0s' })
   })
 })
-

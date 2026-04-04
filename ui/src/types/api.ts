@@ -712,3 +712,35 @@ export interface UpdateWebhookRequest {
   events?: string[]
   is_active?: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline Runs
+// ---------------------------------------------------------------------------
+
+export interface PipelineSuite {
+  project_id: string
+  build_order: number
+  pass_rate: number
+  total: number
+  failed: number
+  duration_ms: number
+  status: 'passed' | 'failed' | 'degraded'
+}
+
+export interface PipelineAggregate {
+  suites_passed: number
+  suites_total: number
+  tests_passed: number
+  tests_total: number
+  pass_rate: number
+  total_duration_ms: number
+}
+
+export interface PipelineRun {
+  commit_sha: string
+  branch: string
+  ci_build_url?: string
+  timestamp: string
+  suites: PipelineSuite[]
+  aggregate: PipelineAggregate
+}

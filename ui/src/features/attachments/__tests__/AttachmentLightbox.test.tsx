@@ -16,7 +16,12 @@ vi.mock('../AttachmentTextPreview', () => ({
 }))
 
 const imageAttachment: AttachmentEntry = {
-  id: 1, name: 'screenshot.png', source: 'abc.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/abc.png',
+  id: 1,
+  name: 'screenshot.png',
+  source: 'abc.png',
+  mime_type: 'image/png',
+  size_bytes: 1024,
+  url: '/mock/abc.png',
 }
 
 describe('AttachmentLightbox', () => {
@@ -55,7 +60,12 @@ describe('AttachmentLightbox', () => {
 
   it('renders text preview for text attachments', () => {
     const textAttachment: AttachmentEntry = {
-      id: 2, name: 'stdout.txt', source: 'abc.txt', mime_type: 'text/plain', size_bytes: 369, url: '/mock/abc.txt',
+      id: 2,
+      name: 'stdout.txt',
+      source: 'abc.txt',
+      mime_type: 'text/plain',
+      size_bytes: 369,
+      url: '/mock/abc.txt',
     }
     render(<AttachmentLightbox attachment={textAttachment} open={true} onOpenChange={() => {}} />)
     expect(screen.getByTestId('text-preview')).toBeInTheDocument()
@@ -64,7 +74,12 @@ describe('AttachmentLightbox', () => {
 
   it('renders text preview for JSON attachments', () => {
     const jsonAttachment: AttachmentEntry = {
-      id: 3, name: 'data.json', source: 'def.json', mime_type: 'application/json', size_bytes: 128, url: '/mock/def.json',
+      id: 3,
+      name: 'data.json',
+      source: 'def.json',
+      mime_type: 'application/json',
+      size_bytes: 128,
+      url: '/mock/def.json',
     }
     render(<AttachmentLightbox attachment={jsonAttachment} open={true} onOpenChange={() => {}} />)
     expect(screen.getByTestId('text-preview')).toBeInTheDocument()

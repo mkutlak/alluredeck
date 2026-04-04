@@ -57,10 +57,7 @@ export async function fetchBuildDefects(
   return res.data
 }
 
-export async function fetchDefect(
-  projectId: string,
-  defectId: string,
-): Promise<DefectFingerprint> {
+export async function fetchDefect(projectId: string, defectId: string): Promise<DefectFingerprint> {
   const res = await apiClient.get<ApiResponse<DefectFingerprint>>(
     `/projects/${encodeURIComponent(projectId)}/defects/${encodeURIComponent(defectId)}`,
   )
@@ -102,15 +99,10 @@ export async function bulkUpdateDefects(
   projectId: string,
   data: { ids: string[]; category?: DefectCategory; resolution?: DefectResolution },
 ): Promise<void> {
-  await apiClient.post(
-    `/projects/${encodeURIComponent(projectId)}/defects/bulk`,
-    data,
-  )
+  await apiClient.post(`/projects/${encodeURIComponent(projectId)}/defects/bulk`, data)
 }
 
-export async function fetchProjectDefectSummary(
-  projectId: string,
-): Promise<DefectProjectSummary> {
+export async function fetchProjectDefectSummary(projectId: string): Promise<DefectProjectSummary> {
   const res = await apiClient.get<ApiResponse<DefectProjectSummary>>(
     `/projects/${encodeURIComponent(projectId)}/defects/summary`,
   )

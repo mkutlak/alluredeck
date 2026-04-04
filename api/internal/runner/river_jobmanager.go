@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	pgx "github.com/jackc/pgx/v5"
@@ -53,19 +54,24 @@ type GenerateReportWorker struct {
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
+	reportIDs    *sync.Map
 	logger       *zap.Logger
 }
 
 // Work implements river.Worker.
 func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[GenerateReportArgs]) error {
 	a := job.Args
-	if _, err := w.generator.GenerateReport(ctx, a.ProjectID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA); err != nil {
+	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA)
+	if err != nil {
 		w.logger.Error("river: report generation failed",
 			zap.Int64("job_id", job.ID),
 			zap.String("project_id", a.ProjectID),
 			zap.Error(err),
 		)
 		return err
+	}
+	if reportID != "" {
+		w.reportIDs.Store(job.ID, reportID)
 	}
 	w.logger.Info("river: report generation completed",
 		zap.Int64("job_id", job.ID),
@@ -93,19 +99,24 @@ type PlaywrightIngestWorker struct {
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
+	reportIDs    *sync.Map
 	logger       *zap.Logger
 }
 
 // Work implements river.Worker for Playwright report ingestion.
 func (w *PlaywrightIngestWorker) Work(ctx context.Context, job *river.Job[PlaywrightIngestArgs]) error {
 	a := job.Args
-	if _, err := w.runner.IngestReport(ctx, a.ProjectID, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA); err != nil {
+	reportID, err := w.runner.IngestReport(ctx, a.ProjectID, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA)
+	if err != nil {
 		w.logger.Error("river: playwright ingest failed",
 			zap.Int64("job_id", job.ID),
 			zap.String("project_id", a.ProjectID),
 			zap.Error(err),
 		)
 		return err
+	}
+	if reportID != "" {
+		w.reportIDs.Store(job.ID, reportID)
 	}
 	w.logger.Info("river: playwright ingest completed",
 		zap.Int64("job_id", job.ID),
@@ -149,9 +160,9 @@ func enqueueWebhooksForProject(ctx context.Context, projectID string, buildStore
 		Timestamp:  time.Now(),
 	}
 
-	// Dashboard URL
+	// Dashboard URL — link directly to the report, not just the project.
 	if externalURL != "" {
-		payload.DashboardURL = externalURL + "/projects/" + projectID
+		payload.DashboardURL = externalURL + "/projects/" + projectID + "/reports/" + strconv.Itoa(build.BuildOrder)
 	}
 
 	// Stats
@@ -233,10 +244,11 @@ func derefStr(p *string) string {
 // RiverJobManager implements JobQueuer using River backed by PostgreSQL.
 // It is safe for concurrent use across multiple instances (pods).
 type RiverJobManager struct {
-	client *river.Client[pgx.Tx]
-	pool   *pgxpool.Pool
-	ctx    context.Context // set by Start
-	logger *zap.Logger
+	client    *river.Client[pgx.Tx]
+	pool      *pgxpool.Pool
+	ctx       context.Context // set by Start
+	reportIDs sync.Map        // river job ID (int64) -> report ID (string)
+	logger    *zap.Logger
 }
 
 // compile-time check
@@ -244,12 +256,15 @@ var _ JobQueuer = (*RiverJobManager)(nil)
 
 // NewRiverJobManager creates a new RiverJobManager. Call Start to begin processing jobs.
 func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, logger *zap.Logger) (*RiverJobManager, error) {
+	jm := &RiverJobManager{pool: pool, logger: logger}
+
 	workers := river.NewWorkers()
 	reportWorker := &GenerateReportWorker{
 		generator:    generator,
 		buildStore:   buildStore,
 		webhookStore: webhookStore,
 		externalURL:  externalURL,
+		reportIDs:    &jm.reportIDs,
 		logger:       logger,
 	}
 	river.AddWorker(workers, reportWorker)
@@ -267,6 +282,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 			buildStore:   buildStore,
 			webhookStore: webhookStore,
 			externalURL:  externalURL,
+			reportIDs:    &jm.reportIDs,
 			logger:       logger,
 		}
 		river.AddWorker(workers, pwWorker)
@@ -289,7 +305,8 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		pwWorker.riverClient = client
 	}
 
-	return &RiverJobManager{client: client, pool: pool, logger: logger}, nil
+	jm.client = client
+	return jm, nil
 }
 
 // Start stores the server context and starts the River client.
@@ -365,7 +382,11 @@ func (jm *RiverJobManager) Get(jobID string) *Job {
 	if err != nil {
 		return nil
 	}
-	return riverRowToJob(row)
+	j := riverRowToJob(row)
+	if v, ok := jm.reportIDs.Load(row.ID); ok {
+		j.ReportID = v.(string)
+	}
+	return j
 }
 
 // ListJobs returns all generate_report and playwright_ingest jobs known to River, newest first (capped at 200).
@@ -382,7 +403,11 @@ func (jm *RiverJobManager) ListJobs() []*Job {
 
 	jobs := make([]*Job, 0, len(res.Jobs))
 	for _, r := range res.Jobs {
-		jobs = append(jobs, riverRowToJob(r))
+		j := riverRowToJob(r)
+		if v, ok := jm.reportIDs.Load(r.ID); ok {
+			j.ReportID = v.(string)
+		}
+		jobs = append(jobs, j)
 	}
 	return jobs
 }

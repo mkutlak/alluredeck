@@ -84,7 +84,9 @@ describe('fetchReportSummary', () => {
   })
 
   it('calls apiClient.get with encoded path and returns summary data', async () => {
-    const summary = { statistic: { passed: 5, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 5 } }
+    const summary = {
+      statistic: { passed: 5, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 5 },
+    }
     mockGet.mockResolvedValueOnce({ data: summary })
 
     const result = await fetchReportSummary('my-project', 'report-42')
@@ -96,7 +98,9 @@ describe('fetchReportSummary', () => {
   })
 
   it('encodes special characters in projectId and reportId', async () => {
-    const summary = { statistic: { passed: 1, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 1 } }
+    const summary = {
+      statistic: { passed: 1, failed: 0, broken: 0, skipped: 0, unknown: 0, total: 1 },
+    }
     mockGet.mockResolvedValueOnce({ data: summary })
 
     await fetchReportSummary('project/x', 'report#1')

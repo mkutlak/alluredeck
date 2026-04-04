@@ -39,10 +39,7 @@ export function TimelineTab() {
   })
 
   // Flatten all test cases across builds for display
-  const allTestCases = useMemo(
-    () => data?.builds.flatMap((b) => b.test_cases) ?? [],
-    [data],
-  )
+  const allTestCases = useMemo(() => data?.builds.flatMap((b) => b.test_cases) ?? [], [data])
 
   // Compute summary stats from the first build (for header display)
   const totalTests = useMemo(
@@ -55,10 +52,7 @@ export function TimelineTab() {
     [data],
   )
 
-  const anyTruncated = useMemo(
-    () => data?.builds.some((b) => b.summary.truncated) ?? false,
-    [data],
-  )
+  const anyTruncated = useMemo(() => data?.builds.some((b) => b.summary.truncated) ?? false, [data])
 
   if (!projectId) return null
 
@@ -117,11 +111,7 @@ export function TimelineTab() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
-        <BranchSelector
-          projectId={projectId}
-          selectedBranch={branch}
-          onBranchChange={setBranch}
-        />
+        <BranchSelector projectId={projectId} selectedBranch={branch} onBranchChange={setBranch} />
         <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
         {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
       </div>

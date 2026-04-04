@@ -75,6 +75,10 @@ export const queryKeys = {
   webhooks: (projectId: string) => ['webhooks', projectId] as const,
   webhookDeliveries: (projectId: string, webhookId: string, page?: number) =>
     ['webhook-deliveries', projectId, webhookId, ...(page !== undefined ? [page] : [])] as const,
+  pipelineRuns: (pid: string, page?: number, branch?: string) =>
+    branch != null
+      ? (['pipeline-runs', pid, page ?? undefined, branch] as const)
+      : (['pipeline-runs', pid, page ?? undefined] as const),
 }
 
 function projectScopedKeys(projectId: string) {
@@ -91,6 +95,7 @@ function projectScopedKeys(projectId: string) {
     queryKeys.knownIssues(projectId),
     queryKeys.attachments(projectId, 'latest'),
     queryKeys.trends(projectId, 100),
+    queryKeys.pipelineRuns(projectId),
   ]
 }
 

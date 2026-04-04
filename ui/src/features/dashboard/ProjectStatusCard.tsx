@@ -138,7 +138,9 @@ export function ProjectStatusCard({ project }: Props) {
             <div className="flex items-center gap-1">
               {latest_build ? (
                 <Badge
-                  variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
+                  variant={
+                    passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'
+                  }
                   className={getPassRateBadgeClass(passRate)}
                 >
                   {passRate.toFixed(0)}%
@@ -197,7 +199,6 @@ export function ProjectStatusCard({ project }: Props) {
           ) : (
             <p className="text-muted-foreground text-sm">No runs yet</p>
           )}
-
         </CardContent>
       </Card>
     </>

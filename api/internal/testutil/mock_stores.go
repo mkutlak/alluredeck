@@ -21,6 +21,7 @@ var (
 	_ store.APIKeyStorer     = (*MockAPIKeyStore)(nil)
 	_ store.UserStorer       = (*MockUserStore)(nil)
 	_ store.AttachmentStorer = (*MockAttachmentStore)(nil)
+	_ store.PipelineStorer   = (*MockPipelineStore)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
@@ -39,6 +40,7 @@ type MockStores struct {
 	Attachments *MockAttachmentStore
 	Defects     *MemDefectStore
 	Webhooks    *MemWebhookStore // stateful in-memory store for webhook handler tests
+	Pipeline    *MockPipelineStore
 }
 
 // New returns a MockStores with all fields initialised.
@@ -60,6 +62,7 @@ func New() *MockStores {
 		Attachments: &MockAttachmentStore{},
 		Defects:     NewMemDefectStore(),
 		Webhooks:    NewMemWebhookStore(),
+		Pipeline:    &MockPipelineStore{},
 	}
 }
 
@@ -786,4 +789,20 @@ func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, so
 		return m.GetBySourceFn(ctx, buildID, source)
 	}
 	return nil, nil
+}
+
+// ---------------------------------------------------------------------------
+// MockPipelineStore
+// ---------------------------------------------------------------------------
+
+// MockPipelineStore is a test double for store.PipelineStorer.
+type MockPipelineStore struct {
+	ListPipelineRunsFn func(ctx context.Context, parentID string, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
+}
+
+func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID string, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
+	if m.ListPipelineRunsFn != nil {
+		return m.ListPipelineRunsFn(ctx, parentID, branch, page, perPage)
+	}
+	return nil, 0, nil
 }

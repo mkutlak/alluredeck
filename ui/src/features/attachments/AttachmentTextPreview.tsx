@@ -81,7 +81,9 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load')
       })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [url])
 
   // Highlight when text or theme changes.
@@ -113,7 +115,9 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
         }
       })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [rawText, mimeType, fileName, resolvedTheme])
 
   function handleCopy() {
@@ -127,7 +131,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      <div className="border-destructive/50 bg-destructive/10 text-destructive flex items-center gap-2 rounded-md border px-4 py-3 text-sm">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         {error}
       </div>
@@ -151,7 +155,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
       <Button
         variant="ghost"
         size="sm"
-        className="absolute right-2 top-2 z-10 h-7 gap-1 text-xs opacity-70 hover:opacity-100"
+        className="absolute top-2 right-2 z-10 h-7 gap-1 text-xs opacity-70 hover:opacity-100"
         onClick={handleCopy}
       >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -159,7 +163,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
       </Button>
 
       <div
-        className="max-h-[70vh] overflow-auto rounded-md text-sm [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre [&_pre]:!overflow-x-auto [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:text-muted-foreground/50 [&_code_.line]:before:content-[counter(line)] [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line]"
+        className="[&_code_.line]:before:text-muted-foreground/50 [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line] max-h-[70vh] overflow-auto rounded-md text-sm [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:content-[counter(line)] [&_pre]:!overflow-x-auto [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre"
         data-testid="text-preview-content"
         dangerouslySetInnerHTML={{ __html: html }}
       />

@@ -42,6 +42,7 @@ type stores struct {
 	user       store.UserStorer
 	defect     store.DefectStorer
 	webhook    store.WebhookStorer
+	pipeline   store.PipelineStorer
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -67,6 +68,7 @@ type handlerSet struct {
 	parent          *handlers.ProjectParentHandler
 	defect          *handlers.DefectHandler
 	webhook         *handlers.WebhookHandler
+	pipeline        *handlers.PipelineHandler
 	oidc            *handlers.OIDCHandler // may be nil
 }
 
@@ -306,6 +308,7 @@ func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, 
 		user:       pg.NewUserStore(pgDB),
 		defect:     pg.NewDefectStore(pgDB),
 		webhook:    pg.NewWebhookStore(pgDB, encKey, logger),
+		pipeline:   pg.NewPipelineStore(pgDB),
 	}
 
 	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
@@ -373,6 +376,7 @@ func wireHandlers(
 		parent:          handlers.NewProjectParentHandler(s.project, s.build, cfg.ProjectsPath, logger),
 		defect:          handlers.NewDefectHandler(s.defect, cfg.ProjectsPath, logger),
 		webhook:         handlers.NewWebhookHandler(s.webhook, cfg.ProjectsPath, logger),
+		pipeline:        handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
 		oidc:            oidcHandler,
 	}
 }
@@ -565,6 +569,9 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("PUT "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(d.h.parent.SetParent)))
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(d.h.parent.ClearParent)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/children", viewerUp(mutableCache(d.h.parent.ListChildren)))
+
+	// Pipeline runs (parent project aggregation by commit SHA).
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetPipelineRuns)))
 
 	// Admin system monitor endpoints.
 	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(d.h.admin.ListJobs)))

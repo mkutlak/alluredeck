@@ -128,10 +128,7 @@ describe('TimelineTab (multi-build)', () => {
     vi.mocked(fetchProjectTimeline).mockResolvedValue(mockMultiTimeline)
     renderTab('proj1')
     await screen.findByTestId('timeline-chart')
-    expect(fetchProjectTimeline).toHaveBeenCalledWith(
-      'proj1',
-      expect.objectContaining({}),
-    )
+    expect(fetchProjectTimeline).toHaveBeenCalledWith('proj1', expect.objectContaining({}))
   })
 
   it('renders BranchSelector', async () => {

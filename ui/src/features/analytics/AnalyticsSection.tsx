@@ -15,7 +15,7 @@ export function AnalyticsSection({ title, isEmpty, children }: AnalyticsSectionP
         <h2 className="text-muted-foreground text-sm font-medium tracking-wide uppercase">
           {title}
         </h2>
-        <div className="h-px flex-1 bg-border" />
+        <div className="bg-border h-px flex-1" />
       </div>
       {children}
     </section>

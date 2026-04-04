@@ -151,10 +151,10 @@ describe('invalidateProjectQueries', () => {
     }
   })
 
-  it('makes 13 total invalidation calls (1 dashboard + 12 project-scoped)', async () => {
+  it('makes 14 total invalidation calls (1 dashboard + 13 project-scoped)', async () => {
     const qc = makeMockQueryClient()
     await invalidateProjectQueries(qc, 'proj')
-    expect(qc.invalidateQueries).toHaveBeenCalledTimes(13)
+    expect(qc.invalidateQueries).toHaveBeenCalledTimes(14)
   })
 })
 
@@ -194,9 +194,9 @@ describe('removeProjectQueries', () => {
     expect(qc.removeQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.projects })
   })
 
-  it('makes exactly 12 removeQueries calls', () => {
+  it('makes exactly 13 removeQueries calls', () => {
     const qc = makeMockQueryClient()
     removeProjectQueries(qc, 'proj')
-    expect(qc.removeQueries).toHaveBeenCalledTimes(12)
+    expect(qc.removeQueries).toHaveBeenCalledTimes(13)
   })
 })

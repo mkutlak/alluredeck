@@ -104,7 +104,9 @@ describe('LoginPage', () => {
     })
     render(
       <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: { pathname: '//evil.com' } } }]}>
+        <MemoryRouter
+          initialEntries={[{ pathname: '/login', state: { from: { pathname: '//evil.com' } } }]}
+        >
           <LoginPage />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -125,7 +127,9 @@ describe('LoginPage', () => {
     })
     render(
       <QueryClientProvider client={createTestQueryClient()}>
-        <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: { pathname: '/dashboard' } } }]}>
+        <MemoryRouter
+          initialEntries={[{ pathname: '/login', state: { from: { pathname: '/dashboard' } } }]}
+        >
           <LoginPage />
         </MemoryRouter>
       </QueryClientProvider>,

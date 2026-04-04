@@ -8,9 +8,7 @@ vi.mock('@/api/attachments', () => ({
 
 vi.mock('shiki', () => ({
   createHighlighter: vi.fn().mockResolvedValue({
-    codeToHtml: vi.fn(
-      (code: string) => `<pre class="shiki"><code>${code}</code></pre>`,
-    ),
+    codeToHtml: vi.fn((code: string) => `<pre class="shiki"><code>${code}</code></pre>`),
   }),
 }))
 
@@ -30,13 +28,17 @@ describe('AttachmentTextPreview', () => {
 
   it('shows loading skeleton while fetching', () => {
     vi.mocked(fetchAttachmentContent).mockReturnValue(new Promise(() => {}))
-    render(<AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />)
+    render(
+      <AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />,
+    )
     expect(screen.getByTestId('text-preview-loading')).toBeInTheDocument()
   })
 
   it('renders fetched text content', async () => {
     vi.mocked(fetchAttachmentContent).mockResolvedValue('Hello World\nLine 2')
-    render(<AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />)
+    render(
+      <AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />,
+    )
 
     await waitFor(() => {
       expect(screen.getByTestId('text-preview-content')).toBeInTheDocument()
@@ -46,14 +48,18 @@ describe('AttachmentTextPreview', () => {
 
   it('shows error state on fetch failure', async () => {
     vi.mocked(fetchAttachmentContent).mockRejectedValue(new Error('Network error'))
-    render(<AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />)
+    render(
+      <AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />,
+    )
 
     expect(await screen.findByText('Network error')).toBeInTheDocument()
   })
 
   it('shows copy button', async () => {
     vi.mocked(fetchAttachmentContent).mockResolvedValue('some content')
-    render(<AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />)
+    render(
+      <AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />,
+    )
 
     await waitFor(() => {
       expect(screen.getByTestId('text-preview-content')).toBeInTheDocument()
@@ -64,7 +70,9 @@ describe('AttachmentTextPreview', () => {
   it('shows truncation warning for large files', async () => {
     const largeContent = 'x'.repeat(600_000)
     vi.mocked(fetchAttachmentContent).mockResolvedValue(largeContent)
-    render(<AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />)
+    render(
+      <AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />,
+    )
 
     await waitFor(() => {
       expect(screen.getByTestId('text-preview-content')).toBeInTheDocument()
@@ -77,7 +85,9 @@ describe('AttachmentTextPreview', () => {
     Object.assign(navigator, { clipboard: { writeText } })
 
     vi.mocked(fetchAttachmentContent).mockResolvedValue('copy me')
-    render(<AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />)
+    render(
+      <AttachmentTextPreview url="/mock/file.txt" mimeType="text/plain" fileName="stdout.txt" />,
+    )
 
     await waitFor(() => {
       expect(screen.getByTestId('text-preview-content')).toBeInTheDocument()

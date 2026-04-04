@@ -31,7 +31,12 @@ vi.mock('../TimelineDetailTable', () => ({
   ),
 }))
 vi.mock('@/hooks/useStatusColors', () => ({
-  useStatusColors: () => ({ passed: '#40a02b', failed: '#d20f39', broken: '#fe640b', skipped: '#8c8fa1' }),
+  useStatusColors: () => ({
+    passed: '#40a02b',
+    failed: '#d20f39',
+    broken: '#fe640b',
+    skipped: '#8c8fa1',
+  }),
 }))
 vi.mock('@/hooks/useContainerWidth', () => ({
   useContainerWidth: () => 1000,
@@ -88,13 +93,20 @@ describe('TimelineChart (orchestrator)', () => {
   })
 
   it('passes testCases to sub-components', () => {
-    const testCases = [makeTestCase({ name: 'alpha' }), makeTestCase({ name: 'beta', start: 1010000, stop: 1015000 })]
+    const testCases = [
+      makeTestCase({ name: 'alpha' }),
+      makeTestCase({ name: 'beta', start: 1010000, stop: 1015000 }),
+    ]
     render(<TimelineChart testCases={testCases} minStart={MIN_START} maxStop={MAX_STOP} />)
 
-    const legendProps = JSON.parse(screen.getByTestId('mock-legend').getAttribute('data-props') ?? '{}')
+    const legendProps = JSON.parse(
+      screen.getByTestId('mock-legend').getAttribute('data-props') ?? '{}',
+    )
     expect(legendProps.testCases).toHaveLength(2)
 
-    const ganttProps = JSON.parse(screen.getByTestId('mock-gantt').getAttribute('data-props') ?? '{}')
+    const ganttProps = JSON.parse(
+      screen.getByTestId('mock-gantt').getAttribute('data-props') ?? '{}',
+    )
     expect(ganttProps.testCases).toHaveLength(2)
   })
 
@@ -102,7 +114,9 @@ describe('TimelineChart (orchestrator)', () => {
     const testCases = [makeTestCase()]
     render(<TimelineChart testCases={testCases} minStart={MIN_START} maxStop={MAX_STOP} />)
 
-    const legendProps = JSON.parse(screen.getByTestId('mock-legend').getAttribute('data-props') ?? '{}')
+    const legendProps = JSON.parse(
+      screen.getByTestId('mock-legend').getAttribute('data-props') ?? '{}',
+    )
     expect(legendProps.statusColors).toEqual({
       passed: '#40a02b',
       failed: '#d20f39',

@@ -102,6 +102,22 @@ type DashboardProject struct {
 	Sparkline  []SparklinePoint
 }
 
+// PipelineRunRow is a flat row from the pipeline-runs query.
+// The handler groups these by CommitSHA and computes aggregates.
+type PipelineRunRow struct {
+	CommitSHA  string
+	Branch     string
+	CIBuildURL string
+	CreatedAt  time.Time
+	ProjectID  string
+	BuildOrder int
+	StatPassed *int
+	StatFailed *int
+	StatBroken *int
+	StatTotal  *int
+	DurationMs *int64
+}
+
 // TestResult represents a single test execution result stored in the database.
 type TestResult struct {
 	BuildID    int64

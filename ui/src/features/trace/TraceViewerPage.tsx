@@ -60,7 +60,8 @@ export default function TraceViewerPage() {
   }
 
   const prevTrace = currentIndex > 0 ? allTraces[currentIndex - 1] : null
-  const nextTrace = currentIndex >= 0 && currentIndex < allTraces.length - 1 ? allTraces[currentIndex + 1] : null
+  const nextTrace =
+    currentIndex >= 0 && currentIndex < allTraces.length - 1 ? allTraces[currentIndex + 1] : null
 
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
@@ -76,16 +77,21 @@ export default function TraceViewerPage() {
         <span className="text-muted-foreground text-sm">/</span>
 
         {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
         ) : ownerGroup ? (
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-sm" title={ownerGroup.test_name}>
+            <span className="truncate text-sm font-medium" title={ownerGroup.test_name}>
               {ownerGroup.test_name}
             </span>
-            <Badge variant={statusVariant[ownerGroup.test_status] ?? 'default'} className="shrink-0 capitalize">
+            <Badge
+              variant={statusVariant[ownerGroup.test_status] ?? 'default'}
+              className="shrink-0 capitalize"
+            >
               {ownerGroup.test_status}
             </Badge>
-            <span className="shrink-0 font-mono text-sm text-muted-foreground">Build #{reportId}</span>
+            <span className="text-muted-foreground shrink-0 font-mono text-sm">
+              Build #{reportId}
+            </span>
           </div>
         ) : (
           <span className="font-mono text-sm">{decodeURIComponent(source)}</span>
@@ -135,8 +141,10 @@ export default function TraceViewerPage() {
       {/* Error state */}
       {isError && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="font-medium text-destructive">Failed to load attachment metadata</p>
-          <p className="text-muted-foreground text-sm">The attachment may not exist or you may not have permission to view it.</p>
+          <p className="text-destructive font-medium">Failed to load attachment metadata</p>
+          <p className="text-muted-foreground text-sm">
+            The attachment may not exist or you may not have permission to view it.
+          </p>
         </div>
       )}
 

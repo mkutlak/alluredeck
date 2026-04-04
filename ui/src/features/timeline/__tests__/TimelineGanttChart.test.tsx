@@ -8,12 +8,15 @@ vi.mock('d3-zoom', () => {
   const identity = { k: 1, x: 0, y: 0 }
   return {
     zoom: vi.fn(() => {
-      const z = Object.assign(vi.fn(() => z), {
-        scaleExtent: vi.fn(() => z),
-        translateExtent: vi.fn(() => z),
-        on: vi.fn(() => z),
-        filter: vi.fn(() => z),
-      })
+      const z = Object.assign(
+        vi.fn(() => z),
+        {
+          scaleExtent: vi.fn(() => z),
+          translateExtent: vi.fn(() => z),
+          on: vi.fn(() => z),
+          filter: vi.fn(() => z),
+        },
+      )
       return z
     }),
     zoomIdentity: identity,

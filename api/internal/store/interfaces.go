@@ -163,6 +163,14 @@ type AnalyticsStorer interface {
 	ListTrendPoints(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]TrendPoint, error)
 }
 
+// PipelineStorer provides cross-project pipeline run queries for parent projects.
+type PipelineStorer interface {
+	// ListPipelineRuns returns builds from child projects of the given parent,
+	// grouped by ci_commit_sha via a CTE. Only builds with non-NULL ci_commit_sha
+	// are included. Pagination operates on distinct commit SHAs, not individual rows.
+	ListPipelineRuns(ctx context.Context, parentID string, branch string, page, perPage int) ([]PipelineRunRow, int, error)
+}
+
 // AttachmentStorer provides queries over test attachment metadata.
 type AttachmentStorer interface {
 	ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]TestAttachment, int, error)

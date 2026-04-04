@@ -37,11 +37,15 @@ const statusStyles: Record<string, string> = {
   unknown: 'text-gray-500 dark:text-gray-400',
 }
 
-function filterAttachments(attachments: AttachmentEntry[], mimeFilter: MimeFilter): AttachmentEntry[] {
+function filterAttachments(
+  attachments: AttachmentEntry[],
+  mimeFilter: MimeFilter,
+): AttachmentEntry[] {
   if (mimeFilter === '') return attachments
   if (mimeFilter === 'image') return attachments.filter((a) => a.mime_type.startsWith('image/'))
   if (mimeFilter === 'text') return attachments.filter((a) => a.mime_type.startsWith('text/'))
-  if (mimeFilter === 'trace') return attachments.filter((a) => isPlaywrightTrace(a.name, a.mime_type))
+  if (mimeFilter === 'trace')
+    return attachments.filter((a) => isPlaywrightTrace(a.name, a.mime_type))
   if (mimeFilter === 'other')
     return attachments.filter(
       (a) =>
@@ -163,7 +167,7 @@ export function AttachmentsTab() {
 
       {filteredGroups.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-          <Paperclip className="h-8 w-8 text-muted-foreground/40" />
+          <Paperclip className="text-muted-foreground/40 h-8 w-8" />
           <p className="font-medium">No attachments found</p>
           <p className="text-muted-foreground text-sm">
             {mimeFilter !== ''
@@ -179,19 +183,21 @@ export function AttachmentsTab() {
               <div key={group.test_name} className="rounded-lg border">
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-accent/50 transition-colors"
+                  className="hover:bg-accent/50 flex w-full items-center gap-2 px-4 py-3 text-left transition-colors"
                   onClick={() => toggleGroup(group.test_name)}
                 >
                   {isCollapsed ? (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronRight className="text-muted-foreground h-4 w-4 shrink-0" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronDown className="text-muted-foreground h-4 w-4 shrink-0" />
                   )}
-                  <span className="truncate font-medium text-sm">{group.test_name}</span>
-                  <span className={`shrink-0 text-xs font-medium capitalize ${statusStyles[group.test_status] ?? ''}`}>
+                  <span className="truncate text-sm font-medium">{group.test_name}</span>
+                  <span
+                    className={`shrink-0 text-xs font-medium capitalize ${statusStyles[group.test_status] ?? ''}`}
+                  >
                     {group.test_status}
                   </span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">
                     {group.attachments.length} file{group.attachments.length !== 1 ? 's' : ''}
                   </span>
                 </button>

@@ -212,7 +212,7 @@ function WebhookForm({ state, onChange }: WebhookFormProps) {
         {state.showTemplate && (
           <textarea
             id="wh-template"
-            className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[100px] w-full rounded-md border px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+            className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[100px] w-full rounded-md border px-3 py-2 text-sm shadow-sm focus-visible:ring-1 focus-visible:outline-none"
             placeholder='{"text": "Build {{.ProjectID}} finished"}'
             value={state.custom_template}
             onChange={(e) => onChange({ custom_template: e.target.value })}
@@ -321,10 +321,8 @@ function EditWebhookDialog({ projectId, webhook, onClose }: EditWebhookDialogPro
   )
   const queryClient = useQueryClient()
 
-
   const { mutate: doUpdate, isPending } = useMutation({
-    mutationFn: (req: UpdateWebhookRequest) =>
-      updateWebhook(projectId, String(webhook!.id), req),
+    mutationFn: (req: UpdateWebhookRequest) => updateWebhook(projectId, String(webhook!.id), req),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.webhooks(projectId) })
       toast({ title: 'Webhook updated' })
@@ -471,11 +469,7 @@ function DeliveryHistoryDialog({ projectId, webhook, onClose }: DeliveryHistoryD
   const [page, setPage] = useState(1)
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.webhookDeliveries(
-      projectId,
-      String(webhook?.id ?? ''),
-      page,
-    ),
+    queryKey: queryKeys.webhookDeliveries(projectId, String(webhook?.id ?? ''), page),
     queryFn: () =>
       fetchWebhookDeliveries(projectId, String(webhook!.id), page, DELIVERIES_PER_PAGE),
     enabled: webhook !== null,
@@ -658,10 +652,7 @@ export function WebhooksPage() {
                   {maskUrl(webhook.url)}
                 </TableCell>
                 <TableCell>
-                  <Badge
-                    variant={webhook.is_active ? 'default' : 'secondary'}
-                    className="text-xs"
-                  >
+                  <Badge variant={webhook.is_active ? 'default' : 'secondary'} className="text-xs">
                     {webhook.is_active ? 'Active' : 'Inactive'}
                   </Badge>
                 </TableCell>
@@ -703,11 +694,7 @@ export function WebhooksPage() {
         </Table>
       )}
 
-      <CreateWebhookDialog
-        projectId={projectId}
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-      />
+      <CreateWebhookDialog projectId={projectId} open={createOpen} onOpenChange={setCreateOpen} />
 
       <EditWebhookDialog
         key={editingWebhook?.id ?? ''}

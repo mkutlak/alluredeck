@@ -69,9 +69,9 @@ export function RenameProjectDialog({ projectId, open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Rename project</DialogTitle>
           <DialogDescription>
-            Rename <span className="font-mono font-semibold">{projectId}</span> to a new ID.
-            All builds and reports will be preserved. This operation may cause data loss if
-            interrupted and cannot be undone.
+            Rename <span className="font-mono font-semibold">{projectId}</span> to a new ID. All
+            builds and reports will be preserved. This operation may cause data loss if interrupted
+            and cannot be undone.
           </DialogDescription>
         </DialogHeader>
 

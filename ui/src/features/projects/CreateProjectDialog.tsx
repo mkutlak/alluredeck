@@ -53,19 +53,16 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       )
       // Optimistically add the new project to the list
       if (previous) {
-        queryClient.setQueryData<PaginatedResponse<ProjectsData>>(
-          projectListOptions().queryKey,
-          {
-            ...previous,
-            data: [
-              ...previous.data,
-              {
-                project_id: newProject.id,
-                ...(newProject.parent_id ? { parent_id: newProject.parent_id } : {}),
-              },
-            ],
-          },
-        )
+        queryClient.setQueryData<PaginatedResponse<ProjectsData>>(projectListOptions().queryKey, {
+          ...previous,
+          data: [
+            ...previous.data,
+            {
+              project_id: newProject.id,
+              ...(newProject.parent_id ? { parent_id: newProject.parent_id } : {}),
+            },
+          ],
+        })
       }
       return { previous }
     },

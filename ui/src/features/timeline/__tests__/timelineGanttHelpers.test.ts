@@ -182,9 +182,9 @@ describe('computeMinimapBars', () => {
     ]
     const height = 100
     const bars = computeMinimapBars(tcs, xScale, height)
-    expect(bars[0].y).toBe(0)                          // (0 / 3) * 100
-    expect(bars[1].y).toBeCloseTo((1 / 3) * 100)       // ~33.33
-    expect(bars[2].y).toBeCloseTo((2 / 3) * 100)       // ~66.67
+    expect(bars[0].y).toBe(0) // (0 / 3) * 100
+    expect(bars[1].y).toBeCloseTo((1 / 3) * 100) // ~33.33
+    expect(bars[2].y).toBeCloseTo((2 / 3) * 100) // ~66.67
   })
 
   it('each bar has correct x position from xScale', () => {

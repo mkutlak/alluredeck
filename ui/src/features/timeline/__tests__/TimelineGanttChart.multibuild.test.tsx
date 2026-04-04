@@ -8,12 +8,15 @@ vi.mock('d3-zoom', () => {
   const identity = { k: 1, x: 0, y: 0 }
   return {
     zoom: vi.fn(() => {
-      const z = Object.assign(vi.fn(() => z), {
-        scaleExtent: vi.fn(() => z),
-        translateExtent: vi.fn(() => z),
-        on: vi.fn(() => z),
-        filter: vi.fn(() => z),
-      })
+      const z = Object.assign(
+        vi.fn(() => z),
+        {
+          scaleExtent: vi.fn(() => z),
+          translateExtent: vi.fn(() => z),
+          on: vi.fn(() => z),
+          filter: vi.fn(() => z),
+        },
+      )
       return z
     }),
     zoomIdentity: identity,
@@ -103,9 +106,7 @@ describe('TimelineGanttChart (multi-build)', () => {
         makeTC({ name: 'a', full_name: 'a', start: 0, stop: 3000 }),
         makeTC({ name: 'b', full_name: 'b', start: 3000, stop: 6000 }),
       ]),
-      makeBuild(1, [
-        makeTC({ name: 'c', full_name: 'c', start: 0, stop: 2000 }),
-      ]),
+      makeBuild(1, [makeTC({ name: 'c', full_name: 'c', start: 0, stop: 2000 })]),
     ]
     render(<TimelineGanttChart {...defaultProps} builds={builds} />)
     expect(screen.getAllByTestId('gantt-bar')).toHaveLength(3)

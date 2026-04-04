@@ -62,7 +62,11 @@ export function DefectRow({
 
         <div className="flex items-center gap-2">
           {defect.is_regression && (
-            <span className="text-destructive text-sm" title="Regression" data-testid="regression-flag">
+            <span
+              className="text-destructive text-sm"
+              title="Regression"
+              data-testid="regression-flag"
+            >
               ↩
             </span>
           )}
@@ -75,7 +79,8 @@ export function DefectRow({
 
         {defect.test_result_count_in_build != null && (
           <span className="text-muted-foreground text-xs whitespace-nowrap">
-            {defect.test_result_count_in_build} test{defect.test_result_count_in_build !== 1 ? 's' : ''}
+            {defect.test_result_count_in_build} test
+            {defect.test_result_count_in_build !== 1 ? 's' : ''}
           </span>
         )}
 

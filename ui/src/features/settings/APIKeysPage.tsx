@@ -218,8 +218,14 @@ function CreatedKeyDialog({ apiKey, onClose }: CreatedKeyDialogProps) {
         </DialogHeader>
         <div className="space-y-3">
           <div className="bg-muted flex items-center gap-2 rounded-md p-3">
-            <code className="flex-1 break-all font-mono text-sm">{apiKey?.key ?? ''}</code>
-            <Button type="button" size="icon" variant="ghost" onClick={handleCopy} aria-label="Copy key">
+            <code className="flex-1 font-mono text-sm break-all">{apiKey?.key ?? ''}</code>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={handleCopy}
+              aria-label="Copy key"
+            >
               {copied ? <Check size={16} /> : <Copy size={16} />}
             </Button>
           </div>
@@ -266,10 +272,7 @@ function DeleteDialog({ apiKey, onClose }: DeleteDialogProps) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={isPending}
-            onClick={() => apiKey && doDelete(apiKey.id)}
-          >
+          <AlertDialogAction disabled={isPending} onClick={() => apiKey && doDelete(apiKey.id)}>
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -315,9 +318,7 @@ export function APIKeysPage() {
                 </Button>
               </span>
             </TooltipTrigger>
-            {atLimit && (
-              <TooltipContent>Maximum {MAX_KEYS} API keys allowed</TooltipContent>
-            )}
+            {atLimit && <TooltipContent>Maximum {MAX_KEYS} API keys allowed</TooltipContent>}
           </Tooltip>
         </TooltipProvider>
       </div>
@@ -400,15 +401,9 @@ export function APIKeysPage() {
         }}
       />
 
-      <CreatedKeyDialog
-        apiKey={createdKey}
-        onClose={() => setCreatedKey(null)}
-      />
+      <CreatedKeyDialog apiKey={createdKey} onClose={() => setCreatedKey(null)} />
 
-      <DeleteDialog
-        apiKey={deletingKey}
-        onClose={() => setDeletingKey(null)}
-      />
+      <DeleteDialog apiKey={deletingKey} onClose={() => setDeletingKey(null)} />
     </div>
   )
 }

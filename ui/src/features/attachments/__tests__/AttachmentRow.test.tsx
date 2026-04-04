@@ -10,19 +10,44 @@ import { AttachmentRow } from '../AttachmentRow'
 // ---------------------------------------------------------------------------
 
 const imageAttachment: AttachmentEntry = {
-  id: 1, name: 'screenshot.png', source: 'abc.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/abc.png',
+  id: 1,
+  name: 'screenshot.png',
+  source: 'abc.png',
+  mime_type: 'image/png',
+  size_bytes: 1024,
+  url: '/mock/abc.png',
 }
 const textAttachment: AttachmentEntry = {
-  id: 2, name: 'app.log', source: 'def.txt', mime_type: 'text/plain', size_bytes: 2048, url: '/mock/def.txt',
+  id: 2,
+  name: 'app.log',
+  source: 'def.txt',
+  mime_type: 'text/plain',
+  size_bytes: 2048,
+  url: '/mock/def.txt',
 }
 const traceAttachment: AttachmentEntry = {
-  id: 3, name: 'trace-chromium.zip', source: 'ghi.zip', mime_type: 'application/zip', size_bytes: 1048576, url: '/mock/ghi.zip',
+  id: 3,
+  name: 'trace-chromium.zip',
+  source: 'ghi.zip',
+  mime_type: 'application/zip',
+  size_bytes: 1048576,
+  url: '/mock/ghi.zip',
 }
 const videoAttachment: AttachmentEntry = {
-  id: 4, name: 'recording.webm', source: 'jkl.webm', mime_type: 'video/webm', size_bytes: 3145728, url: '/mock/jkl.webm',
+  id: 4,
+  name: 'recording.webm',
+  source: 'jkl.webm',
+  mime_type: 'video/webm',
+  size_bytes: 3145728,
+  url: '/mock/jkl.webm',
 }
 const otherAttachment: AttachmentEntry = {
-  id: 5, name: 'data.bin', source: 'mno.bin', mime_type: 'application/octet-stream', size_bytes: 512, url: '/mock/mno.bin',
+  id: 5,
+  name: 'data.bin',
+  source: 'mno.bin',
+  mime_type: 'application/octet-stream',
+  size_bytes: 512,
+  url: '/mock/mno.bin',
 }
 
 // ---------------------------------------------------------------------------

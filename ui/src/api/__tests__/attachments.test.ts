@@ -24,7 +24,13 @@ describe('fetchAttachments', () => {
           test_name: 'shouldRegister',
           test_status: 'failed',
           attachments: [
-            { id: 1, name: 'screenshot.png', source: 'abc123.png', mime_type: 'image/png', size_bytes: 1024 },
+            {
+              id: 1,
+              name: 'screenshot.png',
+              source: 'abc123.png',
+              mime_type: 'image/png',
+              size_bytes: 1024,
+            },
           ],
         },
       ],
@@ -36,10 +42,7 @@ describe('fetchAttachments', () => {
 
     const result = await fetchAttachments('p1', 'latest')
 
-    expect(mockGet).toHaveBeenCalledWith(
-      '/projects/p1/reports/latest/attachments',
-      { params: {} },
-    )
+    expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/latest/attachments', { params: {} })
     expect(result.groups).toHaveLength(1)
     expect(result.groups[0].test_name).toBe('shouldRegister')
     expect(result.groups[0].attachments[0].url).toBe(
@@ -48,25 +51,27 @@ describe('fetchAttachments', () => {
   })
 
   it('passes mime_type filter param', async () => {
-    mockGet.mockResolvedValueOnce({ data: { data: { groups: [], total: 0, limit: 100, offset: 0 } } })
+    mockGet.mockResolvedValueOnce({
+      data: { data: { groups: [], total: 0, limit: 100, offset: 0 } },
+    })
 
     await fetchAttachments('p1', 'latest', { mimeType: 'image/' })
 
-    expect(mockGet).toHaveBeenCalledWith(
-      '/projects/p1/reports/latest/attachments',
-      { params: { mime_type: 'image/' } },
-    )
+    expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/latest/attachments', {
+      params: { mime_type: 'image/' },
+    })
   })
 
   it('passes limit and offset params', async () => {
-    mockGet.mockResolvedValueOnce({ data: { data: { groups: [], total: 0, limit: 50, offset: 10 } } })
+    mockGet.mockResolvedValueOnce({
+      data: { data: { groups: [], total: 0, limit: 50, offset: 10 } },
+    })
 
     await fetchAttachments('p1', '5', { limit: 50, offset: 10 })
 
-    expect(mockGet).toHaveBeenCalledWith(
-      '/projects/p1/reports/5/attachments',
-      { params: { limit: 50, offset: 10 } },
-    )
+    expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/5/attachments', {
+      params: { limit: 50, offset: 10 },
+    })
   })
 })
 

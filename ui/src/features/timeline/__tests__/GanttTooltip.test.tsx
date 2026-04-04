@@ -38,11 +38,7 @@ describe('GanttTooltip', () => {
 
   it('shows test name when testCase and position provided', () => {
     render(
-      <GanttTooltip
-        testCase={makeTC()}
-        position={{ x: 10, y: 20 }}
-        statusColors={defaultColors}
-      />,
+      <GanttTooltip testCase={makeTC()} position={{ x: 10, y: 20 }} statusColors={defaultColors} />,
     )
     expect(screen.getByText('Login test')).toBeInTheDocument()
   })
@@ -104,11 +100,7 @@ describe('GanttTooltip', () => {
 
   it('positions via inline style (left, top)', () => {
     render(
-      <GanttTooltip
-        testCase={makeTC()}
-        position={{ x: 42, y: 84 }}
-        statusColors={defaultColors}
-      />,
+      <GanttTooltip testCase={makeTC()} position={{ x: 42, y: 84 }} statusColors={defaultColors} />,
     )
     const tooltip = screen.getByTestId('gantt-tooltip')
     expect(tooltip).toHaveStyle({ left: '42px', top: '84px' })

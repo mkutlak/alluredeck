@@ -36,7 +36,6 @@ describe('STATUS_COLORS', () => {
   })
 })
 
-
 describe('toCategoryBreakdownData', () => {
   const makeCategory = (
     name: string,

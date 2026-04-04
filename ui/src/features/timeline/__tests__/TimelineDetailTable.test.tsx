@@ -34,7 +34,13 @@ const testCases = [
     stop: 30000,
     status: 'failed',
   }),
-  makeTC({ name: 'Medium test', full_name: 'suite.medium', duration: 5000, start: 100, stop: 5100 }),
+  makeTC({
+    name: 'Medium test',
+    full_name: 'suite.medium',
+    duration: 5000,
+    start: 100,
+    stop: 5100,
+  }),
 ]
 
 describe('TimelineDetailTable', () => {

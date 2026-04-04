@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { cn, formatDate, formatDuration, calcPassRate, getStatusVariant, truncate, formatBytes } from './utils'
+import {
+  cn,
+  formatDate,
+  formatDuration,
+  calcPassRate,
+  getStatusVariant,
+  truncate,
+  formatBytes,
+} from './utils'
 
 describe('cn', () => {
   it('merges class names', () => {

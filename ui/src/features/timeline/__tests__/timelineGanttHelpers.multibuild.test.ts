@@ -65,11 +65,7 @@ describe('computeMultiBuildLayout', () => {
   it('three builds produce non-overlapping bands', () => {
     const tc1 = makeTC({ start: 0, stop: 2000 })
     const tc2 = makeTC({ start: 500, stop: 1500 })
-    const builds = [
-      makeBuild(3, [tc1, tc2]),
-      makeBuild(2, [tc1]),
-      makeBuild(1, [tc1, tc2]),
-    ]
+    const builds = [makeBuild(3, [tc1, tc2]), makeBuild(2, [tc1]), makeBuild(1, [tc1, tc2])]
     const result = computeMultiBuildLayout(builds, xScale, barHeight, barGap, bandGap)
 
     expect(result.bands).toHaveLength(3)

@@ -15,7 +15,9 @@ export function ActionBar() {
   const isAdmin = useAuthStore(selectIsAdmin)
   const isEditor = useAuthStore(selectIsEditor)
   const { data: projectsResp } = useQuery(projectListOptions())
-  const reportType = projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)?.report_type ?? 'allure'
+  const reportType =
+    projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
+      ?.report_type ?? 'allure'
   const isAllure = reportType !== 'playwright'
   const [sendOpen, setSendOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)

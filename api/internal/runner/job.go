@@ -38,6 +38,7 @@ type Job struct {
 	ID          string     `json:"job_id"`
 	ProjectID   string     `json:"project_id"`
 	Status      JobStatus  `json:"status"`
+	ReportID    string     `json:"report_id,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`

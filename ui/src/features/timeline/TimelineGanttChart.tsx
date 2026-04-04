@@ -121,20 +121,14 @@ export function TimelineGanttChart({
   )
 
   // Compute ticks using the zoomed absolute timestamps
-  const ticks = useMemo(
-    () => computeTicks(zoomedDomain[0], zoomedDomain[1]),
-    [zoomedDomain],
-  )
+  const ticks = useMemo(() => computeTicks(zoomedDomain[0], zoomedDomain[1]), [zoomedDomain])
 
   // SVG height adapts to content but caps at the height prop
   const contentHeight = isMultiBuild
     ? Math.max(200, multiBuildResult?.totalHeight ?? 200)
     : Math.max(200, singleLayout?.totalHeight ?? 200)
 
-  const svgHeight = Math.min(
-    height,
-    MARGIN.top + AXIS_HEIGHT + contentHeight + MARGIN.bottom,
-  )
+  const svgHeight = Math.min(height, MARGIN.top + AXIS_HEIGHT + contentHeight + MARGIN.bottom)
 
   // Attach D3 zoom behavior
   useEffect(() => {
@@ -223,7 +217,7 @@ export function TimelineGanttChart({
       height={svgHeight}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="bg-card rounded border outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="bg-card focus-visible:ring-ring rounded border outline-none focus-visible:ring-2"
     >
       <defs>
         <clipPath id="gantt-clip">
@@ -303,7 +297,9 @@ export function TimelineGanttChart({
                     width={Math.max(2, bar.width)}
                     height={BAR_HEIGHT}
                     rx={1}
-                    fill={statusColors[bar.tc.status as keyof StatusColorMap] ?? statusColors.skipped}
+                    fill={
+                      statusColors[bar.tc.status as keyof StatusColorMap] ?? statusColors.skipped
+                    }
                     opacity={highlightedTestId === bar.tc.full_name ? 1 : 0.85}
                     className="cursor-pointer transition-opacity"
                   />

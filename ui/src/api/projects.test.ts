@@ -44,4 +44,3 @@ describe('getProjects', () => {
     expect(mockGet).toHaveBeenCalledWith('/projects', { params: { page: 2, per_page: 25 } })
   })
 })
-

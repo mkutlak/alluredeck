@@ -25,11 +25,7 @@ export function DurationTrendChart({ data }: Props) {
         <XAxis dataKey="name" tick={{ fontSize: 11 }} />
         <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => formatDuration(v * 1000)} />
         <Tooltip
-          content={
-            <ChartTooltipContent
-              formatter={(v) => formatDuration((v as number) * 1000)}
-            />
-          }
+          content={<ChartTooltipContent formatter={(v) => formatDuration((v as number) * 1000)} />}
         />
         <Area
           type="monotone"

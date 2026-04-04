@@ -69,7 +69,6 @@ export interface StatusPiePoint {
   color: string
 }
 
-
 export function toStatusPieData(entries: ReportHistoryEntry[]): StatusPiePoint[] {
   if (entries.length === 0) return []
   const latest = entries[0]
@@ -156,9 +155,7 @@ export function toKpiData(entries: ReportHistoryEntry[]): KpiData | null {
     .filter((e) => e.statistic)
     .map((e) => calcPassRate(e.statistic!.passed, e.statistic!.total))
 
-  const totalTestsTrend = sparklineEntries
-    .filter((e) => e.statistic)
-    .map((e) => e.statistic!.total)
+  const totalTestsTrend = sparklineEntries.filter((e) => e.statistic).map((e) => e.statistic!.total)
 
   const durationTrend = sparklineEntries
     .filter((e) => e.duration_ms != null)

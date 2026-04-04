@@ -7,9 +7,7 @@ import type {
 } from '@/types/api'
 
 export async function fetchWebhooks(projectId: string): Promise<Webhook[]> {
-  const { data } = await apiClient.get<{ data: Webhook[] }>(
-    `/projects/${projectId}/webhooks`,
-  )
+  const { data } = await apiClient.get<{ data: Webhook[] }>(`/projects/${projectId}/webhooks`)
   return data.data
 }
 
@@ -17,10 +15,7 @@ export async function createWebhook(
   projectId: string,
   req: CreateWebhookRequest,
 ): Promise<Webhook> {
-  const { data } = await apiClient.post<{ data: Webhook }>(
-    `/projects/${projectId}/webhooks`,
-    req,
-  )
+  const { data } = await apiClient.post<{ data: Webhook }>(`/projects/${projectId}/webhooks`, req)
   return data.data
 }
 
@@ -32,17 +27,11 @@ export async function updateWebhook(
   await apiClient.put(`/projects/${projectId}/webhooks/${webhookId}`, req)
 }
 
-export async function deleteWebhook(
-  projectId: string,
-  webhookId: string,
-): Promise<void> {
+export async function deleteWebhook(projectId: string, webhookId: string): Promise<void> {
   await apiClient.delete(`/projects/${projectId}/webhooks/${webhookId}`)
 }
 
-export async function testWebhook(
-  projectId: string,
-  webhookId: string,
-): Promise<string> {
+export async function testWebhook(projectId: string, webhookId: string): Promise<string> {
   const { data } = await apiClient.post<{ data: { message: string } }>(
     `/projects/${projectId}/webhooks/${webhookId}/test`,
   )

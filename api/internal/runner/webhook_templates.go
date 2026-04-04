@@ -166,7 +166,7 @@ func SampleWebhookPayload() WebhookPayload {
 		Event:        "report_completed",
 		ProjectID:    "my-project",
 		BuildOrder:   42,
-		DashboardURL: "https://alluredeck.example.com/projects/my-project/builds/42",
+		DashboardURL: "https://alluredeck.example.com/projects/my-project/reports/42",
 		Stats: WebhookStats{
 			Total:    100,
 			Passed:   95,

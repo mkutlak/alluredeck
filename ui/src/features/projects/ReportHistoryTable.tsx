@@ -87,9 +87,7 @@ function ReportRow({
       </TableCell>
       <TableCell className="text-center">
         {rPassRate !== null ? (
-          <span className={`font-semibold ${getPassRateColorClass(rPassRate)}`}>
-            {rPassRate}%
-          </span>
+          <span className={`font-semibold ${getPassRateColorClass(rPassRate)}`}>{rPassRate}%</span>
         ) : (
           '—'
         )}

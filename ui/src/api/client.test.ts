@@ -159,9 +159,7 @@ describe('apiClient', () => {
   })
 
   it('throws ApiError with parsed body on non-ok response', async () => {
-    fetchSpy.mockResolvedValueOnce(
-      jsonResponse({ metadata: { message: 'Not found' } }, 404),
-    )
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ metadata: { message: 'Not found' } }, 404))
     const { apiClient, ApiError } = await getModule()
 
     try {

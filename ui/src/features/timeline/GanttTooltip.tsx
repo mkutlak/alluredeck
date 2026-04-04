@@ -9,7 +9,11 @@ export interface GanttTooltipProps {
   statusColors: StatusColorMap
 }
 
-export function GanttTooltip({ testCase, position, statusColors: _statusColors }: GanttTooltipProps) {
+export function GanttTooltip({
+  testCase,
+  position,
+  statusColors: _statusColors,
+}: GanttTooltipProps) {
   if (!testCase || !position) return null
 
   return (
@@ -29,9 +33,7 @@ export function GanttTooltip({ testCase, position, statusColors: _statusColors }
       {testCase.thread && (
         <p className="text-muted-foreground mt-1 text-[10px]">Worker: {testCase.thread}</p>
       )}
-      {testCase.host && (
-        <p className="text-muted-foreground text-[10px]">Host: {testCase.host}</p>
-      )}
+      {testCase.host && <p className="text-muted-foreground text-[10px]">Host: {testCase.host}</p>}
     </div>
   )
 }

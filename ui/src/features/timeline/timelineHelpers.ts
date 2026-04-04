@@ -64,4 +64,3 @@ export function computeTicks(minStart: number, maxStop: number): TickMark[] {
 
   return ticks
 }
-

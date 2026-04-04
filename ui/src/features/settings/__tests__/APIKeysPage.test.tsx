@@ -73,9 +73,7 @@ describe('APIKeysPage', () => {
   })
 
   it('renders viewer role badge', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ role: 'viewer' }),
-    ])
+    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([makeKey({ role: 'viewer' })])
 
     renderPage()
 

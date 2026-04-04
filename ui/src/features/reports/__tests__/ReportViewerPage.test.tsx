@@ -17,7 +17,10 @@ describe('ReportViewerPage', () => {
     renderPage()
     const iframe = screen.getByTitle(/allure report/i)
     expect(iframe).toBeInTheDocument()
-    expect(iframe).toHaveAttribute('src', expect.stringContaining('/projects/my-project/reports/3/index.html'))
+    expect(iframe).toHaveAttribute(
+      'src',
+      expect.stringContaining('/projects/my-project/reports/3/index.html'),
+    )
   })
 
   it('iframe sandbox allows downloads so attachment links work', () => {

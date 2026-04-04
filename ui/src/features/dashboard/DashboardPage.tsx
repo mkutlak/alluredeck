@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { ChevronDown, ChevronRight, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardOptions } from '@/lib/queries'
 import { ProjectStatusCard } from './ProjectStatusCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -119,82 +118,79 @@ export function DashboardPage() {
 }
 
 function ProjectGroup({ project }: { project: DashboardProjectEntry }) {
-  const [expanded, setExpanded] = useState(false)
   const [cleanMode, setCleanMode] = useState<'results' | 'history' | null>(null)
   const isAdmin = useAuthStore(selectIsAdmin)
   const { aggregate } = project
   const children = project.children ?? []
 
+
   return (
-    <div className="sm:col-span-2 lg:col-span-3">
+    <div>
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center justify-between gap-2">
-            <button
-              className="flex flex-1 items-center gap-2 text-left"
-              onClick={() => setExpanded((v) => !v)}
-              aria-expanded={expanded}
+            <NavLink
+              to={`/projects/${project.project_id}`}
+              className="truncate font-semibold hover:underline"
             >
-              <div className="flex items-center gap-2">
-                {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                <NavLink
-                  to={`/projects/${project.project_id}`}
-                  className="font-semibold hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {project.project_id}
-                </NavLink>
-                {aggregate && (
-                  <Badge variant="secondary" className="text-xs font-normal">
-                    {children.length} {children.length === 1 ? 'suite' : 'suites'} ·{' '}
-                    {aggregate.pass_rate.toFixed(0)}% pass rate
-                  </Badge>
-                )}
-              </div>
-            </button>
+              {project.project_id}
+            </NavLink>
 
-            <div className="flex items-center gap-2">
-              {aggregate && (
-                <span className="text-muted-foreground text-sm">{aggregate.total} total tests</span>
-              )}
-              {isAdmin && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Group actions"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <MoreHorizontal size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setCleanMode('results')}
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      Clean all results
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setCleanMode('history')}
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      Clean all history
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
+            {isAdmin && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Group actions">
+                    <MoreHorizontal size={16} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setCleanMode('results')}
+                  >
+                    <Trash2 size={14} className="mr-2" />
+                    Clean all results
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setCleanMode('history')}
+                  >
+                    <Trash2 size={14} className="mr-2" />
+                    Clean all history
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
 
-          {expanded && children.length > 0 && (
-            <div className="mt-4 grid grid-cols-1 gap-4 pl-6 sm:grid-cols-2 lg:grid-cols-3">
-              {children.map((child) => (
-                <ProjectStatusCard key={child.project_id} project={child} />
-              ))}
+          {/* Status summary */}
+          {aggregate && (
+            <p className="text-muted-foreground mt-1 text-sm">
+              {aggregate.passed}/{aggregate.total} passing · {aggregate.pass_rate.toFixed(0)}%
+            </p>
+          )}
+
+          {/* Suite status dots */}
+          {children.length > 0 && (
+            <div className="mt-2 flex gap-1">
+              {children.map((child) => {
+                const rate = child.latest_build?.pass_rate ?? 0
+                const hasBuild = !!child.latest_build
+                const color = !hasBuild
+                  ? 'bg-muted'
+                  : rate >= 90
+                    ? 'bg-green-500'
+                    : rate >= 70
+                      ? 'bg-amber-500'
+                      : 'bg-destructive'
+                return (
+                  <span
+                    key={child.project_id}
+                    className={`inline-block h-2.5 w-2.5 rounded-full ${color}`}
+                    title={`${child.project_id}: ${hasBuild ? `${rate.toFixed(0)}%` : 'no builds'}`}
+                  />
+                )
+              })}
             </div>
           )}
         </CardContent>

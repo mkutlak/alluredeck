@@ -16,14 +16,14 @@ function setupStore(overrides: { expiresAt: number | null; isAuthenticated?: boo
   const mockClearAuth = vi.fn()
   vi.mocked(useAuthStore).mockImplementation((selector) =>
     selector({
-        isAuthenticated: overrides.isAuthenticated ?? true,
-        expiresAt: overrides.expiresAt,
-        clearAuth: mockClearAuth,
-        roles: [],
-        username: null,
-        provider: null,
-        setAuth: vi.fn(),
-      }),
+      isAuthenticated: overrides.isAuthenticated ?? true,
+      expiresAt: overrides.expiresAt,
+      clearAuth: mockClearAuth,
+      roles: [],
+      username: null,
+      provider: null,
+      setAuth: vi.fn(),
+    }),
   )
   return mockClearAuth
 }

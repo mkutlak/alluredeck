@@ -100,7 +100,11 @@ export function DefectBulkActions({
         ))}
       </select>
 
-      <Button size="sm" disabled={!canApply || mutation.isPending} onClick={() => mutation.mutate()}>
+      <Button
+        size="sm"
+        disabled={!canApply || mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
         Apply
       </Button>
       <Button size="sm" variant="ghost" onClick={onCancel}>

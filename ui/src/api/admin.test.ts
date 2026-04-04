@@ -66,9 +66,7 @@ describe('admin API', () => {
 
     it('encodes percent-encoded jobId', async () => {
       await deleteJob('job%2Fencoded')
-      expect(mockDelete).toHaveBeenCalledWith(
-        `/admin/jobs/${encodeURIComponent('job%2Fencoded')}`,
-      )
+      expect(mockDelete).toHaveBeenCalledWith(`/admin/jobs/${encodeURIComponent('job%2Fencoded')}`)
     })
   })
 })

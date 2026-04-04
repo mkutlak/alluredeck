@@ -5,10 +5,7 @@ import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
 import { fetchTrends } from '@/api/analytics'
 import { fetchBranches } from '@/api/branches'
 import { queryKeys } from '@/lib/query-keys'
-import {
-  toStatusPieData,
-  toCategoryBreakdownData,
-} from '@/lib/chart-utils'
+import { toStatusPieData, toCategoryBreakdownData } from '@/lib/chart-utils'
 import type { KpiData } from '@/lib/chart-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -71,10 +68,7 @@ export function AnalyticsTab() {
   })
 
   // Map server snake_case → client camelCase for chart component props.
-  const statusTrend = useMemo(
-    () => trendsData?.status ?? [],
-    [trendsData],
-  )
+  const statusTrend = useMemo(() => trendsData?.status ?? [], [trendsData])
   const passRateTrend = useMemo(
     () => (trendsData?.pass_rate ?? []).map((p) => ({ name: p.name, passRate: p.pass_rate })),
     [trendsData],
@@ -131,9 +125,7 @@ export function AnalyticsTab() {
   if (isError) {
     return (
       <div className="border-destructive/50 rounded-lg border p-4 text-center">
-        <p className="text-destructive text-sm">
-          Failed to load analytics data. Please try again.
-        </p>
+        <p className="text-destructive text-sm">Failed to load analytics data. Please try again.</p>
       </div>
     )
   }

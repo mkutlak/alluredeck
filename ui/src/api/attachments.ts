@@ -33,11 +33,7 @@ export async function fetchAttachments(
   return data
 }
 
-export function attachmentFileUrl(
-  projectId: string,
-  reportId: string,
-  source: string,
-): string {
+export function attachmentFileUrl(projectId: string, reportId: string, source: string): string {
   const base = apiClient.defaults.baseURL ?? ''
   return `${base}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/attachments/${encodeURIComponent(source)}`
 }

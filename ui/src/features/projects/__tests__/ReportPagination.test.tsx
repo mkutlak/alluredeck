@@ -3,13 +3,15 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReportPagination } from '../ReportPagination'
 
-function renderPagination(props: {
-  page?: number
-  totalPages?: number
-  onPageChange?: (updater: (p: number) => number) => void
-  perPage?: number
-  onPerPageChange?: (perPage: number) => void
-} = {}) {
+function renderPagination(
+  props: {
+    page?: number
+    totalPages?: number
+    onPageChange?: (updater: (p: number) => number) => void
+    perPage?: number
+    onPerPageChange?: (perPage: number) => void
+  } = {},
+) {
   const defaults = {
     page: 1,
     totalPages: 3,

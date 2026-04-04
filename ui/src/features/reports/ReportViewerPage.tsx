@@ -8,7 +8,9 @@ import { projectListOptions } from '@/lib/queries/projects'
 export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
   const { data: projectsResp } = useQuery(projectListOptions())
-  const reportType = projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)?.report_type ?? 'allure'
+  const reportType =
+    projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
+      ?.report_type ?? 'allure'
 
   if (!projectId || !reportId) return null
 
