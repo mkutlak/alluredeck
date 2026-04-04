@@ -1,3 +1,9 @@
+## [0.18.1](https://github.com/mkutlak/alluredeck/compare/v0.18.0...v0.18.1) (2026-04-04)
+
+### Bug Fixes
+
+* report_id returns build order, UI improvements ([65d52e2](https://github.com/mkutlak/alluredeck/commit/65d52e2854a770f3dfbe846d6fdf593e60f124b6))
+
 ## [0.18.0](https://github.com/mkutlak/alluredeck/compare/v0.17.1...v0.18.0) (2026-04-04)
 
 ### Features
