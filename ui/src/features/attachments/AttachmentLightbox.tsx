@@ -23,6 +23,7 @@ interface AttachmentLightboxProps {
 export function AttachmentLightbox({ attachment, open, onOpenChange }: AttachmentLightboxProps) {
   const [downloading, setDownloading] = useState(false)
   const isImage = attachment.mime_type.startsWith('image/')
+  const isVideo = attachment.mime_type.startsWith('video/')
   const isText =
     attachment.mime_type.startsWith('text/') ||
     attachment.mime_type === 'application/json' ||
@@ -44,7 +45,7 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={
-          isImage || isText
+          isImage || isVideo || isText
             ? 'max-h-[85vh] w-full max-w-[90vw] grid-rows-[auto_1fr_auto]'
             : undefined
         }
@@ -62,6 +63,15 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
               crossOrigin="use-credentials"
               className="max-h-[80vh] w-full object-contain"
             />
+          ) : isVideo ? (
+            <video
+              src={attachment.url}
+              controls
+              crossOrigin="use-credentials"
+              className="max-h-[80vh] w-full"
+            >
+              <track kind="captions" />
+            </video>
           ) : isText ? (
             <AttachmentTextPreview
               url={attachment.url}

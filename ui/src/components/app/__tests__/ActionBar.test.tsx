@@ -40,12 +40,6 @@ vi.mock('@/features/reports/SendResultsDialog', () => ({
   ),
 }))
 
-vi.mock('@/features/reports/GenerateReportDialog', () => ({
-  GenerateReportDialog: vi.fn(({ open }: { open: boolean }) =>
-    open ? <div data-testid="generate-dialog">GenerateDialog</div> : null,
-  ),
-}))
-
 vi.mock('@/features/reports/CleanDialog', () => ({
   CleanDialog: vi.fn(({ open, mode }: { open: boolean; mode: string }) =>
     open ? <div data-testid={`clean-dialog-${mode}`}>CleanDialog</div> : null,
@@ -95,7 +89,6 @@ describe('ActionBar', () => {
   it('renders all action buttons when projectId is present and user is admin', () => {
     renderActionBar('/projects/my-project')
     expect(screen.getByRole('button', { name: /send results/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /generate report/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /clean results/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /clean history/i })).toBeInTheDocument()
   })
@@ -106,14 +99,6 @@ describe('ActionBar', () => {
     expect(screen.queryByTestId('send-dialog')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /send results/i }))
     expect(screen.getByTestId('send-dialog')).toBeInTheDocument()
-  })
-
-  it('opens GenerateReportDialog when "Generate report" button is clicked', async () => {
-    const user = userEvent.setup()
-    renderActionBar('/projects/my-project')
-    expect(screen.queryByTestId('generate-dialog')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /generate report/i }))
-    expect(screen.getByTestId('generate-dialog')).toBeInTheDocument()
   })
 
   it('opens CleanDialog with mode="results" when "Clean results" button is clicked', async () => {

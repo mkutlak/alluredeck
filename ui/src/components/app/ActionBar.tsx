@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { Upload, Play, Trash2 } from 'lucide-react'
+import { Upload, Trash2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
-import { GenerateReportDialog } from '@/features/reports/GenerateReportDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { projectListOptions } from '@/lib/queries/projects'
 
@@ -20,7 +19,6 @@ export function ActionBar() {
       ?.report_type ?? 'allure'
   const isAllure = reportType !== 'playwright'
   const [sendOpen, setSendOpen] = useState(false)
-  const [generateOpen, setGenerateOpen] = useState(false)
   const [cleanResultsOpen, setCleanResultsOpen] = useState(false)
   const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
 
@@ -40,15 +38,6 @@ export function ActionBar() {
             <TooltipContent>Upload Allure result files</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
-                <Play size={14} />
-                Generate report
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Generate report from current results</TooltipContent>
-          </Tooltip>
         </>
       )}
 
@@ -87,11 +76,6 @@ export function ActionBar() {
       )}
 
       <SendResultsDialog projectId={projectId} open={sendOpen} onOpenChange={setSendOpen} />
-      <GenerateReportDialog
-        projectId={projectId}
-        open={generateOpen}
-        onOpenChange={setGenerateOpen}
-      />
       <CleanDialog
         projectId={projectId}
         mode="results"

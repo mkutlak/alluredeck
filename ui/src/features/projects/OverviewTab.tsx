@@ -26,6 +26,7 @@ import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
 import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
 import { BranchSelector } from '@/features/projects/BranchSelector'
+import { ActionBar } from '@/components/app/ActionBar'
 import { PipelineRunsTab } from '@/features/pipeline'
 import { ProjectStatCards } from './ProjectStatCards'
 import { ReportHistoryTable } from './ReportHistoryTable'
@@ -148,6 +149,8 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      <ActionBar />
+
       {/* Page title */}
       <div>
         <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>

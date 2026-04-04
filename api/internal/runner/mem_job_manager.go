@@ -189,7 +189,7 @@ func (m *MemJobManager) runJob(parentCtx context.Context, j *Job) {
 			j.Error = err.Error()
 		} else {
 			j.Status = JobStatusCompleted
-			j.Output = output
+			j.ReportID = output
 		}
 	}
 	delete(m.cancels, j.ID)

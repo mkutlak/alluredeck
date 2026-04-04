@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -13,9 +13,11 @@ export function ReportViewerPage() {
     projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
       ?.report_type ?? 'allure'
 
-  const [viewMode, setViewMode] = useState<'playwright' | 'allure'>(() =>
-    reportType === 'playwright' ? 'playwright' : 'allure',
-  )
+  const [viewMode, setViewMode] = useState<'playwright' | 'allure'>('allure')
+
+  useEffect(() => {
+    if (reportType === 'playwright') setViewMode('playwright')
+  }, [reportType])
 
   if (!projectId || !reportId) return null
 

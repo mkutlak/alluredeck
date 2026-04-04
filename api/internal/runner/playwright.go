@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -276,7 +277,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	}
 
 	// 15. Return success.
-	return "Playwright report successfully processed", nil
+	return strconv.Itoa(buildOrder), nil
 }
 
 // computeDefectFingerprints queries failed test results, groups them by

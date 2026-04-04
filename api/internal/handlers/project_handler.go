@@ -81,13 +81,25 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build parent → children map from the fetched projects.
+	childrenOf := make(map[string][]string)
+	for _, p := range dbProjects {
+		if p.ParentID != nil {
+			childrenOf[*p.ParentID] = append(childrenOf[*p.ParentID], p.ID)
+		}
+	}
+
 	entries := make([]ProjectEntry, 0, len(dbProjects))
 	for _, p := range dbProjects {
-		entries = append(entries, ProjectEntry{
+		e := ProjectEntry{
 			ProjectID: p.ID,
 			CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
 			ParentID:  p.ParentID,
-		})
+		}
+		if kids, ok := childrenOf[p.ID]; ok {
+			e.Children = kids
+		}
+		entries = append(entries, e)
 	}
 
 	writePagedSuccess(w, entries, "Projects successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))

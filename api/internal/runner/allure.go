@@ -430,7 +430,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 		return "", err
 	}
 
-	return "Report successfully generated", nil
+	return strconv.Itoa(buildOrder), nil
 }
 
 // CleanHistory delegates to the store module and regenerates
