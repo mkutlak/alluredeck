@@ -1,3 +1,10 @@
+## [0.18.0](https://github.com/mkutlak/alluredeck/compare/v0.17.1...v0.18.0) (2026-04-04)
+
+### Features
+
+* add Pipeline Runs view for parent projects and simplify dashboard ([d768bb9](https://github.com/mkutlak/alluredeck/commit/d768bb928837b817c8b3a415078892b869b6da3f))
+* hybrid Playwright + Allure report pipeline ([04db73c](https://github.com/mkutlak/alluredeck/commit/04db73c3971143cbfba9694ee2c0d6aa8c009a2a))
+
 ## [0.17.1](https://github.com/mkutlak/alluredeck/compare/v0.17.0...v0.17.1) (2026-04-03)
 
 ### Bug Fixes
