@@ -25,12 +25,12 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
 		if pid == projectID && buildOrder == 3 {
 			return store.Build{
 				ID:             100,
 				ProjectID:      projectID,
-				BuildOrder:     3,
+				BuildNumber:    3,
 				IsLatest:       true,
 				CIProvider:     ptr("GitHub Actions"),
 				StatPassed:     intPtr(85),
@@ -84,8 +84,8 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 
 	// Verify build metadata.
 	build := data["build"].(map[string]any)
-	if int(build["build_order"].(float64)) != 3 {
-		t.Errorf("build_order = %v, want 3", build["build_order"])
+	if int(build["build_number"].(float64)) != 3 {
+		t.Errorf("build_number = %v, want 3", build["build_number"])
 	}
 	if build["project_id"] != projectID {
 		t.Errorf("project_id = %v, want %s", build["project_id"], projectID)
@@ -148,12 +148,12 @@ func TestGetReportSummary_Latest(t *testing.T) {
 	mocks := testutil.New()
 	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
 		return store.Build{
-			ID:         2,
-			ProjectID:  projectID,
-			BuildOrder: 2,
-			IsLatest:   true,
-			StatPassed: intPtr(50),
-			StatTotal:  intPtr(50),
+			ID:          2,
+			ProjectID:   projectID,
+			BuildNumber: 2,
+			IsLatest:    true,
+			StatPassed:  intPtr(50),
+			StatTotal:   intPtr(50),
 		}, nil
 	}
 	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
@@ -182,8 +182,8 @@ func TestGetReportSummary_Latest(t *testing.T) {
 	}
 	data := resp["data"].(map[string]any)
 	build := data["build"].(map[string]any)
-	if int(build["build_order"].(float64)) != 2 {
-		t.Errorf("latest resolved to build_order %v, want 2", build["build_order"])
+	if int(build["build_number"].(float64)) != 2 {
+		t.Errorf("latest resolved to build_number %v, want 2", build["build_number"])
 	}
 }
 
@@ -195,12 +195,12 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
 		if buildOrder == 2 {
 			return store.Build{
 				ID:          2,
 				ProjectID:   projectID,
-				BuildOrder:  2,
+				BuildNumber: 2,
 				StatPassed:  intPtr(85),
 				StatFailed:  intPtr(10),
 				StatBroken:  intPtr(3),
@@ -215,7 +215,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 		return store.Build{
 			ID:          1,
 			ProjectID:   projectID,
-			BuildOrder:  1,
+			BuildNumber: 1,
 			StatPassed:  intPtr(90),
 			StatFailed:  intPtr(5),
 			StatBroken:  intPtr(2),
@@ -250,8 +250,8 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 	if trend == nil {
 		t.Fatal("expected trend to be present")
 	}
-	if int(trend["previous_build_order"].(float64)) != 1 {
-		t.Errorf("previous_build_order = %v, want 1", trend["previous_build_order"])
+	if int(trend["previous_build_number"].(float64)) != 1 {
+		t.Errorf("previous_build_number = %v, want 1", trend["previous_build_number"])
 	}
 	if int(trend["passed_delta"].(float64)) != -5 {
 		t.Errorf("passed_delta = %v, want -5", trend["passed_delta"])
@@ -272,7 +272,7 @@ func TestGetReportSummary_BuildNotFound(t *testing.T) {
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
 		if buildOrder == 99 {
 			return store.Build{}, store.ErrBuildNotFound
 		}
@@ -324,14 +324,14 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByOrderFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
 		if buildOrder == 1 {
 			return store.Build{
-				ID:         1,
-				ProjectID:  projectID,
-				BuildOrder: 1,
-				StatFailed: intPtr(15),
-				StatTotal:  intPtr(30),
+				ID:          1,
+				ProjectID:   projectID,
+				BuildNumber: 1,
+				StatFailed:  intPtr(15),
+				StatTotal:   intPtr(30),
 			}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound

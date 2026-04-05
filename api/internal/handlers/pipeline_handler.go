@@ -97,13 +97,13 @@ type pipelineRunResp struct {
 }
 
 type pipelineSuiteResp struct {
-	ProjectID  string  `json:"project_id"`
-	BuildOrder int     `json:"build_order"`
-	PassRate   float64 `json:"pass_rate"`
-	Total      int     `json:"total"`
-	Failed     int     `json:"failed"`
-	DurationMs int64   `json:"duration_ms"`
-	Status     string  `json:"status"`
+	ProjectID   string  `json:"project_id"`
+	BuildNumber int     `json:"build_number"`
+	PassRate    float64 `json:"pass_rate"`
+	Total       int     `json:"total"`
+	Failed      int     `json:"failed"`
+	DurationMs  int64   `json:"duration_ms"`
+	Status      string  `json:"status"`
 }
 
 type pipelineAggResp struct {
@@ -169,13 +169,13 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 		}
 
 		acc.resp.Suites = append(acc.resp.Suites, pipelineSuiteResp{
-			ProjectID:  r.ProjectID,
-			BuildOrder: r.BuildOrder,
-			PassRate:   passRate,
-			Total:      total,
-			Failed:     failed,
-			DurationMs: dur,
-			Status:     status,
+			ProjectID:   r.ProjectID,
+			BuildNumber: r.BuildNumber,
+			PassRate:    passRate,
+			Total:       total,
+			Failed:      failed,
+			DurationMs:  dur,
+			Status:      status,
 		})
 	}
 

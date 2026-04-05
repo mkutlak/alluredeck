@@ -46,34 +46,34 @@ type ProjectStorer interface {
 
 // BuildStorer is the interface for build operations.
 type BuildStorer interface {
-	NextBuildOrder(ctx context.Context, projectID string) (int, error)
-	InsertBuild(ctx context.Context, projectID string, buildOrder int) error
-	UpdateBuildStats(ctx context.Context, projectID string, buildOrder int, stats BuildStats) error
-	UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta CIMetadata) error
-	GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (Build, error)
-	GetPreviousBuild(ctx context.Context, projectID string, buildOrder int) (Build, error)
+	NextBuildNumber(ctx context.Context, projectID string) (int, error)
+	InsertBuild(ctx context.Context, projectID string, buildNumber int) error
+	UpdateBuildStats(ctx context.Context, projectID string, buildNumber int, stats BuildStats) error
+	UpdateBuildCIMetadata(ctx context.Context, projectID string, buildNumber int, ciMeta CIMetadata) error
+	GetBuildByNumber(ctx context.Context, projectID string, buildNumber int) (Build, error)
+	GetPreviousBuild(ctx context.Context, projectID string, buildNumber int) (Build, error)
 	GetLatestBuild(ctx context.Context, projectID string) (Build, error)
 	ListBuilds(ctx context.Context, projectID string) ([]Build, error)
 	ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]Build, int, error)
 	PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error)
-	SetLatest(ctx context.Context, projectID string, buildOrder int) error
+	SetLatest(ctx context.Context, projectID string, buildNumber int) error
 	DeleteAllBuilds(ctx context.Context, projectID string) error
 	GetDashboardData(ctx context.Context, sparklineDepth int) ([]DashboardProject, error)
-	DeleteBuild(ctx context.Context, projectID string, buildOrder int) error
-	UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error
-	SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error
+	DeleteBuild(ctx context.Context, projectID string, buildNumber int) error
+	UpdateBuildBranchID(ctx context.Context, projectID string, buildNumber int, branchID int64) error
+	SetLatestBranch(ctx context.Context, projectID string, buildNumber int, branchID *int64) error
 	PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]Build, int, error)
 	ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]Build, int, error)
-	SetHasPlaywrightReport(ctx context.Context, projectID string, buildOrder int, value bool) error
+	SetHasPlaywrightReport(ctx context.Context, projectID string, buildNumber int, value bool) error
 }
 
 // TestResultStorer is the interface for test result operations.
 type TestResultStorer interface {
 	InsertBatch(ctx context.Context, results []TestResult) error
 	InsertBatchFull(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error
-	GetBuildID(ctx context.Context, projectID string, buildOrder int) (int64, error)
+	GetBuildID(ctx context.Context, projectID string, buildNumber int) (int64, error)
 	ListSlowest(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]LowPerformingTest, error)
 	ListLeastReliable(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]LowPerformingTest, error)
 	ListTimeline(ctx context.Context, projectID string, buildID int64, limit int) ([]TimelineRow, error)
@@ -142,14 +142,14 @@ type LabelCount struct {
 
 // TrendPoint holds per-build statistics for analytics trend charts.
 type TrendPoint struct {
-	BuildOrder int
-	Passed     int
-	Failed     int
-	Broken     int
-	Skipped    int
-	Total      int
-	PassRate   float64
-	DurationMs int64
+	BuildNumber int
+	Passed      int
+	Failed      int
+	Broken      int
+	Skipped     int
+	Total       int
+	PassRate    float64
+	DurationMs  int64
 }
 
 // AnalyticsStorer provides analytics queries over the expanded test data schema.
@@ -246,8 +246,8 @@ type DefectFingerprint struct {
 type DefectListRow struct {
 	DefectFingerprint
 	TestResultCountInBuild *int        `json:"test_result_count_in_build,omitempty"`
-	FirstSeenBuildOrder    int         `json:"first_seen_build_order"`
-	LastSeenBuildOrder     int         `json:"last_seen_build_order"`
+	FirstSeenBuildNumber   int         `json:"first_seen_build_number"`
+	LastSeenBuildNumber    int         `json:"last_seen_build_number"`
 	IsRegression           bool        `json:"is_regression"`
 	IsNew                  bool        `json:"is_new"`
 	KnownIssue             *KnownIssue `json:"known_issue,omitempty"`

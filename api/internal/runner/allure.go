@@ -99,28 +99,28 @@ func NewAllure(deps AllureDeps) *Allure {
 
 // ExecutorJSON holds the executor metadata written to results/executor.json before report generation.
 type ExecutorJSON struct {
-	ReportName string `json:"reportName"`
-	BuildName  string `json:"buildName"`
-	BuildOrder string `json:"buildOrder"`
-	Name       string `json:"name"`
-	ReportURL  string `json:"reportUrl"`
-	BuildURL   string `json:"buildUrl"`
-	Type       string `json:"type"`
+	ReportName  string `json:"reportName"`
+	BuildName   string `json:"buildName"`
+	BuildNumber string `json:"buildNumber"`
+	Name        string `json:"name"`
+	ReportURL   string `json:"reportUrl"`
+	BuildURL    string `json:"buildUrl"`
+	Type        string `json:"type"`
 }
 
 // writeExecutorJSON writes executor metadata to the results directory.
 // If storeResults is false the executor file is written as an empty JSON object.
-func writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType string, buildOrder int, storeResults bool) error {
+func writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType string, buildNumber int, storeResults bool) error {
 	executorPath := filepath.Join(resultsDir, "executor.json")
 	if storeResults {
 		executorData := ExecutorJSON{
-			ReportName: projectID,
-			BuildName:  fmt.Sprintf("%s #%d", projectID, buildOrder),
-			BuildOrder: strconv.Itoa(buildOrder),
-			Name:       execName,
-			ReportURL:  fmt.Sprintf("../%d/index.html", buildOrder),
-			BuildURL:   execFrom,
-			Type:       execType,
+			ReportName:  projectID,
+			BuildName:   fmt.Sprintf("%s #%d", projectID, buildNumber),
+			BuildNumber: strconv.Itoa(buildNumber),
+			Name:        execName,
+			ReportURL:   fmt.Sprintf("../%d/index.html", buildNumber),
+			BuildURL:    execFrom,
+			Type:        execType,
 		}
 		d, err := json.MarshalIndent(executorData, "", "  ")
 		if err != nil {
@@ -169,23 +169,23 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID 
 }
 
 // storeAndPruneBuild stores a report snapshot and records it in the database.
-func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildOrder int, ciMeta store.CIMetadata, branchID *int64) error {
-	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
+func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProjectDir string, buildNumber int, ciMeta store.CIMetadata, branchID *int64) error {
+	if err := a.store.PublishReport(ctx, projectID, buildNumber, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
-	if err := a.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
+	if err := a.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
 		return fmt.Errorf("insert build: %w", err)
 	}
 	// Associate build with branch if resolved.
 	if branchID != nil {
-		if err := a.buildStore.UpdateBuildBranchID(ctx, projectID, buildOrder, *branchID); err != nil {
+		if err := a.buildStore.UpdateBuildBranchID(ctx, projectID, buildNumber, *branchID); err != nil {
 			a.logger.Warn("failed to set build branch_id",
 				zap.String("project_id", projectID),
-				zap.Int("build_order", buildOrder),
+				zap.Int("build_number", buildNumber),
 				zap.Error(err))
 		}
 	}
-	if stats, err := a.store.ReadBuildStats(ctx, projectID, buildOrder); err == nil {
+	if stats, err := a.store.ReadBuildStats(ctx, projectID, buildNumber); err == nil {
 		storeStats := store.BuildStats{
 			Passed:     stats.Passed,
 			Failed:     stats.Failed,
@@ -216,7 +216,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 
 			// Insert per-test results if testResultStore is available.
 			if a.testResultStore != nil {
-				buildID, err := a.testResultStore.GetBuildID(ctx, projectID, buildOrder)
+				buildID, err := a.testResultStore.GetBuildID(ctx, projectID, buildNumber)
 				if err == nil {
 					testResults := make([]store.TestResult, 0, len(stabilityEntries))
 					for i := range stabilityEntries {
@@ -268,7 +268,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 					}
 					if err := a.testResultStore.InsertBatch(ctx, testResults); err != nil {
 						a.logger.Warn("failed to insert test results",
-							zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+							zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 					}
 					// Enrich with full parsed data (labels, parameters, steps, attachments).
 					resultsDir := filepath.Join(localProjectDir, "results")
@@ -291,45 +291,45 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID, localProject
 					}
 				} else {
 					a.logger.Warn("failed to get build id for test results",
-						zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+						zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 				}
 			}
 		} else {
 			a.logger.Warn("failed to parse stability entries",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 
-		if err := a.buildStore.UpdateBuildStats(ctx, projectID, buildOrder, storeStats); err != nil {
+		if err := a.buildStore.UpdateBuildStats(ctx, projectID, buildNumber, storeStats); err != nil {
 			a.logger.Error("failed to cache build stats",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 	}
 	if ciMeta.Provider != "" || ciMeta.BuildURL != "" || ciMeta.Branch != "" || ciMeta.CommitSHA != "" {
-		if err := a.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildOrder, ciMeta); err != nil {
+		if err := a.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildNumber, ciMeta); err != nil {
 			a.logger.Warn("failed to store CI metadata",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 	}
 
 	// Copy any pending Playwright report from latest/ to the numbered build directory.
-	a.copyPlaywrightReport(ctx, projectID, buildOrder)
+	a.copyPlaywrightReport(ctx, projectID, buildNumber)
 
-	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildOrder, branchID); err != nil {
+	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildNumber, branchID); err != nil {
 		a.logger.Error("failed to set latest build",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 	return nil
 }
 
 // recordBuild records the build in the database for pruning without publishing
 // a report snapshot. Used when storeResults=false but KeepHistory=true.
-func (a *Allure) recordBuild(ctx context.Context, projectID string, buildOrder int) error {
-	if err := a.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
+func (a *Allure) recordBuild(ctx context.Context, projectID string, buildNumber int) error {
+	if err := a.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
 		return fmt.Errorf("insert build: %w", err)
 	}
-	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildOrder, nil); err != nil {
+	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildNumber, nil); err != nil {
 		a.logger.Error("failed to set latest build (recordBuild)",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 	return nil
 }
@@ -351,7 +351,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	defer unlock()
 
 	// 2. Get next build order atomically from the database.
-	buildOrder, err := a.buildStore.NextBuildOrder(ctx, projectID)
+	buildNumber, err := a.buildStore.NextBuildNumber(ctx, projectID)
 	if err != nil {
 		return "", fmt.Errorf("next build order: %w", err)
 	}
@@ -366,7 +366,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 	resultsDir := filepath.Join(localProjectDir, "results")
 
 	// 4. Write executor.json directly — always local (temp dir in S3 mode)
-	if err := writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType, buildOrder, storeResults); err != nil {
+	if err := writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType, buildNumber, storeResults); err != nil {
 		return "", err
 	}
 
@@ -415,11 +415,11 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 				Branch:    ciBranch,
 				CommitSHA: ciCommitSHA,
 			}
-			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildOrder, ciMeta, resolvedBranchID); err != nil {
+			if err := a.storeAndPruneBuild(ctx, projectID, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
 				return "", err
 			}
 		} else {
-			if err := a.recordBuild(ctx, projectID, buildOrder); err != nil {
+			if err := a.recordBuild(ctx, projectID, buildNumber); err != nil {
 				return "", err
 			}
 		}
@@ -430,7 +430,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID, execName, execFr
 		return "", err
 	}
 
-	return strconv.Itoa(buildOrder), nil
+	return strconv.Itoa(buildNumber), nil
 }
 
 // CleanHistory delegates to the store module and regenerates
@@ -486,16 +486,16 @@ func (a *Allure) DeleteReport(ctx context.Context, projectID, reportID string) e
 	}
 
 	// Clean the corresponding build and test-result records from the database.
-	if buildOrder, err := strconv.Atoi(reportID); err == nil {
-		if dbErr := a.buildStore.DeleteBuild(ctx, projectID, buildOrder); dbErr != nil {
+	if buildNumber, err := strconv.Atoi(reportID); err == nil {
+		if dbErr := a.buildStore.DeleteBuild(ctx, projectID, buildNumber); dbErr != nil {
 			a.logger.Warn("failed to delete build from db",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(dbErr))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(dbErr))
 		}
 		if a.testResultStore != nil {
-			if buildID, idErr := a.testResultStore.GetBuildID(ctx, projectID, buildOrder); idErr == nil {
+			if buildID, idErr := a.testResultStore.GetBuildID(ctx, projectID, buildNumber); idErr == nil {
 				if dbErr := a.testResultStore.DeleteByBuild(ctx, buildID); dbErr != nil {
 					a.logger.Warn("failed to delete test results from db",
-						zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(dbErr))
+						zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(dbErr))
 				}
 			}
 		}
@@ -529,9 +529,9 @@ func (a *Allure) CreateProject(ctx context.Context, projectID string) error {
 // StoreReport copies variable-content subdirs of the latest report to a numbered snapshot.
 // This thin wrapper exists for backward compatibility with tests; new code should call
 // store.PublishReport directly with the localProjectDir from PrepareLocal.
-func (a *Allure) StoreReport(ctx context.Context, projectID string, buildOrder int) error {
+func (a *Allure) StoreReport(ctx context.Context, projectID string, buildNumber int) error {
 	localProjectDir := filepath.Join(a.cfg.ProjectsPath, projectID)
-	if err := a.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
+	if err := a.store.PublishReport(ctx, projectID, buildNumber, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
 	return nil
@@ -601,40 +601,40 @@ func (a *Allure) runAllureCmd(ctx context.Context, args ...string) error {
 // is a no-op when latest/ is absent or empty. After copying, sets
 // has_playwright_report on the build, extracts attachment metadata from data/,
 // inserts it, then cleans the latest/ directory.
-func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID string, buildOrder int) {
-	if err := a.store.CopyPlaywrightLatestToBuild(ctx, projectID, buildOrder); err != nil {
+func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID string, buildNumber int) {
+	if err := a.store.CopyPlaywrightLatestToBuild(ctx, projectID, buildNumber); err != nil {
 		a.logger.Warn("failed to copy playwright latest to build",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		return
 	}
 
 	// Check whether the copy produced a valid report directory.
-	exists, err := a.store.PlaywrightReportExists(ctx, projectID, buildOrder)
+	exists, err := a.store.PlaywrightReportExists(ctx, projectID, buildNumber)
 	if err != nil {
 		a.logger.Warn("failed to check playwright report existence",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		return
 	}
 	if !exists {
 		return
 	}
 
-	if err := a.buildStore.SetHasPlaywrightReport(ctx, projectID, buildOrder, true); err != nil {
+	if err := a.buildStore.SetHasPlaywrightReport(ctx, projectID, buildNumber, true); err != nil {
 		a.logger.Warn("failed to set has_playwright_report",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
 	// Extract attachment metadata from data/ and insert into test_attachments.
 	if a.attachmentStore != nil && a.testResultStore != nil {
-		files, err := a.store.ListPlaywrightDataFiles(ctx, projectID, buildOrder)
+		files, err := a.store.ListPlaywrightDataFiles(ctx, projectID, buildNumber)
 		if err != nil {
 			a.logger.Warn("failed to list playwright data files",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		} else if len(files) > 0 {
-			buildID, idErr := a.testResultStore.GetBuildID(ctx, projectID, buildOrder)
+			buildID, idErr := a.testResultStore.GetBuildID(ctx, projectID, buildNumber)
 			if idErr != nil {
 				a.logger.Warn("failed to get build id for playwright attachments",
-					zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(idErr))
+					zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(idErr))
 			} else {
 				attachments := make([]store.TestAttachment, 0, len(files))
 				for _, f := range files {
@@ -651,7 +651,7 @@ func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID string, bui
 				if len(attachments) > 0 {
 					if insertErr := a.attachmentStore.InsertBuildAttachments(ctx, buildID, projectID, attachments); insertErr != nil {
 						a.logger.Warn("failed to insert playwright attachments",
-							zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(insertErr))
+							zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(insertErr))
 					}
 				}
 			}
@@ -660,7 +660,7 @@ func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID string, bui
 
 	if err := a.store.CleanPlaywrightLatest(ctx, projectID); err != nil {
 		a.logger.Warn("failed to clean playwright latest",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 }
 

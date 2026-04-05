@@ -57,17 +57,17 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
-					ID:         3,
-					ProjectID:  projID,
-					BuildOrder: 3,
-					IsLatest:   true,
-					StatPassed: intPtr(90),
-					StatTotal:  intPtr(100),
+					ID:          3,
+					ProjectID:   projID,
+					BuildNumber: 3,
+					IsLatest:    true,
+					StatPassed:  intPtr(90),
+					StatTotal:   intPtr(100),
 				},
 				Sparkline: []store.SparklinePoint{
-					{BuildOrder: 1, PassRate: 80.0},
-					{BuildOrder: 2, PassRate: 85.0},
-					{BuildOrder: 3, PassRate: 90.0},
+					{BuildNumber: 1, PassRate: 80.0},
+					{BuildNumber: 2, PassRate: 85.0},
+					{BuildNumber: 3, PassRate: 90.0},
 				},
 			},
 		}, nil
@@ -100,8 +100,8 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected latest_build to be an object, got %T", proj["latest_build"])
 	}
-	if int(latestBuild["build_order"].(float64)) != 3 {
-		t.Errorf("latest_build.build_order = %v, want 3", latestBuild["build_order"])
+	if int(latestBuild["build_number"].(float64)) != 3 {
+		t.Errorf("latest_build.build_number = %v, want 3", latestBuild["build_number"])
 	}
 	if latestBuild["pass_rate"].(float64) != 90.0 {
 		t.Errorf("latest_build.pass_rate = %v, want 90.0", latestBuild["pass_rate"])
@@ -125,9 +125,9 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
-					BuildOrder: 1,
-					StatPassed: intPtr(95),
-					StatTotal:  intPtr(100),
+					BuildNumber: 1,
+					StatPassed:  intPtr(95),
+					StatTotal:   intPtr(100),
 				},
 				Sparkline: []store.SparklinePoint{},
 			},
@@ -136,9 +136,9 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
-					BuildOrder: 1,
-					StatPassed: intPtr(80),
-					StatTotal:  intPtr(100),
+					BuildNumber: 1,
+					StatPassed:  intPtr(80),
+					StatTotal:   intPtr(100),
 				},
 				Sparkline: []store.SparklinePoint{},
 			},
@@ -147,9 +147,9 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
-					BuildOrder: 1,
-					StatPassed: intPtr(50),
-					StatTotal:  intPtr(100),
+					BuildNumber: 1,
+					StatPassed:  intPtr(50),
+					StatTotal:   intPtr(100),
 				},
 				Sparkline: []store.SparklinePoint{},
 			},

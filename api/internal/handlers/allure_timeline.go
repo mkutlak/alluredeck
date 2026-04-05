@@ -60,13 +60,13 @@ func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 	// Resolve "latest" to a numeric build order via the database when possible.
 	if reportID == "latest" && h.buildStore != nil && h.testResultStore != nil {
 		if latestBuild, err := h.buildStore.GetLatestBuild(ctx, projectID); err == nil {
-			reportID = strconv.Itoa(latestBuild.BuildOrder)
+			reportID = strconv.Itoa(latestBuild.BuildNumber)
 		}
 	}
 
 	// Database fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
-	if buildOrder, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {
-		if buildID, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrder); err == nil {
+	if buildNumber, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {
+		if buildID, err := h.testResultStore.GetBuildID(ctx, projectID, buildNumber); err == nil {
 			if rows, err := h.testResultStore.ListTimeline(ctx, projectID, buildID, timelineMaxItems+1); err == nil && len(rows) > 0 {
 				total := len(rows)
 				truncated := false

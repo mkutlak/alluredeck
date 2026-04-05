@@ -57,16 +57,16 @@ type Store interface {
 	CleanupLocal(localProjectDir string) error
 
 	// Report storage
-	PublishReport(ctx context.Context, projectID string, buildOrder int, localProjectDir string) error
+	PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error
 	DeleteReport(ctx context.Context, projectID, reportID string) error
-	PruneReportDirs(ctx context.Context, projectID string, buildOrders []int) error
+	PruneReportDirs(ctx context.Context, projectID string, buildNumbers []int) error
 
 	// History
 	KeepHistory(ctx context.Context, projectID string) error
 	CleanHistory(ctx context.Context, projectID string) error
 
 	// Report reading
-	ReadBuildStats(ctx context.Context, projectID string, buildOrder int) (BuildStats, error)
+	ReadBuildStats(ctx context.Context, projectID string, buildNumber int) (BuildStats, error)
 	ReadFile(ctx context.Context, projectID, relPath string) ([]byte, error)
 	ReadDir(ctx context.Context, projectID, relPath string) ([]DirEntry, error)
 	OpenReportFile(ctx context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error)
@@ -82,14 +82,14 @@ type Store interface {
 	// WritePlaywrightFile writes r to projects/{projectID}/playwright-reports/{subPath}.
 	// subPath may be "latest/filename" or "{buildN}/filename".
 	WritePlaywrightFile(ctx context.Context, projectID, subPath string, r io.Reader) error
-	// PlaywrightReportExists checks if playwright-reports/{buildOrder}/index.html exists.
-	PlaywrightReportExists(ctx context.Context, projectID string, buildOrder int) (bool, error)
-	// CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildOrder}/.
-	CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildOrder int) error
+	// PlaywrightReportExists checks if playwright-reports/{buildNumber}/index.html exists.
+	PlaywrightReportExists(ctx context.Context, projectID string, buildNumber int) (bool, error)
+	// CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildNumber}/.
+	CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildNumber int) error
 	// CleanPlaywrightLatest removes all files from playwright-reports/latest/.
 	CleanPlaywrightLatest(ctx context.Context, projectID string) error
-	// ListPlaywrightDataFiles lists files in playwright-reports/{buildOrder}/data/ (for attachment extraction).
-	ListPlaywrightDataFiles(ctx context.Context, projectID string, buildOrder int) ([]string, error)
+	// ListPlaywrightDataFiles lists files in playwright-reports/{buildNumber}/data/ (for attachment extraction).
+	ListPlaywrightDataFiles(ctx context.Context, projectID string, buildNumber int) ([]string, error)
 	// ReadPlaywrightFile reads a file from playwright-reports/{subPath} (for serving).
 	ReadPlaywrightFile(ctx context.Context, projectID, subPath string) (io.ReadCloser, string, error)
 }

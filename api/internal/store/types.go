@@ -65,7 +65,7 @@ type CIMetadata struct {
 type Build struct {
 	ID                  int64
 	ProjectID           string
-	BuildOrder          int
+	BuildNumber         int
 	CreatedAt           time.Time
 	StatPassed          *int
 	StatFailed          *int
@@ -88,9 +88,9 @@ type Build struct {
 
 // SparklinePoint holds pass-rate data for a single build in a trend sparkline.
 type SparklinePoint struct {
-	BuildOrder int
-	PassRate   float64
-	CreatedAt  time.Time
+	BuildNumber int
+	PassRate    float64
+	CreatedAt   time.Time
 }
 
 // DashboardProject bundles a project with its latest build and sparkline data.
@@ -106,17 +106,17 @@ type DashboardProject struct {
 // PipelineRunRow is a flat row from the pipeline-runs query.
 // The handler groups these by CommitSHA and computes aggregates.
 type PipelineRunRow struct {
-	CommitSHA  string
-	Branch     string
-	CIBuildURL string
-	CreatedAt  time.Time
-	ProjectID  string
-	BuildOrder int
-	StatPassed *int
-	StatFailed *int
-	StatBroken *int
-	StatTotal  *int
-	DurationMs *int64
+	CommitSHA   string
+	Branch      string
+	CIBuildURL  string
+	CreatedAt   time.Time
+	ProjectID   string
+	BuildNumber int
+	StatPassed  *int
+	StatFailed  *int
+	StatBroken  *int
+	StatTotal   *int
+	DurationMs  *int64
 }
 
 // TestResult represents a single test execution result stored in the database.
@@ -174,7 +174,7 @@ type TimelineRow struct {
 
 // TestHistoryEntry holds data about a single run in a test's execution history.
 type TestHistoryEntry struct {
-	BuildOrder  int
+	BuildNumber int
 	BuildID     int64
 	Status      string
 	DurationMs  int64
@@ -220,15 +220,15 @@ type TestMatch struct {
 
 // MultiTimelineRow holds timeline data for a test execution across multiple builds.
 type MultiTimelineRow struct {
-	BuildID    int64
-	BuildOrder int
-	TestName   string
-	FullName   string
-	Status     string
-	StartMs    int64
-	StopMs     int64
-	Thread     string
-	Host       string
+	BuildID     int64
+	BuildNumber int
+	TestName    string
+	FullName    string
+	Status      string
+	StartMs     int64
+	StopMs      int64
+	Thread      string
+	Host        string
 }
 
 // DiffCategory describes how a test changed between two builds.

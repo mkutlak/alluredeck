@@ -248,7 +248,7 @@ func buildTrendsResponse(points []store.TrendPoint) trendsResponse {
 	duration := make([]durationPoint, 0, len(points))
 
 	for _, p := range points {
-		name := fmt.Sprintf("#%d", p.BuildOrder)
+		name := fmt.Sprintf("#%d", p.BuildNumber)
 		status = append(status, statusPoint{
 			Name:    name,
 			Passed:  p.Passed,

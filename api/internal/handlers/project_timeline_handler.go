@@ -19,10 +19,10 @@ const (
 
 // multiTimelineBuild holds the per-build data in the multi-build timeline response.
 type multiTimelineBuild struct {
-	BuildOrder int                `json:"build_order"`
-	CreatedAt  string             `json:"created_at"`
-	TestCases  []timelineTestCase `json:"test_cases"`
-	Summary    timelineSummary    `json:"summary"`
+	BuildNumber int                `json:"build_number"`
+	CreatedAt   string             `json:"created_at"`
+	TestCases   []timelineTestCase `json:"test_cases"`
+	Summary     timelineSummary    `json:"summary"`
 }
 
 // ProjectTimelineHandler handles HTTP requests for multi-build project timelines.
@@ -122,9 +122,9 @@ func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *ht
 	// Fetch builds.
 	var totalBuilds int
 	var builds []struct {
-		ID         int64
-		BuildOrder int
-		CreatedAt  time.Time
+		ID          int64
+		BuildNumber int
+		CreatedAt   time.Time
 	}
 
 	if hasDateRange && h.buildStore != nil {
@@ -136,10 +136,10 @@ func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *ht
 		totalBuilds = total
 		for i := range dbBuilds {
 			builds = append(builds, struct {
-				ID         int64
-				BuildOrder int
-				CreatedAt  time.Time
-			}{ID: dbBuilds[i].ID, BuildOrder: dbBuilds[i].BuildOrder, CreatedAt: dbBuilds[i].CreatedAt})
+				ID          int64
+				BuildNumber int
+				CreatedAt   time.Time
+			}{ID: dbBuilds[i].ID, BuildNumber: dbBuilds[i].BuildNumber, CreatedAt: dbBuilds[i].CreatedAt})
 		}
 	} else if h.buildStore != nil {
 		dbBuilds, total, err := h.buildStore.ListBuildsPaginatedBranch(ctx, projectID, 1, limit, branchID)
@@ -150,10 +150,10 @@ func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *ht
 		totalBuilds = total
 		for i := range dbBuilds {
 			builds = append(builds, struct {
-				ID         int64
-				BuildOrder int
-				CreatedAt  time.Time
-			}{ID: dbBuilds[i].ID, BuildOrder: dbBuilds[i].BuildOrder, CreatedAt: dbBuilds[i].CreatedAt})
+				ID          int64
+				BuildNumber int
+				CreatedAt   time.Time
+			}{ID: dbBuilds[i].ID, BuildNumber: dbBuilds[i].BuildNumber, CreatedAt: dbBuilds[i].CreatedAt})
 		}
 	}
 
@@ -167,14 +167,14 @@ func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *ht
 		bid := builds[i].ID
 		// If the build ID is 0, resolve it via GetBuildID.
 		if bid == 0 && h.testResultStore != nil {
-			if resolved, err := h.testResultStore.GetBuildID(ctx, projectID, builds[i].BuildOrder); err == nil {
+			if resolved, err := h.testResultStore.GetBuildID(ctx, projectID, builds[i].BuildNumber); err == nil {
 				bid = resolved
 				builds[i].ID = bid
 			}
 		}
 		if bid > 0 {
 			buildIDs = append(buildIDs, bid)
-			buildIDToOrder[bid] = builds[i].BuildOrder
+			buildIDToOrder[bid] = builds[i].BuildNumber
 			buildIDToCreatedAt[bid] = builds[i].CreatedAt
 		}
 	}
@@ -257,9 +257,9 @@ func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *ht
 			}
 
 			responseBuilds = append(responseBuilds, multiTimelineBuild{
-				BuildOrder: bucket.order,
-				CreatedAt:  bucket.createdAt.UTC().Format(time.RFC3339),
-				TestCases:  cases,
+				BuildNumber: bucket.order,
+				CreatedAt:   bucket.createdAt.UTC().Format(time.RFC3339),
+				TestCases:   cases,
 				Summary: timelineSummary{
 					Total:         total,
 					MinStart:      minStart,

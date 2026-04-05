@@ -43,9 +43,9 @@ func newTestWorker(ws *testutil.MemWebhookStore, client *http.Client) *SendWebho
 
 func samplePayload(event string) WebhookPayload {
 	return WebhookPayload{
-		Event:      event,
-		ProjectID:  "test-project",
-		BuildOrder: 1,
+		Event:       event,
+		ProjectID:   "test-project",
+		BuildNumber: 1,
 		Stats: WebhookStats{
 			Total:    10,
 			Passed:   9,

@@ -36,13 +36,13 @@ func makeFullLatestReport(t *testing.T, latestDir string) {
 func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "myproject"
-	buildOrder := 3
+	buildNumber := 3
 
 	latestDir := filepath.Join(dir, projectID, "reports", "latest")
 	makeFullLatestReport(t, latestDir)
 
 	a := newTestAllure(t, dir)
-	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
+	if err := a.StoreReport(context.Background(), projectID, buildNumber); err != nil {
 		t.Fatalf("StoreReport: %v", err)
 	}
 
@@ -96,14 +96,14 @@ func TestStoreReport_LatestNotExist(t *testing.T) {
 func TestStoreReport_MissingOptionalDir(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "myproject"
-	buildOrder := 2
+	buildNumber := 2
 
 	// Only data/ present — no widgets/ or history/.
 	latestDir := filepath.Join(dir, projectID, "reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "data", "results.json"), `{}`)
 
 	a := newTestAllure(t, dir)
-	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
+	if err := a.StoreReport(context.Background(), projectID, buildNumber); err != nil {
 		t.Fatalf("StoreReport with partial dirs: %v", err)
 	}
 
@@ -158,7 +158,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 	mocks := testutil.New()
 
 	// Configure ListBuilds to return the build that recordBuild should have inserted.
-	expectedBuild := store.Build{ProjectID: projectID, BuildOrder: 1}
+	expectedBuild := store.Build{ProjectID: projectID, BuildNumber: 1}
 	mocks.Builds.ListBuildsFn = func(_ context.Context, _ string) ([]store.Build, error) {
 		return []store.Build{expectedBuild}, nil
 	}
@@ -182,8 +182,8 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 	if len(builds) != 1 {
 		t.Fatalf("expected 1 build, got %d", len(builds))
 	}
-	if builds[0].BuildOrder != 1 {
-		t.Errorf("expected build_order=1, got %d", builds[0].BuildOrder)
+	if builds[0].BuildNumber != 1 {
+		t.Errorf("expected build_number=1, got %d", builds[0].BuildNumber)
 	}
 }
 
@@ -192,18 +192,18 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 func TestStoreReport_WidgetsReadable(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "myproject"
-	buildOrder := 1
+	buildNumber := 1
 
 	latestDir := filepath.Join(dir, projectID, "reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "widgets", "summary.json"),
 		summaryJSON(10, 8, 1, 0, 1, 0))
 
 	a := newTestAllure(t, dir)
-	if err := a.StoreReport(context.Background(), projectID, buildOrder); err != nil {
+	if err := a.StoreReport(context.Background(), projectID, buildNumber); err != nil {
 		t.Fatalf("StoreReport: %v", err)
 	}
 
-	stats, err := a.store.ReadBuildStats(context.Background(), projectID, buildOrder)
+	stats, err := a.store.ReadBuildStats(context.Background(), projectID, buildNumber)
 	if err != nil {
 		t.Fatalf("ReadBuildStats after partial store: %v", err)
 	}

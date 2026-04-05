@@ -514,30 +514,30 @@ func NewMemBuildStore() *MemBuildStore {
 	return &MemBuildStore{nextID: 1}
 }
 
-func (m *MemBuildStore) InsertBuild(ctx context.Context, projectID string, buildOrder int) error {
+func (m *MemBuildStore) InsertBuild(ctx context.Context, projectID string, buildNumber int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.builds = append(m.builds, &store.Build{
-		ID:         m.nextID,
-		ProjectID:  projectID,
-		BuildOrder: buildOrder,
-		CreatedAt:  time.Now(),
+		ID:          m.nextID,
+		ProjectID:   projectID,
+		BuildNumber: buildNumber,
+		CreatedAt:   time.Now(),
 	})
 	m.nextID++
 	return nil
 }
 
-func (m *MemBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildOrder int, stats store.BuildStats) error {
+func (m *MemBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildNumber int, stats store.BuildStats) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, b := range m.builds {
-		if b.ProjectID == projectID && b.BuildOrder == buildOrder {
+		if b.ProjectID == projectID && b.BuildNumber == buildNumber {
 			b.StatPassed = &stats.Passed
 			b.StatFailed = &stats.Failed
 			b.StatBroken = &stats.Broken
@@ -555,14 +555,14 @@ func (m *MemBuildStore) UpdateBuildStats(ctx context.Context, projectID string, 
 	return store.ErrBuildNotFound
 }
 
-func (m *MemBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta store.CIMetadata) error {
+func (m *MemBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildNumber int, ciMeta store.CIMetadata) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, b := range m.builds {
-		if b.ProjectID == projectID && b.BuildOrder == buildOrder {
+		if b.ProjectID == projectID && b.BuildNumber == buildNumber {
 			b.CIProvider = &ciMeta.Provider
 			b.CIBuildURL = &ciMeta.BuildURL
 			b.CIBranch = &ciMeta.Branch
@@ -586,7 +586,7 @@ func (m *MemBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID
 		}
 	}
 	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].BuildOrder > filtered[j].BuildOrder
+		return filtered[i].BuildNumber > filtered[j].BuildNumber
 	})
 	total := len(filtered)
 	start := (page - 1) * perPage
@@ -597,7 +597,7 @@ func (m *MemBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID
 	return filtered[start:end], total, nil
 }
 
-func (m *MemBuildStore) NextBuildOrder(ctx context.Context, projectID string) (int, error) {
+func (m *MemBuildStore) NextBuildNumber(ctx context.Context, projectID string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -605,21 +605,21 @@ func (m *MemBuildStore) NextBuildOrder(ctx context.Context, projectID string) (i
 	defer m.mu.RUnlock()
 	max := 0
 	for _, b := range m.builds {
-		if b.ProjectID == projectID && b.BuildOrder > max {
-			max = b.BuildOrder
+		if b.ProjectID == projectID && b.BuildNumber > max {
+			max = b.BuildNumber
 		}
 	}
 	return max + 1, nil
 }
 
-func (m *MemBuildStore) GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
+func (m *MemBuildStore) GetBuildByNumber(ctx context.Context, projectID string, buildNumber int) (store.Build, error) {
 	if err := ctx.Err(); err != nil {
 		return store.Build{}, err
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, b := range m.builds {
-		if b.ProjectID == projectID && b.BuildOrder == buildOrder {
+		if b.ProjectID == projectID && b.BuildNumber == buildNumber {
 			return *b, nil
 		}
 	}

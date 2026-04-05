@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -25,13 +27,14 @@ type PlaywrightHandler struct {
 	store        storage.Store
 	projectStore store.ProjectStorer
 	buildStore   store.BuildStorer
+	jobManager   runner.JobQueuer
 	cfg          *config.Config
 	logger       *zap.Logger
 }
 
 // NewPlaywrightHandler creates and returns a new PlaywrightHandler.
-func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.BuildStorer, cfg *config.Config, logger *zap.Logger) *PlaywrightHandler {
-	return &PlaywrightHandler{store: st, projectStore: ps, buildStore: bs, cfg: cfg, logger: logger}
+func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.BuildStorer, jm runner.JobQueuer, cfg *config.Config, logger *zap.Logger) *PlaywrightHandler {
+	return &PlaywrightHandler{store: st, projectStore: ps, buildStore: bs, jobManager: jm, cfg: cfg, logger: logger}
 }
 
 // UploadReport godoc
@@ -43,7 +46,13 @@ func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.Bui
 // @Param        project_id              path   string  true   "Project ID"
 // @Param        force_project_creation  query  string  false  "Auto-create project if missing"
 // @Param        parent_id               query  string  false  "Parent project ID (used with force_project_creation)"
+// @Param        build_number            query  int     false  "Build number to pair Playwright report with (skips latest/ staging)"
+// @Param        execution_name          query  string  false  "CI provider name (e.g. GitHub Actions)"
+// @Param        execution_from          query  string  false  "CI build URL"
+// @Param        ci_branch               query  string  false  "Git branch name"
+// @Param        ci_commit_sha           query  string  false  "Git commit SHA"
 // @Success      200  {object}  map[string]any
+// @Success      202  {object}  map[string]any  "Returned when standalone ingestion job is queued"
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
 // @Failure      413  {object}  map[string]any
@@ -123,7 +132,30 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.extractPlaywrightArchive(r, projectID); err != nil {
+	// Determine target directory: if build_number is provided, write directly
+	// to the numbered build dir; otherwise stage in latest/ for the runner.
+	targetDir := "latest"
+	var buildNumber int
+	if bn := r.URL.Query().Get("build_number"); bn != "" {
+		var parseErr error
+		buildNumber, parseErr = strconv.Atoi(bn)
+		if parseErr != nil || buildNumber < 1 {
+			writeError(w, http.StatusBadRequest, "build_number must be a positive integer")
+			return
+		}
+		if _, lookupErr := h.buildStore.GetBuildByNumber(r.Context(), projectID, buildNumber); lookupErr != nil {
+			if errors.Is(lookupErr, store.ErrBuildNotFound) {
+				writeError(w, http.StatusNotFound, fmt.Sprintf("build %d not found for project %q", buildNumber, projectID))
+				return
+			}
+			h.logger.Error("failed to look up build", zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(lookupErr))
+			writeError(w, http.StatusInternalServerError, "failed to look up build")
+			return
+		}
+		targetDir = strconv.Itoa(buildNumber)
+	}
+
+	if err := h.extractPlaywrightArchive(r, projectID, targetDir); err != nil {
 		code := http.StatusBadRequest
 		msg := err.Error()
 		var maxBytesErr *http.MaxBytesError
@@ -135,23 +167,28 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Race condition handling: if a build already exists, copy the report from
-	// latest/ to the numbered build dir and mark the build. Otherwise leave it
-	// in latest/ for the runner to pick up when it creates the build.
-	build, err := h.buildStore.GetLatestBuild(r.Context(), projectID)
-	if err != nil && !errors.Is(err, store.ErrBuildNotFound) {
-		h.logger.Error("failed to get latest build after playwright upload", zap.String("project_id", projectID), zap.Error(err))
-	} else if err == nil && build.BuildOrder > 0 {
-		if copyErr := h.store.CopyPlaywrightLatestToBuild(r.Context(), projectID, build.BuildOrder); copyErr != nil {
-			h.logger.Error("failed to copy playwright latest to build dir", zap.String("project_id", projectID), zap.Int("build_order", build.BuildOrder), zap.Error(copyErr))
-		} else {
-			if setErr := h.buildStore.SetHasPlaywrightReport(r.Context(), projectID, build.BuildOrder, true); setErr != nil {
-				h.logger.Error("failed to set has_playwright_report", zap.String("project_id", projectID), zap.Int("build_order", build.BuildOrder), zap.Error(setErr))
-			}
-			if cleanErr := h.store.CleanPlaywrightLatest(r.Context(), projectID); cleanErr != nil {
-				h.logger.Warn("failed to clean playwright latest after copy", zap.String("project_id", projectID), zap.Error(cleanErr))
-			}
+	// If uploading to a specific build, mark it as having a Playwright report.
+	if buildNumber > 0 {
+		if setErr := h.buildStore.SetHasPlaywrightReport(r.Context(), projectID, buildNumber, true); setErr != nil {
+			h.logger.Error("failed to set has_playwright_report", zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(setErr))
 		}
+		writeSuccess(w, http.StatusOK, map[string]any{
+			"status": "uploaded",
+		}, "Playwright report uploaded successfully")
+		return
+	}
+
+	// Standalone upload (no build_number): if CI metadata is provided, submit an
+	// ingestion job that creates a proper build with test results and CI context.
+	execName := r.URL.Query().Get("execution_name")
+	execFrom := r.URL.Query().Get("execution_from")
+	ciBranch := r.URL.Query().Get("ci_branch")
+	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
+
+	if h.jobManager != nil && (execName != "" || execFrom != "" || ciBranch != "" || ciCommitSHA != "") {
+		job := h.jobManager.SubmitPlaywright(projectID, execName, execFrom, ciBranch, ciCommitSHA)
+		writeSuccess(w, http.StatusAccepted, map[string]string{"job_id": job.ID}, "Playwright ingestion queued")
+		return
 	}
 
 	writeSuccess(w, http.StatusOK, map[string]any{
@@ -163,7 +200,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 // project's results directory, preserving subdirectory structure. Unlike the
 // Allure handler, nested paths (e.g. data/screenshot.png) are preserved.
 // It validates that index.html is present in the extracted contents.
-func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID string) error {
+func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID, targetDir string) error {
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
 		return fmt.Errorf("invalid gzip stream: %w", err)
@@ -231,7 +268,7 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID 
 
 		name := cleanName
 		g.Go(func() error {
-			return h.store.WritePlaywrightFile(ctx, projectID, "latest/"+name, bytes.NewReader(data))
+			return h.store.WritePlaywrightFile(ctx, projectID, targetDir+"/"+name, bytes.NewReader(data))
 		})
 	}
 

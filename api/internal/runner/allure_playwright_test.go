@@ -36,7 +36,7 @@ func newTestAllureWithAttachments(t *testing.T, projectsDir string, mocks *testu
 func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "pw-no-latest"
-	buildOrder := 1
+	buildNumber := 1
 
 	mocks := testutil.New()
 	var setHasCalled bool
@@ -46,7 +46,7 @@ func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildOrder)
+	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
 
 	if setHasCalled {
 		t.Error("SetHasPlaywrightReport should not be called when latest/ does not exist")
@@ -64,7 +64,7 @@ func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "pw-empty-latest"
-	buildOrder := 1
+	buildNumber := 1
 
 	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
 	if err := os.MkdirAll(latestDir, 0o755); err != nil {
@@ -79,7 +79,7 @@ func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildOrder)
+	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
 
 	if setHasCalled {
 		t.Error("SetHasPlaywrightReport should not be called when latest/ is empty")
@@ -87,12 +87,12 @@ func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 }
 
 // TestCopyPlaywrightReport_CopiesReport verifies that copyPlaywrightReport copies
-// playwright-reports/latest/ to playwright-reports/{buildOrder}/, sets
+// playwright-reports/latest/ to playwright-reports/{buildNumber}/, sets
 // has_playwright_report=true, and cleans latest/.
 func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "pw-copy-test"
-	buildOrder := 3
+	buildNumber := 3
 
 	// Populate latest/ with a minimal Playwright report.
 	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
@@ -101,9 +101,9 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 
 	mocks := testutil.New()
 	var capturedHasReport bool
-	var capturedBuildOrder int
+	var capturedBuildNumber int
 	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ string, bo int, value bool) error {
-		capturedBuildOrder = bo
+		capturedBuildNumber = bo
 		capturedHasReport = value
 		return nil
 	}
@@ -117,7 +117,7 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildOrder)
+	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
 
 	// Verify report was copied to numbered build directory.
 	buildIndex := filepath.Join(dir, projectID, "playwright-reports", "3", "index.html")
@@ -133,8 +133,8 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 	if !capturedHasReport {
 		t.Error("SetHasPlaywrightReport: value should be true")
 	}
-	if capturedBuildOrder != buildOrder {
-		t.Errorf("SetHasPlaywrightReport: build_order = %d, want %d", capturedBuildOrder, buildOrder)
+	if capturedBuildNumber != buildNumber {
+		t.Errorf("SetHasPlaywrightReport: build_number = %d, want %d", capturedBuildNumber, buildNumber)
 	}
 
 	// Verify attachment metadata was extracted and inserted.
@@ -167,7 +167,7 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "pw-skip-dat"
-	buildOrder := 1
+	buildNumber := 1
 
 	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "index.html"), "<html></html>")
@@ -185,7 +185,7 @@ func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildOrder)
+	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
 
 	// Only trace.zip should be inserted; abc.dat should be skipped.
 	if len(capturedAttachments) != 1 {
@@ -204,7 +204,7 @@ func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 func TestCopyPlaywrightReport_NoDataDir(t *testing.T) {
 	dir := t.TempDir()
 	projectID := "pw-no-data"
-	buildOrder := 2
+	buildNumber := 2
 
 	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "index.html"), "<html></html>")
@@ -222,7 +222,7 @@ func TestCopyPlaywrightReport_NoDataDir(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildOrder)
+	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
 
 	if !setHasCalled {
 		t.Error("SetHasPlaywrightReport should be called when index.html is present")

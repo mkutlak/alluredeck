@@ -50,12 +50,12 @@ func (h *AttachmentHandler) resolveBuild(w http.ResponseWriter, r *http.Request,
 	if reportID == "latest" {
 		build, err = h.buildStore.GetLatestBuild(ctx, projectID)
 	} else {
-		buildOrder, parseErr := strconv.Atoi(reportID)
+		buildNumber, parseErr := strconv.Atoi(reportID)
 		if parseErr != nil {
 			writeError(w, http.StatusBadRequest, "report_id must be a number or 'latest'")
 			return store.Build{}, false
 		}
-		build, err = h.buildStore.GetBuildByOrder(ctx, projectID, buildOrder)
+		build, err = h.buildStore.GetBuildByNumber(ctx, projectID, buildNumber)
 	}
 
 	if err != nil {
@@ -160,7 +160,7 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 			Source:    att.Source,
 			MimeType:  att.MimeType,
 			SizeBytes: att.SizeBytes,
-			URL:       fmt.Sprintf("/api/v1/projects/%s/reports/%d/attachments/%s", projectID, build.BuildOrder, att.Source),
+			URL:       fmt.Sprintf("/api/v1/projects/%s/reports/%d/attachments/%s", projectID, build.BuildNumber, att.Source),
 		}
 
 		idx, exists := groupIdx[att.TestResultID]
@@ -230,7 +230,7 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 
 	filePath := "data/attachments/" + source
 
-	reader, mimeType, err := h.dataStore.OpenReportFile(ctx, projectID, strconv.Itoa(build.BuildOrder), filePath)
+	reader, mimeType, err := h.dataStore.OpenReportFile(ctx, projectID, strconv.Itoa(build.BuildNumber), filePath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "attachment file not found")
 		return

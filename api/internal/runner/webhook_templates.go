@@ -12,7 +12,7 @@ const slackDefaultTemplate = `{
   "blocks": [
     {
       "type": "header",
-      "text": {"type": "plain_text", "text": "{{.ProjectID}} — Build #{{.BuildOrder}}"}
+      "text": {"type": "plain_text", "text": "{{.ProjectID}} — Build #{{.BuildNumber}}"}
     },
     {
       "type": "section",
@@ -49,7 +49,7 @@ const slackDefaultTemplate = `{
 const discordDefaultTemplate = `{
   "embeds": [
     {
-      "title": "{{.ProjectID}} — Build #{{.BuildOrder}}",
+      "title": "{{.ProjectID}} — Build #{{.BuildNumber}}",
       "color": {{if ge .Stats.PassRate 90.0}}3066993{{else if ge .Stats.PassRate 70.0}}16776960{{else}}15158332{{end}},
       "fields": [
         {"name": "Pass Rate", "value": "{{printf "%.1f" .Stats.PassRate}}%", "inline": true},
@@ -74,7 +74,7 @@ const teamsDefaultTemplate = `{
         "body": [
           {
             "type": "TextBlock",
-            "text": "{{.ProjectID}} — Build #{{.BuildOrder}}",
+            "text": "{{.ProjectID}} — Build #{{.BuildNumber}}",
             "weight": "Bolder",
             "size": "Medium"
           },
@@ -165,7 +165,7 @@ func SampleWebhookPayload() WebhookPayload {
 	return WebhookPayload{
 		Event:        "report_completed",
 		ProjectID:    "my-project",
-		BuildOrder:   42,
+		BuildNumber:  42,
 		DashboardURL: "https://alluredeck.example.com/projects/my-project/reports/42",
 		Stats: WebhookStats{
 			Total:    100,

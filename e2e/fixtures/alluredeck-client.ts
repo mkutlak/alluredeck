@@ -1,0 +1,115 @@
+import { execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+
+const API_URL = process.env.ALLUREDECK_API_URL ?? 'http://localhost:5050/api/v1'
+
+export class AllureDeckClient {
+  private token = ''
+
+  async login(username: string, password: string): Promise<void> {
+    const res = await fetch(`${API_URL}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+      redirect: 'manual',
+    })
+    if (!res.ok) throw new Error(`Login failed: ${res.status} ${await res.text()}`)
+
+    // JWT is returned in a Set-Cookie header
+    const cookies = res.headers.getSetCookie?.() ?? []
+    const jwtCookie = cookies.find((c) => c.startsWith('jwt='))
+    if (!jwtCookie) throw new Error('No jwt cookie in login response')
+    this.token = jwtCookie.split('=')[1].split(';')[0]
+  }
+
+  private authHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${this.token}` }
+  }
+
+  async uploadAllureResults(projectId: string, tarGzPath: string): Promise<void> {
+    const body = fs.readFileSync(tarGzPath)
+    const url = `${API_URL}/projects/${encodeURIComponent(projectId)}/results?force_project_creation=true`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/gzip' },
+      body,
+    })
+    if (!res.ok) throw new Error(`Upload allure results failed: ${res.status} ${await res.text()}`)
+    console.log(`  Allure results uploaded to project "${projectId}"`)
+  }
+
+  async uploadPlaywrightReport(projectId: string, tarGzPath: string, buildNumber?: string): Promise<void> {
+    const body = fs.readFileSync(tarGzPath)
+    let url = `${API_URL}/projects/${encodeURIComponent(projectId)}/playwright?force_project_creation=true`
+    if (buildNumber) url += `&build_number=${buildNumber}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/gzip' },
+      body,
+    })
+    if (!res.ok)
+      throw new Error(`Upload playwright report failed: ${res.status} ${await res.text()}`)
+    console.log(`  Playwright report uploaded to project "${projectId}"`)
+  }
+
+  async getReportCount(projectId: string): Promise<number> {
+    const res = await fetch(
+      `${API_URL}/projects/${encodeURIComponent(projectId)}/reports?per_page=100`,
+      { headers: this.authHeaders() },
+    )
+    if (!res.ok) return 0
+    const body = (await res.json()) as { data?: { reports?: unknown[] } }
+    return (body.data?.reports ?? []).length
+  }
+
+  async waitForNewReport(projectId: string, previousCount: number, timeoutMs = 60_000): Promise<void> {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const count = await this.getReportCount(projectId)
+      if (count > previousCount) {
+        console.log(`  Report ready for project "${projectId}" (${count} reports)`)
+        return
+      }
+      await new Promise((r) => setTimeout(r, 2_000))
+    }
+    throw new Error(`Timed out waiting for new report in project "${projectId}"`)
+  }
+
+  async waitForPlaywrightReport(projectId: string, reportId: string, timeoutMs = 30_000): Promise<boolean> {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const res = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(projectId)}/playwright-reports/${reportId}/index.html`,
+        { headers: this.authHeaders() },
+      )
+      if (res.ok) return true
+      await new Promise((r) => setTimeout(r, 1_000))
+    }
+    return false
+  }
+
+  static tarGzDirectory(dirPath: string, outputPath: string): void {
+    execSync(`tar czf "${outputPath}" -C "${dirPath}" .`, { stdio: 'pipe' })
+  }
+
+  async getLatestReportId(projectId: string): Promise<string> {
+    const res = await fetch(
+      `${API_URL}/projects/${encodeURIComponent(projectId)}/reports?per_page=1`,
+      { headers: this.authHeaders() },
+    )
+    if (res.ok) {
+      const body = (await res.json()) as {
+        data?: { reports?: { report_id: string }[] }
+      }
+      const reports = (body.data?.reports ?? []).filter((r) => r.report_id !== 'latest')
+      if (reports.length > 0) return reports[0].report_id
+    }
+    return 'latest'
+  }
+
+  getReportUrl(projectId: string, reportId = 'latest'): string {
+    const baseUrl = process.env.ALLUREDECK_URL ?? 'http://localhost:7474'
+    return `${baseUrl}/projects/${encodeURIComponent(projectId)}/reports/${reportId}`
+  }
+}

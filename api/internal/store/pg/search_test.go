@@ -29,15 +29,15 @@ func TestPGSearchStore_SearchTests_FindsByTestName(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
-	const buildOrder = 1
-	if err := buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
+	const buildNumber = 1
+	if err := buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
 		t.Fatalf("InsertBuild: %v", err)
 	}
-	if err := buildStore.SetLatest(ctx, projectID, buildOrder); err != nil {
+	if err := buildStore.SetLatest(ctx, projectID, buildNumber); err != nil {
 		t.Fatalf("SetLatest: %v", err)
 	}
 
-	buildID, err := pg.NewTestResultStore(s, logger).GetBuildID(ctx, projectID, buildOrder)
+	buildID, err := pg.NewTestResultStore(s, logger).GetBuildID(ctx, projectID, buildNumber)
 	if err != nil {
 		t.Fatalf("GetBuildID: %v", err)
 	}

@@ -22,7 +22,7 @@ func TestRenderWebhookPayload_Slack(t *testing.T) {
 		t.Errorf("output missing ProjectID: %s", body)
 	}
 	if !strings.Contains(string(body), "Build #42") {
-		t.Errorf("output missing BuildOrder: %s", body)
+		t.Errorf("output missing BuildNumber: %s", body)
 	}
 }
 
@@ -87,14 +87,14 @@ func TestRenderWebhookPayload_Generic(t *testing.T) {
 	if roundtrip.ProjectID != payload.ProjectID {
 		t.Errorf("ProjectID mismatch: got %q, want %q", roundtrip.ProjectID, payload.ProjectID)
 	}
-	if roundtrip.BuildOrder != payload.BuildOrder {
-		t.Errorf("BuildOrder mismatch: got %d, want %d", roundtrip.BuildOrder, payload.BuildOrder)
+	if roundtrip.BuildNumber != payload.BuildNumber {
+		t.Errorf("BuildNumber mismatch: got %d, want %d", roundtrip.BuildNumber, payload.BuildNumber)
 	}
 }
 
 func TestRenderWebhookPayload_CustomTemplate(t *testing.T) {
 	payload := SampleWebhookPayload()
-	custom := `{"project":"{{.ProjectID}}","build":{{.BuildOrder}}}`
+	custom := `{"project":"{{.ProjectID}}","build":{{.BuildNumber}}}`
 	body, ct, err := RenderWebhookPayload("slack", &custom, payload)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -171,8 +171,8 @@ func TestSampleWebhookPayload(t *testing.T) {
 	if p.ProjectID == "" {
 		t.Error("ProjectID must not be empty")
 	}
-	if p.BuildOrder == 0 {
-		t.Error("BuildOrder must not be zero")
+	if p.BuildNumber == 0 {
+		t.Error("BuildNumber must not be zero")
 	}
 	if p.Event == "" {
 		t.Error("Event must not be empty")

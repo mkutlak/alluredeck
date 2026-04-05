@@ -372,7 +372,7 @@ func wireHandlers(
 		}),
 		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
 		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, jobManager, allureCore, cfg, logger),
-		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, s.build, cfg, logger),
+		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, s.build, jobManager, cfg, logger),
 		admin:           handlers.NewAdminHandlerWithProjects(jobManager, dataStore, s.project, cfg.ProjectsPath, logger),
 		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),
 		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, cfg.ProjectsPath),

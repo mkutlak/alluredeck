@@ -281,8 +281,8 @@ func (s *S3Store) CleanupLocal(localProjectDir string) error {
 }
 
 // PublishReport uploads the generated report from the local temp dir to S3.
-// It uploads to both reports/latest/ and reports/{buildOrder}/.
-func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrder int, localProjectDir string) error {
+// It uploads to both reports/latest/ and reports/{buildNumber}/.
+func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error {
 	latestDir := filepath.Join(localProjectDir, "reports", "latest")
 
 	// Upload to reports/latest/
@@ -295,8 +295,8 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 		return fmt.Errorf("upload to latest: %w", err)
 	}
 
-	// Upload only variable dirs (data, widgets, history) to reports/{buildOrder}/
-	buildPrefix := s.s3Key("projects", projectID, "reports", strconv.Itoa(buildOrder)) + "/"
+	// Upload only variable dirs (data, widgets, history) to reports/{buildNumber}/
+	buildPrefix := s.s3Key("projects", projectID, "reports", strconv.Itoa(buildNumber)) + "/"
 	for _, dir := range []string{"data", "widgets", "history"} {
 		srcDir := filepath.Join(latestDir, dir)
 		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
@@ -304,7 +304,7 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildOrde
 		}
 		dirPrefix := buildPrefix + dir + "/"
 		if err := uploadDir(ctx, s.uploader, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
-			return fmt.Errorf("upload %s to build %d: %w", dir, buildOrder, err)
+			return fmt.Errorf("upload %s to build %d: %w", dir, buildNumber, err)
 		}
 	}
 	return nil
@@ -328,8 +328,8 @@ func (s *S3Store) DeleteReport(ctx context.Context, projectID, reportID string) 
 }
 
 // PruneReportDirs removes S3 objects for multiple build orders.
-func (s *S3Store) PruneReportDirs(ctx context.Context, projectID string, buildOrders []int) error {
-	for _, bo := range buildOrders {
+func (s *S3Store) PruneReportDirs(ctx context.Context, projectID string, buildNumbers []int) error {
+	for _, bo := range buildNumbers {
 		prefix := s.s3Key("projects", projectID, "reports", strconv.Itoa(bo)) + "/"
 		if err := deletePrefix(ctx, s.client, s.bucket, prefix); err != nil {
 			return fmt.Errorf("prune build %d: %w", bo, err)
@@ -418,8 +418,8 @@ func (s *S3Store) CleanHistory(ctx context.Context, projectID string) error {
 }
 
 // ReadBuildStats reads widget stats for a build from S3.
-func (s *S3Store) ReadBuildStats(ctx context.Context, projectID string, buildOrder int) (BuildStats, error) {
-	widgetsPrefix := s.s3Key("projects", projectID, "reports", strconv.Itoa(buildOrder), "widgets")
+func (s *S3Store) ReadBuildStats(ctx context.Context, projectID string, buildNumber int) (BuildStats, error) {
+	widgetsPrefix := s.s3Key("projects", projectID, "reports", strconv.Itoa(buildNumber), "widgets")
 
 	// Try Allure 2: summary.json
 	if data, err := s.getObjectBytes(ctx, widgetsPrefix+"/summary.json"); err == nil {
@@ -472,13 +472,13 @@ func (s *S3Store) ReadBuildStats(ctx context.Context, projectID string, buildOrd
 				Total:   stat.Total,
 			}
 			// Allure 3 statistic.json has no timing; derive from test result files.
-			testResultsRelPath := "reports/" + strconv.Itoa(buildOrder) + "/data/test-results"
+			testResultsRelPath := "reports/" + strconv.Itoa(buildNumber) + "/data/test-results"
 			stats.DurationMs = s.durationFromTestResults(ctx, projectID, testResultsRelPath)
 			return stats, nil
 		}
 	}
 
-	return BuildStats{}, fmt.Errorf("build %d: %w", buildOrder, ErrStatsNotFound)
+	return BuildStats{}, fmt.Errorf("build %d: %w", buildNumber, ErrStatsNotFound)
 }
 
 // ReadFile reads a project-relative file from S3.
@@ -710,9 +710,9 @@ func (s *S3Store) WritePlaywrightFile(ctx context.Context, projectID, subPath st
 	return nil
 }
 
-// PlaywrightReportExists checks if playwright-reports/{buildOrder}/index.html exists in S3.
-func (s *S3Store) PlaywrightReportExists(ctx context.Context, projectID string, buildOrder int) (bool, error) {
-	key := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildOrder), "index.html")
+// PlaywrightReportExists checks if playwright-reports/{buildNumber}/index.html exists in S3.
+func (s *S3Store) PlaywrightReportExists(ctx context.Context, projectID string, buildNumber int) (bool, error) {
+	key := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildNumber), "index.html")
 	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -724,10 +724,10 @@ func (s *S3Store) PlaywrightReportExists(ctx context.Context, projectID string, 
 	return true, nil
 }
 
-// CopyPlaywrightLatestToBuild copies all objects from playwright-reports/latest/ to playwright-reports/{buildOrder}/ in S3.
-func (s *S3Store) CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildOrder int) error {
+// CopyPlaywrightLatestToBuild copies all objects from playwright-reports/latest/ to playwright-reports/{buildNumber}/ in S3.
+func (s *S3Store) CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildNumber int) error {
 	srcPrefix := s.s3Key("projects", projectID, "playwright-reports", "latest") + "/"
-	dstPrefix := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildOrder)) + "/"
+	dstPrefix := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildNumber)) + "/"
 
 	var srcKeys []string
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
@@ -774,9 +774,9 @@ func (s *S3Store) CleanPlaywrightLatest(ctx context.Context, projectID string) e
 	return deletePrefix(ctx, s.client, s.bucket, prefix)
 }
 
-// ListPlaywrightDataFiles lists file names in playwright-reports/{buildOrder}/data/.
-func (s *S3Store) ListPlaywrightDataFiles(ctx context.Context, projectID string, buildOrder int) ([]string, error) {
-	prefix := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildOrder), "data") + "/"
+// ListPlaywrightDataFiles lists file names in playwright-reports/{buildNumber}/data/.
+func (s *S3Store) ListPlaywrightDataFiles(ctx context.Context, projectID string, buildNumber int) ([]string, error) {
+	prefix := s.s3Key("projects", projectID, "playwright-reports", strconv.Itoa(buildNumber), "data") + "/"
 	var names []string
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),

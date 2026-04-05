@@ -197,67 +197,67 @@ func (m *MockProjectStore) SetReportType(ctx context.Context, id, reportType str
 
 // MockBuildStore is a test double for store.BuildStorer.
 type MockBuildStore struct {
-	NextBuildOrderFn            func(ctx context.Context, projectID string) (int, error)
-	InsertBuildFn               func(ctx context.Context, projectID string, buildOrder int) error
-	UpdateBuildStatsFn          func(ctx context.Context, projectID string, buildOrder int, stats store.BuildStats) error
-	UpdateBuildCIMetadataFn     func(ctx context.Context, projectID string, buildOrder int, ciMeta store.CIMetadata) error
-	GetBuildByOrderFn           func(ctx context.Context, projectID string, buildOrder int) (store.Build, error)
-	GetPreviousBuildFn          func(ctx context.Context, projectID string, buildOrder int) (store.Build, error)
+	NextBuildNumberFn           func(ctx context.Context, projectID string) (int, error)
+	InsertBuildFn               func(ctx context.Context, projectID string, buildNumber int) error
+	UpdateBuildStatsFn          func(ctx context.Context, projectID string, buildNumber int, stats store.BuildStats) error
+	UpdateBuildCIMetadataFn     func(ctx context.Context, projectID string, buildNumber int, ciMeta store.CIMetadata) error
+	GetBuildByNumberFn          func(ctx context.Context, projectID string, buildNumber int) (store.Build, error)
+	GetPreviousBuildFn          func(ctx context.Context, projectID string, buildNumber int) (store.Build, error)
 	GetLatestBuildFn            func(ctx context.Context, projectID string) (store.Build, error)
 	ListBuildsFn                func(ctx context.Context, projectID string) ([]store.Build, error)
 	ListBuildsPaginatedFn       func(ctx context.Context, projectID string, page, perPage int) ([]store.Build, int, error)
 	PruneBuildsFn               func(ctx context.Context, projectID string, keep int) ([]int, error)
-	SetLatestFn                 func(ctx context.Context, projectID string, buildOrder int) error
+	SetLatestFn                 func(ctx context.Context, projectID string, buildNumber int) error
 	DeleteAllBuildsFn           func(ctx context.Context, projectID string) error
 	GetDashboardDataFn          func(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error)
-	DeleteBuildFn               func(ctx context.Context, projectID string, buildOrder int) error
-	UpdateBuildBranchIDFn       func(ctx context.Context, projectID string, buildOrder int, branchID int64) error
-	SetLatestBranchFn           func(ctx context.Context, projectID string, buildOrder int, branchID *int64) error
+	DeleteBuildFn               func(ctx context.Context, projectID string, buildNumber int) error
+	UpdateBuildBranchIDFn       func(ctx context.Context, projectID string, buildNumber int, branchID int64) error
+	SetLatestBranchFn           func(ctx context.Context, projectID string, buildNumber int, branchID *int64) error
 	PruneBuildsBranchFn         func(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAgeFn          func(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error)
 	ListBuildsInRangeFn         func(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
-	SetHasPlaywrightReportFn    func(ctx context.Context, projectID string, buildOrder int, value bool) error
+	SetHasPlaywrightReportFn    func(ctx context.Context, projectID string, buildNumber int, value bool) error
 }
 
-func (m *MockBuildStore) NextBuildOrder(ctx context.Context, projectID string) (int, error) {
-	if m.NextBuildOrderFn != nil {
-		return m.NextBuildOrderFn(ctx, projectID)
+func (m *MockBuildStore) NextBuildNumber(ctx context.Context, projectID string) (int, error) {
+	if m.NextBuildNumberFn != nil {
+		return m.NextBuildNumberFn(ctx, projectID)
 	}
 	return 0, nil
 }
 
-func (m *MockBuildStore) InsertBuild(ctx context.Context, projectID string, buildOrder int) error {
+func (m *MockBuildStore) InsertBuild(ctx context.Context, projectID string, buildNumber int) error {
 	if m.InsertBuildFn != nil {
-		return m.InsertBuildFn(ctx, projectID, buildOrder)
+		return m.InsertBuildFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildOrder int, stats store.BuildStats) error {
+func (m *MockBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildNumber int, stats store.BuildStats) error {
 	if m.UpdateBuildStatsFn != nil {
-		return m.UpdateBuildStatsFn(ctx, projectID, buildOrder, stats)
+		return m.UpdateBuildStatsFn(ctx, projectID, buildNumber, stats)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildOrder int, ciMeta store.CIMetadata) error {
+func (m *MockBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildNumber int, ciMeta store.CIMetadata) error {
 	if m.UpdateBuildCIMetadataFn != nil {
-		return m.UpdateBuildCIMetadataFn(ctx, projectID, buildOrder, ciMeta)
+		return m.UpdateBuildCIMetadataFn(ctx, projectID, buildNumber, ciMeta)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) GetBuildByOrder(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
-	if m.GetBuildByOrderFn != nil {
-		return m.GetBuildByOrderFn(ctx, projectID, buildOrder)
+func (m *MockBuildStore) GetBuildByNumber(ctx context.Context, projectID string, buildNumber int) (store.Build, error) {
+	if m.GetBuildByNumberFn != nil {
+		return m.GetBuildByNumberFn(ctx, projectID, buildNumber)
 	}
 	return store.Build{}, nil
 }
 
-func (m *MockBuildStore) GetPreviousBuild(ctx context.Context, projectID string, buildOrder int) (store.Build, error) {
+func (m *MockBuildStore) GetPreviousBuild(ctx context.Context, projectID string, buildNumber int) (store.Build, error) {
 	if m.GetPreviousBuildFn != nil {
-		return m.GetPreviousBuildFn(ctx, projectID, buildOrder)
+		return m.GetPreviousBuildFn(ctx, projectID, buildNumber)
 	}
 	return store.Build{}, nil
 }
@@ -290,9 +290,9 @@ func (m *MockBuildStore) PruneBuilds(ctx context.Context, projectID string, keep
 	return nil, nil
 }
 
-func (m *MockBuildStore) SetLatest(ctx context.Context, projectID string, buildOrder int) error {
+func (m *MockBuildStore) SetLatest(ctx context.Context, projectID string, buildNumber int) error {
 	if m.SetLatestFn != nil {
-		return m.SetLatestFn(ctx, projectID, buildOrder)
+		return m.SetLatestFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
@@ -311,23 +311,23 @@ func (m *MockBuildStore) GetDashboardData(ctx context.Context, sparklineDepth in
 	return nil, nil
 }
 
-func (m *MockBuildStore) DeleteBuild(ctx context.Context, projectID string, buildOrder int) error {
+func (m *MockBuildStore) DeleteBuild(ctx context.Context, projectID string, buildNumber int) error {
 	if m.DeleteBuildFn != nil {
-		return m.DeleteBuildFn(ctx, projectID, buildOrder)
+		return m.DeleteBuildFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) UpdateBuildBranchID(ctx context.Context, projectID string, buildOrder int, branchID int64) error {
+func (m *MockBuildStore) UpdateBuildBranchID(ctx context.Context, projectID string, buildNumber int, branchID int64) error {
 	if m.UpdateBuildBranchIDFn != nil {
-		return m.UpdateBuildBranchIDFn(ctx, projectID, buildOrder, branchID)
+		return m.UpdateBuildBranchIDFn(ctx, projectID, buildNumber, branchID)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) SetLatestBranch(ctx context.Context, projectID string, buildOrder int, branchID *int64) error {
+func (m *MockBuildStore) SetLatestBranch(ctx context.Context, projectID string, buildNumber int, branchID *int64) error {
 	if m.SetLatestBranchFn != nil {
-		return m.SetLatestBranchFn(ctx, projectID, buildOrder, branchID)
+		return m.SetLatestBranchFn(ctx, projectID, buildNumber, branchID)
 	}
 	return nil
 }
@@ -360,9 +360,9 @@ func (m *MockBuildStore) ListBuildsInRange(ctx context.Context, projectID string
 	return nil, 0, nil
 }
 
-func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID string, buildOrder int, value bool) error {
+func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID string, buildNumber int, value bool) error {
 	if m.SetHasPlaywrightReportFn != nil {
-		return m.SetHasPlaywrightReportFn(ctx, projectID, buildOrder, value)
+		return m.SetHasPlaywrightReportFn(ctx, projectID, buildNumber, value)
 	}
 	return nil
 }
@@ -375,7 +375,7 @@ func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID s
 type MockTestResultStore struct {
 	InsertBatchFn              func(ctx context.Context, results []store.TestResult) error
 	InsertBatchFullFn          func(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error
-	GetBuildIDFn               func(ctx context.Context, projectID string, buildOrder int) (int64, error)
+	GetBuildIDFn               func(ctx context.Context, projectID string, buildNumber int) (int64, error)
 	ListSlowestFn              func(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
 	ListLeastReliableFn        func(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
 	ListTimelineFn             func(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TimelineRow, error)
@@ -401,9 +401,9 @@ func (m *MockTestResultStore) InsertBatchFull(ctx context.Context, buildID int64
 	return nil
 }
 
-func (m *MockTestResultStore) GetBuildID(ctx context.Context, projectID string, buildOrder int) (int64, error) {
+func (m *MockTestResultStore) GetBuildID(ctx context.Context, projectID string, buildNumber int) (int64, error) {
 	if m.GetBuildIDFn != nil {
-		return m.GetBuildIDFn(ctx, projectID, buildOrder)
+		return m.GetBuildIDFn(ctx, projectID, buildNumber)
 	}
 	return 0, nil
 }

@@ -27,7 +27,7 @@ func newTestPlaywrightHandler(t *testing.T, projectsDir string) (*PlaywrightHand
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	h := NewPlaywrightHandler(st, mocks.Projects, mocks.Builds, cfg, logger)
+	h := NewPlaywrightHandler(st, mocks.Projects, mocks.Builds, nil, cfg, logger)
 	return h, mocks
 }
 
@@ -269,41 +269,43 @@ func TestPlaywrightUpload_PreservesSubdirectory(t *testing.T) {
 	}
 }
 
-// TestPlaywrightUpload_RaceCondition_BuildExists verifies that when a build already
-// exists, the report is copied from playwright-reports/latest/ to the numbered build
-// directory, has_playwright_report is set, and latest/ is cleaned up.
-func TestPlaywrightUpload_RaceCondition_BuildExists(t *testing.T) {
+// TestPlaywrightUpload_WithBuildNumber verifies that when build_number is provided,
+// the report is written directly to playwright-reports/{buildNumber}/ and
+// has_playwright_report is set. The latest/ directory is not touched.
+func TestPlaywrightUpload_WithBuildNumber(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "pw-race"
-	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
-	if err := os.MkdirAll(latestDir, 0o755); err != nil {
+	projectID := "pw-build-num"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html><body>Race Report</body></html>"),
+		"index.html": []byte("<html><body>Direct Report</body></html>"),
 	})
 
 	h, mocks := newTestPlaywrightHandler(t, projectsDir)
 
-	// Simulate a build already existing with order 5.
-	const existingBuildOrder = 5
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
-		if pid == projectID {
-			return store.Build{ProjectID: pid, BuildOrder: existingBuildOrder}, nil
+	// Simulate build 5 existing.
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, bn int) (store.Build, error) {
+		if pid == projectID && bn == 5 {
+			return store.Build{ProjectID: pid, BuildNumber: 5}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
 	var setHasPWReportCalled bool
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, pid string, buildOrder int, value bool) error {
-		if pid == projectID && buildOrder == existingBuildOrder && value {
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, pid string, bn int, value bool) error {
+		if pid == projectID && bn == 5 && value {
 			setHasPWReportCalled = true
 		}
 		return nil
 	}
 
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
+	q := req.URL.Query()
+	q.Set("build_number", "5")
+	req.URL.RawQuery = q.Encode()
+
 	w := httptest.NewRecorder()
 	h.UploadReport(w, req)
 
@@ -311,10 +313,10 @@ func TestPlaywrightUpload_RaceCondition_BuildExists(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify the report was copied to the numbered build directory.
+	// Verify the report was written directly to playwright-reports/5/.
 	buildDir := filepath.Join(projectsDir, projectID, "playwright-reports", "5")
 	if _, err := os.Stat(filepath.Join(buildDir, "index.html")); err != nil {
-		t.Errorf("index.html not copied to playwright-reports/5/: %v", err)
+		t.Errorf("index.html not written to playwright-reports/5/: %v", err)
 	}
 
 	// Verify has_playwright_report was set.
@@ -322,48 +324,69 @@ func TestPlaywrightUpload_RaceCondition_BuildExists(t *testing.T) {
 		t.Error("SetHasPlaywrightReport was not called with (projectID, 5, true)")
 	}
 
-	// Verify latest/ was cleaned up.
-	entries, err := os.ReadDir(latestDir)
-	if err != nil && !os.IsNotExist(err) {
-		t.Fatalf("reading latest dir: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("playwright-reports/latest/ should be empty after copy, got %d entries", len(entries))
+	// Verify latest/ was NOT created.
+	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	if _, err := os.Stat(latestDir); !os.IsNotExist(err) {
+		t.Errorf("playwright-reports/latest/ should not exist when build_number is provided")
 	}
 }
 
-// TestPlaywrightUpload_RaceCondition_NoBuild verifies that when no build exists,
-// the report stays in playwright-reports/latest/ for the runner to pick up.
-func TestPlaywrightUpload_RaceCondition_NoBuild(t *testing.T) {
+// TestPlaywrightUpload_WithBuildNumber_NotFound verifies that uploading with a
+// build_number that doesn't exist returns 404.
+func TestPlaywrightUpload_WithBuildNumber_NotFound(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "pw-no-build"
-	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
-	if err := os.MkdirAll(latestDir, 0o755); err != nil {
+	projectID := "pw-build-404"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html><body>No Build Report</body></html>"),
+		"index.html": []byte("<html/>"),
 	})
 
 	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-
-	// Simulate no build existing.
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, _ string) (store.Build, error) {
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ string, _ int) (store.Build, error) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
+	q := req.URL.Query()
+	q.Set("build_number", "99")
+	req.URL.RawQuery = q.Encode()
+
 	w := httptest.NewRecorder()
 	h.UploadReport(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestPlaywrightUpload_WithBuildNumber_Invalid verifies that a non-numeric
+// build_number returns 400.
+func TestPlaywrightUpload_WithBuildNumber_Invalid(t *testing.T) {
+	projectsDir := t.TempDir()
+	projectID := "pw-build-bad"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+		t.Fatal(err)
 	}
 
-	// Verify the report remains in playwright-reports/latest/.
-	if _, err := os.Stat(filepath.Join(latestDir, "index.html")); err != nil {
-		t.Errorf("index.html should remain in playwright-reports/latest/ when no build exists: %v", err)
+	archive := makeTarGz(t, map[string][]byte{
+		"index.html": []byte("<html/>"),
+	})
+
+	h, _ := newTestPlaywrightHandler(t, projectsDir)
+
+	req := makePlaywrightTarGzRequest(t, projectID, archive)
+	q := req.URL.Query()
+	q.Set("build_number", "abc")
+	req.URL.RawQuery = q.Encode()
+
+	w := httptest.NewRecorder()
+	h.UploadReport(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

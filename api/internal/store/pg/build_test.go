@@ -61,7 +61,7 @@ func TestPruneBuildsByAge_OlderBuildsRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListBuilds: %v", err)
 	}
-	if len(remaining) != 1 || remaining[0].BuildOrder != 2 {
+	if len(remaining) != 1 || remaining[0].BuildNumber != 2 {
 		t.Errorf("expected only build 2 remaining, got %v", remaining)
 	}
 }
@@ -174,7 +174,7 @@ func TestPruneBuildsByAge_FutureCutoffPrunesAllNonLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListBuilds: %v", err)
 	}
-	if len(remaining) != 1 || remaining[0].BuildOrder != 3 {
+	if len(remaining) != 1 || remaining[0].BuildNumber != 3 {
 		t.Errorf("expected only build 3 remaining (latest), got %v", remaining)
 	}
 
@@ -268,7 +268,7 @@ func TestGetDashboardData_MultiBranch_ReturnsOneProjectEntry(t *testing.T) {
 	if found[0].Latest == nil {
 		t.Fatal("expected Latest to be non-nil")
 	}
-	if found[0].Latest.BuildOrder != 2 {
-		t.Errorf("expected Latest.BuildOrder=2 (highest build_order), got %d", found[0].Latest.BuildOrder)
+	if found[0].Latest.BuildNumber != 2 {
+		t.Errorf("expected Latest.BuildNumber=2 (highest build_order), got %d", found[0].Latest.BuildNumber)
 	}
 }

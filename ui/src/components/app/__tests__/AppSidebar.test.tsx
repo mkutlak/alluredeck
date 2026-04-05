@@ -114,9 +114,9 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('my-project')).not.toBeInTheDocument()
   })
 
-  it('shows "Projects" collapsible section header', () => {
+  it('does NOT show "Projects" section header (project tree removed)', () => {
     renderSidebar('/')
-    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument()
   })
 
   it('shows project sub-nav when project is in URL', () => {

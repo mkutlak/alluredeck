@@ -12,10 +12,11 @@ import (
 
 // ProjectEntry holds a single project in the paginated project listing.
 type ProjectEntry struct {
-	ProjectID string   `json:"project_id"`
-	CreatedAt string   `json:"created_at"`
-	ParentID  *string  `json:"parent_id,omitempty"`
-	Children  []string `json:"children,omitempty"`
+	ProjectID  string   `json:"project_id"`
+	ReportType string   `json:"report_type"`
+	CreatedAt  string   `json:"created_at"`
+	ParentID   *string  `json:"parent_id,omitempty"`
+	Children   []string `json:"children,omitempty"`
 }
 
 // ReportHistoryEntry holds metadata for a single generated report.
@@ -103,7 +104,7 @@ func (cr *countingReader) Read(p []byte) (int, error) {
 
 // buildEntryFromDB converts a store.Build to a ReportHistoryEntry without filesystem I/O.
 func buildEntryFromDB(b *store.Build) ReportHistoryEntry {
-	reportID := strconv.Itoa(b.BuildOrder)
+	reportID := strconv.Itoa(b.BuildNumber)
 	entry := ReportHistoryEntry{
 		ReportID: reportID,
 		IsLatest: b.IsLatest,

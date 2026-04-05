@@ -40,7 +40,7 @@ func pgSyncProject(ctx context.Context, st storage.Store, ps *ProjectStore, bs *
 		return nil
 	}
 
-	existing, err := bs.ExistingBuildOrders(ctx, projectID)
+	existing, err := bs.ExistingBuildNumbers(ctx, projectID)
 	if err != nil {
 		return err
 	}

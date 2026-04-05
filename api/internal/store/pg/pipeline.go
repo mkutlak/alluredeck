@@ -78,7 +78,7 @@ func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID string, b
 		var r store.PipelineRunRow
 		if err := rows.Scan(
 			&r.CommitSHA, &r.Branch, &r.CIBuildURL, &r.CreatedAt,
-			&r.ProjectID, &r.BuildOrder,
+			&r.ProjectID, &r.BuildNumber,
 			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatTotal,
 			&r.DurationMs,
 			&total,

@@ -182,7 +182,7 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	var capturedTestResults []store.TestResult
 	var insertBuildCalled bool
 
-	mocks.Builds.NextBuildOrderFn = func(_ context.Context, _ string) (int, error) {
+	mocks.Builds.NextBuildNumberFn = func(_ context.Context, _ string) (int, error) {
 		return 1, nil
 	}
 	mocks.Builds.InsertBuildFn = func(_ context.Context, _ string, _ int) error {

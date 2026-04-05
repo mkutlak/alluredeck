@@ -325,7 +325,7 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID string, buildI
 			&row.FirstSeenBuildID, &row.LastSeenBuildID,
 			&row.OccurrenceCount, &row.ConsecutiveCleanBuilds,
 			&row.CreatedAt, &row.UpdatedAt,
-			&row.FirstSeenBuildOrder, &row.LastSeenBuildOrder,
+			&row.FirstSeenBuildNumber, &row.LastSeenBuildNumber,
 			&kiID, &kiProjectID, &kiTestName, &kiPattern, &kiTicketURL,
 			&kiDescription, &kiIsActive, &kiCreatedAt, &kiUpdatedAt,
 			&testResultCount,

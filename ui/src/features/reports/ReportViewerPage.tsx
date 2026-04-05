@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -13,11 +13,9 @@ export function ReportViewerPage() {
     projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
       ?.report_type ?? 'allure'
 
-  const [viewMode, setViewMode] = useState<'playwright' | 'allure'>('allure')
-
-  useEffect(() => {
-    if (reportType === 'playwright') setViewMode('playwright')
-  }, [reportType])
+  const defaultMode: 'playwright' | 'allure' = reportType === 'playwright' ? 'playwright' : 'allure'
+  const [userOverride, setUserOverride] = useState<'playwright' | 'allure' | null>(null)
+  const viewMode = userOverride ?? defaultMode
 
   if (!projectId || !reportId) return null
 
@@ -52,7 +50,7 @@ export function ReportViewerPage() {
               variant="ghost"
               size="sm"
               className={`rounded-r-none border-r px-3 py-1 text-xs ${viewMode === 'playwright' ? 'bg-muted font-semibold' : 'font-normal'}`}
-              onClick={() => setViewMode('playwright')}
+              onClick={() => setUserOverride('playwright')}
               aria-pressed={viewMode === 'playwright'}
             >
               Playwright
@@ -61,7 +59,7 @@ export function ReportViewerPage() {
               variant="ghost"
               size="sm"
               className={`rounded-l-none px-3 py-1 text-xs ${viewMode === 'allure' ? 'bg-muted font-semibold' : 'font-normal'}`}
-              onClick={() => setViewMode('allure')}
+              onClick={() => setUserOverride('allure')}
               aria-pressed={viewMode === 'allure'}
             >
               Allure

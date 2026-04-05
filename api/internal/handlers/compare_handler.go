@@ -64,13 +64,13 @@ func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	buildOrderA, errA := strconv.Atoi(q.Get("a"))
-	buildOrderB, errB := strconv.Atoi(q.Get("b"))
-	if errA != nil || errB != nil || buildOrderA <= 0 || buildOrderB <= 0 {
+	buildNumberA, errA := strconv.Atoi(q.Get("a"))
+	buildNumberB, errB := strconv.Atoi(q.Get("b"))
+	if errA != nil || errB != nil || buildNumberA <= 0 || buildNumberB <= 0 {
 		writeError(w, http.StatusBadRequest, "query parameters 'a' and 'b' are required and must be positive integers")
 		return
 	}
-	if buildOrderA == buildOrderB {
+	if buildNumberA == buildNumberB {
 		writeError(w, http.StatusBadRequest, "build_a and build_b must be different")
 		return
 	}
@@ -79,8 +79,8 @@ func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 	if h.testResultStore == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"data": map[string]any{
-				"build_a": buildOrderA,
-				"build_b": buildOrderB,
+				"build_a": buildNumberA,
+				"build_b": buildNumberB,
 				"summary": compareSummary{},
 				"tests":   []compareDiffEntry{},
 			},
@@ -89,14 +89,14 @@ func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buildIDA, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrderA)
+	buildIDA, err := h.testResultStore.GetBuildID(ctx, projectID, buildNumberA)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildOrderA, projectID))
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildNumberA, projectID))
 		return
 	}
-	buildIDB, err := h.testResultStore.GetBuildID(ctx, projectID, buildOrderB)
+	buildIDB, err := h.testResultStore.GetBuildID(ctx, projectID, buildNumberB)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildOrderB, projectID))
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildNumberB, projectID))
 		return
 	}
 
@@ -110,8 +110,8 @@ func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"build_a": buildOrderA,
-			"build_b": buildOrderB,
+			"build_a": buildNumberA,
+			"build_b": buildNumberB,
 			"summary": summary,
 			"tests":   entries,
 		},

@@ -32,7 +32,7 @@ func NewTestHistoryHandler(ts store.TestResultStorer, bs store.BuildStorer, brs 
 
 // testHistoryEntryJSON is the JSON shape for one history entry.
 type testHistoryEntryJSON struct {
-	BuildOrder  int       `json:"build_order"`
+	BuildNumber int       `json:"build_number"`
 	BuildID     int64     `json:"build_id"`
 	Status      string    `json:"status"`
 	DurationMs  int64     `json:"duration_ms"`
@@ -103,7 +103,7 @@ func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Reque
 	out := make([]testHistoryEntryJSON, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, testHistoryEntryJSON{
-			BuildOrder:  e.BuildOrder,
+			BuildNumber: e.BuildNumber,
 			BuildID:     e.BuildID,
 			Status:      e.Status,
 			DurationMs:  e.DurationMs,

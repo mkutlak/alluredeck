@@ -219,8 +219,8 @@ func TestGetReportTimeline_DBFastPath(t *testing.T) {
 	projectID := "dbproj"
 
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
-		if pid == projectID && buildOrder == 5 {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
+		if pid == projectID && buildNumber == 5 {
 			return int64(100), nil
 		}
 		return 0, nil
@@ -343,14 +343,14 @@ func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
 	// GetLatestBuild resolves "latest" to build order 7.
 	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
 		if pid == projectID {
-			return store.Build{BuildOrder: 7}, nil
+			return store.Build{BuildNumber: 7}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
 	// GetBuildID maps build order 7 → build ID 200.
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
-		if pid == projectID && buildOrder == 7 {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
+		if pid == projectID && buildNumber == 7 {
 			return int64(200), nil
 		}
 		return 0, fmt.Errorf("not found")

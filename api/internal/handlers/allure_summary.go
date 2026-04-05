@@ -13,7 +13,7 @@ const topFailuresLimit = 10
 type summaryBuildMeta struct {
 	BuildID     int64  `json:"build_id"`
 	ProjectID   string `json:"project_id"`
-	BuildOrder  int    `json:"build_order"`
+	BuildNumber int    `json:"build_number"`
 	CreatedAt   string `json:"created_at"`
 	IsLatest    bool   `json:"is_latest"`
 	CIProvider  string `json:"ci_provider,omitempty"`
@@ -57,13 +57,13 @@ type summaryFailure struct {
 }
 
 type summaryTrendDelta struct {
-	PreviousBuildOrder int   `json:"previous_build_order"`
-	PassedDelta        int   `json:"passed_delta"`
-	FailedDelta        int   `json:"failed_delta"`
-	BrokenDelta        int   `json:"broken_delta"`
-	SkippedDelta       int   `json:"skipped_delta"`
-	TotalDelta         int   `json:"total_delta"`
-	DurationDeltaMs    int64 `json:"duration_delta_ms"`
+	PreviousBuildNumber int   `json:"previous_build_number"`
+	PassedDelta         int   `json:"passed_delta"`
+	FailedDelta         int   `json:"failed_delta"`
+	BrokenDelta         int   `json:"broken_delta"`
+	SkippedDelta        int   `json:"skipped_delta"`
+	TotalDelta          int   `json:"total_delta"`
+	DurationDeltaMs     int64 `json:"duration_delta_ms"`
 }
 
 // derefInt64 returns the value pointed to by p, or 0 if p is nil.
@@ -111,7 +111,7 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Resolve build: "latest" or numeric build_order.
+	// Resolve build: "latest" or numeric build_number.
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
 		reportID = "latest"
@@ -126,12 +126,12 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	if reportID == "latest" {
 		build, err = h.buildStore.GetLatestBuild(ctx, projectID)
 	} else {
-		buildOrder, parseErr := strconv.Atoi(reportID)
+		buildNumber, parseErr := strconv.Atoi(reportID)
 		if parseErr != nil {
 			writeError(w, http.StatusBadRequest, "report_id must be a number or 'latest'")
 			return
 		}
-		build, err = h.buildStore.GetBuildByOrder(ctx, projectID, buildOrder)
+		build, err = h.buildStore.GetBuildByNumber(ctx, projectID, buildNumber)
 	}
 
 	if err != nil {
@@ -147,7 +147,7 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	buildMeta := summaryBuildMeta{
 		BuildID:     build.ID,
 		ProjectID:   build.ProjectID,
-		BuildOrder:  build.BuildOrder,
+		BuildNumber: build.BuildNumber,
 		CreatedAt:   build.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		IsLatest:    build.IsLatest,
 		CIProvider:  derefStr(build.CIProvider),
@@ -210,16 +210,16 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 
 	// Trend delta vs previous build.
 	var trend *summaryTrendDelta
-	prev, err := h.buildStore.GetPreviousBuild(ctx, projectID, build.BuildOrder)
+	prev, err := h.buildStore.GetPreviousBuild(ctx, projectID, build.BuildNumber)
 	if err == nil {
 		trend = &summaryTrendDelta{
-			PreviousBuildOrder: prev.BuildOrder,
-			PassedDelta:        passed - derefInt(prev.StatPassed),
-			FailedDelta:        failed - derefInt(prev.StatFailed),
-			BrokenDelta:        broken - derefInt(prev.StatBroken),
-			SkippedDelta:       skipped - derefInt(prev.StatSkipped),
-			TotalDelta:         total - derefInt(prev.StatTotal),
-			DurationDeltaMs:    derefInt64(build.DurationMs) - derefInt64(prev.DurationMs),
+			PreviousBuildNumber: prev.BuildNumber,
+			PassedDelta:         passed - derefInt(prev.StatPassed),
+			FailedDelta:         failed - derefInt(prev.StatFailed),
+			BrokenDelta:         broken - derefInt(prev.StatBroken),
+			SkippedDelta:        skipped - derefInt(prev.StatSkipped),
+			TotalDelta:          total - derefInt(prev.StatTotal),
+			DurationDeltaMs:     derefInt64(build.DurationMs) - derefInt64(prev.DurationMs),
 		}
 	}
 

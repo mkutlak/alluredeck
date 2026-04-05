@@ -17,8 +17,8 @@ func TestCompareBuilds_Success(t *testing.T) {
 	projectID := "cmp-handler"
 
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
-		switch buildOrder {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
+		switch buildNumber {
 		case 1:
 			return 10, nil
 		case 2:
@@ -169,8 +169,8 @@ func TestCompareBuilds_BuildNotFound(t *testing.T) {
 	projectsDir := t.TempDir()
 
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildOrder int) (int64, error) {
-		if buildOrder == 99 {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
+		if buildNumber == 99 {
 			return 0, store.ErrBuildNotFound
 		}
 		return 10, nil

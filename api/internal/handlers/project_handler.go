@@ -92,9 +92,10 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	entries := make([]ProjectEntry, 0, len(dbProjects))
 	for _, p := range dbProjects {
 		e := ProjectEntry{
-			ProjectID: p.ID,
-			CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
-			ParentID:  p.ParentID,
+			ProjectID:  p.ID,
+			ReportType: p.ReportType,
+			CreatedAt:  p.CreatedAt.UTC().Format(time.RFC3339),
+			ParentID:   p.ParentID,
 		}
 		if kids, ok := childrenOf[p.ID]; ok {
 			e.Children = kids

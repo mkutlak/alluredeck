@@ -24,7 +24,7 @@ type dashboardStatistics struct {
 }
 
 type latestBuildResp struct {
-	BuildOrder     int                 `json:"build_order"`
+	BuildNumber    int                 `json:"build_number"`
 	CreatedAt      string              `json:"created_at"`
 	Statistics     dashboardStatistics `json:"statistics"`
 	PassRate       float64             `json:"pass_rate"`
@@ -36,8 +36,8 @@ type latestBuildResp struct {
 }
 
 type sparklinePointResp struct {
-	BuildOrder int     `json:"build_order"`
-	PassRate   float64 `json:"pass_rate"`
+	BuildNumber int     `json:"build_number"`
+	PassRate    float64 `json:"pass_rate"`
 }
 
 type aggregateStats struct {
@@ -168,8 +168,8 @@ func buildLatestResp(b *store.Build) *latestBuildResp {
 	passed := derefInt(b.StatPassed)
 	total := derefInt(b.StatTotal)
 	return &latestBuildResp{
-		BuildOrder: b.BuildOrder,
-		CreatedAt:  b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		BuildNumber: b.BuildNumber,
+		CreatedAt:   b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		Statistics: dashboardStatistics{
 			Passed:  passed,
 			Failed:  derefInt(b.StatFailed),
@@ -229,8 +229,8 @@ func buildSparkline(points []store.SparklinePoint) []sparklinePointResp {
 	result := make([]sparklinePointResp, 0, len(points))
 	for _, sp := range points {
 		result = append(result, sparklinePointResp{
-			BuildOrder: sp.BuildOrder,
-			PassRate:   sp.PassRate,
+			BuildNumber: sp.BuildNumber,
+			PassRate:    sp.PassRate,
 		})
 	}
 	return result

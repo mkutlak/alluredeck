@@ -193,7 +193,7 @@ func (h *ReportHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Fetch numbered builds from DB (sorted descending by build_order).
+	// Fetch numbered builds from DB (sorted descending by build_number).
 	builds, total, err := h.buildStore.ListBuildsPaginatedBranch(r.Context(), projectID, pg.Page, pg.PerPage, branchID)
 	if err != nil {
 		h.logger.Error("reading report history failed", zap.String("project_id", projectID), zap.Error(err))
@@ -473,8 +473,8 @@ func (h *ReportHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove build record from database. Non-fatal if not found.
-	if buildOrder, err := strconv.Atoi(reportID); err == nil {
-		_ = h.buildStore.DeleteBuild(r.Context(), projectID, buildOrder)
+	if buildNumber, err := strconv.Atoi(reportID); err == nil {
+		_ = h.buildStore.DeleteBuild(r.Context(), projectID, buildNumber)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

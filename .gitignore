@@ -27,6 +27,16 @@ coverage/
 # Allure test results
 allure-results/
 
+# Playwright E2E
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/allure-results/
+e2e/auth-state.json
+
+# Superpowers brainstorm
+.superpowers/
+
 # Environment files (may contain secrets)
 .env
 .env.local

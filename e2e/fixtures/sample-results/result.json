@@ -1,0 +1,36 @@
+{
+  "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "historyId": "e2e-demo-sample-test",
+  "name": "Sample E2E Test — Verify Dashboard Loads",
+  "fullName": "e2e.demo.SampleTest#verifyDashboardLoads",
+  "status": "passed",
+  "stage": "finished",
+  "start": 1712200000000,
+  "stop": 1712200005000,
+  "labels": [
+    { "name": "suite", "value": "E2E Demo Suite" },
+    { "name": "parentSuite", "value": "AllureDeck E2E" },
+    { "name": "subSuite", "value": "Dashboard" },
+    { "name": "feature", "value": "Dashboard" },
+    { "name": "story", "value": "Load dashboard" },
+    { "name": "severity", "value": "normal" },
+    { "name": "host", "value": "e2e-runner" },
+    { "name": "thread", "value": "main" }
+  ],
+  "steps": [
+    {
+      "name": "Navigate to dashboard",
+      "status": "passed",
+      "start": 1712200000000,
+      "stop": 1712200002000,
+      "steps": []
+    },
+    {
+      "name": "Verify project cards are visible",
+      "status": "passed",
+      "start": 1712200002000,
+      "stop": 1712200005000,
+      "steps": []
+    }
+  ]
+}

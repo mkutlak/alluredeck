@@ -1,0 +1,17 @@
+{
+  "name": "alluredeck-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "update-snapshots": "playwright test --update-snapshots"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "allure-playwright": "^3.2.0",
+    "tsx": "^4.0.0"
+  }
+}

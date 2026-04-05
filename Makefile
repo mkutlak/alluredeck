@@ -191,6 +191,51 @@ docker-clean: ## Remove all built Docker images
 	docker rmi $(IMAGE_API):$(IMAGE_TAG) 2>/dev/null || true
 	docker rmi $(IMAGE_UI):$(IMAGE_TAG) 2>/dev/null || true
 
+# ── E2E (Playwright) ─────────────────────────────────────────
+
+.PHONY: e2e-install e2e-test e2e-test-headed e2e-test-ui e2e-report e2e-update-snapshots e2e-clean
+
+PW_VERSION := 1.59.1
+PW_IMAGE   := mcr.microsoft.com/playwright:v$(PW_VERSION)-noble
+
+e2e-install: ## Install E2E dependencies and Playwright browsers
+	cd e2e && npm install && npx playwright install --with-deps chromium
+
+e2e-test: ## Run Playwright E2E tests (in Docker) and upload report
+	docker run --rm --network host \
+		-v $(CURDIR)/e2e:/work -w /work \
+		-e ALLUREDECK_URL=http://localhost:7474 \
+		-e ALLUREDECK_API_URL=http://localhost:5050/api/v1 \
+		$(PW_IMAGE) \
+		sh -c "npm install --silent && npx playwright test; STATUS=$$?; npx tsx upload-report.ts; chown -R $(shell id -u):$(shell id -g) /work/test-results /work/playwright-report 2>/dev/null; exit $$STATUS"
+
+e2e-test-local: ## Run E2E tests locally (requires e2e-install) and upload report
+	cd e2e && npx playwright test; npx tsx upload-report.ts
+
+e2e-test-headed: ## Run E2E tests in headed mode (local only)
+	cd e2e && npx playwright test --headed
+
+e2e-test-ui: ## Open Playwright UI mode (local only)
+	cd e2e && npx playwright test --ui
+
+e2e-report: ## Show Playwright HTML report (served via Docker)
+	docker run --rm -p 9323:9323 \
+		-v $(CURDIR)/e2e:/work -w /work \
+		$(PW_IMAGE) \
+		sh -c "npm install --silent && npx playwright show-report --host 0.0.0.0 --port 9323"
+
+e2e-update-snapshots: ## Update visual regression baselines (in Docker)
+	docker run --rm --network host \
+		-v $(CURDIR)/e2e:/work -w /work \
+		-e ALLUREDECK_URL=http://localhost:7474 \
+		-e ALLUREDECK_API_URL=http://localhost:5050/api/v1 \
+		$(PW_IMAGE) \
+		sh -c "npm install --silent && npx playwright test --update-snapshots; STATUS=$$?; chown -R $(shell id -u):$(shell id -g) /work/test-results /work/playwright-report /work/tests 2>/dev/null; exit $$STATUS"
+
+e2e-clean: ## Remove E2E test artifacts (preserves snapshot baselines)
+	docker run --rm -v $(CURDIR)/e2e:/work $(PW_IMAGE) \
+		sh -c "rm -rf /work/test-results /work/playwright-report /work/auth-state.json"
+
 # ── Utilities ─────────────────────────────────────────────────
 
 .PHONY: fetch-trace-viewer

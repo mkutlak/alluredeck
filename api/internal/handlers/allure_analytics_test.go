@@ -257,9 +257,9 @@ func TestAnalyticsHandler_NilStore_GetTrends(t *testing.T) {
 func TestAnalyticsHandler_GetTrends_WithData(t *testing.T) {
 	mock := &mockAnalyticsStore{
 		trendPoints: []store.TrendPoint{
-			{BuildOrder: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
-			{BuildOrder: 2, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
-			{BuildOrder: 3, Passed: 48, Failed: 1, Broken: 0, Skipped: 1, Total: 50, PassRate: 96.0, DurationMs: 50000},
+			{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
+			{BuildNumber: 2, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
+			{BuildNumber: 3, Passed: 48, Failed: 1, Broken: 0, Skipped: 1, Total: 50, PassRate: 96.0, DurationMs: 50000},
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
@@ -313,14 +313,14 @@ func TestAnalyticsHandler_GetTrends_KpiComputation(t *testing.T) {
 	points := make([]store.TrendPoint, 15)
 	for i := range points {
 		points[i] = store.TrendPoint{
-			BuildOrder: i + 1,
-			Passed:     40 + i,
-			Failed:     5,
-			Broken:     1,
-			Skipped:    1,
-			Total:      47 + i,
-			PassRate:   float64(40+i) / float64(47+i) * 100,
-			DurationMs: int64(60000 - i*1000),
+			BuildNumber: i + 1,
+			Passed:      40 + i,
+			Failed:      5,
+			Broken:      1,
+			Skipped:     1,
+			Total:       47 + i,
+			PassRate:    float64(40+i) / float64(47+i) * 100,
+			DurationMs:  int64(60000 - i*1000),
 		}
 	}
 	mock := &mockAnalyticsStore{trendPoints: points}
@@ -364,7 +364,7 @@ func TestAnalyticsHandler_GetTrends_KpiComputation(t *testing.T) {
 		t.Errorf("expected duration_trend length 10, got %d", len(durationTrend))
 	}
 
-	// KPI latest values should match the last point (BuildOrder 15, index 14).
+	// KPI latest values should match the last point (BuildNumber 15, index 14).
 	last := points[14]
 	latestPassRate, ok := kpi["pass_rate"].(float64)
 	if !ok {

@@ -183,9 +183,9 @@ func (ls *LocalStore) CleanupLocal(_ string) error {
 }
 
 // PublishReport copies only the variable-content subdirs (data, widgets, history)
-// from localProjectDir/reports/latest/ to localProjectDir/reports/<buildOrder>/.
+// from localProjectDir/reports/latest/ to localProjectDir/reports/<buildNumber>/.
 // If latest does not exist or is empty, it returns nil without error.
-func (ls *LocalStore) PublishReport(_ context.Context, _ string, buildOrder int, localProjectDir string) error {
+func (ls *LocalStore) PublishReport(_ context.Context, _ string, buildNumber int, localProjectDir string) error {
 	latestDir := filepath.Join(localProjectDir, "reports", "latest")
 
 	empty, err := isDirEmpty(latestDir)
@@ -199,7 +199,7 @@ func (ls *LocalStore) PublishReport(_ context.Context, _ string, buildOrder int,
 		return nil
 	}
 
-	newReportDir := filepath.Join(localProjectDir, "reports", strconv.Itoa(buildOrder))
+	newReportDir := filepath.Join(localProjectDir, "reports", strconv.Itoa(buildNumber))
 	//nolint:gosec // G301: 0o755 required for allure web server to serve snapshot reports
 	if err := os.MkdirAll(newReportDir, 0o755); err != nil {
 		return fmt.Errorf("creating build dir: %w", err)
@@ -254,9 +254,9 @@ func (ls *LocalStore) DeleteReport(_ context.Context, projectID, reportID string
 }
 
 // PruneReportDirs removes the directories for the given build orders.
-func (ls *LocalStore) PruneReportDirs(_ context.Context, projectID string, buildOrders []int) error {
+func (ls *LocalStore) PruneReportDirs(_ context.Context, projectID string, buildNumbers []int) error {
 	reportsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports")
-	for _, bo := range buildOrders {
+	for _, bo := range buildNumbers {
 		dirPath := filepath.Join(reportsDir, strconv.Itoa(bo))
 		if err := os.RemoveAll(dirPath); err != nil {
 			return fmt.Errorf("removing old report %d: %w", bo, err)
@@ -329,8 +329,8 @@ func (ls *LocalStore) CleanHistory(_ context.Context, projectID string) error {
 
 // ReadBuildStats reads cached statistics from a numbered report's widget files.
 // Tries widgets/summary.json (Allure 2) first, then widgets/statistic.json (Allure 3).
-func (ls *LocalStore) ReadBuildStats(_ context.Context, projectID string, buildOrder int) (BuildStats, error) {
-	widgetsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", strconv.Itoa(buildOrder), "widgets")
+func (ls *LocalStore) ReadBuildStats(_ context.Context, projectID string, buildNumber int) (BuildStats, error) {
+	widgetsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", strconv.Itoa(buildNumber), "widgets")
 
 	// Allure 2: widgets/summary.json
 	if data, err := os.ReadFile(filepath.Join(widgetsDir, "summary.json")); err == nil {
@@ -383,13 +383,13 @@ func (ls *LocalStore) ReadBuildStats(_ context.Context, projectID string, buildO
 				Total:   stat.Total,
 			}
 			// Allure 3 statistic.json has no timing; derive from test result files.
-			testResultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", strconv.Itoa(buildOrder), "data", "test-results")
+			testResultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", strconv.Itoa(buildNumber), "data", "test-results")
 			stats.DurationMs = durationFromTestResultFiles(testResultsDir)
 			return stats, nil
 		}
 	}
 
-	return BuildStats{}, fmt.Errorf("build %d: %w", buildOrder, ErrStatsNotFound)
+	return BuildStats{}, fmt.Errorf("build %d: %w", buildNumber, ErrStatsNotFound)
 }
 
 // ReadFile reads the file at projectID/relPath and returns its contents.
@@ -537,9 +537,9 @@ func (ls *LocalStore) WritePlaywrightFile(_ context.Context, projectID, subPath 
 	return nil
 }
 
-// PlaywrightReportExists checks if playwright-reports/{buildOrder}/index.html exists.
-func (ls *LocalStore) PlaywrightReportExists(_ context.Context, projectID string, buildOrder int) (bool, error) {
-	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildOrder), "index.html")
+// PlaywrightReportExists checks if playwright-reports/{buildNumber}/index.html exists.
+func (ls *LocalStore) PlaywrightReportExists(_ context.Context, projectID string, buildNumber int) (bool, error) {
+	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildNumber), "index.html")
 	_, err := os.Stat(path)
 	if err == nil {
 		return true, nil
@@ -550,10 +550,10 @@ func (ls *LocalStore) PlaywrightReportExists(_ context.Context, projectID string
 	return false, fmt.Errorf("stat playwright report: %w", err)
 }
 
-// CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildOrder}/.
-func (ls *LocalStore) CopyPlaywrightLatestToBuild(_ context.Context, projectID string, buildOrder int) error {
+// CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildNumber}/.
+func (ls *LocalStore) CopyPlaywrightLatestToBuild(_ context.Context, projectID string, buildNumber int) error {
 	src := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", "latest")
-	dst := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildOrder))
+	dst := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildNumber))
 
 	empty, err := isDirEmpty(src)
 	if err != nil {
@@ -579,9 +579,9 @@ func (ls *LocalStore) CleanPlaywrightLatest(_ context.Context, projectID string)
 	return removeDirContents(dir)
 }
 
-// ListPlaywrightDataFiles lists files in playwright-reports/{buildOrder}/data/.
-func (ls *LocalStore) ListPlaywrightDataFiles(_ context.Context, projectID string, buildOrder int) ([]string, error) {
-	dataDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildOrder), "data")
+// ListPlaywrightDataFiles lists files in playwright-reports/{buildNumber}/data/.
+func (ls *LocalStore) ListPlaywrightDataFiles(_ context.Context, projectID string, buildNumber int) ([]string, error) {
+	dataDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildNumber), "data")
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
 		if os.IsNotExist(err) {

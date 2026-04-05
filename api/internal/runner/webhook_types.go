@@ -6,7 +6,7 @@ import "time"
 type WebhookPayload struct {
 	Event        string        `json:"event"`
 	ProjectID    string        `json:"project_id"`
-	BuildOrder   int           `json:"build_order"`
+	BuildNumber  int           `json:"build_number"`
 	DashboardURL string        `json:"dashboard_url,omitempty"`
 	Stats        WebhookStats  `json:"stats"`
 	Delta        *WebhookDelta `json:"delta,omitempty"`

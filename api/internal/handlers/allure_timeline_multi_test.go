@@ -23,16 +23,16 @@ func buildMocksForMultiTimeline() *testutil.MockStores {
 	// Default: ListBuildsPaginatedBranch returns one build (latest).
 	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildOrder: 42, CreatedAt: createdAt},
+			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: createdAt},
 		}, 1, nil
 	}
 
 	// GetBuildID maps build order → build ID.
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ string, buildOrder int) (int64, error) {
-		if buildOrder == 42 {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ string, buildNumber int) (int64, error) {
+		if buildNumber == 42 {
 			return 100, nil
 		}
-		if buildOrder == 41 {
+		if buildNumber == 41 {
 			return 99, nil
 		}
 		return 0, fmt.Errorf("not found")
@@ -44,13 +44,13 @@ func buildMocksForMultiTimeline() *testutil.MockStores {
 		for _, bid := range buildIDs {
 			if bid == 100 {
 				rows = append(rows,
-					store.MultiTimelineRow{BuildID: 100, BuildOrder: 42, TestName: "Login", FullName: "com.Login", Status: "passed", StartMs: 170000, StopMs: 170005, Thread: "w1", Host: "h1"},
-					store.MultiTimelineRow{BuildID: 100, BuildOrder: 42, TestName: "Logout", FullName: "com.Logout", Status: "failed", StartMs: 170010, StopMs: 170020, Thread: "w2", Host: "h1"},
+					store.MultiTimelineRow{BuildID: 100, BuildNumber: 42, TestName: "Login", FullName: "com.Login", Status: "passed", StartMs: 170000, StopMs: 170005, Thread: "w1", Host: "h1"},
+					store.MultiTimelineRow{BuildID: 100, BuildNumber: 42, TestName: "Logout", FullName: "com.Logout", Status: "failed", StartMs: 170010, StopMs: 170020, Thread: "w2", Host: "h1"},
 				)
 			}
 			if bid == 99 {
 				rows = append(rows,
-					store.MultiTimelineRow{BuildID: 99, BuildOrder: 41, TestName: "Signup", FullName: "com.Signup", Status: "passed", StartMs: 160000, StopMs: 160010, Thread: "w1", Host: "h1"},
+					store.MultiTimelineRow{BuildID: 99, BuildNumber: 41, TestName: "Signup", FullName: "com.Signup", Status: "passed", StartMs: 160000, StopMs: 160010, Thread: "w1", Host: "h1"},
 				)
 			}
 		}
@@ -92,8 +92,8 @@ func TestGetProjectTimeline_SingleBuild_Default(t *testing.T) {
 	}
 
 	b0 := builds[0].(map[string]any)
-	if int(b0["build_order"].(float64)) != 42 {
-		t.Errorf("expected build_order=42, got %v", b0["build_order"])
+	if int(b0["build_number"].(float64)) != 42 {
+		t.Errorf("expected build_number=42, got %v", b0["build_number"])
 	}
 	testCases := b0["test_cases"].([]any)
 	if len(testCases) != 2 {
@@ -126,7 +126,7 @@ func TestGetProjectTimeline_BranchFilter(t *testing.T) {
 	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, branchID *int64) ([]store.Build, int, error) {
 		capturedBranchID = branchID
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildOrder: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
+			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
 		}, 1, nil
 	}
 
@@ -168,8 +168,8 @@ func TestGetProjectTimeline_DateRange(t *testing.T) {
 			return nil, 0, fmt.Errorf("unexpected to: %v", to)
 		}
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildOrder: 42, CreatedAt: createdAt},
-			{ID: 99, ProjectID: "proj1", BuildOrder: 41, CreatedAt: createdAt.Add(-24 * time.Hour)},
+			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: createdAt},
+			{ID: 99, ProjectID: "proj1", BuildNumber: 41, CreatedAt: createdAt.Add(-24 * time.Hour)},
 		}, 5, nil
 	}
 
@@ -212,7 +212,7 @@ func TestGetProjectTimeline_MaxBuildsWarning(t *testing.T) {
 	// Return 1 build but report total=15 to show "showing N of M".
 	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildOrder: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
+			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
 		}, 15, nil
 	}
 
@@ -275,7 +275,7 @@ func TestGetProjectTimeline_LimitCap(t *testing.T) {
 	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, perPage int, _ *int64) ([]store.Build, int, error) {
 		capturedPerPage = perPage
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildOrder: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
+			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
 		}, 1, nil
 	}
 

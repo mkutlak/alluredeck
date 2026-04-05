@@ -179,7 +179,7 @@ WHERE project_id = ANY($1)`
 	var result []store.TrendPoint
 	for rows.Next() {
 		var tp store.TrendPoint
-		if err := rows.Scan(&tp.BuildOrder, &tp.Passed, &tp.Failed, &tp.Broken, &tp.Skipped, &tp.Total, &tp.DurationMs); err != nil {
+		if err := rows.Scan(&tp.BuildNumber, &tp.Passed, &tp.Failed, &tp.Broken, &tp.Skipped, &tp.Total, &tp.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan trend point: %w", err)
 		}
 		if tp.Total > 0 {

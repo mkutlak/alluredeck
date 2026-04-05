@@ -58,10 +58,10 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []store.Test
 }
 
 // GetBuildID returns the database ID for a build given its project and order.
-func (ts *TestResultStore) GetBuildID(ctx context.Context, projectID string, buildOrder int) (int64, error) {
+func (ts *TestResultStore) GetBuildID(ctx context.Context, projectID string, buildNumber int) (int64, error) {
 	var id int64
 	err := ts.pool.QueryRow(ctx,
-		"SELECT id FROM builds WHERE project_id=$1 AND build_order=$2", projectID, buildOrder,
+		"SELECT id FROM builds WHERE project_id=$1 AND build_order=$2", projectID, buildNumber,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("get build id: %w", err)
@@ -340,7 +340,7 @@ func (ts *TestResultStore) ListTimelineMulti(ctx context.Context, projectID stri
 	var result []store.MultiTimelineRow
 	for rows.Next() {
 		var r store.MultiTimelineRow
-		if err := rows.Scan(&r.BuildID, &r.BuildOrder, &r.TestName, &r.FullName, &r.Status, &r.StartMs, &r.StopMs, &r.Thread, &r.Host); err != nil {
+		if err := rows.Scan(&r.BuildID, &r.BuildNumber, &r.TestName, &r.FullName, &r.Status, &r.StartMs, &r.StopMs, &r.Thread, &r.Host); err != nil {
 			return nil, fmt.Errorf("scan multi timeline row: %w", err)
 		}
 		result = append(result, r)
@@ -417,7 +417,7 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID, histor
 		var e store.TestHistoryEntry
 		var createdAt time.Time
 		var ciCommitSHA *string
-		if err := rows.Scan(&e.BuildOrder, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA); err != nil {
+		if err := rows.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA); err != nil {
 			return nil, fmt.Errorf("scan test history row: %w", err)
 		}
 		e.CreatedAt = createdAt

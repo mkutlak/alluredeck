@@ -18,12 +18,12 @@ type MockStore struct {
 	CleanResultsFn                func(ctx context.Context, projectID string) error
 	PrepareLocalFn                func(ctx context.Context, projectID string) (string, error)
 	CleanupLocalFn                func(localProjectDir string) error
-	PublishReportFn               func(ctx context.Context, projectID string, buildOrder int, localProjectDir string) error
+	PublishReportFn               func(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error
 	DeleteReportFn                func(ctx context.Context, projectID, reportID string) error
-	PruneReportDirsFn             func(ctx context.Context, projectID string, buildOrders []int) error
+	PruneReportDirsFn             func(ctx context.Context, projectID string, buildNumbers []int) error
 	KeepHistoryFn                 func(ctx context.Context, projectID string) error
 	CleanHistoryFn                func(ctx context.Context, projectID string) error
-	ReadBuildStatsFn              func(ctx context.Context, projectID string, buildOrder int) (BuildStats, error)
+	ReadBuildStatsFn              func(ctx context.Context, projectID string, buildNumber int) (BuildStats, error)
 	ReadFileFn                    func(ctx context.Context, projectID, relPath string) ([]byte, error)
 	ReadDirFn                     func(ctx context.Context, projectID, relPath string) ([]DirEntry, error)
 	OpenReportFileFn              func(ctx context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error)
@@ -31,10 +31,10 @@ type MockStore struct {
 	LatestReportExistsFn          func(ctx context.Context, projectID string) (bool, error)
 	ResultsDirHashFn              func(ctx context.Context, projectID string) (string, error)
 	WritePlaywrightFileFn         func(ctx context.Context, projectID, subPath string, r io.Reader) error
-	PlaywrightReportExistsFn      func(ctx context.Context, projectID string, buildOrder int) (bool, error)
-	CopyPlaywrightLatestToBuildFn func(ctx context.Context, projectID string, buildOrder int) error
+	PlaywrightReportExistsFn      func(ctx context.Context, projectID string, buildNumber int) (bool, error)
+	CopyPlaywrightLatestToBuildFn func(ctx context.Context, projectID string, buildNumber int) error
 	CleanPlaywrightLatestFn       func(ctx context.Context, projectID string) error
-	ListPlaywrightDataFilesFn     func(ctx context.Context, projectID string, buildOrder int) ([]string, error)
+	ListPlaywrightDataFilesFn     func(ctx context.Context, projectID string, buildNumber int) ([]string, error)
 	ReadPlaywrightFileFn          func(ctx context.Context, projectID, subPath string) (io.ReadCloser, string, error)
 }
 
@@ -122,9 +122,9 @@ func (m *MockStore) CleanupLocal(localProjectDir string) error {
 }
 
 // PublishReport implements Store.
-func (m *MockStore) PublishReport(ctx context.Context, projectID string, buildOrder int, localProjectDir string) error {
+func (m *MockStore) PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error {
 	if m.PublishReportFn != nil {
-		return m.PublishReportFn(ctx, projectID, buildOrder, localProjectDir)
+		return m.PublishReportFn(ctx, projectID, buildNumber, localProjectDir)
 	}
 	return nil
 }
@@ -138,9 +138,9 @@ func (m *MockStore) DeleteReport(ctx context.Context, projectID, reportID string
 }
 
 // PruneReportDirs implements Store.
-func (m *MockStore) PruneReportDirs(ctx context.Context, projectID string, buildOrders []int) error {
+func (m *MockStore) PruneReportDirs(ctx context.Context, projectID string, buildNumbers []int) error {
 	if m.PruneReportDirsFn != nil {
-		return m.PruneReportDirsFn(ctx, projectID, buildOrders)
+		return m.PruneReportDirsFn(ctx, projectID, buildNumbers)
 	}
 	return nil
 }
@@ -162,9 +162,9 @@ func (m *MockStore) CleanHistory(ctx context.Context, projectID string) error {
 }
 
 // ReadBuildStats implements Store.
-func (m *MockStore) ReadBuildStats(ctx context.Context, projectID string, buildOrder int) (BuildStats, error) {
+func (m *MockStore) ReadBuildStats(ctx context.Context, projectID string, buildNumber int) (BuildStats, error) {
 	if m.ReadBuildStatsFn != nil {
-		return m.ReadBuildStatsFn(ctx, projectID, buildOrder)
+		return m.ReadBuildStatsFn(ctx, projectID, buildNumber)
 	}
 	return BuildStats{}, nil
 }
@@ -226,17 +226,17 @@ func (m *MockStore) WritePlaywrightFile(ctx context.Context, projectID, subPath 
 }
 
 // PlaywrightReportExists implements Store.
-func (m *MockStore) PlaywrightReportExists(ctx context.Context, projectID string, buildOrder int) (bool, error) {
+func (m *MockStore) PlaywrightReportExists(ctx context.Context, projectID string, buildNumber int) (bool, error) {
 	if m.PlaywrightReportExistsFn != nil {
-		return m.PlaywrightReportExistsFn(ctx, projectID, buildOrder)
+		return m.PlaywrightReportExistsFn(ctx, projectID, buildNumber)
 	}
 	return false, nil
 }
 
 // CopyPlaywrightLatestToBuild implements Store.
-func (m *MockStore) CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildOrder int) error {
+func (m *MockStore) CopyPlaywrightLatestToBuild(ctx context.Context, projectID string, buildNumber int) error {
 	if m.CopyPlaywrightLatestToBuildFn != nil {
-		return m.CopyPlaywrightLatestToBuildFn(ctx, projectID, buildOrder)
+		return m.CopyPlaywrightLatestToBuildFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
@@ -250,9 +250,9 @@ func (m *MockStore) CleanPlaywrightLatest(ctx context.Context, projectID string)
 }
 
 // ListPlaywrightDataFiles implements Store.
-func (m *MockStore) ListPlaywrightDataFiles(ctx context.Context, projectID string, buildOrder int) ([]string, error) {
+func (m *MockStore) ListPlaywrightDataFiles(ctx context.Context, projectID string, buildNumber int) ([]string, error) {
 	if m.ListPlaywrightDataFilesFn != nil {
-		return m.ListPlaywrightDataFilesFn(ctx, projectID, buildOrder)
+		return m.ListPlaywrightDataFilesFn(ctx, projectID, buildNumber)
 	}
 	return nil, nil
 }

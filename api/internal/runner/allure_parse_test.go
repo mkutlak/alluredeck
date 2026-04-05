@@ -20,7 +20,7 @@ import (
 // spyBuildStore implements store.BuildStorer with no-op responses.
 type spyBuildStore struct{}
 
-func (s *spyBuildStore) NextBuildOrder(_ context.Context, _ string) (int, error) {
+func (s *spyBuildStore) NextBuildNumber(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
 func (s *spyBuildStore) InsertBuild(_ context.Context, _ string, _ int) error { return nil }
@@ -30,7 +30,7 @@ func (s *spyBuildStore) UpdateBuildStats(_ context.Context, _ string, _ int, _ s
 func (s *spyBuildStore) UpdateBuildCIMetadata(_ context.Context, _ string, _ int, _ store.CIMetadata) error {
 	return nil
 }
-func (s *spyBuildStore) GetBuildByOrder(_ context.Context, _ string, _ int) (store.Build, error) {
+func (s *spyBuildStore) GetBuildByNumber(_ context.Context, _ string, _ int) (store.Build, error) {
 	return store.Build{}, nil
 }
 func (s *spyBuildStore) GetPreviousBuild(_ context.Context, _ string, _ int) (store.Build, error) {
@@ -160,7 +160,7 @@ func mustWriteResultFile(t *testing.T, dir, filename string) {
 func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectID := "test-project"
-	buildOrder := 1
+	buildNumber := 1
 
 	resultsDir := filepath.Join(tmpDir, "results")
 	mustWriteResultFile(t, resultsDir, "abc-result.json")
@@ -174,7 +174,7 @@ func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	if err := a.storeAndPruneBuild(context.Background(), projectID, tmpDir, buildOrder, store.CIMetadata{}, nil); err != nil {
+	if err := a.storeAndPruneBuild(context.Background(), projectID, tmpDir, buildNumber, store.CIMetadata{}, nil); err != nil {
 		t.Fatalf("storeAndPruneBuild: %v", err)
 	}
 

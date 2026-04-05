@@ -232,7 +232,7 @@ func TestAnalyticsHandler_GetTopErrors_UnknownBranch(t *testing.T) {
 func TestAnalyticsHandler_GetTrends_NoBranch(t *testing.T) {
 	mock := &mockAnalyticsStore{
 		trendPoints: []store.TrendPoint{
-			{BuildOrder: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
+			{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
@@ -264,7 +264,7 @@ func TestAnalyticsHandler_GetTrends_WithBranch(t *testing.T) {
 			capturedBranchID = branchID
 		},
 		trendPoints: []store.TrendPoint{
-			{BuildOrder: 1, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
+			{BuildNumber: 1, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
 		},
 	}
 	branches := newBranchStoreForAnalytics()

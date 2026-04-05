@@ -52,7 +52,7 @@ type mockAttachmentBuildStore struct {
 	errToReturn error
 }
 
-func (m *mockAttachmentBuildStore) NextBuildOrder(_ context.Context, _ string) (int, error) {
+func (m *mockAttachmentBuildStore) NextBuildNumber(_ context.Context, _ string) (int, error) {
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) InsertBuild(_ context.Context, _ string, _ int) error {
@@ -64,7 +64,7 @@ func (m *mockAttachmentBuildStore) UpdateBuildStats(_ context.Context, _ string,
 func (m *mockAttachmentBuildStore) UpdateBuildCIMetadata(_ context.Context, _ string, _ int, _ store.CIMetadata) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) GetBuildByOrder(_ context.Context, _ string, _ int) (store.Build, error) {
+func (m *mockAttachmentBuildStore) GetBuildByNumber(_ context.Context, _ string, _ int) (store.Build, error) {
 	return m.build, m.errToReturn
 }
 func (m *mockAttachmentBuildStore) GetPreviousBuild(_ context.Context, _ string, _ int) (store.Build, error) {
@@ -243,7 +243,7 @@ func TestListAttachments_BuildNotFound(t *testing.T) {
 }
 
 func TestListAttachments_Empty(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 5, ProjectID: "myproj"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 5, ProjectID: "myproj"}}
 	as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
 	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -278,7 +278,7 @@ func TestListAttachments_Empty(t *testing.T) {
 }
 
 func TestListAttachments_WithResults(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 10, BuildOrder: 3, ProjectID: "proj1"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 10, BuildNumber: 3, ProjectID: "proj1"}}
 	as := &mockAttachmentStore{
 		attachments: []store.TestAttachment{
 			{ID: 1, TestResultID: 100, Name: "screenshot.png", Source: "abc123-result.png", MimeType: "image/png", SizeBytes: 1024, TestName: "shouldRegister", TestStatus: "failed"},
@@ -341,7 +341,7 @@ func TestListAttachments_WithResults(t *testing.T) {
 
 func TestListAttachments_MimeFilter(t *testing.T) {
 	var capturedMime string
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
 	as := &mockAttachmentStore{}
 	as.attachments = []store.TestAttachment{}
 	// Override ListByBuild to capture the mimeFilter arg.
@@ -392,7 +392,7 @@ func TestServeAttachment_PathTraversal(t *testing.T) {
 	cases := []string{"dotdot-secret", "a-dotdot-b", "a-slash-b", "a-backslash-b", "a-null-b"}
 	rawSources := []string{"../secret", "a/../b", "a/b", "a\\b", "a\x00b"}
 
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
 
 	for i, src := range rawSources {
@@ -411,7 +411,7 @@ func TestServeAttachment_PathTraversal(t *testing.T) {
 }
 
 func TestServeAttachment_FileNotFound(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
 	ds := &mockDataStore{errToReturn: errors.New("not found")}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -428,7 +428,7 @@ func TestServeAttachment_FileNotFound(t *testing.T) {
 }
 
 func TestServeAttachment_Success(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 2, ProjectID: "proj"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 2, ProjectID: "proj"}}
 	ds := &mockDataStore{content: "PNG_DATA", mimeType: "image/png"}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -451,7 +451,7 @@ func TestServeAttachment_Success(t *testing.T) {
 }
 
 func TestServeAttachment_InlineDisposition(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
 	ds := &mockDataStore{content: "data", mimeType: "image/png"}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -472,7 +472,7 @@ func TestServeAttachment_InlineDisposition(t *testing.T) {
 }
 
 func TestServeAttachment_DownloadDisposition(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildOrder: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
 	ds := &mockDataStore{content: "data", mimeType: "image/png"}
 	as := &mockAttachmentStore{source: &store.TestAttachment{Name: "my-screenshot.png", Source: "abc123hash.png"}}
 	h := newAttachmentHandler(t, as, bs, ds)

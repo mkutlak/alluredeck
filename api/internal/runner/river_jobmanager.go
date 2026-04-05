@@ -154,15 +154,15 @@ func enqueueWebhooksForProject(ctx context.Context, projectID string, buildStore
 
 	// Construct payload
 	payload := WebhookPayload{
-		Event:      "report_completed",
-		ProjectID:  projectID,
-		BuildOrder: build.BuildOrder,
-		Timestamp:  time.Now(),
+		Event:       "report_completed",
+		ProjectID:   projectID,
+		BuildNumber: build.BuildNumber,
+		Timestamp:   time.Now(),
 	}
 
 	// Dashboard URL — link directly to the report, not just the project.
 	if externalURL != "" {
-		payload.DashboardURL = externalURL + "/projects/" + projectID + "/reports/" + strconv.Itoa(build.BuildOrder)
+		payload.DashboardURL = externalURL + "/projects/" + projectID + "/reports/" + strconv.Itoa(build.BuildNumber)
 	}
 
 	// Stats
@@ -178,7 +178,7 @@ func enqueueWebhooksForProject(ctx context.Context, projectID string, buildStore
 	}
 
 	// Delta vs previous build
-	prev, err := buildStore.GetPreviousBuild(ctx, projectID, build.BuildOrder)
+	prev, err := buildStore.GetPreviousBuild(ctx, projectID, build.BuildNumber)
 	if err == nil && prev.StatTotal != nil && *prev.StatTotal > 0 {
 		prevPassRate := float64(derefInt(prev.StatPassed)) / float64(derefInt(prev.StatTotal)) * 100
 		payload.Delta = &WebhookDelta{

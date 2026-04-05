@@ -84,9 +84,9 @@ func TestTestHistoryHandler_WithResults(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
 		return []store.TestHistoryEntry{
-			{BuildOrder: 1, BuildID: 101, Status: "passed", DurationMs: 400, CreatedAt: now},
-			{BuildOrder: 2, BuildID: 102, Status: "passed", DurationMs: 800, CreatedAt: now},
-			{BuildOrder: 3, BuildID: 103, Status: "failed", DurationMs: 1200, CreatedAt: now},
+			{BuildNumber: 1, BuildID: 101, Status: "passed", DurationMs: 400, CreatedAt: now},
+			{BuildNumber: 2, BuildID: 102, Status: "passed", DurationMs: 800, CreatedAt: now},
+			{BuildNumber: 3, BuildID: 103, Status: "failed", DurationMs: 1200, CreatedAt: now},
 		}, nil
 	}
 
@@ -125,7 +125,7 @@ func TestTestHistoryHandler_WithResults(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected entry object, got %T", history[0])
 	}
-	for _, field := range []string{"build_order", "build_id", "status", "duration_ms", "created_at"} {
+	for _, field := range []string{"build_number", "build_id", "status", "duration_ms", "created_at"} {
 		if _, exists := entry[field]; !exists {
 			t.Errorf("missing field %q in history entry", field)
 		}

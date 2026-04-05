@@ -68,7 +68,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	defer unlock()
 
 	// 2. Get next build order atomically from the database.
-	buildOrder, err := pr.buildStore.NextBuildOrder(ctx, projectID)
+	buildNumber, err := pr.buildStore.NextBuildNumber(ctx, projectID)
 	if err != nil {
 		return "", fmt.Errorf("next build order: %w", err)
 	}
@@ -100,8 +100,8 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		return "", fmt.Errorf("parse playwright report: %w", err)
 	}
 
-	// 6. Copy all files from results/ to reports/{buildOrder}/.
-	reportDir := filepath.Join(localProjectDir, "reports", fmt.Sprintf("%d", buildOrder))
+	// 6. Copy all files from results/ to reports/{buildNumber}/.
+	reportDir := filepath.Join(localProjectDir, "reports", fmt.Sprintf("%d", buildNumber))
 	if err := copyDir(resultsDir, reportDir); err != nil {
 		return "", fmt.Errorf("copy report files: %w", err)
 	}
@@ -115,12 +115,12 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	}
 
 	// 8. Publish report to storage (local/S3).
-	if err := pr.store.PublishReport(ctx, projectID, buildOrder, localProjectDir); err != nil {
+	if err := pr.store.PublishReport(ctx, projectID, buildNumber, localProjectDir); err != nil {
 		return "", fmt.Errorf("publish report: %w", err)
 	}
 
 	// 9. Insert build record.
-	if err := pr.buildStore.InsertBuild(ctx, projectID, buildOrder); err != nil {
+	if err := pr.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
 		return "", fmt.Errorf("insert build: %w", err)
 	}
 
@@ -133,9 +133,9 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		DurationMs: meta.Duration,
 		FlakyCount: meta.Stats.Flaky,
 	}
-	if err := pr.buildStore.UpdateBuildStats(ctx, projectID, buildOrder, stats); err != nil {
+	if err := pr.buildStore.UpdateBuildStats(ctx, projectID, buildNumber, stats); err != nil {
 		pr.logger.Error("failed to update build stats",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
 	// 11. Store CI metadata — fall back to report metadata if CI params not provided.
@@ -155,9 +155,9 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		ciMeta.BuildURL = meta.BuildURL
 	}
 	if ciMeta.Provider != "" || ciMeta.BuildURL != "" || ciMeta.Branch != "" || ciMeta.CommitSHA != "" {
-		if err := pr.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildOrder, ciMeta); err != nil {
+		if err := pr.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildNumber, ciMeta); err != nil {
 			pr.logger.Warn("failed to store CI metadata",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 	}
 
@@ -179,17 +179,17 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		}
 	}
 	if resolvedBranchID != nil {
-		if err := pr.buildStore.UpdateBuildBranchID(ctx, projectID, buildOrder, *resolvedBranchID); err != nil {
+		if err := pr.buildStore.UpdateBuildBranchID(ctx, projectID, buildNumber, *resolvedBranchID); err != nil {
 			pr.logger.Warn("failed to set build branch_id",
 				zap.String("project_id", projectID),
-				zap.Int("build_order", buildOrder),
+				zap.Int("build_number", buildNumber),
 				zap.Error(err))
 		}
 	}
 
 	// 13. Insert per-test results.
 	if pr.testResultStore != nil {
-		buildID, err := pr.testResultStore.GetBuildID(ctx, projectID, buildOrder)
+		buildID, err := pr.testResultStore.GetBuildID(ctx, projectID, buildNumber)
 		if err == nil {
 			testResults := make([]store.TestResult, 0, len(results))
 			for _, r := range results {
@@ -227,7 +227,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 			}
 			if err := pr.testResultStore.InsertBatch(ctx, testResults); err != nil {
 				pr.logger.Warn("failed to insert test results",
-					zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+					zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 			}
 
 			// Enrich with full parsed data (labels, parameters, steps, attachments).
@@ -247,14 +247,14 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 			}
 		} else {
 			pr.logger.Warn("failed to get build id",
-				zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 	}
 
 	// 14. Set latest and prune.
-	if err := pr.buildStore.SetLatestBranch(ctx, projectID, buildOrder, resolvedBranchID); err != nil {
+	if err := pr.buildStore.SetLatestBranch(ctx, projectID, buildNumber, resolvedBranchID); err != nil {
 		pr.logger.Error("failed to set latest build",
-			zap.String("project_id", projectID), zap.Int("build_order", buildOrder), zap.Error(err))
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
 	if pr.cfg.KeepHistory {
@@ -277,7 +277,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	}
 
 	// 15. Return success.
-	return strconv.Itoa(buildOrder), nil
+	return strconv.Itoa(buildNumber), nil
 }
 
 // computeDefectFingerprints queries failed test results, groups them by
