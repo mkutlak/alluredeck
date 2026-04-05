@@ -1,3 +1,9 @@
+## [0.19.0](https://github.com/mkutlak/alluredeck/compare/v0.18.1...v0.19.0) (2026-04-05)
+
+### Features
+
+* add Playwright CI metadata support, E2E test suite, and rename BuildOrder to BuildNumber ([8d3bb7c](https://github.com/mkutlak/alluredeck/commit/8d3bb7ca95fc863fcbe2107c471e66b1e761bc4f))
+
 ## [0.18.1](https://github.com/mkutlak/alluredeck/compare/v0.18.0...v0.18.1) (2026-04-04)
 
 ### Bug Fixes
