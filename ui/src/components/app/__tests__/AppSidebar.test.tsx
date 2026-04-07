@@ -173,10 +173,12 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('link', { name: /system monitor/i })).toBeInTheDocument()
   })
 
-  it('hides "Administration" section for non-admin users', () => {
+  it('hides "System Monitor" link for non-admin users', () => {
     renderSidebar('/', false)
-    expect(screen.queryByText('Administration')).not.toBeInTheDocument()
+    expect(screen.getByText('Administration')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /system monitor/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /api keys/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /webhooks/i })).toBeInTheDocument()
   })
 
   it('displays version in footer', () => {
