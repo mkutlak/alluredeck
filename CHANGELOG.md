@@ -1,3 +1,13 @@
+## [0.20.0](https://github.com/mkutlak/alluredeck/compare/v0.19.0...v0.20.0) (2026-04-07)
+
+### Features
+
+* add user preferences API, dashboard redesign, and Playwright report improvements ([e2944d4](https://github.com/mkutlak/alluredeck/commit/e2944d4d004fc38a50f6c40da0bbfd23fd843b06))
+
+### Bug Fixes
+
+* update AppSidebar test to reflect Administration section visible to all users ([fdfafeb](https://github.com/mkutlak/alluredeck/commit/fdfafeb4942524d143de9fd60f1461f2cc62fc5e))
+
 ## [0.19.0](https://github.com/mkutlak/alluredeck/compare/v0.18.1...v0.19.0) (2026-04-05)
 
 ### Features
