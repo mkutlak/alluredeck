@@ -3,10 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -57,8 +53,8 @@ func NewPlaywrightRunner(deps PlaywrightRunnerDeps) *PlaywrightRunner {
 }
 
 // IngestReport processes an already-uploaded Playwright HTML report for a project.
-// It parses the report, copies files to the numbered report directory, and stores
-// test results and stats in the database.
+// It reads the report from playwright-reports/latest/, parses it, copies files to
+// the numbered build directory, and stores test results and stats in the database.
 func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execName, execFrom, ciBranch, ciCommitSHA string) (string, error) {
 	// 1. Acquire per-project lock to serialize concurrent report ingestion.
 	unlock, err := pr.lockManager.AcquireLock(ctx, projectID)
@@ -73,24 +69,15 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		return "", fmt.Errorf("next build order: %w", err)
 	}
 
-	// 3. PrepareLocal returns the project dir (local) or a temp dir (S3).
-	localProjectDir, err := pr.store.PrepareLocal(ctx, projectID)
+	// 3. Read index.html from playwright-reports/latest/ in storage.
+	indexReader, _, err := pr.store.ReadPlaywrightFile(ctx, projectID, "latest/index.html")
 	if err != nil {
-		return "", fmt.Errorf("prepare local: %w", err)
+		return "", fmt.Errorf("read playwright index.html: %w", err)
 	}
-	defer func() { _ = pr.store.CleanupLocal(localProjectDir) }()
+	defer func() { _ = indexReader.Close() }()
 
-	// 4. Find and read index.html from the results directory.
-	resultsDir := filepath.Join(localProjectDir, "results")
-	indexPath := filepath.Join(resultsDir, "index.html")
-	indexFile, err := os.Open(indexPath)
-	if err != nil {
-		return "", fmt.Errorf("open index.html: %w", err)
-	}
-	defer func() { _ = indexFile.Close() }()
-
-	// 5. Extract and parse the Playwright report.
-	reportJSON, fileJSONs, err := parser.ExtractPlaywrightData(indexFile)
+	// 4. Extract and parse the Playwright report.
+	reportJSON, fileJSONs, err := parser.ExtractPlaywrightData(indexReader)
 	if err != nil {
 		return "", fmt.Errorf("extract playwright data: %w", err)
 	}
@@ -100,31 +87,23 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		return "", fmt.Errorf("parse playwright report: %w", err)
 	}
 
-	// 6. Copy all files from results/ to reports/{buildNumber}/.
-	reportDir := filepath.Join(localProjectDir, "reports", fmt.Sprintf("%d", buildNumber))
-	if err := copyDir(resultsDir, reportDir); err != nil {
-		return "", fmt.Errorf("copy report files: %w", err)
+	// 5. Copy playwright-reports/latest/ to playwright-reports/{buildNumber}/.
+	if err := pr.store.CopyPlaywrightLatestToBuild(ctx, projectID, buildNumber); err != nil {
+		return "", fmt.Errorf("copy playwright report to build: %w", err)
 	}
 
-	// 7. Also copy to reports/latest/ for the overlay handler.
-	latestDir := filepath.Join(localProjectDir, "reports", "latest")
-	_ = os.RemoveAll(latestDir)
-	if err := copyDir(resultsDir, latestDir); err != nil {
-		pr.logger.Warn("failed to copy to latest",
-			zap.String("project_id", projectID), zap.Error(err))
-	}
-
-	// 8. Publish report to storage (local/S3).
-	if err := pr.store.PublishReport(ctx, projectID, buildNumber, localProjectDir); err != nil {
-		return "", fmt.Errorf("publish report: %w", err)
-	}
-
-	// 9. Insert build record.
+	// 6. Insert build record.
 	if err := pr.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
 		return "", fmt.Errorf("insert build: %w", err)
 	}
 
-	// 10. Compute and store BuildStats from PlaywrightMeta.
+	// 7. Mark this build as having a Playwright report.
+	if err := pr.buildStore.SetHasPlaywrightReport(ctx, projectID, buildNumber, true); err != nil {
+		pr.logger.Error("failed to set has_playwright_report",
+			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+	}
+
+	// 8. Compute and store BuildStats from PlaywrightMeta.
 	stats := store.BuildStats{
 		Passed:     meta.Stats.Expected,
 		Failed:     meta.Stats.Unexpected,
@@ -138,7 +117,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
-	// 11. Store CI metadata — fall back to report metadata if CI params not provided.
+	// 9. Store CI metadata — fall back to report metadata if CI params not provided.
 	ciMeta := store.CIMetadata{
 		Provider:  execName,
 		BuildURL:  execFrom,
@@ -161,7 +140,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		}
 	}
 
-	// 12. Resolve branch — auto-create if branch is available.
+	// 10. Resolve branch — auto-create if branch is available.
 	var resolvedBranchID *int64
 	branch := ciBranch
 	if branch == "" {
@@ -187,7 +166,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		}
 	}
 
-	// 13. Insert per-test results.
+	// 11. Insert per-test results.
 	if pr.testResultStore != nil {
 		buildID, err := pr.testResultStore.GetBuildID(ctx, projectID, buildNumber)
 		if err == nil {
@@ -251,7 +230,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		}
 	}
 
-	// 14. Set latest and prune.
+	// 12. Set latest and prune.
 	if err := pr.buildStore.SetLatestBranch(ctx, projectID, buildNumber, resolvedBranchID); err != nil {
 		pr.logger.Error("failed to set latest build",
 			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
@@ -276,7 +255,13 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		}
 	}
 
-	// 15. Return success.
+	// 13. Clean up the staging directory now that files have been copied to the build.
+	if err := pr.store.CleanPlaywrightLatest(ctx, projectID); err != nil {
+		pr.logger.Warn("failed to clean playwright latest",
+			zap.String("project_id", projectID), zap.Error(err))
+	}
+
+	// 14. Return success.
 	return strconv.Itoa(buildNumber), nil
 }
 
@@ -357,50 +342,3 @@ func (pr *PlaywrightRunner) computeDefectFingerprints(ctx context.Context, proje
 	return nil
 }
 
-// copyDir recursively copies all files from src to dst, creating subdirectories as needed.
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-
-		target := filepath.Join(dst, rel)
-
-		if d.IsDir() {
-			//nolint:gosec // G301: 0o755 required for web server to read report dirs
-			return os.MkdirAll(target, 0o755)
-		}
-
-		// Copy file — open, copy, close explicitly (not defer) to avoid
-		// holding many FDs open during the walk.
-		//nolint:gosec // G122: path is validated via filepath.Rel from a trusted src root
-		srcFile, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-
-		//nolint:gosec // G301: 0o755 required for web server to read report dirs
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			_ = srcFile.Close()
-			return err
-		}
-
-		dstFile, err := os.Create(target)
-		if err != nil {
-			_ = srcFile.Close()
-			return err
-		}
-
-		_, copyErr := io.Copy(dstFile, srcFile)
-		_ = srcFile.Close()
-		if closeErr := dstFile.Close(); closeErr != nil && copyErr == nil {
-			copyErr = closeErr
-		}
-		return copyErr
-	})
-}

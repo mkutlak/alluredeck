@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -23,6 +24,7 @@ var (
 	ErrAttachmentNotFound        = errors.New("attachment not found")
 	ErrDefectNotFound            = errors.New("defect fingerprint not found")
 	ErrWebhookNotFound           = errors.New("webhook not found")
+	ErrPreferencesNotFound       = errors.New("preferences not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -337,4 +339,17 @@ type WebhookStorer interface {
 	InsertDelivery(ctx context.Context, d *WebhookDelivery) error
 	ListDeliveries(ctx context.Context, webhookID string, page, perPage int) ([]WebhookDelivery, int, error)
 	PruneDeliveries(ctx context.Context, olderThan time.Time) (int64, error)
+}
+
+// UserPreferences holds persisted UI preferences for a user.
+type UserPreferences struct {
+	Username    string          `json:"username"`
+	Preferences json.RawMessage `json:"preferences"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// PreferenceStorer manages user UI preferences.
+type PreferenceStorer interface {
+	GetPreferences(ctx context.Context, username string) (*UserPreferences, error)
+	UpsertPreferences(ctx context.Context, username string, preferences json.RawMessage) (*UserPreferences, error)
 }

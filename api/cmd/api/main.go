@@ -43,6 +43,7 @@ type stores struct {
 	defect     store.DefectStorer
 	webhook    store.WebhookStorer
 	pipeline   store.PipelineStorer
+	preference store.PreferenceStorer
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -69,6 +70,7 @@ type handlerSet struct {
 	defect          *handlers.DefectHandler
 	webhook         *handlers.WebhookHandler
 	pipeline        *handlers.PipelineHandler
+	preferences     *handlers.PreferenceHandler
 	oidc            *handlers.OIDCHandler // may be nil
 }
 
@@ -154,9 +156,6 @@ func main() {
 		))
 	}
 
-	// Playwright trace viewer — serves embedded static files; no auth required.
-	mux.Handle("/trace/", traceViewerHandler)
-
 	// Overlay file server — serves generated Allure HTML reports.
 	// Numbered build dirs contain only variable content (data/, widgets/, history/).
 	// Static assets (index.html, JS, CSS, plugins/) are served from reports/latest/
@@ -176,6 +175,10 @@ func main() {
 	if frameAncestors == "" {
 		frameAncestors = "*"
 	}
+	// Playwright trace viewer — serves embedded static files; no auth required.
+	// Uses the same dynamic frame-ancestors so the UI can embed the viewer.
+	mux.Handle("/trace/", newTraceViewerHandler(frameAncestors))
+
 	reportCSP := "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; frame-ancestors " + frameAncestors
 	reportHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", reportCSP)
@@ -321,6 +324,7 @@ func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, 
 		defect:     pg.NewDefectStore(pgDB),
 		webhook:    pg.NewWebhookStore(pgDB, encKey, logger),
 		pipeline:   pg.NewPipelineStore(pgDB),
+		preference: pg.NewPreferenceStore(pgDB),
 	}
 
 	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
@@ -389,6 +393,7 @@ func wireHandlers(
 		defect:          handlers.NewDefectHandler(s.defect, cfg.ProjectsPath, logger),
 		webhook:         handlers.NewWebhookHandler(s.webhook, cfg.ProjectsPath, logger),
 		pipeline:        handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
+		preferences:     handlers.NewPreferenceHandler(s.preference),
 		oidc:            oidcHandler,
 	}
 }
@@ -532,6 +537,10 @@ func registerRoutes(d routeDeps) {
 
 	// Auth only (no specific role required)
 	mux.HandleFunc("DELETE "+prefix+"/logout", noStore(auth(d.h.auth.Logout)))
+
+	// User preferences (any authenticated user)
+	mux.HandleFunc("GET "+prefix+"/preferences", auth(noStore(d.h.preferences.GetPreferences)))
+	mux.HandleFunc("PUT "+prefix+"/preferences", auth(noStore(d.h.preferences.UpsertPreferences)))
 
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(d.h.search.Search)))

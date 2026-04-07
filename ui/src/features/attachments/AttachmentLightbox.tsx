@@ -61,14 +61,14 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
               src={attachment.url}
               alt={attachment.name}
               crossOrigin="use-credentials"
-              className="max-h-[80vh] w-full object-contain"
+              className="min-h-0 w-full flex-1 object-contain"
             />
           ) : isVideo ? (
             <video
               src={attachment.url}
               controls
               crossOrigin="use-credentials"
-              className="max-h-[80vh] w-full"
+              className="min-h-0 w-full flex-1 object-contain"
             >
               <track kind="captions" />
             </video>

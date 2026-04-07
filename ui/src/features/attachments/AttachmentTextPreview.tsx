@@ -22,6 +22,12 @@ function getHighlighter(): Promise<Highlighter> {
   return highlighterPromise
 }
 
+function isMarkdown(mimeType: string, fileName: string): boolean {
+  if (mimeType === 'text/markdown' || mimeType === 'text/x-markdown') return true
+  const lower = fileName.toLowerCase()
+  return lower.endsWith('.md') || lower.endsWith('.markdown')
+}
+
 function detectLanguage(mimeType: string, fileName: string): string {
   if (mimeType === 'application/json') return 'json'
   if (mimeType === 'application/xml' || mimeType === 'text/xml') return 'xml'
@@ -51,6 +57,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
   const [error, setError] = useState<string | null>(null)
   const [truncated, setTruncated] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isMarkdownContent, setIsMarkdownContent] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Reset state when the URL changes (React-recommended render-time pattern).
@@ -61,6 +68,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
     setHtml(null)
     setError(null)
     setTruncated(false)
+    setIsMarkdownContent(false)
   }
 
   // Fetch content.
@@ -90,6 +98,23 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
   useEffect(() => {
     if (rawText == null) return
     let cancelled = false
+
+    if (isMarkdown(mimeType, fileName)) {
+      import('marked')
+        .then(({ marked }) => marked(rawText))
+        .then((rawHtml) => {
+          if (cancelled) return
+          const sanitized = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } })
+          setHtml(sanitized)
+          setIsMarkdownContent(true)
+        })
+        .catch(() => {
+          if (!cancelled) setHtml(`<pre>${DOMPurify.sanitize(rawText)}</pre>`)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
 
     const lang = detectLanguage(mimeType, fileName)
     const theme = resolvedTheme === 'dark' ? 'github-dark' : 'github-light'
@@ -163,7 +188,11 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
       </Button>
 
       <div
-        className="[&_code_.line]:before:text-muted-foreground/50 [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line] max-h-[70vh] overflow-auto rounded-md text-sm [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:content-[counter(line)] [&_pre]:!overflow-x-auto [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre"
+        className={
+          isMarkdownContent
+            ? 'max-h-[70vh] overflow-auto rounded-md px-4 py-2 text-sm [&_h1]:mb-3 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:mb-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:italic [&_a]:text-primary [&_a]:underline'
+            : '[&_code_.line]:before:text-muted-foreground/50 [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line] max-h-[70vh] overflow-auto rounded-md text-sm [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:content-[counter(line)] [&_pre]:!overflow-x-auto [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre'
+        }
         data-testid="text-preview-content"
         dangerouslySetInnerHTML={{ __html: html }}
       />

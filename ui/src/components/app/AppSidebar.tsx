@@ -44,16 +44,17 @@ export function AppSidebar() {
   const allProjects = projectsResp?.data ?? []
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" className="h-full">
       <SidebarContent>
         {/* Home */}
         <SidebarGroup>
+          <SidebarGroupLabel>Home</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Projects Dashboard">
+              <SidebarMenuButton asChild tooltip="Projects">
                 <NavLink to="/" end>
                   <Gauge />
-                  <span>Projects Dashboard</span>
+                  <span>Projects</span>
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -63,6 +64,7 @@ export function AppSidebar() {
         {/* Project sub-nav (active project pages) */}
         {projectId && (
           <SidebarGroup>
+            <SidebarGroupLabel>Project</SidebarGroupLabel>
             <SidebarMenu>
               {(() => {
                 const currentProject = allProjects.find((p) => p.project_id === projectId)
@@ -87,11 +89,11 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
 
-        {/* Administration (admin only) */}
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Administration</SidebarGroupLabel>
-            <SidebarMenu>
+        {/* Administration — anchored to bottom */}
+        <SidebarGroup className="mt-auto">
+          <SidebarGroupLabel>Administration</SidebarGroupLabel>
+          <SidebarMenu>
+            {isAdmin && (
               <SidebarMenuItem>
                 <SidebarMenuButton asChild tooltip="System Monitor">
                   <NavLink to="/admin">
@@ -100,14 +102,7 @@ export function AppSidebar() {
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-
-        {/* Settings */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Settings</SidebarGroupLabel>
-          <SidebarMenu>
+            )}
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="API Keys">
                 <NavLink to="/settings/api-keys">

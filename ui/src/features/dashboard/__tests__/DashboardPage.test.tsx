@@ -3,7 +3,6 @@ import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/render'
 import * as dashboardApi from '@/api/dashboard'
 
-// Mock recharts to avoid SVG rendering issues in jsdom
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -58,8 +57,39 @@ const mockData: DashboardData = {
       latest_build: null,
       sparkline: [],
     },
+    {
+      project_id: 'group-one',
+      created_at: '2025-01-03T00:00:00Z',
+      latest_build: null,
+      sparkline: [],
+      is_group: true,
+      aggregate: { passed: 72, failed: 8, broken: 2, skipped: 0, total: 82, pass_rate: 87.8 },
+      children: [
+        {
+          project_id: 'child-a',
+          created_at: '2025-01-03T00:00:00Z',
+          latest_build: {
+            build_order: 1,
+            created_at: '2025-03-01T10:00:00Z',
+            statistics: { passed: 40, failed: 2, broken: 0, skipped: 0, unknown: 0, total: 42 },
+            pass_rate: 95.2,
+            duration_ms: 60000,
+            flaky_count: 0,
+            new_failed_count: 0,
+            new_passed_count: 0,
+          },
+          sparkline: [],
+        },
+        {
+          project_id: 'child-b',
+          created_at: '2025-01-03T00:00:00Z',
+          latest_build: null,
+          sparkline: [],
+        },
+      ],
+    },
   ],
-  summary: { total_projects: 2, healthy: 1, degraded: 0, failing: 1 },
+  summary: { total_projects: 4, healthy: 1, degraded: 1, failing: 2 },
 }
 
 import type { AuthState } from '@/store/auth'
@@ -69,7 +99,6 @@ type AuthSelector = (s: Partial<AuthState>) => unknown
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Default: non-admin user
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
       (selector as AuthSelector)({ roles: [] }),
     )
@@ -78,25 +107,37 @@ describe('DashboardPage', () => {
   it('renders loading state initially', () => {
     vi.mocked(dashboardApi.fetchDashboard).mockReturnValue(new Promise(() => {}))
     renderPage()
-    // Should show skeletons or loading indicator
     const skeletons = document.querySelectorAll('[class*="animate-pulse"]')
     expect(skeletons.length).toBeGreaterThan(0)
   })
 
-  it('renders project cards after data loads', async () => {
+  it('renders table with column headers', async () => {
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Name')).toBeInTheDocument()
+      expect(screen.getByText('Type')).toBeInTheDocument()
+      expect(screen.getByText('Pass Rate')).toBeInTheDocument()
+    })
+  })
+
+  it('renders project names in table rows', async () => {
     vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()
     await waitFor(() => {
       expect(screen.getByText('proj-alpha')).toBeInTheDocument()
       expect(screen.getByText('proj-beta')).toBeInTheDocument()
+      expect(screen.getByText('group-one')).toBeInTheDocument()
     })
   })
 
-  it('renders summary stats', async () => {
+  it('shows group type and aggregate pass rate', async () => {
     vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument() // total_projects
+      expect(screen.getByText('group-one')).toBeInTheDocument()
+      expect(screen.getByText('88%')).toBeInTheDocument()
+      expect(screen.getByText('Group')).toBeInTheDocument()
     })
   })
 
@@ -111,11 +152,11 @@ describe('DashboardPage', () => {
     })
   })
 
-  it("shows 'Projects Dashboard' heading", async () => {
+  it("shows 'Projects' heading", async () => {
     vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /projects dashboard/i })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /projects/i })).toBeInTheDocument()
     })
   })
 
@@ -146,5 +187,22 @@ describe('DashboardPage', () => {
       expect(screen.getByText('proj-alpha')).toBeInTheDocument()
     })
     expect(vi.mocked(dashboardApi.fetchDashboard)).toHaveBeenCalledWith()
+  })
+
+  it('shows Grouped/All toggle', async () => {
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Grouped' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument()
+    })
+  })
+
+  it('shows search input', async () => {
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
+    })
   })
 })

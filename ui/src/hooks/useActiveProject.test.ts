@@ -29,8 +29,12 @@ vi.mock('@/store/ui', () => ({
       setProjectViewMode: vi.fn(),
       reportsPerPage: 20,
       reportsGroupBy: 'none' as const,
+      selectedBranch: undefined,
+      _syncedAt: null,
       setReportsPerPage: vi.fn(),
       setReportsGroupBy: vi.fn(),
+      setSelectedBranch: vi.fn(),
+      setSyncedAt: vi.fn(),
     }),
   ),
 }))
@@ -112,8 +116,12 @@ describe('useActiveProject', () => {
         setProjectViewMode: vi.fn(),
         reportsPerPage: 20,
         reportsGroupBy: 'none' as const,
+        selectedBranch: undefined,
+        _syncedAt: null,
         setReportsPerPage: vi.fn(),
         setReportsGroupBy: vi.fn(),
+        setSelectedBranch: vi.fn(),
+        setSyncedAt: vi.fn(),
       }),
     )
   })
@@ -144,8 +152,12 @@ describe('useActiveProject', () => {
         setProjectViewMode: vi.fn(),
         reportsPerPage: 20,
         reportsGroupBy: 'none' as const,
+        selectedBranch: undefined,
+        _syncedAt: null,
         setReportsPerPage: vi.fn(),
         setReportsGroupBy: vi.fn(),
+        setSelectedBranch: vi.fn(),
+        setSyncedAt: vi.fn(),
       }),
     )
 

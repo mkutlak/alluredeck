@@ -65,8 +65,12 @@ function renderSwitcher(path: string, lastProjectId: string | null = null) {
       setProjectViewMode: vi.fn(),
       reportsPerPage: 20,
       reportsGroupBy: 'none' as const,
+      selectedBranch: undefined,
+      _syncedAt: null,
       setReportsPerPage: vi.fn(),
       setReportsGroupBy: vi.fn(),
+      setSelectedBranch: vi.fn(),
+      setSyncedAt: vi.fn(),
     }),
   )
   return render(

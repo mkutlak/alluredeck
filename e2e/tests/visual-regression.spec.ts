@@ -16,9 +16,10 @@ test.describe('Visual Regression', () => {
   })
 
   test('dashboard page', async ({ authenticatedPage: page }) => {
-    await expect(page.getByRole('heading', { name: 'Projects Dashboard' })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
+    await page.getByRole('main').getByRole('button', { name: 'All' }).click()
     await expect(page.getByRole('main').getByRole('link', { name: 'e2e-demo' })).toBeVisible({
       timeout: 10_000,
     })

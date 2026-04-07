@@ -21,6 +21,17 @@ func buildPlaywrightHTML(encoded string) []byte {
 	return buf.Bytes()
 }
 
+// buildPlaywrightHTMLTemplate wraps a base64-encoded ZIP in minimal HTML that
+// matches the Playwright v1.59+ report format (template element).
+func buildPlaywrightHTMLTemplate(encoded string) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(`<html><head></head><body>`)
+	buf.WriteString(`<template id="playwrightReportBase64">data:application/zip;base64,`)
+	buf.WriteString(encoded)
+	buf.WriteString(`</template></body></html>`)
+	return buf.Bytes()
+}
+
 // buildZip creates an in-memory ZIP archive from a map of filename → content.
 func buildZip(files map[string][]byte) ([]byte, error) {
 	var buf bytes.Buffer
@@ -94,6 +105,34 @@ func TestExtractPlaywrightData_InvalidBase64(t *testing.T) {
 	_, _, err := parser.ExtractPlaywrightData(bytes.NewReader(html))
 	if err == nil {
 		t.Fatal("expected error for invalid base64, got nil")
+	}
+}
+
+func TestExtractPlaywrightData_TemplateFormat(t *testing.T) {
+	t.Parallel()
+
+	reportContent := []byte(`{"startTime":1700000000000,"duration":5000,"files":[],"stats":{"total":0}}`)
+
+	zipBytes, err := buildZip(map[string][]byte{
+		"report.json": reportContent,
+	})
+	if err != nil {
+		t.Fatalf("buildZip: %v", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(zipBytes)
+	html := buildPlaywrightHTMLTemplate(encoded)
+
+	reportJSON, fileJSONs, err := parser.ExtractPlaywrightData(bytes.NewReader(html))
+	if err != nil {
+		t.Fatalf("ExtractPlaywrightData returned unexpected error: %v", err)
+	}
+
+	if !bytes.Equal(reportJSON, reportContent) {
+		t.Errorf("reportJSON mismatch: got %q, want %q", reportJSON, reportContent)
+	}
+	if len(fileJSONs) != 0 {
+		t.Errorf("fileJSONs: got %d entries, want 0", len(fileJSONs))
 	}
 }
 

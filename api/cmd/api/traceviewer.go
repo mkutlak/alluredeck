@@ -13,19 +13,16 @@ import (
 // No authentication is required — the viewer is a static web app. The trace zip
 // it loads comes from the authenticated attachments endpoint, so the data remains
 // protected.
-var traceViewerHandler http.Handler = newTraceViewerHandler()
-
-const traceViewerCSP = "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; frame-ancestors 'self'"
-
-func newTraceViewerHandler() http.Handler {
+func newTraceViewerHandler(frameAncestors string) http.Handler {
 	sub, err := static.TraceViewerFS()
 	if err != nil {
 		// trace/ is embedded at build time; failure here is a programming error.
 		panic("traceviewer: failed to sub embedded FS: " + err.Error())
 	}
+	csp := "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; frame-ancestors " + frameAncestors
 	fileServer := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", traceViewerCSP)
+		w.Header().Set("Content-Security-Policy", csp)
 		// Remove X-Frame-Options set by SecurityHeaders middleware; CSP frame-ancestors
 		// is the modern replacement and takes precedence in all current browsers.
 		w.Header().Del("X-Frame-Options")

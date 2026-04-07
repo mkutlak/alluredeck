@@ -359,7 +359,7 @@ func (jm *RiverJobManager) SubmitPlaywright(projectID string, execName, execFrom
 		CIBranch:    ciBranch,
 		CICommitSHA: ciCommitSHA,
 	}
-	res, err := jm.client.Insert(jm.ctx, args, nil)
+	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{MaxAttempts: 3})
 	if err != nil {
 		jm.logger.Error("river insert failed", zap.String("project_id", projectID), zap.Error(err))
 		return &Job{
@@ -494,8 +494,10 @@ func riverStateToJobStatus(state rivertype.JobState) JobStatus {
 	switch state {
 	case rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateScheduled:
 		return JobStatusPending
-	case rivertype.JobStateRunning, rivertype.JobStateRetryable:
+	case rivertype.JobStateRunning:
 		return JobStatusRunning
+	case rivertype.JobStateRetryable:
+		return JobStatusRetrying
 	case rivertype.JobStateCompleted:
 		return JobStatusCompleted
 	case rivertype.JobStateCancelled:

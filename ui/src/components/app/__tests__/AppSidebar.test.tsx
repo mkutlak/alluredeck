@@ -54,11 +54,15 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
     lastProjectId: null,
     reportsPerPage: 20,
     reportsGroupBy: 'none',
+    selectedBranch: undefined,
+    _syncedAt: null,
     setProjectViewMode: vi.fn(),
     setLastProjectId: vi.fn(),
     clearLastProjectId: vi.fn(),
     setReportsPerPage: vi.fn(),
     setReportsGroupBy: vi.fn(),
+    setSelectedBranch: vi.fn(),
+    setSyncedAt: vi.fn(),
     ...overrides,
   }
 }
@@ -98,7 +102,7 @@ function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<
 describe('AppSidebar', () => {
   it('renders dashboard link with href "/"', () => {
     renderSidebar('/')
-    const link = screen.getByRole('link', { name: /projects dashboard/i })
+    const link = screen.getByRole('link', { name: /projects/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', '/')
   })
@@ -114,13 +118,14 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('my-project')).not.toBeInTheDocument()
   })
 
-  it('does NOT show "Projects" section header (project tree removed)', () => {
+  it('shows "Projects" nav link in sidebar', () => {
     renderSidebar('/')
-    expect(screen.queryByText('Projects')).not.toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
-  it('shows project sub-nav when project is in URL', () => {
+  it('shows project sub-nav with section label when project is in URL', () => {
     renderSidebar('/projects/my-project')
+    expect(screen.getByText('Project')).toBeInTheDocument()
     expect(screen.getByText('Overview')).toBeInTheDocument()
     expect(screen.getByText('Known Issues')).toBeInTheDocument()
     expect(screen.getByText('Timeline')).toBeInTheDocument()

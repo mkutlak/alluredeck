@@ -118,21 +118,6 @@ describe('OverviewTab - report history pagination', () => {
     })
   })
 
-  it('shows total count from pagination metadata in the stat card', async () => {
-    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
-      makePaginated([makeReport('latest', true), makeReport('20')], {
-        page: 1,
-        per_page: 20,
-        total: 50,
-        total_pages: 3,
-      }),
-    )
-    renderTab()
-    await waitFor(() => {
-      expect(screen.getByText(/50 reports total/i)).toBeInTheDocument()
-    })
-  })
-
   it('shows pagination controls (with nav disabled) when total_pages <= 1', async () => {
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated([makeReport('latest', true), makeReport('1')], {

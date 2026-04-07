@@ -47,6 +47,8 @@ function jobStatusVariant(
       return 'secondary'
     case 'failed':
       return 'destructive'
+    case 'retrying':
+      return 'outline'
     case 'cancelled':
       return 'outline'
     default:
@@ -200,6 +202,11 @@ function JobsCard() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={jobStatusVariant(job.status)}>{job.status}</Badge>
+                    {job.error && (job.status === 'retrying' || job.status === 'failed') && (
+                      <p className="text-destructive mt-1 max-w-xs truncate text-xs" title={job.error}>
+                        {job.error}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(job.created_at)}
@@ -208,7 +215,7 @@ function JobsCard() {
                     {job.started_at ? formatDate(job.started_at) : '—'}
                   </TableCell>
                   <TableCell className="text-right">
-                    {(job.status === 'pending' || job.status === 'running') && (
+                    {(job.status === 'pending' || job.status === 'running' || job.status === 'retrying') && (
                       <Button size="sm" variant="outline" onClick={() => doCancel(job.job_id)}>
                         Cancel
                       </Button>

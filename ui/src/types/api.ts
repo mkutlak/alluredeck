@@ -394,7 +394,7 @@ export interface CompareData {
 // ---------------------------------------------------------------------------
 // Admin System Monitor
 // ---------------------------------------------------------------------------
-export type AdminJobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type AdminJobStatus = 'pending' | 'running' | 'retrying' | 'completed' | 'failed' | 'cancelled'
 
 export interface AdminJobEntry {
   job_id: string

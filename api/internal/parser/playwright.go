@@ -116,7 +116,12 @@ type pwStatsJSON struct {
 	OK         bool `json:"ok"`
 }
 
-const pwBase64Marker = `window.playwrightReportBase64 = "data:application/zip;base64,`
+// Markers for locating the embedded base64 ZIP in Playwright HTML reports.
+// Older Playwright versions use a JS variable; v1.59+ uses a <template> element.
+const (
+	pwBase64Marker   = `window.playwrightReportBase64 = "data:application/zip;base64,`
+	pwTemplateMarker = `<template id="playwrightReportBase64">data:application/zip;base64,`
+)
 
 // ExtractPlaywrightData reads a Playwright HTML report from r, locates the
 // embedded base64-encoded ZIP, and returns the raw report.json bytes and a
@@ -131,21 +136,27 @@ func ExtractPlaywrightData(r io.Reader) (reportJSON []byte, fileJSONs map[string
 	var encoded string
 	for scanner.Scan() {
 		line := scanner.Text()
-		_, after, ok := strings.Cut(line, pwBase64Marker)
-		if !ok {
-			continue
+
+		// Try the old JS variable format: window.playwrightReportBase64 = "data:...";
+		if _, after, ok := strings.Cut(line, pwBase64Marker); ok {
+			if before, _, ok := strings.Cut(after, `";`); ok {
+				encoded = before
+			} else {
+				encoded = after
+			}
+			break
 		}
-		// Advance past the marker.
-		rest := after
-		// The base64 data ends at the closing `";`.
-		before, _, ok := strings.Cut(rest, `";`)
-		if !ok {
-			// Closing marker not found on same line — treat remainder as data.
-			encoded = rest
-		} else {
-			encoded = before
+
+		// Try the template element format (Playwright v1.59+):
+		// <template id="playwrightReportBase64">data:application/zip;base64,...</template>
+		if _, after, ok := strings.Cut(line, pwTemplateMarker); ok {
+			if before, _, ok := strings.Cut(after, `</template>`); ok {
+				encoded = before
+			} else {
+				encoded = after
+			}
+			break
 		}
-		break
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, nil, fmt.Errorf("scan playwright html: %w", err)

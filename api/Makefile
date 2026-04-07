@@ -12,6 +12,7 @@ BUILD_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ech
 BUILD_REF     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 GOLANGCI_LINT := $(shell which golangci-lint 2>/dev/null || echo "go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest")
+SWAG          := $(shell which swag 2>/dev/null || echo "go run github.com/swaggo/swag/cmd/swag@latest")
 
 .PHONY: help build run build-static test test-race test-cover \
         fmt lint vet tidy modernize check swagger clean
@@ -71,7 +72,7 @@ check: fmt vet lint test ## Quality gate (fmt + vet + lint + test)
 # ── Docs ────────────────────────────────────────────────────────
 
 swagger: ## Regenerate Swagger docs
-	swag init -g cmd/api/main.go -o internal/swagger --parseDependency
+	$(SWAG) init -g cmd/api/main.go -o internal/swagger --parseDependency
 
 # ── Clean ───────────────────────────────────────────────────────
 

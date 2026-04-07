@@ -161,10 +161,10 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-ingest-test"
 
-	// Set up project directory with a Playwright HTML report in results/
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	mustWriteFile(t, filepath.Join(resultsDir, "index.html"), string(buildTestPlaywrightHTML(t)))
-	mustWriteFile(t, filepath.Join(resultsDir, "data", "fail-screenshot.png"), "\x89PNG")
+	// Set up project directory with a Playwright HTML report in playwright-reports/latest/
+	pwLatestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	mustWriteFile(t, filepath.Join(pwLatestDir, "index.html"), string(buildTestPlaywrightHTML(t)))
+	mustWriteFile(t, filepath.Join(pwLatestDir, "data", "fail-screenshot.png"), "\x89PNG")
 
 	cfg := &config.Config{
 		ProjectsPath:          projectsDir,
@@ -309,106 +309,19 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 		t.Errorf("skipped test status: got %q, want %q", skipped.Status, "skipped")
 	}
 
-	// Verify report files were copied to reports/1/.
-	reportIndex := filepath.Join(projectsDir, projectID, "reports", "1", "index.html")
+	// Verify report files were copied to playwright-reports/1/.
+	reportIndex := filepath.Join(projectsDir, projectID, "playwright-reports", "1", "index.html")
 	if _, err := os.Stat(reportIndex); err != nil {
 		t.Errorf("report index.html not published: %v", err)
 	}
-	reportAttach := filepath.Join(projectsDir, projectID, "reports", "1", "data", "fail-screenshot.png")
+	reportAttach := filepath.Join(projectsDir, projectID, "playwright-reports", "1", "data", "fail-screenshot.png")
 	if _, err := os.Stat(reportAttach); err != nil {
 		t.Errorf("report attachment not published: %v", err)
 	}
-}
 
-// TestCopyDir verifies that copyDir recursively copies files preserving directory structure.
-func TestCopyDir(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	// Create source structure: index.html + data/img.png
-	mustWriteFile(t, filepath.Join(src, "index.html"), "<html>report</html>")
-	mustWriteFile(t, filepath.Join(src, "data", "img.png"), "\x89PNG")
-
-	if err := copyDir(src, dst); err != nil {
-		t.Fatalf("copyDir: %v", err)
-	}
-
-	// Verify all files exist with correct content.
-	cases := []struct {
-		path    string
-		content string
-	}{
-		{"index.html", "<html>report</html>"},
-		{filepath.Join("data", "img.png"), "\x89PNG"},
-	}
-	for _, tc := range cases {
-		got, err := os.ReadFile(filepath.Join(dst, tc.path))
-		if err != nil {
-			t.Errorf("missing file %s: %v", tc.path, err)
-			continue
-		}
-		if string(got) != tc.content {
-			t.Errorf("file %s: got %q, want %q", tc.path, got, tc.content)
-		}
-	}
-}
-
-// TestCopyDir_NestedDirs verifies that deeply nested subdirectories are preserved.
-func TestCopyDir_NestedDirs(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	mustWriteFile(t, filepath.Join(src, "a", "b", "c.txt"), "deep")
-
-	if err := copyDir(src, dst); err != nil {
-		t.Fatalf("copyDir: %v", err)
-	}
-
-	got, err := os.ReadFile(filepath.Join(dst, "a", "b", "c.txt"))
-	if err != nil {
-		t.Fatalf("missing nested file: %v", err)
-	}
-	if string(got) != "deep" {
-		t.Errorf("nested file content: got %q, want %q", got, "deep")
-	}
-}
-
-// TestCopyDir_EmptySrc verifies that copyDir on an empty source directory succeeds.
-func TestCopyDir_EmptySrc(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	if err := copyDir(src, dst); err != nil {
-		t.Fatalf("copyDir on empty src: %v", err)
-	}
-}
-
-// TestCopyDir_PreservesMultipleFiles verifies that multiple sibling files are all copied.
-func TestCopyDir_PreservesMultipleFiles(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	files := map[string]string{
-		"index.html":        "html content",
-		"data/results.json": `{"total":3}`,
-		"trace/trace.zip":   "zip content",
-	}
-	for path, content := range files {
-		mustWriteFile(t, filepath.Join(src, path), content)
-	}
-
-	if err := copyDir(src, dst); err != nil {
-		t.Fatalf("copyDir: %v", err)
-	}
-
-	for path, want := range files {
-		got, err := os.ReadFile(filepath.Join(dst, path))
-		if err != nil {
-			t.Errorf("missing file %s: %v", path, err)
-			continue
-		}
-		if string(got) != want {
-			t.Errorf("file %s: got %q, want %q", path, got, want)
-		}
+	// Verify playwright-reports/latest/ was cleaned up.
+	latestIndex := filepath.Join(projectsDir, projectID, "playwright-reports", "latest", "index.html")
+	if _, err := os.Stat(latestIndex); !os.IsNotExist(err) {
+		t.Error("expected playwright-reports/latest/ to be cleaned up")
 	}
 }

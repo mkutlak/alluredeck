@@ -2,13 +2,13 @@ import { useState, useMemo } from 'react'
 import { Link, NavLink, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { RefreshCw, Clock, GitCommitHorizontal, GitBranch } from 'lucide-react'
-import { fetchReportHistory, deleteReport, fetchReportKnownFailures } from '@/api/reports'
+import { fetchReportHistory, deleteReport } from '@/api/reports'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { projectListOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
-import { formatDuration, calcPassRate } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -28,7 +28,8 @@ import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
 import { BranchSelector } from '@/features/projects/BranchSelector'
 import { ActionBar } from '@/components/app/ActionBar'
 import { PipelineRunsTab } from '@/features/pipeline'
-import { ProjectStatCards } from './ProjectStatCards'
+import { Badge } from '@/components/ui/badge'
+import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
 
@@ -39,7 +40,8 @@ export function OverviewTab() {
   const queryClient = useQueryClient()
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
+  const selectedBranch = useUIStore((s) => s.selectedBranch)
+  const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
   const [selectedBuilds, setSelectedBuilds] = useState<Set<string>>(new Set())
   const reportsPerPage = useUIStore((s) => s.reportsPerPage)
   const setReportsPerPage = useUIStore((s) => s.setReportsPerPage)
@@ -80,13 +82,6 @@ export function OverviewTab() {
     placeholderData: keepPreviousData,
   })
 
-  const { data: knownFailuresData } = useQuery({
-    queryKey: queryKeys.reportKnownFailures(projectId ?? ''),
-    queryFn: () => fetchReportKnownFailures(projectId ?? ''),
-    enabled: !!projectId,
-    staleTime: 30_000,
-  })
-
   const deleteMutation = useMutation({
     mutationFn: (reportId: string) => deleteReport(projectId ?? '', reportId),
     onSuccess: (_, reportId) => {
@@ -107,16 +102,13 @@ export function OverviewTab() {
   // Memoize derived data. Safe to compute before the projectId guard because
   // historyData and knownFailuresData are undefined until queries are enabled.
   const reports = useMemo(() => historyData?.data.reports ?? [], [historyData])
-  const { latest, tableReports, passRate, knownCount, adjustedPassRate } = useMemo(() => {
+  const { latest, tableReports, passRate } = useMemo(() => {
     const latest = reports.find((r) => r.is_latest)
     const tableReports = reports.filter((r) => r.report_id !== 'latest')
     const stat = latest?.statistic
-    const passRate = stat ? calcPassRate(stat.passed, stat.total) : null
-    const knownCount = knownFailuresData?.known_failures?.length ?? 0
-    const adjustedPassRate =
-      stat && knownCount > 0 ? calcPassRate(stat.passed + knownCount, stat.total) : null
-    return { latest, tableReports, passRate, knownCount, adjustedPassRate }
-  }, [reports, knownFailuresData])
+    const passRate = stat && stat.total > 0 ? Math.round((stat.passed / stat.total) * 100) : null
+    return { latest, tableReports, passRate }
+  }, [reports])
 
   const pagination = historyData?.pagination
   const stat = latest?.statistic
@@ -149,11 +141,12 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
-      <ActionBar />
-
-      {/* Page title */}
+      {/* Page title + action buttons */}
       <div>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+          <ActionBar />
+        </div>
         {parentProject ? (
           <p className="text-muted-foreground flex items-center gap-1 text-sm">
             Part of:{' '}
@@ -167,18 +160,37 @@ export function OverviewTab() {
         ) : (
           <p className="text-muted-foreground text-sm">Overview</p>
         )}
+        {stat && passRate != null ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Badge
+              variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
+              className={getPassRateBadgeClass(passRate)}
+            >
+              Pass rate: {passRate.toFixed(0)}%
+            </Badge>
+            <Badge variant="outline">Tests: {stat.total}</Badge>
+            {stat.failed + stat.broken > 0 && (
+              <Badge variant="destructive">Failed: {stat.failed + stat.broken}</Badge>
+            )}
+            {latest?.duration_ms != null && (
+              <Badge variant="outline">Last duration: {formatDuration(latest.duration_ms)}</Badge>
+            )}
+            {latest?.generated_at && (
+              <Badge variant="outline">
+                Last run:{' '}
+                {new Date(latest.generated_at).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: '2-digit',
+                })}
+              </Badge>
+            )}
+          </div>
+        ) : !isLoading ? (
+          <div className="mt-2">
+            <Badge variant="secondary">No builds</Badge>
+          </div>
+        ) : null}
       </div>
-
-      {/* Stat cards */}
-      <ProjectStatCards
-        isLoading={isLoading}
-        stat={stat}
-        passRate={passRate}
-        adjustedPassRate={adjustedPassRate}
-        knownCount={knownCount}
-        latest={latest}
-        pagination={pagination}
-      />
 
       {/* Environment & Categories & Flaky Tests — G1/G2/A1 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 [&:empty]:hidden">
@@ -233,9 +245,10 @@ export function OverviewTab() {
       {/* Report history table */}
       {isLoading ? (
         <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
         </div>
       ) : tableReports.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">

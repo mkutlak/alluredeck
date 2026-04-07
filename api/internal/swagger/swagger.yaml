@@ -1035,19 +1035,23 @@ paths:
         in: query
         name: parent_id
         type: string
-      - description: Execution name
+      - description: Build number to pair Playwright report with (skips latest/ staging)
+        in: query
+        name: build_number
+        type: integer
+      - description: CI provider name (e.g. GitHub Actions)
         in: query
         name: execution_name
         type: string
-      - description: Execution from
+      - description: CI build URL
         in: query
         name: execution_from
         type: string
-      - description: CI branch name
+      - description: Git branch name
         in: query
         name: ci_branch
         type: string
-      - description: CI commit SHA
+      - description: Git commit SHA
         in: query
         name: ci_commit_sha
         type: string
@@ -1056,6 +1060,11 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "202":
+          description: Returned when standalone ingestion job is queued
           schema:
             additionalProperties: true
             type: object

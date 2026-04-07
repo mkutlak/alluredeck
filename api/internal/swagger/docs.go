@@ -1411,26 +1411,32 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "integer",
+                        "description": "Build number to pair Playwright report with (skips latest/ staging)",
+                        "name": "build_number",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
-                        "description": "Execution name",
+                        "description": "CI provider name (e.g. GitHub Actions)",
                         "name": "execution_name",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Execution from",
+                        "description": "CI build URL",
                         "name": "execution_from",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "CI branch name",
+                        "description": "Git branch name",
                         "name": "ci_branch",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "CI commit SHA",
+                        "description": "Git commit SHA",
                         "name": "ci_commit_sha",
                         "in": "query"
                     }
@@ -1438,6 +1444,13 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "202": {
+                        "description": "Returned when standalone ingestion job is queued",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
