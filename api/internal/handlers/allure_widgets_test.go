@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -14,8 +15,8 @@ import (
 
 func TestGetReportCategories_LatestReport(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "catproject"
-	widgetsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "widgets")
+	projectSlug := "catproject"
+	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
 	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -24,13 +25,19 @@ func TestGetReportCategories_LatestReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/catproject/reports/latest/categories", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/categories", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -54,18 +61,24 @@ func TestGetReportCategories_LatestReport(t *testing.T) {
 
 func TestGetReportCategories_MissingFile(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "nocat"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "nocat"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/nocat/reports/latest/categories", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/categories", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -106,8 +119,8 @@ func TestGetReportCategories_InvalidProjectID(t *testing.T) {
 
 func TestGetReportCategories_EmptyCategories(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "emptycat"
-	widgetsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "widgets")
+	projectSlug := "emptycat"
+	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
 	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +128,19 @@ func TestGetReportCategories_EmptyCategories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/emptycat/reports/latest/categories", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/categories", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -144,8 +163,8 @@ func TestGetReportCategories_EmptyCategories(t *testing.T) {
 
 func TestGetReportEnvironment_LatestReport(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "myproject"
-	widgetsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "widgets")
+	projectSlug := "myproject"
+	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
 	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -154,13 +173,19 @@ func TestGetReportEnvironment_LatestReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproject/reports/latest/environment", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/environment", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -185,8 +210,8 @@ func TestGetReportEnvironment_LatestReport(t *testing.T) {
 
 func TestGetReportEnvironment_SpecificBuild(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "proj"
-	widgetsDir := filepath.Join(projectsDir, projectID, "reports", "5", "widgets")
+	projectSlug := "proj"
+	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "5", "widgets")
 	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +220,19 @@ func TestGetReportEnvironment_SpecificBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj/reports/5/environment", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/5/environment", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "5")
 
 	rr := httptest.NewRecorder()
@@ -222,18 +253,24 @@ func TestGetReportEnvironment_SpecificBuild(t *testing.T) {
 
 func TestGetReportEnvironment_MissingFile(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "noreports"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "noreports"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/noreports/reports/latest/environment", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/environment", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -274,8 +311,8 @@ func TestGetReportEnvironment_InvalidProjectID(t *testing.T) {
 
 func TestGetReportEnvironment_EmptyJSON(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "empty"
-	widgetsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "widgets")
+	projectSlug := "empty"
+	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
 	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -283,13 +320,19 @@ func TestGetReportEnvironment_EmptyJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/empty/reports/latest/environment", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/environment", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()

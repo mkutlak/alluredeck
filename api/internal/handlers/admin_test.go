@@ -12,6 +12,8 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // newAdminTestJobManager creates a MemJobManager suitable for handler tests.
@@ -25,7 +27,7 @@ func newAdminTestJobManager(t *testing.T, gen runner.ReportGenerator, poolSize i
 
 func newTestAdminHandler(t *testing.T, jm runner.JobQueuer, ms *storage.MockStore) *AdminHandler {
 	t.Helper()
-	return NewAdminHandler(jm, ms, t.TempDir(), zap.NewNop())
+	return NewAdminHandler(jm, ms, zap.NewNop())
 }
 
 // blockingGen blocks until ch is closed (for keeping jobs in pending/running state).
@@ -37,7 +39,7 @@ func newBlockingGen() *blockingGen {
 	return &blockingGen{ch: make(chan struct{})}
 }
 
-func (g *blockingGen) GenerateReport(_ context.Context, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (g *blockingGen) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	<-g.ch
 	return "ok", nil
 }
@@ -51,7 +53,7 @@ func newContextGen() *contextGen {
 	return &contextGen{ch: make(chan struct{})}
 }
 
-func (g *contextGen) GenerateReport(ctx context.Context, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (g *contextGen) GenerateReport(ctx context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	select {
 	case <-g.ch:
 		return "ok", nil
@@ -98,8 +100,8 @@ func TestAdminListJobs_ReturnsJobs(t *testing.T) {
 	defer close(gen.ch)
 
 	jm := newAdminTestJobManager(t, gen, 4)
-	jm.Submit("proj-admin-1", runner.JobParams{})
-	jm.Submit("proj-admin-2", runner.JobParams{})
+	jm.Submit(1, "proj-admin-1", runner.JobParams{})
+	jm.Submit(2, "proj-admin-2", runner.JobParams{})
 
 	h := newTestAdminHandler(t, jm, &storage.MockStore{})
 
@@ -213,8 +215,8 @@ func TestAdminListPendingResults_ReturnsProjects(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected entry to be object")
 	}
-	if entry["project_id"] != "proj-with-results" {
-		t.Errorf("wrong project_id: %v", entry["project_id"])
+	if entry["slug"] != "proj-with-results" {
+		t.Errorf("wrong slug: %v", entry["slug"])
 	}
 	if entry["file_count"].(float64) != 2 {
 		t.Errorf("expected file_count=2, got %v", entry["file_count"])
@@ -249,7 +251,7 @@ func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
 	gen := newBlockingGen()
 
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit("proj-terminal", runner.JobParams{})
+	j := jm.Submit(1, "proj-terminal", runner.JobParams{})
 	close(gen.ch)
 
 	// Wait for completion.
@@ -276,7 +278,7 @@ func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
 func TestAdminCancelJob_Success(t *testing.T) {
 	gen := newContextGen()
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit("proj-cancel-handler", runner.JobParams{})
+	j := jm.Submit(1, "proj-cancel-handler", runner.JobParams{})
 
 	// Wait for running.
 	deadline := time.Now().Add(2 * time.Second)
@@ -307,16 +309,18 @@ func TestAdminCleanResults_NotFound(t *testing.T) {
 	gen := newBlockingGen()
 	defer close(gen.ch)
 
-	ms := &storage.MockStore{
-		ProjectExistsFn: func(_ context.Context, _ string) (bool, error) {
-			return false, nil
+	ms := &storage.MockStore{}
+	jm := newAdminTestJobManager(t, gen, 2)
+	// Project 99 does not exist in the store → GetProject returns ErrProjectNotFound → 404.
+	projStore := &testutil.MockProjectStore{
+		GetProjectFn: func(_ context.Context, id int64) (*store.Project, error) {
+			return nil, store.ErrProjectNotFound
 		},
 	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, ms)
+	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/results/missing-proj", nil)
-	req.SetPathValue("project_id", "missing-proj")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/results/99", nil)
+	req.SetPathValue("project_id", "99")
 	rr := httptest.NewRecorder()
 	h.CleanProjectResults(rr, req)
 
@@ -331,19 +335,25 @@ func TestAdminCleanResults_Success(t *testing.T) {
 
 	cleaned := false
 	ms := &storage.MockStore{
-		ProjectExistsFn: func(_ context.Context, _ string) (bool, error) {
-			return true, nil
-		},
 		CleanResultsFn: func(_ context.Context, _ string) error {
 			cleaned = true
 			return nil
 		},
 	}
 	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, ms)
+	// Project 1 exists with slug "proj1".
+	projStore := &testutil.MockProjectStore{
+		GetProjectFn: func(_ context.Context, id int64) (*store.Project, error) {
+			if id == 1 {
+				return &store.Project{ID: 1, Slug: "proj1"}, nil
+			}
+			return nil, store.ErrProjectNotFound
+		},
+	}
+	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/results/proj-clean", nil)
-	req.SetPathValue("project_id", "proj-clean")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/results/1", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.CleanProjectResults(rr, req)
 
@@ -396,7 +406,7 @@ func TestAdminDeleteJob_NotFound(t *testing.T) {
 func TestAdminDeleteJob_NonTerminal(t *testing.T) {
 	gen := newContextGen()
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit("proj-delete-running", runner.JobParams{})
+	j := jm.Submit(1, "proj-delete-running", runner.JobParams{})
 
 	// Wait for the job to reach running state.
 	deadline := time.Now().Add(2 * time.Second)
@@ -423,7 +433,7 @@ func TestAdminDeleteJob_NonTerminal(t *testing.T) {
 func TestAdminDeleteJob_Success(t *testing.T) {
 	gen := newBlockingGen()
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit("proj-delete-success", runner.JobParams{})
+	j := jm.Submit(1, "proj-delete-success", runner.JobParams{})
 	close(gen.ch) // let the job complete
 
 	// Wait for completion.

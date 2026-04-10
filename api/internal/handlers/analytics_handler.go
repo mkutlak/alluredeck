@@ -17,34 +17,35 @@ type AnalyticsHandler struct {
 	analyticsStore store.AnalyticsStorer
 	branchStore    store.BranchStorer
 	projectStore   store.ProjectStorer
-	projectsDir    string
 	logger         *zap.Logger
 }
 
 // NewAnalyticsHandler creates an AnalyticsHandler. analyticsStore may be nil
 // when analytics are unavailable — all endpoints return empty data in that case.
-func NewAnalyticsHandler(analyticsStore store.AnalyticsStorer, branchStore store.BranchStorer, projectStore store.ProjectStorer, projectsDir string, logger *zap.Logger) *AnalyticsHandler {
+func NewAnalyticsHandler(analyticsStore store.AnalyticsStorer, branchStore store.BranchStorer, projectStore store.ProjectStorer, logger *zap.Logger) *AnalyticsHandler {
 	return &AnalyticsHandler{
 		analyticsStore: analyticsStore,
 		branchStore:    branchStore,
 		projectStore:   projectStore,
-		projectsDir:    projectsDir,
 		logger:         logger,
 	}
 }
 
 // resolveProjectIDs returns the given project ID plus any child project IDs
 // if the project is a parent. For leaf projects it returns just the single ID.
-func (h *AnalyticsHandler) resolveProjectIDs(ctx context.Context, projectID string) []string {
-	ids := []string{projectID}
+func (h *AnalyticsHandler) resolveProjectIDs(ctx context.Context, projectID int64) []int64 {
+	ids := []int64{projectID}
 	if h.projectStore == nil {
 		return ids
 	}
-	children, err := h.projectStore.ListChildIDs(ctx, projectID)
+	children, err := h.projectStore.ListChildren(ctx, projectID)
 	if err != nil || len(children) == 0 {
 		return ids
 	}
-	return append(ids, children...)
+	for _, c := range children {
+		ids = append(ids, c.ID)
+	}
+	return ids
 }
 
 // parseClampedInt parses s as an int in [1,100], defaulting to 20.
@@ -61,7 +62,7 @@ func parseClampedInt(s string) int {
 
 // resolveBranchID resolves a branch name to its ID using the branch store.
 // Returns nil if the branch name is empty, the store is nil, or the branch is not found.
-func (h *AnalyticsHandler) resolveBranchID(r *http.Request, projectID, branchName string) *int64 {
+func (h *AnalyticsHandler) resolveBranchID(r *http.Request, projectID int64, branchName string) *int64 {
 	if branchName == "" || h.branchStore == nil {
 		return nil
 	}
@@ -74,7 +75,7 @@ func (h *AnalyticsHandler) resolveBranchID(r *http.Request, projectID, branchNam
 
 // GetTopErrors returns the most common failure messages across recent builds.
 func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -93,7 +94,7 @@ func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) 
 
 	data, err := h.analyticsStore.ListTopErrors(r.Context(), projectIDs, builds, limit, branchID)
 	if err != nil {
-		h.logger.Error("list top errors", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list top errors", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
 		return
 	}
@@ -105,7 +106,7 @@ func (h *AnalyticsHandler) GetTopErrors(w http.ResponseWriter, r *http.Request) 
 
 // GetSuitePassRates returns per-suite pass rates across recent builds.
 func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -123,7 +124,7 @@ func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Requ
 
 	data, err := h.analyticsStore.ListSuitePassRates(r.Context(), projectIDs, builds, branchID)
 	if err != nil {
-		h.logger.Error("list suite pass rates", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list suite pass rates", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
 		return
 	}
@@ -135,7 +136,7 @@ func (h *AnalyticsHandler) GetSuitePassRates(w http.ResponseWriter, r *http.Requ
 
 // GetLabelBreakdown returns counts grouped by label value for a given label name.
 func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -157,7 +158,7 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 
 	data, err := h.analyticsStore.ListLabelBreakdown(r.Context(), projectIDs, labelName, builds, branchID)
 	if err != nil {
-		h.logger.Error("list label breakdown", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list label breakdown", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
 		return
 	}
@@ -169,7 +170,7 @@ func (h *AnalyticsHandler) GetLabelBreakdown(w http.ResponseWriter, r *http.Requ
 
 // GetTrends returns per-build statistics for trend charts.
 func (h *AnalyticsHandler) GetTrends(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -186,7 +187,7 @@ func (h *AnalyticsHandler) GetTrends(w http.ResponseWriter, r *http.Request) {
 
 	points, err := h.analyticsStore.ListTrendPoints(r.Context(), projectIDs, builds, branchID)
 	if err != nil {
-		h.logger.Error("list trend points", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list trend points", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching analytics data")
 		return
 	}

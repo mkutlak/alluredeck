@@ -30,7 +30,7 @@ func NewDefectStore(s *PGStore) *DefectStore {
 // (project_id, fingerprint_hash) it updates last_seen_build_id, adds to
 // occurrence_count, resets consecutive_clean_builds to 0, and reopens
 // previously "fixed" fingerprints (regression).
-func (ds *DefectStore) UpsertFingerprints(ctx context.Context, projectID string, buildID int64, fingerprints []store.DefectFingerprint) error {
+func (ds *DefectStore) UpsertFingerprints(ctx context.Context, projectID int64, buildID int64, fingerprints []store.DefectFingerprint) error {
 	if len(fingerprints) == 0 {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (ds *DefectStore) LinkTestResults(ctx context.Context, fingerprintID string
 
 // UpdateCleanBuildCounts increments consecutive_clean_builds for all open
 // fingerprints in the project that were NOT seen in this build.
-func (ds *DefectStore) UpdateCleanBuildCounts(ctx context.Context, projectID string, buildID int64) error {
+func (ds *DefectStore) UpdateCleanBuildCounts(ctx context.Context, projectID int64, buildID int64) error {
 	const q = `
 		UPDATE defect_fingerprints
 		SET consecutive_clean_builds = consecutive_clean_builds + 1,
@@ -125,7 +125,7 @@ func (ds *DefectStore) UpdateCleanBuildCounts(ctx context.Context, projectID str
 
 // AutoResolveFixed sets resolution='fixed' for open fingerprints where
 // consecutive_clean_builds >= threshold. Returns count of affected rows.
-func (ds *DefectStore) AutoResolveFixed(ctx context.Context, projectID string, threshold int) (int, error) {
+func (ds *DefectStore) AutoResolveFixed(ctx context.Context, projectID int64, threshold int) (int, error) {
 	const q = `
 		UPDATE defect_fingerprints
 		SET resolution = 'fixed', updated_at = NOW()
@@ -143,7 +143,7 @@ func (ds *DefectStore) AutoResolveFixed(ctx context.Context, projectID string, t
 // in this build. A regression is a fingerprint where: it appears in this build's
 // occurrences, was NOT in the immediately preceding build's occurrences, and
 // first_seen_build_id != this build (not new).
-func (ds *DefectStore) DetectRegressions(ctx context.Context, projectID string, buildID int64) ([]string, error) {
+func (ds *DefectStore) DetectRegressions(ctx context.Context, projectID int64, buildID int64) ([]string, error) {
 	const q = `
 		WITH prev_build AS (
 			SELECT id FROM builds
@@ -185,7 +185,7 @@ func (ds *DefectStore) DetectRegressions(ctx context.Context, projectID string, 
 }
 
 // GetByHash retrieves a fingerprint by its project-scoped hash.
-func (ds *DefectStore) GetByHash(ctx context.Context, projectID, hash string) (*store.DefectFingerprint, error) {
+func (ds *DefectStore) GetByHash(ctx context.Context, projectID int64, hash string) (*store.DefectFingerprint, error) {
 	var fp store.DefectFingerprint
 	err := ds.pool.QueryRow(ctx, `
 		SELECT id, project_id, fingerprint_hash, normalized_message, sample_trace,
@@ -208,7 +208,7 @@ func (ds *DefectStore) GetByHash(ctx context.Context, projectID, hash string) (*
 
 // listDefects is a shared helper for ListByProject and ListByBuild. When buildID
 // is non-nil the query is scoped through defect_occurrences.
-func (ds *DefectStore) listDefects(ctx context.Context, projectID string, buildID *int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (ds *DefectStore) listDefects(ctx context.Context, projectID int64, buildID *int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
 	// --- build WHERE clause ---
 	where := "WHERE df.project_id = $1"
 	args := []any{projectID}
@@ -314,7 +314,8 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID string, buildI
 	for rows.Next() {
 		var row store.DefectListRow
 		var kiID *int64
-		var kiProjectID, kiTestName, kiPattern, kiTicketURL, kiDescription *string
+		var kiProjectID *int64
+		var kiTestName, kiPattern, kiTicketURL, kiDescription *string
 		var kiIsActive *bool
 		var kiCreatedAt, kiUpdatedAt *string
 		var testResultCount *int
@@ -338,7 +339,7 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID string, buildI
 		if kiID != nil {
 			row.KnownIssue = &store.KnownIssue{
 				ID:          *kiID,
-				ProjectID:   derefStr(kiProjectID),
+				ProjectID:   derefInt64(kiProjectID),
 				TestName:    derefStr(kiTestName),
 				Pattern:     derefStr(kiPattern),
 				TicketURL:   derefStr(kiTicketURL),
@@ -363,6 +364,14 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID string, buildI
 	return result, total, nil
 }
 
+// derefInt64 safely dereferences a *int64 pointer.
+func derefInt64(p *int64) int64 {
+	if p != nil {
+		return *p
+	}
+	return 0
+}
+
 // derefStr safely dereferences a *string pointer.
 func derefStr(p *string) string {
 	if p != nil {
@@ -380,12 +389,12 @@ func derefBool(p *bool) bool {
 }
 
 // ListByProject returns a paginated list of defects for a project with optional filters.
-func (ds *DefectStore) ListByProject(ctx context.Context, projectID string, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (ds *DefectStore) ListByProject(ctx context.Context, projectID int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
 	return ds.listDefects(ctx, projectID, nil, filter)
 }
 
 // ListByBuild returns a paginated list of defects observed in a specific build.
-func (ds *DefectStore) ListByBuild(ctx context.Context, projectID string, buildID int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (ds *DefectStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, filter store.DefectFilter) ([]store.DefectListRow, int, error) {
 	return ds.listDefects(ctx, projectID, &buildID, filter)
 }
 
@@ -481,7 +490,7 @@ func (ds *DefectStore) GetTestResults(ctx context.Context, defectID string, buil
 
 // GetProjectSummary returns aggregated defect counts for a project:
 // count by resolution + count open by category.
-func (ds *DefectStore) GetProjectSummary(ctx context.Context, projectID string) (*store.DefectProjectSummary, error) {
+func (ds *DefectStore) GetProjectSummary(ctx context.Context, projectID int64) (*store.DefectProjectSummary, error) {
 	summary := &store.DefectProjectSummary{
 		ByCategory: make(map[string]int),
 	}
@@ -569,7 +578,7 @@ func (ds *DefectStore) GetProjectSummary(ctx context.Context, projectID string) 
 }
 
 // GetBuildSummary returns aggregated defect counts for a single build.
-func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID string, buildID int64) (*store.DefectBuildSummary, error) {
+func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID int64, buildID int64) (*store.DefectBuildSummary, error) {
 	summary := &store.DefectBuildSummary{
 		ByCategory:   make(map[string]int),
 		ByResolution: make(map[string]int),

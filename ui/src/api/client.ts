@@ -151,8 +151,8 @@ export const apiClient = {
     return request<T>('PATCH', url, data, config)
   },
 
-  delete<T>(url: string, config?: RequestConfig): Promise<FetchResponse<T>> {
-    return request<T>('DELETE', url, undefined, config)
+  delete<T>(url: string, data?: unknown, config?: RequestConfig): Promise<FetchResponse<T>> {
+    return request<T>('DELETE', url, data, config)
   },
 }
 

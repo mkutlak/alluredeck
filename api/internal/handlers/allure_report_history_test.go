@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -31,13 +32,19 @@ func makeGetReportHistoryReq(t *testing.T, projectID string) *http.Request {
 
 func TestGetReportHistory_EmptyDir(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "proj1"
+	projectSlug := "proj1"
 	// Create project dir but no reports subdir
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := strconv.FormatInt(proj.ID, 10)
+
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 
@@ -64,8 +71,8 @@ func TestGetReportHistory_EmptyDir(t *testing.T) {
 
 func TestGetReportHistory_MultipleReports(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "proj2"
-	reportsDir := filepath.Join(projectsDir, projectID, "reports")
+	projectSlug := "proj2"
+	reportsDir := filepath.Join(projectsDir, projectSlug, "reports")
 
 	// Create numbered reports 1 and 3 plus latest
 	for _, name := range []string{"1", "3", "latest"} {
@@ -75,7 +82,13 @@ func TestGetReportHistory_MultipleReports(t *testing.T) {
 	}
 
 	// newTestReportHandler calls syncTestBuildsFromFilesystem which imports builds 1 and 3.
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := strconv.FormatInt(proj.ID, 10)
+
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 
@@ -131,14 +144,20 @@ func TestGetReportHistory_MultipleReports(t *testing.T) {
 
 func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "proj3"
+	projectSlug := "proj3"
 	// Create a report dir without any summary.json
-	reportDir := filepath.Join(projectsDir, projectID, "reports", "1")
+	reportDir := filepath.Join(projectsDir, projectSlug, "reports", "1")
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := strconv.FormatInt(proj.ID, 10)
+
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 
@@ -173,12 +192,17 @@ func TestGetReportHistory_MissingSummaryJSON(t *testing.T) {
 
 func TestGetReportHistory_CancelledContext(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "proj-cancel"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "proj-cancel"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := strconv.FormatInt(proj.ID, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately — handler should propagate this to DB queries
@@ -187,6 +211,7 @@ func TestGetReportHistory_CancelledContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.SetPathValue("project_id", projectID)
 
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, req)
@@ -198,15 +223,21 @@ func TestGetReportHistory_CancelledContext(t *testing.T) {
 
 func TestGetReportHistory_WithCIMetadata(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "ci-metadata-proj"
-	reportsDir := filepath.Join(projectsDir, projectID, "reports")
+	projectSlug := "ci-metadata-proj"
+	reportsDir := filepath.Join(projectsDir, projectSlug, "reports")
 
 	// Create a numbered report dir for SyncMetadata to import.
 	dir := filepath.Join(reportsDir, "1")
 	summary := `{"statistic":{"passed":5,"failed":1,"broken":0,"skipped":0,"unknown":0,"total":6},"time":{"stop":1700000000000,"duration":3000}}`
 	writeSummaryJSON(t, dir, summary)
 
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := proj.ID
+	projectIDStr := strconv.FormatInt(projectID, 10)
 
 	// Set CI metadata on the imported build via the handler's buildStore.
 	ctx := context.Background()
@@ -221,7 +252,7 @@ func TestGetReportHistory_WithCIMetadata(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
+	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectIDStr))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -274,10 +305,10 @@ func TestGetReportHistory_InvalidProjectID(t *testing.T) {
 
 func TestGetReportHistory_Allure3LatestWithTiming(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "allure3-timing"
+	projectSlug := "allure3-timing"
 
 	// Allure 3 "latest" report: statistic.json only (no summary.json, no timing)
-	latestDir := filepath.Join(projectsDir, projectID, "reports", "latest")
+	latestDir := filepath.Join(projectsDir, projectSlug, "reports", "latest")
 	widgetsDir := filepath.Join(latestDir, "widgets")
 	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -302,7 +333,13 @@ func TestGetReportHistory_Allure3LatestWithTiming(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := strconv.FormatInt(proj.ID, 10)
+
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, makeGetReportHistoryReq(t, projectID))
 

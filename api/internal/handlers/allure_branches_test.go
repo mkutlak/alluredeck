@@ -15,15 +15,15 @@ import (
 
 func newTestBranchHandler(t *testing.T, mocks *testutil.MockStores) *BranchHandler {
 	t.Helper()
-	return NewBranchHandler(mocks.Branches, mocks.Builds, t.TempDir())
+	return NewBranchHandler(mocks.Branches, mocks.Builds, mocks.Projects)
 }
 
 // --- ListBranches tests ---
 
 func TestListBranches_Empty(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-empty"
-	mocks.Branches.ListFn = func(_ context.Context, _ string) ([]store.Branch, error) {
+	projectID := "1"
+	mocks.Branches.ListFn = func(_ context.Context, _ int64) ([]store.Branch, error) {
 		return []store.Branch{}, nil
 	}
 
@@ -59,12 +59,12 @@ func TestListBranches_Empty(t *testing.T) {
 
 func TestListBranches_WithData(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-list"
+	projectID := "1"
 	now := time.Now().UTC().Truncate(time.Second)
-	mocks.Branches.ListFn = func(_ context.Context, _ string) ([]store.Branch, error) {
+	mocks.Branches.ListFn = func(_ context.Context, _ int64) ([]store.Branch, error) {
 		return []store.Branch{
-			{ID: 1, ProjectID: projectID, Name: "main", IsDefault: true, CreatedAt: now},
-			{ID: 2, ProjectID: projectID, Name: "dev", IsDefault: false, CreatedAt: now},
+			{ID: 1, ProjectID: 1, Name: "main", IsDefault: true, CreatedAt: now},
+			{ID: 2, ProjectID: 1, Name: "dev", IsDefault: false, CreatedAt: now},
 		}, nil
 	}
 
@@ -122,8 +122,8 @@ func TestListBranches_WithData(t *testing.T) {
 
 func TestSetDefaultBranch_Success(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-setdefault"
-	mocks.Branches.SetDefaultFn = func(_ context.Context, _ string, _ int64) error {
+	projectID := "1"
+	mocks.Branches.SetDefaultFn = func(_ context.Context, _ int64, _ int64) error {
 		return nil
 	}
 
@@ -156,8 +156,8 @@ func TestSetDefaultBranch_Success(t *testing.T) {
 
 func TestSetDefaultBranch_NotFound(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-setdefault-404"
-	mocks.Branches.SetDefaultFn = func(_ context.Context, _ string, _ int64) error {
+	projectID := "1"
+	mocks.Branches.SetDefaultFn = func(_ context.Context, _ int64, _ int64) error {
 		return fmt.Errorf("%w: branch=9999 project=%s", store.ErrBranchNotFound, projectID)
 	}
 
@@ -178,8 +178,8 @@ func TestSetDefaultBranch_NotFound(t *testing.T) {
 
 func TestSetDefaultBranch_WrongProject(t *testing.T) {
 	mocks := testutil.New()
-	otherProject := "other-project"
-	mocks.Branches.SetDefaultFn = func(_ context.Context, _ string, _ int64) error {
+	otherProject := "2"
+	mocks.Branches.SetDefaultFn = func(_ context.Context, _ int64, _ int64) error {
 		return fmt.Errorf("%w: branch does not belong to project", store.ErrBranchNotFound)
 	}
 
@@ -200,7 +200,7 @@ func TestSetDefaultBranch_WrongProject(t *testing.T) {
 
 func TestSetDefaultBranch_InvalidBranchID(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-setdefault-badid"
+	projectID := "1"
 
 	h := newTestBranchHandler(t, mocks)
 
@@ -221,8 +221,8 @@ func TestSetDefaultBranch_InvalidBranchID(t *testing.T) {
 
 func TestDeleteBranch_Success(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-delete"
-	mocks.Branches.DeleteFn = func(_ context.Context, _ string, _ int64) error {
+	projectID := "1"
+	mocks.Branches.DeleteFn = func(_ context.Context, _ int64, _ int64) error {
 		return nil
 	}
 
@@ -243,8 +243,8 @@ func TestDeleteBranch_Success(t *testing.T) {
 
 func TestDeleteBranch_DefaultBranch_Conflict(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-delete-default"
-	mocks.Branches.DeleteFn = func(_ context.Context, _ string, _ int64) error {
+	projectID := "1"
+	mocks.Branches.DeleteFn = func(_ context.Context, _ int64, _ int64) error {
 		return store.ErrCannotDeleteDefaultBranch
 	}
 
@@ -265,8 +265,8 @@ func TestDeleteBranch_DefaultBranch_Conflict(t *testing.T) {
 
 func TestDeleteBranch_NotFound(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-delete-404"
-	mocks.Branches.DeleteFn = func(_ context.Context, _ string, _ int64) error {
+	projectID := "1"
+	mocks.Branches.DeleteFn = func(_ context.Context, _ int64, _ int64) error {
 		return fmt.Errorf("%w: branch=9999 project=%s", store.ErrBranchNotFound, projectID)
 	}
 
@@ -287,7 +287,7 @@ func TestDeleteBranch_NotFound(t *testing.T) {
 
 func TestDeleteBranch_InvalidBranchID(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "branch-delete-badid"
+	projectID := "1"
 
 	h := newTestBranchHandler(t, mocks)
 

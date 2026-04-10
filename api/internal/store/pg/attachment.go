@@ -23,7 +23,7 @@ func NewAttachmentStore(s *PGStore) *AttachmentStore {
 
 // ListByBuild returns attachment metadata for all attachments belonging to a
 // specific build, with optional MIME type prefix filtering and pagination.
-func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
+func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
 	var rows pgx.Rows
 	var err error
 
@@ -103,7 +103,7 @@ func (a *AttachmentStore) GetBySource(ctx context.Context, buildID int64, source
 // InsertBuildAttachments inserts build-level attachments (e.g. from a Playwright
 // data/ directory) that are not linked to a specific test result. Each attachment
 // is inserted with NULL test_result_id and test_step_id.
-func (a *AttachmentStore) InsertBuildAttachments(ctx context.Context, _ int64, _ string, attachments []store.TestAttachment) error {
+func (a *AttachmentStore) InsertBuildAttachments(ctx context.Context, _ int64, _ int64, attachments []store.TestAttachment) error {
 	if len(attachments) == 0 {
 		return nil
 	}

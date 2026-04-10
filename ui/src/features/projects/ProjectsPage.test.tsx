@@ -38,7 +38,7 @@ describe('ProjectsPage', () => {
 
   it('renders project cards when loaded', async () => {
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: [{ project_id: 'my-project' }, { project_id: 'other-project' }],
+      data: [{ project_id: 1, slug: 'my-project' }, { project_id: 2, slug: 'other-project' }],
       metadata: { message: 'ok' },
       pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
     })
@@ -102,7 +102,7 @@ describe('ProjectsPage', () => {
   it('shows View reports Link with correct href in table view', async () => {
     useUIStore.setState({ projectViewMode: 'table' })
     vi.mocked(projectsApi.getProjects).mockResolvedValue({
-      data: [{ project_id: 'my-project' }],
+      data: [{ project_id: 1, slug: 'my-project' }],
       metadata: { message: 'ok' },
       pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
     })

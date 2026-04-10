@@ -21,7 +21,7 @@ func NewAnalyticsStore(s *PGStore) *AnalyticsStore {
 }
 
 // ListTopErrors returns the most common failure messages across the last N builds for one or more projects.
-func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectIDs []string, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
+func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectIDs []int64, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id = ANY($1) ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectIDs, builds, projectIDs, limit}
 	if branchID != nil {
@@ -64,7 +64,7 @@ func (a *AnalyticsStore) ListTopErrors(ctx context.Context, projectIDs []string,
 }
 
 // ListSuitePassRates returns per-suite pass rates across the last N builds for one or more projects.
-func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]store.SuitePassRate, error) {
+func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.SuitePassRate, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id = ANY($1) ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectIDs, builds, projectIDs}
 	if branchID != nil {
@@ -111,7 +111,7 @@ func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []st
 }
 
 // ListLabelBreakdown returns counts grouped by label value for a given label name across one or more projects.
-func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectIDs []string, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
+func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectIDs []int64, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id = ANY($1) ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectIDs, builds, projectIDs, labelName}
 	if branchID != nil {
@@ -153,7 +153,7 @@ func (a *AnalyticsStore) ListLabelBreakdown(ctx context.Context, projectIDs []st
 }
 
 // ListTrendPoints returns per-build statistics for the last N builds across one or more projects, ordered chronologically (oldest first).
-func (a *AnalyticsStore) ListTrendPoints(ctx context.Context, projectIDs []string, builds int, branchID *int64) ([]store.TrendPoint, error) {
+func (a *AnalyticsStore) ListTrendPoints(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.TrendPoint, error) {
 	query := `SELECT build_order,
        COALESCE(stat_passed, 0),
        COALESCE(stat_failed, 0),

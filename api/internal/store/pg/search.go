@@ -29,13 +29,13 @@ func escapeLike(s string) string {
 	return s
 }
 
-// SearchProjects returns projects whose ID contains the query substring (case-insensitive).
+// SearchProjects returns projects whose slug contains the query substring (case-insensitive).
 func (ss *SearchStore) SearchProjects(ctx context.Context, query string, limit int) ([]store.ProjectMatch, error) {
 	pattern := "%" + escapeLike(query) + "%"
 	rows, err := ss.pool.Query(ctx,
-		`SELECT id, created_at FROM projects
-		 WHERE id LIKE $1 ESCAPE '\'
-		 ORDER BY id
+		`SELECT id, slug, created_at FROM projects
+		 WHERE slug LIKE $1 ESCAPE '\'
+		 ORDER BY slug
 		 LIMIT $2`,
 		pattern, limit)
 	if err != nil {
@@ -46,7 +46,7 @@ func (ss *SearchStore) SearchProjects(ctx context.Context, query string, limit i
 	var results []store.ProjectMatch
 	for rows.Next() {
 		var m store.ProjectMatch
-		if err := rows.Scan(&m.ID, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Slug, &m.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project match: %w", err)
 		}
 		results = append(results, m)
@@ -64,9 +64,10 @@ func (ss *SearchStore) SearchProjects(ctx context.Context, query string, limit i
 // the query using PostgreSQL full-text search (plainto_tsquery).
 func (ss *SearchStore) SearchTests(ctx context.Context, query string, limit int) ([]store.TestMatch, error) {
 	rows, err := ss.pool.Query(ctx,
-		`SELECT DISTINCT tr.project_id, tr.test_name, tr.full_name, tr.status
+		`SELECT DISTINCT tr.project_id, p.slug, tr.test_name, tr.full_name, tr.status
 		 FROM test_results tr
 		 INNER JOIN builds b ON b.id = tr.build_id
+		 INNER JOIN projects p ON p.id = tr.project_id
 		 WHERE b.is_latest = TRUE
 		   AND tr.search_vector @@ plainto_tsquery('english', $1)
 		 ORDER BY tr.project_id, tr.test_name
@@ -80,7 +81,7 @@ func (ss *SearchStore) SearchTests(ctx context.Context, query string, limit int)
 	var results []store.TestMatch
 	for rows.Next() {
 		var m store.TestMatch
-		if err := rows.Scan(&m.ProjectID, &m.TestName, &m.FullName, &m.Status); err != nil {
+		if err := rows.Scan(&m.ProjectID, &m.Slug, &m.TestName, &m.FullName, &m.Status); err != nil {
 			return nil, fmt.Errorf("scan test match: %w", err)
 		}
 		results = append(results, m)

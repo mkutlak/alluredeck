@@ -15,7 +15,7 @@ export function ActionBar() {
   const isEditor = useAuthStore(selectIsEditor)
   const { data: projectsResp } = useQuery(projectListOptions())
   const reportType =
-    projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
+    projectsResp?.data?.find((p: { project_id: number }) => p.project_id === Number(projectId))
       ?.report_type ?? 'allure'
   const isAllure = reportType !== 'playwright'
   const [sendOpen, setSendOpen] = useState(false)
@@ -75,7 +75,7 @@ export function ActionBar() {
         </>
       )}
 
-      <SendResultsDialog projectId={projectId} open={sendOpen} onOpenChange={setSendOpen} />
+      <SendResultsDialog projectId={Number(projectId)} open={sendOpen} onOpenChange={setSendOpen} />
       <CleanDialog
         projectId={projectId}
         mode="results"

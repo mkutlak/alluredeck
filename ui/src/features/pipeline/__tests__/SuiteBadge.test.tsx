@@ -5,7 +5,8 @@ import type { PipelineSuite } from '@/types/api'
 
 function makeSuite(overrides?: Partial<PipelineSuite>): PipelineSuite {
   return {
-    project_id: 'api-cloud',
+    project_id: 1,
+    slug: 'api-cloud',
     build_order: 5,
     pass_rate: 100,
     total: 42,
@@ -24,7 +25,7 @@ describe('SuiteBadge', () => {
   })
 
   it('links to the correct project URL', () => {
-    renderWithProviders(<SuiteBadge suite={makeSuite({ project_id: 'ui-tests' })} />)
+    renderWithProviders(<SuiteBadge suite={makeSuite({ project_id: 2, slug: 'ui-tests' })} />)
     const link = screen.getByRole('link')
     expect(link).toHaveAttribute('href', '/projects/ui-tests')
   })

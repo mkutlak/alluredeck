@@ -17,16 +17,16 @@ type TestHistoryHandler struct {
 	testResultStore store.TestResultStorer
 	buildStore      store.BuildStorer
 	branchStore     store.BranchStorer
-	projectsDir     string
+	projectStore    store.ProjectStorer
 }
 
 // NewTestHistoryHandler creates a new TestHistoryHandler.
-func NewTestHistoryHandler(ts store.TestResultStorer, bs store.BuildStorer, brs store.BranchStorer, projectsDir string) *TestHistoryHandler {
+func NewTestHistoryHandler(ts store.TestResultStorer, bs store.BuildStorer, brs store.BranchStorer, ps store.ProjectStorer) *TestHistoryHandler {
 	return &TestHistoryHandler{
 		testResultStore: ts,
 		buildStore:      bs,
 		branchStore:     brs,
-		projectsDir:     projectsDir,
+		projectStore:    ps,
 	}
 }
 
@@ -56,7 +56,7 @@ type testHistoryEntryJSON struct {
 func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}

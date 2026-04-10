@@ -13,23 +13,21 @@ import (
 // ProjectParentHandler handles HTTP requests for managing parent-child project relationships.
 type ProjectParentHandler struct {
 	projectStore store.ProjectStorer
-	buildStore   store.BuildStorer
-	projectsDir  string
 	logger       *zap.Logger
 }
 
 // NewProjectParentHandler creates a new ProjectParentHandler.
-func NewProjectParentHandler(ps store.ProjectStorer, bs store.BuildStorer, projectsDir string, logger *zap.Logger) *ProjectParentHandler {
-	return &ProjectParentHandler{projectStore: ps, buildStore: bs, projectsDir: projectsDir, logger: logger}
+func NewProjectParentHandler(ps store.ProjectStorer, logger *zap.Logger) *ProjectParentHandler {
+	return &ProjectParentHandler{projectStore: ps, logger: logger}
 }
 
 type setParentRequest struct {
-	ParentID string `json:"parent_id"`
+	ParentID int64 `json:"parent_id"`
 }
 
 // SetParent godoc
 // @Summary      Set project parent
-// @Description  Assigns a parent project to the given project. The parent must exist, must not itself be a child, and the target must have no children and no existing builds.
+// @Description  Assigns a parent project to the given project. The parent must exist, must not itself be a child, and the target must have no children.
 // @Tags         projects
 // @Accept       json
 // @Produce      json
@@ -43,7 +41,7 @@ type setParentRequest struct {
 func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -54,7 +52,7 @@ func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.ParentID == "" {
+	if req.ParentID == 0 {
 		writeError(w, http.StatusBadRequest, "parent_id is required")
 		return
 	}
@@ -92,17 +90,6 @@ func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Target project must not have existing builds.
-	_, total, err := h.buildStore.ListBuildsPaginated(ctx, projectID, 1, 1)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to check project builds")
-		return
-	}
-	if total > 0 {
-		writeError(w, http.StatusConflict, "project has existing builds; builds must be migrated before it can become a parent")
-		return
-	}
-
 	if err := h.projectStore.SetParent(ctx, projectID, req.ParentID); err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
 			writeError(w, http.StatusNotFound, "project not found")
@@ -131,7 +118,7 @@ func (h *ProjectParentHandler) SetParent(w http.ResponseWriter, r *http.Request)
 func (h *ProjectParentHandler) ClearParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -176,7 +163,7 @@ func (h *ProjectParentHandler) ClearParent(w http.ResponseWriter, r *http.Reques
 func (h *ProjectParentHandler) ListChildren(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}

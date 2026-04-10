@@ -19,7 +19,7 @@ type riverMockGen struct {
 	out string
 }
 
-func (m *riverMockGen) GenerateReport(_ context.Context, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (m *riverMockGen) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	return m.out, nil
 }
 
@@ -62,7 +62,7 @@ func TestRiverJobManager_SubmitAndGet(t *testing.T) {
 	s := openRiverTestStore(t)
 	jm := newTestRiverJM(t, s, &riverMockGen{out: "ok"})
 
-	job := jm.Submit("river-test-project", runner.JobParams{ExecName: "CI"})
+	job := jm.Submit(int64(1), "river-test-project", runner.JobParams{ExecName: "CI"})
 	if job == nil {
 		t.Fatal("Submit returned nil")
 		return // unreachable, but satisfies staticcheck SA5011
@@ -70,8 +70,8 @@ func TestRiverJobManager_SubmitAndGet(t *testing.T) {
 	if job.ID == "" {
 		t.Error("expected non-empty job ID")
 	}
-	if job.ProjectID != "river-test-project" {
-		t.Errorf("ProjectID: got %q, want %q", job.ProjectID, "river-test-project")
+	if job.ProjectID != int64(1) {
+		t.Errorf("ProjectID: got %d, want %d", job.ProjectID, int64(1))
 	}
 
 	got := jm.Get(job.ID)
@@ -91,8 +91,8 @@ func TestRiverJobManager_ListJobs(t *testing.T) {
 
 	before := len(jm.ListJobs())
 
-	jm.Submit("river-list-proj-a", runner.JobParams{})
-	jm.Submit("river-list-proj-b", runner.JobParams{})
+	jm.Submit(int64(2), "river-list-proj-a", runner.JobParams{})
+	jm.Submit(int64(3), "river-list-proj-b", runner.JobParams{})
 
 	// Poll until both jobs appear in River's DB (inserted asynchronously).
 	deadline := time.Now().Add(5 * time.Second)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,34 +19,32 @@ type AdminHandler struct {
 	jobManager   runner.JobQueuer
 	store        storage.Store
 	projectStore store.ProjectStorer
-	projectsDir  string
 	logger       *zap.Logger
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(jm runner.JobQueuer, store storage.Store, projectsDir string, logger *zap.Logger) *AdminHandler {
+func NewAdminHandler(jm runner.JobQueuer, store storage.Store, logger *zap.Logger) *AdminHandler {
 	return &AdminHandler{
-		jobManager:  jm,
-		store:       store,
-		projectsDir: projectsDir,
-		logger:      logger,
+		jobManager: jm,
+		store:      store,
+		logger:     logger,
 	}
 }
 
 // NewAdminHandlerWithProjects creates a new AdminHandler with project store support for group operations.
-func NewAdminHandlerWithProjects(jm runner.JobQueuer, store storage.Store, projectStore store.ProjectStorer, projectsDir string, logger *zap.Logger) *AdminHandler {
+func NewAdminHandlerWithProjects(jm runner.JobQueuer, store storage.Store, projectStore store.ProjectStorer, logger *zap.Logger) *AdminHandler {
 	return &AdminHandler{
 		jobManager:   jm,
 		store:        store,
 		projectStore: projectStore,
-		projectsDir:  projectsDir,
 		logger:       logger,
 	}
 }
 
 // pendingResultsEntry is the JSON shape for one project's pending result files.
 type pendingResultsEntry struct {
-	ProjectID    string    `json:"project_id"`
+	ProjectID    int64     `json:"project_id"`
+	Slug         string    `json:"slug"`
 	FileCount    int       `json:"file_count"`
 	TotalSize    int64     `json:"total_size"`
 	LastModified time.Time `json:"last_modified"`
@@ -110,8 +109,15 @@ func (h *AdminHandler) ListPendingResults(w http.ResponseWriter, r *http.Request
 			continue
 		}
 
+		var numericID int64
+		if h.projectStore != nil {
+			if p, err := h.projectStore.GetProjectBySlugAny(ctx, projectID); err == nil {
+				numericID = p.ID
+			}
+		}
 		entries = append(entries, pendingResultsEntry{
-			ProjectID:    projectID,
+			ProjectID:    numericID,
+			Slug:         projectID,
 			FileCount:    fileCount,
 			TotalSize:    totalSize,
 			LastModified: time.Unix(0, lastMod),
@@ -165,24 +171,30 @@ func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/results/{project_id} [delete]
 func (h *AdminHandler) CleanProjectResults(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
 
-	exists, err := h.store.ProjectExists(ctx, projectID)
-	if err != nil {
-		h.logger.Error("admin: project exists check failed", zap.String("project_id", projectID), zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if !exists {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("project %q not found", projectID))
+	if h.projectStore == nil {
+		writeError(w, http.StatusInternalServerError, "project store not available")
 		return
 	}
 
-	if err := h.store.CleanResults(ctx, projectID); err != nil {
-		h.logger.Error("admin: clean results failed", zap.String("project_id", projectID), zap.Error(err))
+	project, err := h.projectStore.GetProject(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project %d not found", projectID))
+			return
+		}
+		h.logger.Error("admin: project lookup failed", zap.Int64("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	slug := project.Slug
+
+	if err := h.store.CleanResults(ctx, slug); err != nil {
+		h.logger.Error("admin: clean results failed", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "failed to clean results")
 		return
 	}
@@ -201,9 +213,8 @@ func (h *AdminHandler) CleanProjectResults(w http.ResponseWriter, r *http.Reques
 // @Router       /admin/results/group/{project_id} [delete]
 func (h *AdminHandler) CleanGroupResults(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	projectID := r.PathValue("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
+	if !ok {
 		return
 	}
 
@@ -212,30 +223,88 @@ func (h *AdminHandler) CleanGroupResults(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	childIDs, err := h.projectStore.ListChildIDs(ctx, projectID)
+	// Look up parent slug for storage operations.
+	project, err := h.projectStore.GetProject(ctx, projectID)
 	if err != nil {
-		h.logger.Error("admin: list child IDs failed", zap.String("project_id", projectID), zap.Error(err))
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project %d not found", projectID))
+			return
+		}
+		h.logger.Error("admin: project lookup failed", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if len(childIDs) == 0 {
+
+	// ListChildIDs returns slugs for storage operations.
+	childSlugs, err := h.projectStore.ListChildIDs(ctx, projectID)
+	if err != nil {
+		h.logger.Error("admin: list child IDs failed", zap.Int64("project_id", projectID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if len(childSlugs) == 0 {
 		writeError(w, http.StatusNotFound, "no child projects found")
 		return
 	}
 
 	cleaned := 0
-	// Clean each child project.
-	for _, childID := range childIDs {
-		if err := h.store.CleanResults(ctx, childID); err != nil {
-			h.logger.Warn("admin: clean group results failed for child", zap.String("child_id", childID), zap.Error(err))
+	// Clean each child project (storage uses slug).
+	for _, childSlug := range childSlugs {
+		if err := h.store.CleanResults(ctx, childSlug); err != nil {
+			h.logger.Warn("admin: clean group results failed for child", zap.String("child_slug", childSlug), zap.Error(err))
 			continue
 		}
 		cleaned++
 	}
 	// Also clean the parent itself.
-	if err := h.store.CleanResults(ctx, projectID); err != nil {
-		h.logger.Warn("admin: clean group results failed for parent", zap.String("project_id", projectID), zap.Error(err))
+	if err := h.store.CleanResults(ctx, project.Slug); err != nil {
+		h.logger.Warn("admin: clean group results failed for parent", zap.String("slug", project.Slug), zap.Error(err))
 	} else {
+		cleaned++
+	}
+
+	writeSuccess(w, http.StatusOK, map[string]any{"cleaned": cleaned}, fmt.Sprintf("results cleaned for %d project(s)", cleaned))
+}
+
+// CleanBulkResults godoc
+// @Summary      Delete pending result files for multiple projects
+// @Description  Removes all unprocessed result files from the results directory of each specified project.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Param        body  body  object  true  "List of project IDs"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Router       /admin/results [delete]
+func (h *AdminHandler) CleanBulkResults(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	type bulkCleanRequest struct {
+		ProjectIDs []int64 `json:"project_ids"`
+	}
+
+	var req bulkCleanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.ProjectIDs) == 0 || len(req.ProjectIDs) > 100 {
+		writeError(w, http.StatusBadRequest, "project_ids must contain between 1 and 100 entries")
+		return
+	}
+
+	cleaned := 0
+	for _, id := range req.ProjectIDs {
+		project, err := h.projectStore.GetProject(ctx, id)
+		if err != nil {
+			h.logger.Warn("admin: bulk clean results: project not found", zap.Int64("project_id", id), zap.Error(err))
+			continue
+		}
+		if err := h.store.CleanResults(ctx, project.Slug); err != nil {
+			h.logger.Warn("admin: bulk clean results failed", zap.Int64("project_id", id), zap.String("slug", project.Slug), zap.Error(err))
+			continue
+		}
 		cleaned++
 	}
 

@@ -18,13 +18,13 @@ export default async function globalSetup() {
   await client.uploadPlaywrightReport('e2e-demo', pwTarGz)
 
   // Upload sample Allure results (runner creates build + copies Playwright from latest/)
-  const countBefore = await client.getReportCount('e2e-demo')
+  const latestBefore = await client.getLatestReportId('e2e-demo')
   const allureTarGz = path.join(tmpDir, 'e2e-allure-results.tar.gz')
   AllureDeckClient.tarGzDirectory(path.join(fixturesDir, 'sample-results'), allureTarGz)
   await client.uploadAllureResults('e2e-demo', allureTarGz)
 
   // Wait for the NEW report to be generated
-  await client.waitForNewReport('e2e-demo', countBefore)
+  await client.waitForNewReport('e2e-demo', latestBefore)
 
   console.log('[global-setup] Test data ready.\n')
 }

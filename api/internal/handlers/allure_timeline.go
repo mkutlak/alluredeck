@@ -43,7 +43,7 @@ type timelineSummary struct {
 func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
+	projectID, slug, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -117,7 +117,7 @@ func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 	}
 
 	relBase := "reports/" + reportID + "/data/test-results"
-	entries, err := h.store.ReadDir(ctx, projectID, relBase)
+	entries, err := h.store.ReadDir(ctx, slug, relBase)
 
 	// rawEntry is used to parse both nested and top-level time formats.
 	type rawTime struct {
@@ -145,7 +145,7 @@ func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 			if entry.IsDir {
 				continue
 			}
-			data, err := h.store.ReadFile(ctx, projectID, relBase+"/"+entry.Name)
+			data, err := h.store.ReadFile(ctx, slug, relBase+"/"+entry.Name)
 			if err != nil {
 				continue
 			}

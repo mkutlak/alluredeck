@@ -673,7 +673,8 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
 	}
 
-	exists, err := mocks.Projects.ProjectExists(context.Background(), projectID)
+	projectIntID := int64(1)
+	exists, err := mocks.Projects.ProjectExists(context.Background(), projectIntID)
 	if err != nil {
 		t.Fatalf("unexpected error checking project in DB: %v", err)
 	}

@@ -24,6 +24,7 @@ export function usePreferencesSync(): void {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  const prevSyncRef = useRef<string>('')
 
   // Seed from server on mount
   useEffect(() => {
@@ -63,6 +64,10 @@ export function usePreferencesSync(): void {
     mountedRef.current = true
 
     const unsub = useUIStore.subscribe(() => {
+      const snapshot = JSON.stringify(pickSyncState(useUIStore.getState()))
+      if (snapshot === prevSyncRef.current) return
+      prevSyncRef.current = snapshot
+
       if (timerRef.current) clearTimeout(timerRef.current)
 
       timerRef.current = setTimeout(() => {

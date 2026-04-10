@@ -159,10 +159,11 @@ func buildTestPlaywrightHTML(t *testing.T) []byte {
 // stats storage → test result insertion → CI metadata extraction.
 func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "pw-ingest-test"
+	projectID := int64(20)
+	slug := "pw-ingest-test"
 
 	// Set up project directory with a Playwright HTML report in playwright-reports/latest/
-	pwLatestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
+	pwLatestDir := filepath.Join(projectsDir, slug, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(pwLatestDir, "index.html"), string(buildTestPlaywrightHTML(t)))
 	mustWriteFile(t, filepath.Join(pwLatestDir, "data", "fail-screenshot.png"), "\x89PNG")
 
@@ -182,28 +183,28 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	var capturedTestResults []store.TestResult
 	var insertBuildCalled bool
 
-	mocks.Builds.NextBuildNumberFn = func(_ context.Context, _ string) (int, error) {
+	mocks.Builds.NextBuildNumberFn = func(_ context.Context, _ int64) (int, error) {
 		return 1, nil
 	}
-	mocks.Builds.InsertBuildFn = func(_ context.Context, _ string, _ int) error {
+	mocks.Builds.InsertBuildFn = func(_ context.Context, _ int64, _ int) error {
 		mu.Lock()
 		insertBuildCalled = true
 		mu.Unlock()
 		return nil
 	}
-	mocks.Builds.UpdateBuildStatsFn = func(_ context.Context, _ string, _ int, stats store.BuildStats) error {
+	mocks.Builds.UpdateBuildStatsFn = func(_ context.Context, _ int64, _ int, stats store.BuildStats) error {
 		mu.Lock()
 		capturedStats = &stats
 		mu.Unlock()
 		return nil
 	}
-	mocks.Builds.UpdateBuildCIMetadataFn = func(_ context.Context, _ string, _ int, ci store.CIMetadata) error {
+	mocks.Builds.UpdateBuildCIMetadataFn = func(_ context.Context, _ int64, _ int, ci store.CIMetadata) error {
 		mu.Lock()
 		capturedCI = &ci
 		mu.Unlock()
 		return nil
 	}
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ string, _ int) (int64, error) {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, _ int) (int64, error) {
 		return 42, nil
 	}
 	mocks.TestResults.InsertBatchFn = func(_ context.Context, results []store.TestResult) error {
@@ -212,7 +213,7 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 		mu.Unlock()
 		return nil
 	}
-	mocks.Branches.GetOrCreateFn = func(_ context.Context, _ string, _ string) (*store.Branch, bool, error) {
+	mocks.Branches.GetOrCreateFn = func(_ context.Context, _ int64, _ string) (*store.Branch, bool, error) {
 		return &store.Branch{ID: 1, Name: "main"}, false, nil
 	}
 
@@ -227,7 +228,7 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 		Logger:          zap.NewNop(),
 	})
 
-	msg, err := pr.IngestReport(context.Background(), projectID, "CI Runner", "https://ci.example.com", "", "")
+	msg, err := pr.IngestReport(context.Background(), projectID, slug, "CI Runner", "https://ci.example.com", "", "")
 	if err != nil {
 		t.Fatalf("IngestReport: %v", err)
 	}
@@ -310,17 +311,17 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	}
 
 	// Verify report files were copied to playwright-reports/1/.
-	reportIndex := filepath.Join(projectsDir, projectID, "playwright-reports", "1", "index.html")
+	reportIndex := filepath.Join(projectsDir, slug, "playwright-reports", "1", "index.html")
 	if _, err := os.Stat(reportIndex); err != nil {
 		t.Errorf("report index.html not published: %v", err)
 	}
-	reportAttach := filepath.Join(projectsDir, projectID, "playwright-reports", "1", "data", "fail-screenshot.png")
+	reportAttach := filepath.Join(projectsDir, slug, "playwright-reports", "1", "data", "fail-screenshot.png")
 	if _, err := os.Stat(reportAttach); err != nil {
 		t.Errorf("report attachment not published: %v", err)
 	}
 
 	// Verify playwright-reports/latest/ was cleaned up.
-	latestIndex := filepath.Join(projectsDir, projectID, "playwright-reports", "latest", "index.html")
+	latestIndex := filepath.Join(projectsDir, slug, "playwright-reports", "latest", "index.html")
 	if _, err := os.Stat(latestIndex); !os.IsNotExist(err) {
 		t.Error("expected playwright-reports/latest/ to be cleaned up")
 	}

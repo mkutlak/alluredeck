@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -65,7 +66,10 @@ func TestPlaywrightUpload_Success(t *testing.T) {
 		"data/test.png": []byte("\x89PNG\r\n"),
 	})
 
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
 	w := httptest.NewRecorder()
 
@@ -106,7 +110,10 @@ func TestPlaywrightUpload_MissingIndex(t *testing.T) {
 		"data/test.png": []byte("\x89PNG\r\n"),
 	})
 
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
 	w := httptest.NewRecorder()
 
@@ -143,17 +150,23 @@ func TestPlaywrightUpload_ProjectNotFound(t *testing.T) {
 func TestPlaywrightUpload_AutoCreateProject(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectID := "pw-autocreate"
-	parentID := "pw-parent"
 
 	archive := makeTarGz(t, map[string][]byte{
 		"index.html": []byte("<html><body>Report</body></html>"),
 	})
 
 	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	// Pre-create parent project so we can pass its numeric ID.
+	parentProj, err := mocks.Projects.CreateProject(context.Background(), "pw-parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
 	q := req.URL.Query()
 	q.Set("force_project_creation", "true")
-	q.Set("parent_id", parentID)
+	q.Set("parent_id", parentIDStr)
 	req.URL.RawQuery = q.Encode()
 
 	w := httptest.NewRecorder()
@@ -163,22 +176,23 @@ func TestPlaywrightUpload_AutoCreateProject(t *testing.T) {
 		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify child project was registered in the project store with parent link.
-	exists, err := mocks.Projects.ProjectExists(context.Background(), projectID)
-	if err != nil {
-		t.Fatalf("unexpected error checking project in store: %v", err)
-	}
-	if !exists {
-		t.Error("child project was not registered in project store after force_project_creation=true")
-	}
-
-	// Verify parent project was also registered.
-	parentExists, err := mocks.Projects.ProjectExists(context.Background(), parentID)
+	// Verify parent project was registered (ID 1 — created before the handler call).
+	parentExists, err := mocks.Projects.ProjectExists(context.Background(), parentProj.ID)
 	if err != nil {
 		t.Fatalf("unexpected error checking parent project in store: %v", err)
 	}
 	if !parentExists {
 		t.Error("parent project was not registered in project store")
+	}
+
+	// Verify child project was registered in the project store with parent link (ID 2).
+	childIntID := int64(2)
+	exists, err := mocks.Projects.ProjectExists(context.Background(), childIntID)
+	if err != nil {
+		t.Fatalf("unexpected error checking project in store: %v", err)
+	}
+	if !exists {
+		t.Error("child project was not registered in project store after force_project_creation=true")
 	}
 }
 
@@ -190,7 +204,10 @@ func TestPlaywrightUpload_InvalidGzip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 	req := makePlaywrightTarGzRequest(t, projectID, []byte("this is not gzip data"))
 	w := httptest.NewRecorder()
 
@@ -222,7 +239,10 @@ func TestPlaywrightUpload_PathTraversal(t *testing.T) {
 	}
 	archive := makeTarGzWithOpts(t, entries)
 
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
 	w := httptest.NewRecorder()
 
@@ -249,7 +269,10 @@ func TestPlaywrightUpload_PreservesSubdirectory(t *testing.T) {
 		"data/screen.png": pngContent,
 	})
 
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
 	w := httptest.NewRecorder()
 
@@ -284,18 +307,21 @@ func TestPlaywrightUpload_WithBuildNumber(t *testing.T) {
 	})
 
 	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 
 	// Simulate build 5 existing.
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, bn int) (store.Build, error) {
-		if pid == projectID && bn == 5 {
-			return store.Build{ProjectID: pid, BuildNumber: 5}, nil
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ int64, bn int) (store.Build, error) {
+		if bn == 5 {
+			return store.Build{ProjectID: 1, BuildNumber: 5}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
 	var setHasPWReportCalled bool
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, pid string, bn int, value bool) error {
-		if pid == projectID && bn == 5 && value {
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, bn int, value bool) error {
+		if bn == 5 && value {
 			setHasPWReportCalled = true
 		}
 		return nil
@@ -345,7 +371,7 @@ func TestPlaywrightUpload_WithBuildNumber_NotFound(t *testing.T) {
 	})
 
 	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ string, _ int) (store.Build, error) {
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ int64, _ int) (store.Build, error) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
@@ -375,7 +401,10 @@ func TestPlaywrightUpload_WithBuildNumber_Invalid(t *testing.T) {
 		"index.html": []byte("<html/>"),
 	})
 
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
+	h, mocks := newTestPlaywrightHandler(t, projectsDir)
+	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
+		t.Fatal(err)
+	}
 
 	req := makePlaywrightTarGzRequest(t, projectID, archive)
 	q := req.URL.Query()

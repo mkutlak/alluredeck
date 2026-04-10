@@ -48,17 +48,17 @@ func TestGetDashboard_Empty(t *testing.T) {
 }
 
 func TestGetDashboard_SingleProject(t *testing.T) {
-	projID := "single-proj"
 	mocks := testutil.New()
 	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{
 			{
-				ProjectID: projID,
+				ProjectID: 1,
+				Slug:      "single-proj",
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
 					ID:          3,
-					ProjectID:   projID,
+					ProjectID:   1,
 					BuildNumber: 3,
 					IsLatest:    true,
 					StatPassed:  intPtr(90),
@@ -92,8 +92,8 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 	}
 
 	proj := projects[0].(map[string]any)
-	if proj["project_id"] != projID {
-		t.Errorf("project_id = %v, want %s", proj["project_id"], projID)
+	if proj["project_id"] != float64(1) {
+		t.Errorf("project_id = %v, want 1", proj["project_id"])
 	}
 
 	latestBuild, ok := proj["latest_build"].(map[string]any)
@@ -121,7 +121,8 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{
 			{
-				ProjectID: "proj-healthy",
+				ProjectID: 1,
+				Slug:      "proj-healthy",
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
@@ -132,7 +133,8 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 				Sparkline: []store.SparklinePoint{},
 			},
 			{
-				ProjectID: "proj-degraded",
+				ProjectID: 2,
+				Slug:      "proj-degraded",
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
@@ -143,7 +145,8 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 				Sparkline: []store.SparklinePoint{},
 			},
 			{
-				ProjectID: "proj-failing",
+				ProjectID: 3,
+				Slug:      "proj-failing",
 				CreatedAt: time.Now(),
 
 				Latest: &store.Build{
@@ -189,7 +192,8 @@ func TestGetDashboard_ProjectWithNoBuilds(t *testing.T) {
 	mocks.Builds.GetDashboardDataFn = func(_ context.Context, sparklineDepth int) ([]store.DashboardProject, error) {
 		return []store.DashboardProject{
 			{
-				ProjectID: "no-builds-proj",
+				ProjectID: 4,
+				Slug:      "no-builds-proj",
 				CreatedAt: time.Now(),
 
 				Latest:    nil,

@@ -15,7 +15,7 @@ mockApiClient()
 function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
   return {
     id: 1,
-    project_id: 'myproject',
+    project_id: 1,
     test_name: 'Login should succeed',
     pattern: '',
     ticket_url: '',

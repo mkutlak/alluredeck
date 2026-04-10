@@ -20,13 +20,15 @@ func TestPGSearchStore_SearchTests_FindsByTestName(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	projectID := fmt.Sprintf("search-test-findbyname-%d", time.Now().UnixNano())
+	slug := fmt.Sprintf("search-test-findbyname-%d", time.Now().UnixNano())
 	projectStore := pg.NewProjectStore(s, logger)
 	buildStore := pg.NewBuildStore(s, logger)
 
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	const buildNumber = 1
@@ -65,7 +67,7 @@ func TestPGSearchStore_SearchTests_FindsByTestName(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected to find test %q in project %q, got results: %v", testName, projectID, results)
+		t.Errorf("expected to find test %q in project %d, got results: %v", testName, projectID, results)
 	}
 }
 
@@ -97,14 +99,16 @@ func TestPGSearchStore_SearchTests_OnlyFromLatestBuild(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	projectID := fmt.Sprintf("search-test-latestonly-%d", time.Now().UnixNano())
+	slug := fmt.Sprintf("search-test-latestonly-%d", time.Now().UnixNano())
 	projectStore := pg.NewProjectStore(s, logger)
 	buildStore := pg.NewBuildStore(s, logger)
 	testResultStore := pg.NewTestResultStore(s, logger)
 
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	// Build 1 — not latest.
@@ -172,21 +176,22 @@ func TestPGSearchStore_SearchTests_OnlyFromLatestBuild(t *testing.T) {
 	}
 }
 
-// TestPGSearchStore_SearchProjects_FindsByID creates a project with a known ID and
-// verifies that searching for a substring of the ID returns it.
+// TestPGSearchStore_SearchProjects_FindsByID creates a project with a known slug and
+// verifies that searching for a substring of the slug returns it.
 func TestPGSearchStore_SearchProjects_FindsByID(t *testing.T) {
 	s := openLockTestStore(t)
 	ctx := context.Background()
 	logger := zap.NewNop()
 
 	unique := fmt.Sprintf("%d", time.Now().UnixNano())
-	projectID := fmt.Sprintf("search-proj-findbyid-%s", unique)
+	slug := fmt.Sprintf("search-proj-findbyid-%s", unique)
 	projectStore := pg.NewProjectStore(s, logger)
 
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), proj.ID) })
 
 	searchStore := pg.NewSearchStore(s, logger)
 	// Search by the unique suffix to avoid collisions with other projects.
@@ -197,12 +202,12 @@ func TestPGSearchStore_SearchProjects_FindsByID(t *testing.T) {
 
 	var found bool
 	for _, r := range results {
-		if r.ID == projectID {
+		if r.Slug == slug {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected project %q in results, got: %v", projectID, results)
+		t.Errorf("expected project %q in results, got: %v", slug, results)
 	}
 }

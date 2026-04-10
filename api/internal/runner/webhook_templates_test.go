@@ -94,7 +94,7 @@ func TestRenderWebhookPayload_Generic(t *testing.T) {
 
 func TestRenderWebhookPayload_CustomTemplate(t *testing.T) {
 	payload := SampleWebhookPayload()
-	custom := `{"project":"{{.ProjectID}}","build":{{.BuildNumber}}}`
+	custom := `{"project":"{{.Slug}}","build":{{.BuildNumber}}}`
 	body, ct, err := RenderWebhookPayload("slack", &custom, payload)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -168,8 +168,8 @@ func TestValidateWebhookTemplate_Invalid(t *testing.T) {
 func TestSampleWebhookPayload(t *testing.T) {
 	p := SampleWebhookPayload()
 
-	if p.ProjectID == "" {
-		t.Error("ProjectID must not be empty")
+	if p.ProjectID == 0 {
+		t.Error("ProjectID must not be zero")
 	}
 	if p.BuildNumber == 0 {
 		t.Error("BuildNumber must not be zero")

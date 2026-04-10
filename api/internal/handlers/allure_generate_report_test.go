@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ type mockReportGenerator struct {
 	err error
 }
 
-func (m *mockReportGenerator) GenerateReport(_ context.Context, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (m *mockReportGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	return m.out, m.err
 }
 
@@ -53,10 +54,16 @@ func makeGetJobStatusReq(t *testing.T, projectID, jobID string) *http.Request {
 func TestGenerateReport_Returns202WithJobID(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+	h, mocks := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+
+	proj, err := mocks.Projects.CreateProject(context.Background(), "myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
 
 	rr := httptest.NewRecorder()
-	h.GenerateReport(rr, makeGenerateReportReq(t, "myproject"))
+	h.GenerateReport(rr, makeGenerateReportReq(t, projectIDStr))
 
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", rr.Code, rr.Body.String())
@@ -87,7 +94,7 @@ func TestGenerateReport_Returns202WithJobID(t *testing.T) {
 func TestGenerateReport_ReservedProjectID_Returns400(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+	h, _ := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	rr := httptest.NewRecorder()
 	h.GenerateReport(rr, makeGenerateReportReq(t, "login"))
@@ -101,7 +108,7 @@ func TestGenerateReport_ReservedProjectID_Returns400(t *testing.T) {
 func TestGenerateReport_InvalidProjectID_Returns400(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+	h, _ := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
 	rr := httptest.NewRecorder()
 	h.GenerateReport(rr, makeGenerateReportReq(t, "../evil"))
@@ -118,11 +125,17 @@ func TestGetJobStatus_Returns200ForValidJob(t *testing.T) {
 	blockCh := make(chan struct{})
 	defer close(blockCh)
 	gen := &blockingMockGenerator{ch: blockCh}
-	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+	h, mocks := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+
+	proj, err := mocks.Projects.CreateProject(context.Background(), "myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
 
 	// First, queue a job.
 	genRR := httptest.NewRecorder()
-	h.GenerateReport(genRR, makeGenerateReportReq(t, "myproject"))
+	h.GenerateReport(genRR, makeGenerateReportReq(t, projectIDStr))
 	if genRR.Code != http.StatusAccepted {
 		t.Fatalf("generate: expected 202, got %d", genRR.Code)
 	}
@@ -134,7 +147,7 @@ func TestGetJobStatus_Returns200ForValidJob(t *testing.T) {
 
 	// Now get its status.
 	rr := httptest.NewRecorder()
-	h.GetJobStatus(rr, makeGetJobStatusReq(t, "myproject", jobID))
+	h.GetJobStatus(rr, makeGetJobStatusReq(t, projectIDStr, jobID))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -167,10 +180,16 @@ func TestGetJobStatus_Returns200ForValidJob(t *testing.T) {
 func TestGetJobStatus_Returns404ForUnknownJobID(t *testing.T) {
 	projectsDir := t.TempDir()
 	gen := &mockReportGenerator{out: "ok"}
-	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+	h, mocks := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+
+	proj, err := mocks.Projects.CreateProject(context.Background(), "myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
 
 	rr := httptest.NewRecorder()
-	h.GetJobStatus(rr, makeGetJobStatusReq(t, "myproject", "nonexistent-job-id"))
+	h.GetJobStatus(rr, makeGetJobStatusReq(t, projectIDStr, "nonexistent-job-id"))
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rr.Code, rr.Body.String())
@@ -184,11 +203,23 @@ func TestGetJobStatus_Returns404WhenProjectIDMismatch(t *testing.T) {
 	blockCh := make(chan struct{})
 	defer close(blockCh)
 	gen := &blockingMockGenerator{ch: blockCh}
-	h := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+	h, mocks := newTestReportHandlerWithJobManager(t, projectsDir, gen)
 
-	// Queue a job for "project-a".
+	ctx := context.Background()
+	projA, err := mocks.Projects.CreateProject(ctx, "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projB, err := mocks.Projects.CreateProject(ctx, "project-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projAIDStr := strconv.FormatInt(projA.ID, 10)
+	projBIDStr := strconv.FormatInt(projB.ID, 10)
+
+	// Queue a job for project-a.
 	genRR := httptest.NewRecorder()
-	h.GenerateReport(genRR, makeGenerateReportReq(t, "project-a"))
+	h.GenerateReport(genRR, makeGenerateReportReq(t, projAIDStr))
 	if genRR.Code != http.StatusAccepted {
 		t.Fatalf("generate: expected 202, got %d", genRR.Code)
 	}
@@ -198,9 +229,9 @@ func TestGetJobStatus_Returns404WhenProjectIDMismatch(t *testing.T) {
 	}
 	jobID := genResp["data"].(map[string]any)["job_id"].(string)
 
-	// Request job status under "project-b" — must return 404.
+	// Request job status under project-b — must return 404.
 	rr := httptest.NewRecorder()
-	h.GetJobStatus(rr, makeGetJobStatusReq(t, "project-b", jobID))
+	h.GetJobStatus(rr, makeGetJobStatusReq(t, projBIDStr, jobID))
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for project mismatch, got %d: %s", rr.Code, rr.Body.String())
@@ -212,7 +243,7 @@ type blockingMockGenerator struct {
 	ch chan struct{}
 }
 
-func (b *blockingMockGenerator) GenerateReport(_ context.Context, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (b *blockingMockGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	<-b.ch
 	return "ok", nil
 }

@@ -5,7 +5,8 @@ import "time"
 // WebhookPayload is the canonical summary sent on report_completed events.
 type WebhookPayload struct {
 	Event        string        `json:"event"`
-	ProjectID    string        `json:"project_id"`
+	ProjectID    int64         `json:"project_id"`
+	Slug         string        `json:"slug,omitempty"`
 	BuildNumber  int           `json:"build_number"`
 	DashboardURL string        `json:"dashboard_url,omitempty"`
 	Stats        WebhookStats  `json:"stats"`

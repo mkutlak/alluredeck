@@ -32,10 +32,12 @@ type APIKey struct {
 
 // Project represents a registered allure project.
 type Project struct {
-	ID         string
-	ParentID   *string
-	ReportType string // "allure" or "playwright"
-	CreatedAt  time.Time
+	ID          int64
+	Slug        string
+	ParentID    *int64
+	DisplayName string
+	ReportType  string // "allure" or "playwright"
+	CreatedAt   time.Time
 }
 
 // BuildStats holds aggregated test statistics for a build.
@@ -64,7 +66,7 @@ type CIMetadata struct {
 // Build represents a single report generation run for a project.
 type Build struct {
 	ID                  int64
-	ProjectID           string
+	ProjectID           int64
 	BuildNumber         int
 	CreatedAt           time.Time
 	StatPassed          *int
@@ -95,12 +97,14 @@ type SparklinePoint struct {
 
 // DashboardProject bundles a project with its latest build and sparkline data.
 type DashboardProject struct {
-	ProjectID  string
-	ParentID   *string
-	ReportType string
-	CreatedAt  time.Time
-	Latest     *Build
-	Sparkline  []SparklinePoint
+	ProjectID   int64
+	Slug        string
+	ParentID    *int64
+	DisplayName string
+	ReportType  string
+	CreatedAt   time.Time
+	Latest      *Build
+	Sparkline   []SparklinePoint
 }
 
 // PipelineRunRow is a flat row from the pipeline-runs query.
@@ -110,7 +114,8 @@ type PipelineRunRow struct {
 	Branch      string
 	CIBuildURL  string
 	CreatedAt   time.Time
-	ProjectID   string
+	ProjectID   int64
+	Slug        string
 	BuildNumber int
 	StatPassed  *int
 	StatFailed  *int
@@ -122,7 +127,7 @@ type PipelineRunRow struct {
 // TestResult represents a single test execution result stored in the database.
 type TestResult struct {
 	BuildID    int64
-	ProjectID  string
+	ProjectID  int64
 	TestName   string
 	FullName   string
 	Status     string
@@ -185,7 +190,7 @@ type TestHistoryEntry struct {
 // KnownIssue represents a known test failure that has been acknowledged.
 type KnownIssue struct {
 	ID          int64
-	ProjectID   string
+	ProjectID   int64
 	TestName    string
 	Pattern     string
 	TicketURL   string
@@ -198,7 +203,7 @@ type KnownIssue struct {
 // Branch represents a git branch associated with a project.
 type Branch struct {
 	ID        int64
-	ProjectID string
+	ProjectID int64
 	Name      string
 	IsDefault bool
 	CreatedAt time.Time
@@ -206,13 +211,15 @@ type Branch struct {
 
 // ProjectMatch is returned by search for project queries.
 type ProjectMatch struct {
-	ID        string
+	ID        int64
+	Slug      string
 	CreatedAt time.Time
 }
 
 // TestMatch is returned by search for test queries.
 type TestMatch struct {
-	ProjectID string
+	ProjectID int64
+	Slug      string
 	TestName  string
 	FullName  string
 	Status    string
@@ -277,7 +284,7 @@ type DiffEntry struct {
 // Webhook represents a per-project webhook notification target.
 type Webhook struct {
 	ID         string            `json:"id"`
-	ProjectID  string            `json:"project_id"`
+	ProjectID  int64             `json:"project_id"`
 	Name       string            `json:"name"`
 	TargetType WebhookTargetType `json:"target_type"`
 	URL        string            `json:"-"`

@@ -131,30 +131,60 @@ func (m *MemAPIKeyStore) CountByUsername(ctx context.Context, username string) (
 // MemProjectStore is a thread-safe in-memory ProjectStorer for tests.
 type MemProjectStore struct {
 	mu       sync.RWMutex
-	projects map[string]*store.Project // keyed by project ID
+	projects map[int64]*store.Project // keyed by project ID
+	slugMap  map[string]int64         // slug -> id for standalone lookups
+	nextID   int64
 }
 
 var _ store.ProjectStorer = (*MemProjectStore)(nil)
 
 // NewMemProjectStore returns an initialised MemProjectStore.
 func NewMemProjectStore() *MemProjectStore {
-	return &MemProjectStore{projects: make(map[string]*store.Project)}
+	return &MemProjectStore{
+		projects: make(map[int64]*store.Project),
+		slugMap:  make(map[string]int64),
+		nextID:   1,
+	}
 }
 
-func (m *MemProjectStore) CreateProject(ctx context.Context, id string) error {
+func (m *MemProjectStore) CreateProject(ctx context.Context, slug string) (*store.Project, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.projects[id]; ok {
-		return store.ErrProjectExists
+	if _, ok := m.slugMap[slug]; ok {
+		return nil, store.ErrProjectExists
 	}
-	m.projects[id] = &store.Project{ID: id, CreatedAt: time.Now()}
-	return nil
+	id := m.nextID
+	m.nextID++
+	p := &store.Project{ID: id, Slug: slug, DisplayName: slug, CreatedAt: time.Now()}
+	m.projects[id] = p
+	m.slugMap[slug] = id
+	cp := *p
+	return &cp, nil
 }
 
-func (m *MemProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
+func (m *MemProjectStore) CreateProjectWithParent(ctx context.Context, slug string, parentID int64) (*store.Project, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.slugMap[slug]; ok {
+		return nil, store.ErrProjectExists
+	}
+	id := m.nextID
+	m.nextID++
+	pid := parentID
+	p := &store.Project{ID: id, Slug: slug, ParentID: &pid, DisplayName: slug, CreatedAt: time.Now()}
+	m.projects[id] = p
+	m.slugMap[slug] = id
+	cp := *p
+	return &cp, nil
+}
+
+func (m *MemProjectStore) GetProject(ctx context.Context, id int64) (*store.Project, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -164,6 +194,40 @@ func (m *MemProjectStore) GetProject(ctx context.Context, id string) (*store.Pro
 	if !ok {
 		return nil, store.ErrProjectNotFound
 	}
+	cp := *p
+	return &cp, nil
+}
+
+func (m *MemProjectStore) GetProjectBySlug(ctx context.Context, slug string) (*store.Project, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.slugMap[slug]
+	if !ok {
+		return nil, store.ErrProjectNotFound
+	}
+	p := m.projects[id]
+	// Only return top-level projects (parent_id IS NULL).
+	if p.ParentID != nil {
+		return nil, store.ErrProjectNotFound
+	}
+	cp := *p
+	return &cp, nil
+}
+
+func (m *MemProjectStore) GetProjectBySlugAny(ctx context.Context, slug string) (*store.Project, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.slugMap[slug]
+	if !ok {
+		return nil, store.ErrProjectNotFound
+	}
+	p := m.projects[id]
 	cp := *p
 	return &cp, nil
 }
@@ -194,39 +258,42 @@ func (m *MemProjectStore) ListProjectsPaginated(ctx context.Context, page, perPa
 	return all[start:min(start+perPage, total)], total, nil
 }
 
-func (m *MemProjectStore) DeleteProject(ctx context.Context, id string) error {
+func (m *MemProjectStore) DeleteProject(ctx context.Context, id int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.projects[id]; !ok {
+	p, ok := m.projects[id]
+	if !ok {
 		return store.ErrProjectNotFound
 	}
+	delete(m.slugMap, p.Slug)
 	delete(m.projects, id)
 	return nil
 }
 
-func (m *MemProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
+func (m *MemProjectStore) RenameProject(ctx context.Context, id int64, newSlug string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	p, ok := m.projects[oldID]
+	p, ok := m.projects[id]
 	if !ok {
 		return store.ErrProjectNotFound
 	}
-	if _, exists := m.projects[newID]; exists {
+	if existingID, exists := m.slugMap[newSlug]; exists && existingID != id {
 		return store.ErrProjectExists
 	}
-	p.ID = newID
-	m.projects[newID] = p
-	delete(m.projects, oldID)
+	delete(m.slugMap, p.Slug)
+	p.Slug = newSlug
+	p.DisplayName = newSlug
+	m.slugMap[newSlug] = id
 	return nil
 }
 
-func (m *MemProjectStore) ProjectExists(ctx context.Context, id string) (bool, error) {
+func (m *MemProjectStore) ProjectExists(ctx context.Context, id int64) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -236,7 +303,7 @@ func (m *MemProjectStore) ProjectExists(ctx context.Context, id string) (bool, e
 	return ok, nil
 }
 
-func (m *MemProjectStore) SetReportType(_ context.Context, id, reportType string) error {
+func (m *MemProjectStore) SetReportType(_ context.Context, id int64, reportType string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.projects[id]
@@ -244,20 +311,6 @@ func (m *MemProjectStore) SetReportType(_ context.Context, id, reportType string
 		return store.ErrProjectNotFound
 	}
 	p.ReportType = reportType
-	m.projects[id] = p
-	return nil
-}
-
-func (m *MemProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.projects[id]; ok {
-		return store.ErrProjectExists
-	}
-	m.projects[id] = &store.Project{ID: id, ParentID: &parentID, CreatedAt: time.Now()}
 	return nil
 }
 
@@ -280,7 +333,7 @@ func (m *MemProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, pag
 	return topLevel[start:min(start+perPage, total)], total, nil
 }
 
-func (m *MemProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+func (m *MemProjectStore) ListChildren(ctx context.Context, parentID int64) ([]store.Project, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -295,7 +348,7 @@ func (m *MemProjectStore) ListChildren(ctx context.Context, parentID string) ([]
 	return out, nil
 }
 
-func (m *MemProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]string, error) {
+func (m *MemProjectStore) ListChildIDs(ctx context.Context, parentID int64) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -304,13 +357,13 @@ func (m *MemProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]
 	var out []string
 	for _, p := range m.projects {
 		if p.ParentID != nil && *p.ParentID == parentID {
-			out = append(out, p.ID)
+			out = append(out, p.Slug)
 		}
 	}
 	return out, nil
 }
 
-func (m *MemProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+func (m *MemProjectStore) HasChildren(ctx context.Context, projectID int64) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -324,7 +377,7 @@ func (m *MemProjectStore) HasChildren(ctx context.Context, projectID string) (bo
 	return false, nil
 }
 
-func (m *MemProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
+func (m *MemProjectStore) SetParent(ctx context.Context, projectID, parentID int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -334,11 +387,12 @@ func (m *MemProjectStore) SetParent(ctx context.Context, projectID, parentID str
 	if !ok {
 		return store.ErrProjectNotFound
 	}
-	p.ParentID = &parentID
+	pid := parentID
+	p.ParentID = &pid
 	return nil
 }
 
-func (m *MemProjectStore) ClearParent(ctx context.Context, projectID string) error {
+func (m *MemProjectStore) ClearParent(ctx context.Context, projectID int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -368,7 +422,7 @@ func NewMemKnownIssueStore() *MemKnownIssueStore {
 	return &MemKnownIssueStore{nextID: 1}
 }
 
-func (m *MemKnownIssueStore) Create(ctx context.Context, projectID, testName, pattern, ticketURL, description string) (*store.KnownIssue, error) {
+func (m *MemKnownIssueStore) Create(ctx context.Context, projectID int64, testName, pattern, ticketURL, description string) (*store.KnownIssue, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -412,7 +466,7 @@ func (m *MemKnownIssueStore) Get(ctx context.Context, id int64) (*store.KnownIss
 	return nil, store.ErrKnownIssueNotFound
 }
 
-func (m *MemKnownIssueStore) List(ctx context.Context, projectID string, activeOnly bool) ([]store.KnownIssue, error) {
+func (m *MemKnownIssueStore) List(ctx context.Context, projectID int64, activeOnly bool) ([]store.KnownIssue, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -431,7 +485,7 @@ func (m *MemKnownIssueStore) List(ctx context.Context, projectID string, activeO
 	return out, nil
 }
 
-func (m *MemKnownIssueStore) ListPaginated(ctx context.Context, projectID string, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error) {
+func (m *MemKnownIssueStore) ListPaginated(ctx context.Context, projectID int64, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error) {
 	all, err := m.List(ctx, projectID, activeOnly)
 	if err != nil {
 		return nil, 0, err
@@ -445,7 +499,7 @@ func (m *MemKnownIssueStore) ListPaginated(ctx context.Context, projectID string
 	return all[start:end], total, nil
 }
 
-func (m *MemKnownIssueStore) Update(ctx context.Context, id int64, projectID, ticketURL, description string, isActive bool) error {
+func (m *MemKnownIssueStore) Update(ctx context.Context, id int64, projectID int64, ticketURL, description string, isActive bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -463,7 +517,7 @@ func (m *MemKnownIssueStore) Update(ctx context.Context, id int64, projectID, ti
 	return store.ErrKnownIssueNotFound
 }
 
-func (m *MemKnownIssueStore) Delete(ctx context.Context, id int64, projectID string) error {
+func (m *MemKnownIssueStore) Delete(ctx context.Context, id int64, projectID int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -478,7 +532,7 @@ func (m *MemKnownIssueStore) Delete(ctx context.Context, id int64, projectID str
 	return store.ErrKnownIssueNotFound
 }
 
-func (m *MemKnownIssueStore) IsKnown(ctx context.Context, projectID, testName string) (bool, error) {
+func (m *MemKnownIssueStore) IsKnown(ctx context.Context, projectID int64, testName string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -514,7 +568,7 @@ func NewMemBuildStore() *MemBuildStore {
 	return &MemBuildStore{nextID: 1}
 }
 
-func (m *MemBuildStore) InsertBuild(ctx context.Context, projectID string, buildNumber int) error {
+func (m *MemBuildStore) InsertBuild(ctx context.Context, projectID int64, buildNumber int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -530,7 +584,7 @@ func (m *MemBuildStore) InsertBuild(ctx context.Context, projectID string, build
 	return nil
 }
 
-func (m *MemBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildNumber int, stats store.BuildStats) error {
+func (m *MemBuildStore) UpdateBuildStats(ctx context.Context, projectID int64, buildNumber int, stats store.BuildStats) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -555,7 +609,7 @@ func (m *MemBuildStore) UpdateBuildStats(ctx context.Context, projectID string, 
 	return store.ErrBuildNotFound
 }
 
-func (m *MemBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildNumber int, ciMeta store.CIMetadata) error {
+func (m *MemBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID int64, buildNumber int, ciMeta store.CIMetadata) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -573,7 +627,7 @@ func (m *MemBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID str
 	return store.ErrBuildNotFound
 }
 
-func (m *MemBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, _ *int64) ([]store.Build, int, error) {
+func (m *MemBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID int64, page, perPage int, _ *int64) ([]store.Build, int, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
@@ -597,7 +651,7 @@ func (m *MemBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID
 	return filtered[start:end], total, nil
 }
 
-func (m *MemBuildStore) NextBuildNumber(ctx context.Context, projectID string) (int, error) {
+func (m *MemBuildStore) NextBuildNumber(ctx context.Context, projectID int64) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -612,7 +666,7 @@ func (m *MemBuildStore) NextBuildNumber(ctx context.Context, projectID string) (
 	return max + 1, nil
 }
 
-func (m *MemBuildStore) GetBuildByNumber(ctx context.Context, projectID string, buildNumber int) (store.Build, error) {
+func (m *MemBuildStore) GetBuildByNumber(ctx context.Context, projectID int64, buildNumber int) (store.Build, error) {
 	if err := ctx.Err(); err != nil {
 		return store.Build{}, err
 	}
@@ -626,31 +680,31 @@ func (m *MemBuildStore) GetBuildByNumber(ctx context.Context, projectID string, 
 	return store.Build{}, store.ErrBuildNotFound
 }
 
-func (m *MemBuildStore) GetPreviousBuild(_ context.Context, _ string, _ int) (store.Build, error) {
+func (m *MemBuildStore) GetPreviousBuild(_ context.Context, _ int64, _ int) (store.Build, error) {
 	return store.Build{}, nil
 }
 
-func (m *MemBuildStore) GetLatestBuild(_ context.Context, _ string) (store.Build, error) {
+func (m *MemBuildStore) GetLatestBuild(_ context.Context, _ int64) (store.Build, error) {
 	return store.Build{}, nil
 }
 
-func (m *MemBuildStore) ListBuilds(_ context.Context, _ string) ([]store.Build, error) {
+func (m *MemBuildStore) ListBuilds(_ context.Context, _ int64) ([]store.Build, error) {
 	return nil, nil
 }
 
-func (m *MemBuildStore) ListBuildsPaginated(_ context.Context, _ string, _, _ int) ([]store.Build, int, error) {
+func (m *MemBuildStore) ListBuildsPaginated(_ context.Context, _ int64, _, _ int) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
 
-func (m *MemBuildStore) PruneBuilds(_ context.Context, _ string, _ int) ([]int, error) {
+func (m *MemBuildStore) PruneBuilds(_ context.Context, _ int64, _ int) ([]int, error) {
 	return nil, nil
 }
 
-func (m *MemBuildStore) SetLatest(_ context.Context, _ string, _ int) error {
+func (m *MemBuildStore) SetLatest(_ context.Context, _ int64, _ int) error {
 	return nil
 }
 
-func (m *MemBuildStore) DeleteAllBuilds(_ context.Context, _ string) error {
+func (m *MemBuildStore) DeleteAllBuilds(_ context.Context, _ int64) error {
 	return nil
 }
 
@@ -658,31 +712,31 @@ func (m *MemBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.Dash
 	return nil, nil
 }
 
-func (m *MemBuildStore) DeleteBuild(_ context.Context, _ string, _ int) error {
+func (m *MemBuildStore) DeleteBuild(_ context.Context, _ int64, _ int) error {
 	return nil
 }
 
-func (m *MemBuildStore) UpdateBuildBranchID(_ context.Context, _ string, _ int, _ int64) error {
+func (m *MemBuildStore) UpdateBuildBranchID(_ context.Context, _ int64, _ int, _ int64) error {
 	return nil
 }
 
-func (m *MemBuildStore) SetLatestBranch(_ context.Context, _ string, _ int, _ *int64) error {
+func (m *MemBuildStore) SetLatestBranch(_ context.Context, _ int64, _ int, _ *int64) error {
 	return nil
 }
 
-func (m *MemBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ *int64) ([]int, error) {
+func (m *MemBuildStore) PruneBuildsBranch(_ context.Context, _ int64, _ int, _ *int64) ([]int, error) {
 	return nil, nil
 }
 
-func (m *MemBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Time) ([]int, error) {
+func (m *MemBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
 	return nil, nil
 }
 
-func (m *MemBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
+func (m *MemBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
 
-func (m *MemBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ int, _ bool) error {
+func (m *MemBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int, _ bool) error {
 	return nil
 }
 

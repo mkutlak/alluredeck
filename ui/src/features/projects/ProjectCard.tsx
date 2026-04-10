@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { FolderInput, FolderOpen, Pencil, Trash2, MoreHorizontal } from 'lucide-react'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +15,8 @@ import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { RenameProjectDialog } from './RenameProjectDialog'
 import { SetParentDialog } from './SetParentDialog'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
+import { useProjectDndContext } from './components/DndProjectProvider'
+import { cn } from '@/lib/utils'
 
 interface ProjectCardProps {
   projectId: string
@@ -25,9 +28,40 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
   const [renameOpen, setRenameOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
 
+  const { activeSlug, overSlug, isProjectDraggable, isProjectDropTarget } = useProjectDndContext()
+
+  const draggable = isProjectDraggable(projectId)
+  const droppable = isProjectDropTarget(projectId)
+
+  const { setNodeRef: setDragRef, listeners, attributes, isDragging } = useDraggable({
+    id: projectId,
+    disabled: !draggable,
+  })
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: projectId,
+    disabled: !droppable,
+  })
+
+  const isActiveDropTarget = isOver && overSlug === projectId && activeSlug !== projectId
+
+  const combinedRef = (node: HTMLDivElement | null) => {
+    setDragRef(node)
+    setDropRef(node)
+  }
+
   return (
     <>
-      <Card className="group relative transition-shadow hover:shadow-md">
+      <Card
+        ref={combinedRef}
+        className={cn(
+          'group relative transition-shadow hover:shadow-md',
+          isDragging && 'opacity-40',
+          isActiveDropTarget && 'scale-[1.02] ring-2 ring-blue-500',
+          draggable && 'cursor-grab',
+        )}
+        {...(draggable ? { ...listeners, ...attributes } : {})}
+      >
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
@@ -76,6 +110,9 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
               <Link to={`/projects/${projectId}`}>View reports</Link>
             </Button>
           </div>
+          {isActiveDropTarget && (
+            <p className="mt-2 text-center text-xs text-blue-500">Drop to move into {projectId}</p>
+          )}
         </CardContent>
       </Card>
 

@@ -38,7 +38,8 @@ function renderPage(initialPath = '/admin') {
 function makeJob(overrides: Partial<AdminJobEntry> = {}): AdminJobEntry {
   return {
     job_id: 'job-123',
-    project_id: 'my-project',
+    project_id: 1,
+    slug: 'my-project',
     status: 'running',
     created_at: '2026-03-07T10:00:00Z',
     started_at: '2026-03-07T10:00:01Z',
@@ -51,7 +52,8 @@ function makeJob(overrides: Partial<AdminJobEntry> = {}): AdminJobEntry {
 
 function makeResult(overrides: Partial<AdminResultsEntry> = {}): AdminResultsEntry {
   return {
-    project_id: 'my-project',
+    project_id: 1,
+    slug: 'my-project',
     file_count: 5,
     total_size: 1048576, // 1 MB
     last_modified: '2026-03-07T09:00:00Z',
@@ -113,7 +115,7 @@ describe('AdminPage', () => {
 
   it('renders jobs table with job data', async () => {
     vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ project_id: 'proj-alpha', status: 'running' }),
+      makeJob({ project_id: 2, slug: 'proj-alpha', status: 'running' }),
     ])
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
@@ -128,7 +130,7 @@ describe('AdminPage', () => {
   it('renders results table with file count and size', async () => {
     vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([
-      makeResult({ project_id: 'proj-beta', file_count: 3, total_size: 2048 }),
+      makeResult({ project_id: 2, slug: 'proj-beta', file_count: 3, total_size: 2048 }),
     ])
 
     renderPage()
@@ -270,7 +272,7 @@ describe('AdminPage', () => {
   it('delete button triggers confirmation dialog and calls API on confirm', async () => {
     vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([
-      makeResult({ project_id: 'proj-del' }),
+      makeResult({ project_id: 3, slug: 'proj-del' }),
     ])
     vi.mocked(adminApi.cleanAdminResults).mockResolvedValue()
 

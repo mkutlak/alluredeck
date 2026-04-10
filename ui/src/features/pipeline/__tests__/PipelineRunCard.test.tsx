@@ -12,7 +12,8 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
     timestamp: '2026-04-03T18:00:00Z',
     suites: [
       {
-        project_id: 'api-cloud',
+        project_id: 1,
+        slug: 'api-cloud',
         build_order: 5,
         pass_rate: 100,
         total: 42,
@@ -21,7 +22,8 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
         status: 'passed',
       },
       {
-        project_id: 'ui-tests',
+        project_id: 2,
+        slug: 'ui-tests',
         build_order: 3,
         pass_rate: 85,
         total: 100,

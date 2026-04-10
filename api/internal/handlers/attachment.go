@@ -18,8 +18,8 @@ import (
 type AttachmentHandler struct {
 	attachmentStore store.AttachmentStorer
 	buildStore      store.BuildStorer
+	projectStore    store.ProjectStorer
 	dataStore       storage.Store
-	projectsDir     string
 	logger          *zap.Logger
 }
 
@@ -27,22 +27,22 @@ type AttachmentHandler struct {
 func NewAttachmentHandler(
 	attachmentStore store.AttachmentStorer,
 	buildStore store.BuildStorer,
+	projectStore store.ProjectStorer,
 	dataStore storage.Store,
-	projectsDir string,
 	logger *zap.Logger,
 ) *AttachmentHandler {
 	return &AttachmentHandler{
 		attachmentStore: attachmentStore,
 		buildStore:      buildStore,
+		projectStore:    projectStore,
 		dataStore:       dataStore,
-		projectsDir:     projectsDir,
 		logger:          logger,
 	}
 }
 
 // resolveBuild resolves the build for the given project and reportID.
 // It returns the build and true on success, or writes an error response and returns false.
-func (h *AttachmentHandler) resolveBuild(w http.ResponseWriter, r *http.Request, projectID, reportID string) (store.Build, bool) {
+func (h *AttachmentHandler) resolveBuild(w http.ResponseWriter, r *http.Request, projectID int64, reportID string) (store.Build, bool) {
 	ctx := r.Context()
 	var build store.Build
 	var err error
@@ -63,7 +63,7 @@ func (h *AttachmentHandler) resolveBuild(w http.ResponseWriter, r *http.Request,
 			writeError(w, http.StatusNotFound, "build not found")
 			return store.Build{}, false
 		}
-		h.logger.Error("failed to resolve build", zap.String("project_id", projectID), zap.String("report_id", reportID), zap.Error(err))
+		h.logger.Error("failed to resolve build", zap.Int64("project_id", projectID), zap.String("report_id", reportID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return store.Build{}, false
 	}
@@ -105,7 +105,7 @@ type attachmentGroup struct {
 func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -143,7 +143,7 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 
 	atts, total, err := h.attachmentStore.ListByBuild(ctx, projectID, build.ID, mimeType, limit, offset)
 	if err != nil {
-		h.logger.Error("failed to list attachments", zap.String("project_id", projectID), zap.Int64("build_id", build.ID), zap.Error(err))
+		h.logger.Error("failed to list attachments", zap.Int64("project_id", projectID), zap.Int64("build_id", build.ID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -160,7 +160,7 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 			Source:    att.Source,
 			MimeType:  att.MimeType,
 			SizeBytes: att.SizeBytes,
-			URL:       fmt.Sprintf("/api/v1/projects/%s/reports/%d/attachments/%s", projectID, build.BuildNumber, att.Source),
+			URL:       fmt.Sprintf("/api/v1/projects/%d/reports/%d/attachments/%s", projectID, build.BuildNumber, att.Source),
 		}
 
 		idx, exists := groupIdx[att.TestResultID]
@@ -202,10 +202,22 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
+
+	// Look up slug for storage operations.
+	project, err := h.projectStore.GetProject(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "error fetching project")
+		return
+	}
+	slug := project.Slug
 
 	reportID, ok := extractReportID(w, r)
 	if !ok {
@@ -230,7 +242,7 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 
 	filePath := "data/attachments/" + source
 
-	reader, mimeType, err := h.dataStore.OpenReportFile(ctx, projectID, strconv.Itoa(build.BuildNumber), filePath)
+	reader, mimeType, err := h.dataStore.OpenReportFile(ctx, slug, strconv.Itoa(build.BuildNumber), filePath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "attachment file not found")
 		return

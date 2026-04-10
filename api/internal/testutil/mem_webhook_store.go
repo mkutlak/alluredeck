@@ -66,7 +66,7 @@ func (m *MemWebhookStore) GetByID(ctx context.Context, webhookID string) (*store
 	return nil, fmt.Errorf("%w: id=%s", store.ErrWebhookNotFound, webhookID)
 }
 
-func (m *MemWebhookStore) List(ctx context.Context, projectID string) ([]store.Webhook, error) {
+func (m *MemWebhookStore) List(ctx context.Context, projectID int64) ([]store.Webhook, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (m *MemWebhookStore) Update(ctx context.Context, wh *store.Webhook) error {
 	return fmt.Errorf("%w: id=%s", store.ErrWebhookNotFound, wh.ID)
 }
 
-func (m *MemWebhookStore) Delete(ctx context.Context, webhookID, projectID string) error {
+func (m *MemWebhookStore) Delete(ctx context.Context, webhookID string, projectID int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func (m *MemWebhookStore) Delete(ctx context.Context, webhookID, projectID strin
 	return fmt.Errorf("%w: id=%s", store.ErrWebhookNotFound, webhookID)
 }
 
-func (m *MemWebhookStore) ListActiveForEvent(ctx context.Context, projectID, event string) ([]store.Webhook, error) {
+func (m *MemWebhookStore) ListActiveForEvent(ctx context.Context, projectID int64, event string) ([]store.Webhook, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

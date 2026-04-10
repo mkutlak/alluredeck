@@ -68,7 +68,7 @@ describe('DefectList', () => {
       data: [
         {
           id: 'def-1',
-          project_id: 'myproject',
+          project_id: 1,
           fingerprint_hash: 'abc123',
           normalized_message: 'NullPointerException in UserService',
           sample_trace: '',

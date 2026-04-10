@@ -96,11 +96,11 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
               {projects.map((p) => (
                 <CommandItem
                   key={p.project_id}
-                  value={`project-${p.project_id}`}
+                  value={`project-${p.slug}`}
                   onSelect={() => handleSelect(`/projects/${p.project_id}`)}
                 >
                   <FolderOpen className="text-muted-foreground size-4 shrink-0" />
-                  <span>{p.project_id}</span>
+                  <span>{p.slug}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -113,14 +113,14 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
               {tests.map((t, i) => (
                 <CommandItem
                   key={`${t.project_id}-${t.test_name}-${i}`}
-                  value={`test-${t.project_id}-${t.test_name}-${i}`}
+                  value={`test-${t.slug}-${t.test_name}-${i}`}
                   onSelect={() => handleSelect(`/projects/${t.project_id}`)}
                 >
                   <FlaskConical className="text-muted-foreground size-4 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <span className="block truncate">{t.test_name}</span>
                     <span className="text-muted-foreground block truncate text-xs">
-                      {t.project_id}
+                      {t.slug}
                     </span>
                   </div>
                   <Badge variant="outline" className="ml-auto shrink-0 text-xs">

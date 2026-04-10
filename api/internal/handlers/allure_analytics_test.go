@@ -21,27 +21,27 @@ type mockAnalyticsStore struct {
 	errToReturn    error
 }
 
-func (m *mockAnalyticsStore) ListTopErrors(_ context.Context, _ []string, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
+func (m *mockAnalyticsStore) ListTopErrors(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
 	return m.topErrors, m.errToReturn
 }
 
-func (m *mockAnalyticsStore) ListSuitePassRates(_ context.Context, _ []string, _ int, _ *int64) ([]store.SuitePassRate, error) {
+func (m *mockAnalyticsStore) ListSuitePassRates(_ context.Context, _ []int64, _ int, _ *int64) ([]store.SuitePassRate, error) {
 	return m.suitePassRates, m.errToReturn
 }
 
-func (m *mockAnalyticsStore) ListLabelBreakdown(_ context.Context, _ []string, _ string, _ int, _ *int64) ([]store.LabelCount, error) {
+func (m *mockAnalyticsStore) ListLabelBreakdown(_ context.Context, _ []int64, _ string, _ int, _ *int64) ([]store.LabelCount, error) {
 	return m.labelCounts, m.errToReturn
 }
 
-func (m *mockAnalyticsStore) ListTrendPoints(_ context.Context, _ []string, _ int, _ *int64) ([]store.TrendPoint, error) {
+func (m *mockAnalyticsStore) ListTrendPoints(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
 	return m.trendPoints, m.errToReturn
 }
 
 func TestAnalyticsHandler_NilStore_GetTopErrors(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/analytics/errors?builds=5&limit=3", nil)
-	req.SetPathValue("project_id", "myproj")
+		"/api/v1/projects/1/analytics/errors?builds=5&limit=3", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetTopErrors(rr, req)
 
@@ -60,10 +60,10 @@ func TestAnalyticsHandler_NilStore_GetTopErrors(t *testing.T) {
 }
 
 func TestAnalyticsHandler_NilStore_GetSuitePassRates(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/analytics/suites?builds=5", nil)
-	req.SetPathValue("project_id", "myproj")
+		"/api/v1/projects/1/analytics/suites?builds=5", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetSuitePassRates(rr, req)
 
@@ -82,10 +82,10 @@ func TestAnalyticsHandler_NilStore_GetSuitePassRates(t *testing.T) {
 }
 
 func TestAnalyticsHandler_NilStore_GetLabelBreakdown(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/analytics/labels?name=severity&builds=5", nil)
-	req.SetPathValue("project_id", "myproj")
+		"/api/v1/projects/1/analytics/labels?name=severity&builds=5", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetLabelBreakdown(rr, req)
 
@@ -110,10 +110,10 @@ func TestAnalyticsHandler_GetTopErrors_WithData(t *testing.T) {
 			{Message: "Timeout in Bar", Count: 3},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/analytics/errors", nil)
-	req.SetPathValue("project_id", "proj1")
+		"/api/v1/projects/1/analytics/errors", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetTopErrors(rr, req)
 
@@ -142,10 +142,10 @@ func TestAnalyticsHandler_GetSuitePassRates_WithData(t *testing.T) {
 			{Suite: "SmokeTests", Total: 10, Passed: 9, PassRate: 90.0},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj2/analytics/suites", nil)
-	req.SetPathValue("project_id", "proj2")
+		"/api/v1/projects/2/analytics/suites", nil)
+	req.SetPathValue("project_id", "2")
 	rr := httptest.NewRecorder()
 	h.GetSuitePassRates(rr, req)
 
@@ -170,10 +170,10 @@ func TestAnalyticsHandler_GetLabelBreakdown_WithData(t *testing.T) {
 			{Value: "minor", Count: 3},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj3/analytics/labels?name=severity", nil)
-	req.SetPathValue("project_id", "proj3")
+		"/api/v1/projects/3/analytics/labels?name=severity", nil)
+	req.SetPathValue("project_id", "3")
 	rr := httptest.NewRecorder()
 	h.GetLabelBreakdown(rr, req)
 
@@ -196,14 +196,14 @@ func TestAnalyticsHandler_QueryParamDefaults(t *testing.T) {
 	var gotBuilds, gotLimit int
 	mock := &mockAnalyticsStore{}
 	// We just verify the handler doesn't crash with no query params
-	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	_ = called
 	_ = gotBuilds
 	_ = gotLimit
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/p/analytics/errors", nil)
-	req.SetPathValue("project_id", "p")
+		"/api/v1/projects/1/analytics/errors", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetTopErrors(rr, req)
 	if rr.Code != http.StatusOK {
@@ -212,10 +212,10 @@ func TestAnalyticsHandler_QueryParamDefaults(t *testing.T) {
 }
 
 func TestAnalyticsHandler_NilStore_GetTrends(t *testing.T) {
-	h := NewAnalyticsHandler(nil, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(nil, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/analytics/trends?builds=5", nil)
-	req.SetPathValue("project_id", "myproj")
+		"/api/v1/projects/1/analytics/trends?builds=5", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetTrends(rr, req)
 
@@ -262,10 +262,10 @@ func TestAnalyticsHandler_GetTrends_WithData(t *testing.T) {
 			{BuildNumber: 3, Passed: 48, Failed: 1, Broken: 0, Skipped: 1, Total: 50, PassRate: 96.0, DurationMs: 50000},
 		},
 	}
-	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/analytics/trends", nil)
-	req.SetPathValue("project_id", "proj1")
+		"/api/v1/projects/1/analytics/trends", nil)
+	req.SetPathValue("project_id", "1")
 	rr := httptest.NewRecorder()
 	h.GetTrends(rr, req)
 
@@ -324,10 +324,10 @@ func TestAnalyticsHandler_GetTrends_KpiComputation(t *testing.T) {
 		}
 	}
 	mock := &mockAnalyticsStore{trendPoints: points}
-	h := NewAnalyticsHandler(mock, nil, nil, t.TempDir(), zap.NewNop())
+	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj4/analytics/trends?builds=15", nil)
-	req.SetPathValue("project_id", "proj4")
+		"/api/v1/projects/4/analytics/trends?builds=15", nil)
+	req.SetPathValue("project_id", "4")
 	rr := httptest.NewRecorder()
 	h.GetTrends(rr, req)
 

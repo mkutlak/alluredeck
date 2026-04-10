@@ -3,6 +3,7 @@ package handlers
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
@@ -47,14 +49,35 @@ func NewResultUploadHandler(st storage.Store, ps store.ProjectStorer, jm runner.
 // @Failure      400  {object}  map[string]any
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/results [delete]
+// resolveProjectID tries to parse the path value as a numeric ID.
+// If it fails, treats it as a slug and looks up the project.
+// Returns (id, slug, found).
+func (h *ResultUploadHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, bool) {
+	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
+		p, err := h.projectStore.GetProject(ctx, id)
+		if err == nil {
+			return p.ID, p.Slug, true
+		}
+	}
+	// Treat as slug — look up by slug.
+	p, err := h.projectStore.GetProjectBySlugAny(ctx, pathValue)
+	if err == nil {
+		return p.ID, p.Slug, true
+	}
+	return 0, pathValue, false
+}
+
 func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
-	if !ok {
+	pathValue := r.PathValue("project_id")
+	projectID, slug, found := h.resolveProjectID(r.Context(), pathValue)
+	if !found {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("project '%s' not found", pathValue))
 		return
 	}
+	_ = projectID // DB operations would use this
 
-	if err := h.runner.CleanResults(r.Context(), projectID); err != nil {
-		h.logger.Error("cleaning results failed", zap.String("project_id", projectID), zap.Error(err))
+	if err := h.runner.CleanResults(r.Context(), slug); err != nil {
+		h.logger.Error("cleaning results failed", zap.String("slug", slug), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error cleaning results")
 		return
 	}
@@ -81,55 +104,68 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 // @Failure      413  {object}  map[string]any
 // @Router       /projects/{project_id}/results [post]
 func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
-	if !ok {
-		return
-	}
+	pathValue := r.PathValue("project_id")
+	projectID, slug, found := h.resolveProjectID(r.Context(), pathValue)
 
-	parentID := r.URL.Query().Get("parent_id")
+	parentIDStr := r.URL.Query().Get("parent_id")
+
 	execName := r.URL.Query().Get("execution_name")
 	execFrom := r.URL.Query().Get("execution_from")
 	execType := r.URL.Query().Get("execution_type")
 	ciBranch := r.URL.Query().Get("ci_branch")
 	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
 
-	// Ensure project exists (auto-create if requested)
-	exists, err := h.store.ProjectExists(r.Context(), projectID)
-	if err != nil {
-		h.logger.Error("checking project existence failed", zap.String("project_id", projectID), zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "failed to check project")
-		return
-	}
-	if !exists {
+	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
-			if err := h.runner.CreateProject(r.Context(), projectID); err != nil && !errors.Is(err, runner.ErrProjectExists) {
-				h.logger.Error("auto-creating project failed", zap.String("project_id", projectID), zap.Error(err))
+			slug = pathValue // use path value as slug for new project
+			// Create filesystem project via runner.
+			if err := h.runner.CreateProject(r.Context(), slug); err != nil && !errors.Is(err, runner.ErrProjectExists) {
+				h.logger.Error("auto-creating project failed", zap.String("slug", slug), zap.Error(err))
 				writeError(w, http.StatusInternalServerError, "failed to create project")
 				return
 			}
-			if parentID != "" {
-				// Ensure parent project exists in DB; create it if missing.
-				if dbErr := h.projectStore.CreateProject(r.Context(), parentID); dbErr != nil {
+			if parentIDStr != "" {
+				var parentID int64
+				if id, parseErr := strconv.ParseInt(parentIDStr, 10, 64); parseErr == nil {
+					parentID = id
+				} else {
+					parent, lookupErr := h.projectStore.GetProjectBySlugAny(r.Context(), parentIDStr)
+					if lookupErr != nil {
+						writeError(w, http.StatusBadRequest, fmt.Sprintf("parent_id '%s' not found", parentIDStr))
+						return
+					}
+					parentID = parent.ID
+				}
+				// Register child project with parent link.
+				project, dbErr := h.projectStore.CreateProjectWithParent(r.Context(), slug, parentID)
+				if dbErr != nil {
 					if !errors.Is(dbErr, store.ErrProjectExists) {
-						h.logger.Error("db parent project registration failed", zap.String("parent_id", parentID), zap.Error(dbErr))
+						h.logger.Error("db project registration failed", zap.String("slug", slug), zap.Error(dbErr))
 					}
 				}
-				// Register child project with parent link in DB.
-				if dbErr := h.projectStore.CreateProjectWithParent(r.Context(), projectID, parentID); dbErr != nil {
-					if !errors.Is(dbErr, store.ErrProjectExists) {
-						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
-					}
+				if project != nil {
+					projectID = project.ID
 				}
 			} else {
 				// Register in database so downstream jobs (River) can reference the project.
-				if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
+				project, dbErr := h.projectStore.CreateProject(r.Context(), slug)
+				if dbErr != nil {
 					if !errors.Is(dbErr, store.ErrProjectExists) {
-						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+						h.logger.Error("db project registration failed", zap.String("slug", slug), zap.Error(dbErr))
 					}
+				}
+				if project != nil {
+					projectID = project.ID
+				}
+			}
+			// If project already existed, look it up.
+			if projectID == 0 {
+				if p, err := h.projectStore.GetProjectBySlugAny(r.Context(), slug); err == nil {
+					projectID = p.ID
 				}
 			}
 		} else {
-			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id '%s' not found", projectID))
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project '%s' not found", pathValue))
 			return
 		}
 	}
@@ -139,7 +175,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
-	processedFiles, failedFiles, err := h.parseResultsBody(r, projectID)
+	processedFiles, failedFiles, err := h.parseResultsBody(r, slug)
 	if errors.Is(err, errUnsupportedContentType) {
 		writeError(w, http.StatusBadRequest, "Content-Type must be application/json, multipart/form-data, or application/gzip")
 		return
@@ -163,7 +199,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	}
 
 	// Auto-trigger report generation after successful upload.
-	job := h.jobManager.Submit(projectID, runner.JobParams{
+	job := h.jobManager.Submit(projectID, slug, runner.JobParams{
 		ExecName:     execName,
 		ExecFrom:     execFrom,
 		ExecType:     execType,
@@ -175,11 +211,11 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	if h.cfg.APIResponseLessVerbose {
 		writeSuccess(w, http.StatusOK, map[string]any{
 			"job_id": job.ID,
-		}, fmt.Sprintf("Results successfully sent for project_id '%s'", projectID))
+		}, fmt.Sprintf("Results successfully sent for project '%s'", slug))
 		return
 	}
 
-	currentFileNames, _ := h.store.ListResultFiles(r.Context(), projectID)
+	currentFileNames, _ := h.store.ListResultFiles(r.Context(), slug)
 
 	writeSuccess(w, http.StatusOK, map[string]any{
 		"job_id":                job.ID,
@@ -190,7 +226,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 		"processed_files":       processedFiles,
 		"processed_files_count": len(processedFiles),
 		"sent_files_count":      len(processedFiles) + len(failedFiles),
-	}, fmt.Sprintf("Results successfully sent for project_id '%s'", projectID))
+	}, fmt.Sprintf("Results successfully sent for project '%s'", slug))
 }
 
 // parseResultsBody routes the request to the appropriate parser based on Content-Type.

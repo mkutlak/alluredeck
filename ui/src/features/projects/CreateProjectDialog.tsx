@@ -58,7 +58,8 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
           data: [
             ...previous.data,
             {
-              project_id: newProject.id,
+              project_id: 0,
+              slug: newProject.id,
               ...(newProject.parent_id ? { parent_id: newProject.parent_id } : {}),
             },
           ],
@@ -94,7 +95,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
       setError('Project ID is required.')
       return
     }
-    mutation.mutate({ id, ...(parentId ? { parent_id: parentId } : {}) })
+    mutation.mutate({ id, ...(parentId ? { parent_id: Number(parentId) } : {}) })
   }
 
   return (
@@ -139,8 +140,8 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                 </SelectTrigger>
                 <SelectContent>
                   {availableParents.map((p) => (
-                    <SelectItem key={p.project_id} value={p.project_id}>
-                      {p.project_id}
+                    <SelectItem key={p.project_id} value={String(p.project_id)}>
+                      {p.slug}
                     </SelectItem>
                   ))}
                 </SelectContent>

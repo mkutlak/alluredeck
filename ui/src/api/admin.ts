@@ -22,3 +22,7 @@ export async function cleanAdminResults(projectId: string): Promise<void> {
 export async function deleteJob(jobId: string): Promise<void> {
   await apiClient.delete(`/admin/jobs/${encodeURIComponent(jobId)}`)
 }
+
+export async function cleanAdminResultsBulk(projectIds: number[]): Promise<void> {
+  await apiClient.delete('/admin/results', { project_ids: projectIds })
+}

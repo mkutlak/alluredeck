@@ -54,10 +54,10 @@ export function ProjectSwitcher() {
               {projects.map((p) => (
                 <CommandItem
                   key={p.project_id}
-                  value={p.project_id}
-                  onSelect={() => handleSelect(p.project_id)}
+                  value={p.slug}
+                  onSelect={() => handleSelect(p.slug)}
                 >
-                  {p.project_id}
+                  {p.slug}
                 </CommandItem>
               ))}
             </CommandGroup>

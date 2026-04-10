@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -16,8 +17,8 @@ import (
 
 func TestGetReportTimeline_LatestReport(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "timelineproj"
-	resultsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "data", "test-results")
+	projectSlug := "timelineproj"
+	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -33,13 +34,19 @@ func TestGetReportTimeline_LatestReport(t *testing.T) {
 		}
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/timelineproj/reports/latest/timeline", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -82,8 +89,8 @@ func TestGetReportTimeline_LatestReport(t *testing.T) {
 
 func TestGetReportTimeline_TopLevelStartStop(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "rawfmt"
-	resultsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "data", "test-results")
+	projectSlug := "rawfmt"
+	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -93,13 +100,19 @@ func TestGetReportTimeline_TopLevelStartStop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/rawfmt/reports/latest/timeline", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -128,19 +141,25 @@ func TestGetReportTimeline_TopLevelStartStop(t *testing.T) {
 
 func TestGetReportTimeline_EmptyDir(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "emptyproj"
-	resultsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "data", "test-results")
+	projectSlug := "emptyproj"
+	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/emptyproj/reports/latest/timeline", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -182,19 +201,25 @@ func TestGetReportTimeline_InvalidProjectID(t *testing.T) {
 
 func TestGetReportTimeline_MissingDir(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "nodirproj"
+	projectSlug := "nodirproj"
 	// Create project dir but no reports subdirectory
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/nodirproj/reports/latest/timeline", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -216,17 +241,24 @@ func TestGetReportTimeline_MissingDir(t *testing.T) {
 
 func TestGetReportTimeline_DBFastPath(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "dbproj"
+	projectSlug := "dbproj"
 
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
-		if pid == projectID && buildNumber == 5 {
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := proj.ID
+	projectIDStr := strconv.FormatInt(projectID, 10)
+
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, buildNumber int) (int64, error) {
+		if buildNumber == 5 {
 			return int64(100), nil
 		}
 		return 0, nil
 	}
-	mocks.TestResults.ListTimelineFn = func(_ context.Context, pid string, buildID int64, _ int) ([]store.TimelineRow, error) {
-		if pid == projectID && buildID == int64(100) {
+	mocks.TestResults.ListTimelineFn = func(_ context.Context, _ int64, buildID int64, _ int) ([]store.TimelineRow, error) {
+		if buildID == int64(100) {
 			return []store.TimelineRow{
 				{TestName: "Login", FullName: "com.Login", Status: "passed", StartMs: 1700000000000, StopMs: 1700000005000, Thread: "t-1", Host: "node-1"},
 				{TestName: "Logout", FullName: "com.Logout", Status: "failed", StartMs: 1700000001000, StopMs: 1700000003000, Thread: "t-2", Host: "node-1"},
@@ -239,11 +271,11 @@ func TestGetReportTimeline_DBFastPath(t *testing.T) {
 
 	// Request with numeric report_id "5" — should hit DB fast path.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/dbproj/reports/5/timeline", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/5/timeline", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "5")
 
 	rr := httptest.NewRecorder()
@@ -294,10 +326,10 @@ func TestGetReportTimeline_DBFastPath(t *testing.T) {
 
 func TestGetReportTimeline_FallbackToS3(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "fallbackproj"
+	projectSlug := "fallbackproj"
 
 	// Create report files for "latest" — S3 path should serve these.
-	resultsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "data", "test-results")
+	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -306,15 +338,20 @@ func TestGetReportTimeline_FallbackToS3(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-
-	// "latest" is non-numeric — should fall back to S3.
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/fallbackproj/reports/latest/timeline", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	// "latest" is non-numeric — should fall back to S3.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -336,29 +373,31 @@ func TestGetReportTimeline_FallbackToS3(t *testing.T) {
 
 func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "latestdbproj"
+	projectSlug := "latestdbproj"
 
 	mocks := testutil.New()
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
 
 	// GetLatestBuild resolves "latest" to build order 7.
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
-		if pid == projectID {
-			return store.Build{BuildNumber: 7}, nil
-		}
-		return store.Build{}, store.ErrBuildNotFound
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, _ int64) (store.Build, error) {
+		return store.Build{BuildNumber: 7}, nil
 	}
 
 	// GetBuildID maps build order 7 → build ID 200.
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
-		if pid == projectID && buildNumber == 7 {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, buildNumber int) (int64, error) {
+		if buildNumber == 7 {
 			return int64(200), nil
 		}
 		return 0, fmt.Errorf("not found")
 	}
 
 	// ListTimeline returns test data for build ID 200.
-	mocks.TestResults.ListTimelineFn = func(_ context.Context, pid string, buildID int64, _ int) ([]store.TimelineRow, error) {
-		if pid == projectID && buildID == int64(200) {
+	mocks.TestResults.ListTimelineFn = func(_ context.Context, _ int64, buildID int64, _ int) ([]store.TimelineRow, error) {
+		if buildID == int64(200) {
 			return []store.TimelineRow{
 				{TestName: "ResolvedTest", FullName: "com.ResolvedTest", Status: "passed", StartMs: 1700000000000, StopMs: 1700000002000, Thread: "t-1", Host: "h-1"},
 			}, nil
@@ -369,11 +408,11 @@ func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/latestdbproj/reports/latest/timeline", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -399,8 +438,8 @@ func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
 
 func TestGetReportTimeline_Truncation(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "truncproj"
-	resultsDir := filepath.Join(projectsDir, projectID, "reports", "latest", "data", "test-results")
+	projectSlug := "truncproj"
+	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -418,13 +457,19 @@ func TestGetReportTimeline_Truncation(t *testing.T) {
 		}
 	}
 
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/truncproj/reports/latest/timeline", nil)
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()

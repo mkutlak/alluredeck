@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,22 +35,24 @@ func pipelineRequest(t *testing.T, h *PipelineHandler, projectID, query string) 
 
 func TestPipelineHandler_GetPipelineRuns_Success(t *testing.T) {
 	projStore := testutil.NewMemProjectStore()
-	_ = projStore.CreateProjectWithParent(context.Background(), "child-a", "parent")
-	_ = projStore.CreateProjectWithParent(context.Background(), "child-b", "parent")
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	childA, _ := projStore.CreateProjectWithParent(context.Background(), "child-a", parentProj.ID)
+	childB, _ := projStore.CreateProjectWithParent(context.Background(), "child-b", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
 
 	now := time.Now().UTC()
 	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, parentID, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
+		ListPipelineRunsFn: func(_ context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
 			return []store.PipelineRunRow{
-				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "https://ci/1", CreatedAt: now, ProjectID: "child-a", BuildNumber: 5, StatPassed: intPtr(40), StatFailed: intPtr(2), StatBroken: intPtr(0), StatTotal: intPtr(42), DurationMs: int64Ptr(15000)},
-				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "", CreatedAt: now.Add(-time.Second), ProjectID: "child-b", BuildNumber: 3, StatPassed: intPtr(100), StatFailed: intPtr(0), StatBroken: intPtr(0), StatTotal: intPtr(100), DurationMs: int64Ptr(30000)},
-				{CommitSHA: "def5678", Branch: "main", CIBuildURL: "https://ci/2", CreatedAt: now.Add(-time.Hour), ProjectID: "child-a", BuildNumber: 4, StatPassed: intPtr(42), StatFailed: intPtr(0), StatBroken: intPtr(0), StatTotal: intPtr(42), DurationMs: int64Ptr(14000)},
+				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "https://ci/1", CreatedAt: now, ProjectID: childA.ID, Slug: "child-a", BuildNumber: 5, StatPassed: intPtr(40), StatFailed: intPtr(2), StatBroken: intPtr(0), StatTotal: intPtr(42), DurationMs: int64Ptr(15000)},
+				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "", CreatedAt: now.Add(-time.Second), ProjectID: childB.ID, Slug: "child-b", BuildNumber: 3, StatPassed: intPtr(100), StatFailed: intPtr(0), StatBroken: intPtr(0), StatTotal: intPtr(100), DurationMs: int64Ptr(30000)},
+				{CommitSHA: "def5678", Branch: "main", CIBuildURL: "https://ci/2", CreatedAt: now.Add(-time.Hour), ProjectID: childA.ID, Slug: "child-a", BuildNumber: 4, StatPassed: intPtr(42), StatFailed: intPtr(0), StatBroken: intPtr(0), StatTotal: intPtr(42), DurationMs: int64Ptr(14000)},
 			}, 2, nil
 		},
 	}
 
 	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, "parent", "")
+	rr := pipelineRequest(t, h, parentIDStr, "")
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -102,11 +105,13 @@ func TestPipelineHandler_GetPipelineRuns_Success(t *testing.T) {
 
 func TestPipelineHandler_GetPipelineRuns_Empty(t *testing.T) {
 	projStore := testutil.NewMemProjectStore()
-	_ = projStore.CreateProjectWithParent(context.Background(), "child", "parent")
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
 
 	ps := &testutil.MockPipelineStore{}
 	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, "parent", "")
+	rr := pipelineRequest(t, h, parentIDStr, "")
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -125,17 +130,19 @@ func TestPipelineHandler_GetPipelineRuns_Empty(t *testing.T) {
 
 func TestPipelineHandler_GetPipelineRuns_BranchFilter(t *testing.T) {
 	projStore := testutil.NewMemProjectStore()
-	_ = projStore.CreateProjectWithParent(context.Background(), "child", "parent")
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
 
 	var capturedBranch string
 	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _, branch string, _, _ int) ([]store.PipelineRunRow, int, error) {
+		ListPipelineRunsFn: func(_ context.Context, _ int64, branch string, _, _ int) ([]store.PipelineRunRow, int, error) {
 			capturedBranch = branch
 			return nil, 0, nil
 		},
 	}
 	h := newPipelineHandler(t, ps, projStore)
-	pipelineRequest(t, h, "parent", "branch=develop")
+	pipelineRequest(t, h, parentIDStr, "branch=develop")
 
 	if capturedBranch != "develop" {
 		t.Errorf("branch = %q, want develop", capturedBranch)
@@ -144,11 +151,12 @@ func TestPipelineHandler_GetPipelineRuns_BranchFilter(t *testing.T) {
 
 func TestPipelineHandler_GetPipelineRuns_NotParent(t *testing.T) {
 	projStore := testutil.NewMemProjectStore()
-	_ = projStore.CreateProject(context.Background(), "standalone")
+	standaloneProj, _ := projStore.CreateProject(context.Background(), "standalone")
+	standaloneIDStr := fmt.Sprintf("%d", standaloneProj.ID)
 
 	ps := &testutil.MockPipelineStore{}
 	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, "standalone", "")
+	rr := pipelineRequest(t, h, standaloneIDStr, "")
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
@@ -157,17 +165,19 @@ func TestPipelineHandler_GetPipelineRuns_NotParent(t *testing.T) {
 
 func TestPipelineHandler_GetPipelineRuns_DefaultPerPage(t *testing.T) {
 	projStore := testutil.NewMemProjectStore()
-	_ = projStore.CreateProjectWithParent(context.Background(), "child", "parent")
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
 
 	var capturedPerPage int
 	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _, _ string, _, perPage int) ([]store.PipelineRunRow, int, error) {
+		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, perPage int) ([]store.PipelineRunRow, int, error) {
 			capturedPerPage = perPage
 			return nil, 0, nil
 		},
 	}
 	h := newPipelineHandler(t, ps, projStore)
-	pipelineRequest(t, h, "parent", "")
+	pipelineRequest(t, h, parentIDStr, "")
 
 	if capturedPerPage != 10 {
 		t.Errorf("per_page = %d, want 10", capturedPerPage)
@@ -176,15 +186,17 @@ func TestPipelineHandler_GetPipelineRuns_DefaultPerPage(t *testing.T) {
 
 func TestPipelineHandler_GetPipelineRuns_Pagination(t *testing.T) {
 	projStore := testutil.NewMemProjectStore()
-	_ = projStore.CreateProjectWithParent(context.Background(), "child", "parent")
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
 
 	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
+		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
 			return nil, 25, nil
 		},
 	}
 	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, "parent", "page=2&per_page=10")
+	rr := pipelineRequest(t, h, parentIDStr, "page=2&per_page=10")
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)

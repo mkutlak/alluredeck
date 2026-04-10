@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -19,13 +20,20 @@ func ptr(v string) *string    { return &v }
 
 func TestGetReportSummary_NumericReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "summary-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "summary-proj"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := proj.ID
+	projectIDStr := strconv.FormatInt(projectID, 10)
+
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		if pid == projectID && buildOrder == 3 {
 			return store.Build{
 				ID:             100,
@@ -46,10 +54,10 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 		}
 		return store.Build{}, store.ErrBuildNotFound
 	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid string, buildID int64, limit int) ([]store.TestResult, error) {
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid int64, buildID int64, limit int) ([]store.TestResult, error) {
 		return []store.TestResult{
 			{TestName: "Login timeout", Status: "failed", DurationMs: 30000, NewFailed: true},
 			{TestName: "API broken", Status: "broken", DurationMs: 5000, Flaky: true},
@@ -58,11 +66,11 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/summary-proj/reports/3/summary", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/3/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "3")
 
 	rr := httptest.NewRecorder()
@@ -87,8 +95,8 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 	if int(build["build_number"].(float64)) != 3 {
 		t.Errorf("build_number = %v, want 3", build["build_number"])
 	}
-	if build["project_id"] != projectID {
-		t.Errorf("project_id = %v, want %s", build["project_id"], projectID)
+	if int64(build["project_id"].(float64)) != projectID {
+		t.Errorf("project_id = %v, want %d", build["project_id"], projectID)
 	}
 	if build["is_latest"] != true {
 		t.Errorf("is_latest = %v, want true", build["is_latest"])
@@ -140,13 +148,20 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 
 func TestGetReportSummary_Latest(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "latest-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "latest-proj"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid string) (store.Build, error) {
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := proj.ID
+	projectIDStr := strconv.FormatInt(projectID, 10)
+
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid int64) (store.Build, error) {
 		return store.Build{
 			ID:          2,
 			ProjectID:   projectID,
@@ -156,17 +171,17 @@ func TestGetReportSummary_Latest(t *testing.T) {
 			StatTotal:   intPtr(50),
 		}, nil
 	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/latest-proj/reports/latest/summary", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/latest/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()
@@ -189,13 +204,20 @@ func TestGetReportSummary_Latest(t *testing.T) {
 
 func TestGetReportSummary_TrendDelta(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "trend-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "trend-proj"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := proj.ID
+	projectIDStr := strconv.FormatInt(projectID, 10)
+
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		if buildOrder == 2 {
 			return store.Build{
 				ID:          2,
@@ -211,7 +233,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 		}
 		return store.Build{}, store.ErrBuildNotFound
 	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		return store.Build{
 			ID:          1,
 			ProjectID:   projectID,
@@ -227,11 +249,11 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/trend-proj/reports/2/summary", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/2/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "2")
 
 	rr := httptest.NewRecorder()
@@ -266,26 +288,29 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 
 func TestGetReportSummary_BuildNotFound(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "notfound-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "notfound-proj"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
-		if buildOrder == 99 {
-			return store.Build{}, store.ErrBuildNotFound
-		}
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/notfound-proj/reports/99/summary", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/99/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "99")
 
 	rr := httptest.NewRecorder()
@@ -318,13 +343,20 @@ func TestGetReportSummary_InvalidProjectID(t *testing.T) {
 
 func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := "limit-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
+	projectSlug := "limit-proj"
+	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	mocks := testutil.New()
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := proj.ID
+	projectIDStr := strconv.FormatInt(projectID, 10)
+
+	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		if buildOrder == 1 {
 			return store.Build{
 				ID:          1,
@@ -336,7 +368,7 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 		}
 		return store.Build{}, store.ErrBuildNotFound
 	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid string, buildOrder int) (store.Build, error) {
+	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
 		return store.Build{}, store.ErrBuildNotFound
 	}
 
@@ -351,7 +383,7 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 			HistoryID:  "h-" + string(rune('a'+i)),
 		})
 	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid string, buildID int64, limit int) ([]store.TestResult, error) {
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid int64, buildID int64, limit int) ([]store.TestResult, error) {
 		if limit < len(batch) {
 			return batch[:limit], nil
 		}
@@ -360,11 +392,11 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/limit-proj/reports/1/summary", nil)
+		"/api/v1/projects/"+projectIDStr+"/reports/1/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "1")
 
 	rr := httptest.NewRecorder()

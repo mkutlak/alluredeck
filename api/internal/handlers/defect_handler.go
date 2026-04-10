@@ -13,14 +13,14 @@ import (
 
 // DefectHandler handles HTTP requests for defect fingerprint management.
 type DefectHandler struct {
-	defectStore store.DefectStorer
-	projectsDir string
-	logger      *zap.Logger
+	defectStore  store.DefectStorer
+	projectStore store.ProjectStorer
+	logger       *zap.Logger
 }
 
 // NewDefectHandler creates a DefectHandler.
-func NewDefectHandler(defectStore store.DefectStorer, projectsDir string, logger *zap.Logger) *DefectHandler {
-	return &DefectHandler{defectStore: defectStore, projectsDir: projectsDir, logger: logger}
+func NewDefectHandler(defectStore store.DefectStorer, ps store.ProjectStorer, logger *zap.Logger) *DefectHandler {
+	return &DefectHandler{defectStore: defectStore, projectStore: ps, logger: logger}
 }
 
 // parseDefectFilter extracts a DefectFilter from query parameters.
@@ -64,7 +64,7 @@ func isValidDefectResolution(s string) bool {
 
 // ListProjectDefects handles GET /projects/{project_id}/defects
 func (h *DefectHandler) ListProjectDefects(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -73,7 +73,7 @@ func (h *DefectHandler) ListProjectDefects(w http.ResponseWriter, r *http.Reques
 
 	rows, total, err := h.defectStore.ListByProject(r.Context(), projectID, filter)
 	if err != nil {
-		h.logger.Error("list project defects", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list project defects", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error listing defects")
 		return
 	}
@@ -86,7 +86,7 @@ func (h *DefectHandler) ListProjectDefects(w http.ResponseWriter, r *http.Reques
 
 // ListBuildDefects handles GET /projects/{project_id}/builds/{build_id}/defects
 func (h *DefectHandler) ListBuildDefects(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -102,7 +102,7 @@ func (h *DefectHandler) ListBuildDefects(w http.ResponseWriter, r *http.Request)
 
 	rows, total, err := h.defectStore.ListByBuild(r.Context(), projectID, buildID, filter)
 	if err != nil {
-		h.logger.Error("list build defects", zap.String("project_id", projectID), zap.Int64("build_id", buildID), zap.Error(err))
+		h.logger.Error("list build defects", zap.Int64("project_id", projectID), zap.Int64("build_id", buildID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error listing defects")
 		return
 	}
@@ -247,14 +247,14 @@ func (h *DefectHandler) BulkUpdateDefects(w http.ResponseWriter, r *http.Request
 
 // GetProjectDefectSummary handles GET /projects/{project_id}/defects/summary
 func (h *DefectHandler) GetProjectDefectSummary(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
 
 	summary, err := h.defectStore.GetProjectSummary(r.Context(), projectID)
 	if err != nil {
-		h.logger.Error("get project defect summary", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("get project defect summary", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching defect summary")
 		return
 	}
@@ -264,7 +264,7 @@ func (h *DefectHandler) GetProjectDefectSummary(w http.ResponseWriter, r *http.R
 
 // GetBuildDefectSummary handles GET /projects/{project_id}/builds/{build_id}/defects/summary
 func (h *DefectHandler) GetBuildDefectSummary(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -278,7 +278,7 @@ func (h *DefectHandler) GetBuildDefectSummary(w http.ResponseWriter, r *http.Req
 
 	summary, err := h.defectStore.GetBuildSummary(r.Context(), projectID, buildID)
 	if err != nil {
-		h.logger.Error("get build defect summary", zap.String("project_id", projectID), zap.Int64("build_id", buildID), zap.Error(err))
+		h.logger.Error("get build defect summary", zap.Int64("project_id", projectID), zap.Int64("build_id", buildID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error fetching build defect summary")
 		return
 	}

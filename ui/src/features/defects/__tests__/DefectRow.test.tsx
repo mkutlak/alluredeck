@@ -15,7 +15,7 @@ mockApiClient()
 function makeDefect(overrides: Partial<DefectListRow> = {}): DefectListRow {
   return {
     id: 'def-1',
-    project_id: 'myproject',
+    project_id: 1,
     fingerprint_hash: 'abc123',
     normalized_message: 'NullPointerException in UserService.getUser',
     sample_trace: 'java.lang.NullPointerException\n  at UserService.getUser(UserService.java:42)',

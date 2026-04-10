@@ -12,7 +12,7 @@ const topFailuresLimit = 10
 
 type summaryBuildMeta struct {
 	BuildID     int64  `json:"build_id"`
-	ProjectID   string `json:"project_id"`
+	ProjectID   int64  `json:"project_id"`
 	BuildNumber int    `json:"build_number"`
 	CreatedAt   string `json:"created_at"`
 	IsLatest    bool   `json:"is_latest"`
@@ -106,7 +106,7 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 
 	// Validate project_id.
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
+	projectID, _, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -146,7 +146,7 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	// Build metadata.
 	buildMeta := summaryBuildMeta{
 		BuildID:     build.ID,
-		ProjectID:   build.ProjectID,
+		ProjectID:   projectID,
 		BuildNumber: build.BuildNumber,
 		CreatedAt:   build.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		IsLatest:    build.IsLatest,

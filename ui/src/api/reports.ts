@@ -96,8 +96,8 @@ export async function sendResultsMultipart(projectId: string, files: File[]): Pr
 export async function deleteReport(
   projectId: string,
   reportId: string,
-): Promise<ApiResponse<{ report_id: string; project_id: string }>> {
-  const res = await apiClient.delete<ApiResponse<{ report_id: string; project_id: string }>>(
+): Promise<ApiResponse<{ report_id: string; project_id: number }>> {
+  const res = await apiClient.delete<ApiResponse<{ report_id: string; project_id: number }>>(
     `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}`,
   )
   return res.data

@@ -18,7 +18,7 @@ import {
 import { toast } from '@/components/ui/use-toast'
 
 interface GenerateReportDialogProps {
-  projectId: string
+  projectId: number
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -29,7 +29,7 @@ export function GenerateReportDialog({ projectId, open, onOpenChange }: Generate
   const [mutationError, setMutationError] = useState('')
   const [jobId, setJobId] = useState<string | null>(null)
 
-  const { isPolling, isCompleted, isFailed, error: jobError } = useJobPolling(projectId, jobId)
+  const { isPolling, isCompleted, isFailed, error: jobError } = useJobPolling(String(projectId), jobId)
 
   // Ref guards so the effect only fires once per completed job (no setState inside effect)
   const handledJobRef = useRef<string | null>(null)

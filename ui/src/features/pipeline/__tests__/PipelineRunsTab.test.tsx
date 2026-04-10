@@ -26,7 +26,8 @@ const sampleRun: PipelineRun = {
   timestamp: '2026-04-03T18:00:00Z',
   suites: [
     {
-      project_id: 'api-cloud',
+      project_id: 1,
+      slug: 'api-cloud',
       build_order: 5,
       pass_rate: 100,
       total: 42,

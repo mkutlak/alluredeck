@@ -36,7 +36,8 @@ function renderCard(project: DashboardProjectEntry) {
 }
 
 const healthyProject: DashboardProjectEntry = {
-  project_id: 'my-project',
+  project_id: 1,
+  slug: 'my-project',
   created_at: '2025-01-01T00:00:00Z',
   latest_build: {
     build_order: 10,
@@ -56,7 +57,8 @@ const healthyProject: DashboardProjectEntry = {
 }
 
 const noBuildsProject: DashboardProjectEntry = {
-  project_id: 'empty-project',
+  project_id: 2,
+  slug: 'empty-project',
   created_at: '2025-01-01T00:00:00Z',
   latest_build: null,
   sparkline: [],

@@ -58,7 +58,7 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []store.Test
 }
 
 // GetBuildID returns the database ID for a build given its project and order.
-func (ts *TestResultStore) GetBuildID(ctx context.Context, projectID string, buildNumber int) (int64, error) {
+func (ts *TestResultStore) GetBuildID(ctx context.Context, projectID int64, buildNumber int) (int64, error) {
 	var id int64
 	err := ts.pool.QueryRow(ctx,
 		"SELECT id FROM builds WHERE project_id=$1 AND build_order=$2", projectID, buildNumber,
@@ -70,7 +70,7 @@ func (ts *TestResultStore) GetBuildID(ctx context.Context, projectID string, bui
 }
 
 // ListSlowest returns tests ranked by average duration across the last N builds.
-func (ts *TestResultStore) ListSlowest(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
+func (ts *TestResultStore) ListSlowest(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectID, builds, projectID, limit}
 	if branchID != nil {
@@ -124,7 +124,7 @@ func (ts *TestResultStore) ListSlowest(ctx context.Context, projectID string, bu
 }
 
 // ListLeastReliable returns tests ranked by failure rate across the last N builds.
-func (ts *TestResultStore) ListLeastReliable(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
+func (ts *TestResultStore) ListLeastReliable(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
 	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
 	args := []any{projectID, builds, projectID, limit}
 	if branchID != nil {
@@ -190,7 +190,7 @@ func buildPGPlaceholders(start, count int) string {
 }
 
 // batchTrendDuration returns per-build average duration for multiple tests, keyed by full_name.
-func (ts *TestResultStore) batchTrendDuration(ctx context.Context, projectID string, fullNames []string, builds int, branchID *int64) (map[string][]float64, error) {
+func (ts *TestResultStore) batchTrendDuration(ctx context.Context, projectID int64, fullNames []string, builds int, branchID *int64) (map[string][]float64, error) {
 	if len(fullNames) == 0 {
 		return nil, nil
 	}
@@ -241,7 +241,7 @@ func (ts *TestResultStore) batchTrendDuration(ctx context.Context, projectID str
 }
 
 // batchTrendFailureRate returns per-build failure rate for multiple tests, keyed by full_name.
-func (ts *TestResultStore) batchTrendFailureRate(ctx context.Context, projectID string, fullNames []string, builds int, branchID *int64) (map[string][]float64, error) {
+func (ts *TestResultStore) batchTrendFailureRate(ctx context.Context, projectID int64, fullNames []string, builds int, branchID *int64) (map[string][]float64, error) {
 	if len(fullNames) == 0 {
 		return nil, nil
 	}
@@ -293,7 +293,7 @@ func (ts *TestResultStore) batchTrendFailureRate(ctx context.Context, projectID 
 }
 
 // ListTimeline returns timeline data for a specific build, ordered by start time.
-func (ts *TestResultStore) ListTimeline(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TimelineRow, error) {
+func (ts *TestResultStore) ListTimeline(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error) {
 	rows, err := ts.pool.Query(ctx, `
 		SELECT test_name, full_name, status, start_ms, stop_ms, thread, host
 		FROM test_results
@@ -323,7 +323,7 @@ func (ts *TestResultStore) ListTimeline(ctx context.Context, projectID string, b
 }
 
 // ListTimelineMulti returns timeline data across multiple builds, ordered by build_order ASC then start_ms ASC.
-func (ts *TestResultStore) ListTimelineMulti(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
+func (ts *TestResultStore) ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
 	rows, err := ts.pool.Query(ctx, `
 		SELECT tr.build_id, b.build_order, tr.test_name, tr.full_name, tr.status,
 		       tr.start_ms, tr.stop_ms, tr.thread, tr.host
@@ -352,7 +352,7 @@ func (ts *TestResultStore) ListTimelineMulti(ctx context.Context, projectID stri
 }
 
 // ListFailedByBuild returns failed+broken tests for a build, ordered by duration DESC.
-func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TestResult, error) {
+func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error) {
 	rows, err := ts.pool.Query(ctx, `
 		SELECT build_id, project_id, test_name, full_name, status, duration_ms,
 		       history_id, flaky, retries, new_failed, new_passed
@@ -386,7 +386,7 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID stri
 }
 
 // GetTestHistory returns the run history for a test identified by historyID.
-func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error) {
+func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error) {
 	var rows pgx.Rows
 	var err error
 
@@ -443,10 +443,10 @@ func (ts *TestResultStore) DeleteByBuild(ctx context.Context, buildID int64) err
 }
 
 // DeleteByProject removes all test results for the given project.
-func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID string) error {
+func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID int64) error {
 	_, err := ts.pool.Exec(ctx, "DELETE FROM test_results WHERE project_id=$1", projectID)
 	if err != nil {
-		return fmt.Errorf("delete test results for project %q: %w", projectID, err)
+		return fmt.Errorf("delete test results for project %d: %w", projectID, err)
 	}
 	return nil
 }
@@ -454,7 +454,7 @@ func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID string
 // InsertBatchFull stores fully-parsed Allure results in a single transaction.
 // For each result it inserts into test_results (returning the new id), then
 // inserts labels, parameters, steps (recursive), and attachments.
-func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error {
+func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error {
 	if len(results) == 0 {
 		return nil
 	}
@@ -555,7 +555,7 @@ func insertSteps(ctx context.Context, tx pgx.Tx, testResultID int64, parentStepI
 
 // ListFailedForFingerprinting returns failed test results for a build, providing
 // the minimal fields needed for fingerprint heuristics (ID, status message, trace).
-func (ts *TestResultStore) ListFailedForFingerprinting(ctx context.Context, projectID string, buildID int64) ([]store.FailedTestResult, error) {
+func (ts *TestResultStore) ListFailedForFingerprinting(ctx context.Context, projectID int64, buildID int64) ([]store.FailedTestResult, error) {
 	rows, err := ts.pool.Query(ctx, `
 		SELECT tr.id, tr.status_message, tr.status_trace
 		FROM test_results tr

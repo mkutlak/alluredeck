@@ -20,60 +20,60 @@ import (
 // spyBuildStore implements store.BuildStorer with no-op responses.
 type spyBuildStore struct{}
 
-func (s *spyBuildStore) NextBuildNumber(_ context.Context, _ string) (int, error) {
+func (s *spyBuildStore) NextBuildNumber(_ context.Context, _ int64) (int, error) {
 	return 0, nil
 }
-func (s *spyBuildStore) InsertBuild(_ context.Context, _ string, _ int) error { return nil }
-func (s *spyBuildStore) UpdateBuildStats(_ context.Context, _ string, _ int, _ store.BuildStats) error {
+func (s *spyBuildStore) InsertBuild(_ context.Context, _ int64, _ int) error { return nil }
+func (s *spyBuildStore) UpdateBuildStats(_ context.Context, _ int64, _ int, _ store.BuildStats) error {
 	return nil
 }
-func (s *spyBuildStore) UpdateBuildCIMetadata(_ context.Context, _ string, _ int, _ store.CIMetadata) error {
+func (s *spyBuildStore) UpdateBuildCIMetadata(_ context.Context, _ int64, _ int, _ store.CIMetadata) error {
 	return nil
 }
-func (s *spyBuildStore) GetBuildByNumber(_ context.Context, _ string, _ int) (store.Build, error) {
+func (s *spyBuildStore) GetBuildByNumber(_ context.Context, _ int64, _ int) (store.Build, error) {
 	return store.Build{}, nil
 }
-func (s *spyBuildStore) GetPreviousBuild(_ context.Context, _ string, _ int) (store.Build, error) {
+func (s *spyBuildStore) GetPreviousBuild(_ context.Context, _ int64, _ int) (store.Build, error) {
 	return store.Build{}, nil
 }
-func (s *spyBuildStore) GetLatestBuild(_ context.Context, _ string) (store.Build, error) {
+func (s *spyBuildStore) GetLatestBuild(_ context.Context, _ int64) (store.Build, error) {
 	return store.Build{}, nil
 }
-func (s *spyBuildStore) ListBuilds(_ context.Context, _ string) ([]store.Build, error) {
+func (s *spyBuildStore) ListBuilds(_ context.Context, _ int64) ([]store.Build, error) {
 	return nil, nil
 }
-func (s *spyBuildStore) ListBuildsPaginated(_ context.Context, _ string, _, _ int) ([]store.Build, int, error) {
+func (s *spyBuildStore) ListBuildsPaginated(_ context.Context, _ int64, _, _ int) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
-func (s *spyBuildStore) PruneBuilds(_ context.Context, _ string, _ int) ([]int, error) {
+func (s *spyBuildStore) PruneBuilds(_ context.Context, _ int64, _ int) ([]int, error) {
 	return nil, nil
 }
-func (s *spyBuildStore) SetLatest(_ context.Context, _ string, _ int) error { return nil }
-func (s *spyBuildStore) DeleteAllBuilds(_ context.Context, _ string) error  { return nil }
+func (s *spyBuildStore) SetLatest(_ context.Context, _ int64, _ int) error { return nil }
+func (s *spyBuildStore) DeleteAllBuilds(_ context.Context, _ int64) error  { return nil }
 func (s *spyBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
 	return nil, nil
 }
-func (s *spyBuildStore) DeleteBuild(_ context.Context, _ string, _ int) error { return nil }
-func (s *spyBuildStore) UpdateBuildBranchID(_ context.Context, _ string, _ int, _ int64) error {
+func (s *spyBuildStore) DeleteBuild(_ context.Context, _ int64, _ int) error { return nil }
+func (s *spyBuildStore) UpdateBuildBranchID(_ context.Context, _ int64, _ int, _ int64) error {
 	return nil
 }
-func (s *spyBuildStore) SetLatestBranch(_ context.Context, _ string, _ int, _ *int64) error {
+func (s *spyBuildStore) SetLatestBranch(_ context.Context, _ int64, _ int, _ *int64) error {
 	return nil
 }
-func (s *spyBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ *int64) ([]int, error) {
+func (s *spyBuildStore) PruneBuildsBranch(_ context.Context, _ int64, _ int, _ *int64) ([]int, error) {
 	return nil, nil
 }
-func (s *spyBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Time) ([]int, error) {
+func (s *spyBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
 	return nil, nil
 }
-func (s *spyBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
+func (s *spyBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
-func (s *spyBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
+func (s *spyBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
 	return nil, 0, nil
 }
 
-func (s *spyBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ int, _ bool) error {
+func (s *spyBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int, _ bool) error {
 	return nil
 }
 
@@ -81,7 +81,7 @@ func (s *spyBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ in
 type spyTestResultStore struct {
 	insertBatchFullCount int
 	lastBuildID          int64
-	lastProjectID        string
+	lastProjectID        int64
 	lastResults          []*parser.Result
 	insertBatchFullErr   error
 }
@@ -89,40 +89,40 @@ type spyTestResultStore struct {
 func (s *spyTestResultStore) InsertBatch(_ context.Context, _ []store.TestResult) error {
 	return nil
 }
-func (s *spyTestResultStore) InsertBatchFull(_ context.Context, buildID int64, projectID string, results []*parser.Result) error {
+func (s *spyTestResultStore) InsertBatchFull(_ context.Context, buildID int64, projectID int64, results []*parser.Result) error {
 	s.insertBatchFullCount++
 	s.lastBuildID = buildID
 	s.lastProjectID = projectID
 	s.lastResults = results
 	return s.insertBatchFullErr
 }
-func (s *spyTestResultStore) GetBuildID(_ context.Context, _ string, _ int) (int64, error) {
+func (s *spyTestResultStore) GetBuildID(_ context.Context, _ int64, _ int) (int64, error) {
 	return 42, nil
 }
-func (s *spyTestResultStore) ListSlowest(_ context.Context, _ string, _, _ int, _ *int64) ([]store.LowPerformingTest, error) {
+func (s *spyTestResultStore) ListSlowest(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.LowPerformingTest, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) ListLeastReliable(_ context.Context, _ string, _, _ int, _ *int64) ([]store.LowPerformingTest, error) {
+func (s *spyTestResultStore) ListLeastReliable(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.LowPerformingTest, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) ListTimeline(_ context.Context, _ string, _ int64, _ int) ([]store.TimelineRow, error) {
+func (s *spyTestResultStore) ListTimeline(_ context.Context, _ int64, _ int64, _ int) ([]store.TimelineRow, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) ListFailedByBuild(_ context.Context, _ string, _ int64, _ int) ([]store.TestResult, error) {
+func (s *spyTestResultStore) ListFailedByBuild(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) GetTestHistory(_ context.Context, _, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+func (s *spyTestResultStore) GetTestHistory(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) DeleteByBuild(_ context.Context, _ int64) error    { return nil }
-func (s *spyTestResultStore) DeleteByProject(_ context.Context, _ string) error { return nil }
-func (s *spyTestResultStore) CompareBuildsByHistoryID(_ context.Context, _ string, _, _ int64) ([]store.DiffEntry, error) {
+func (s *spyTestResultStore) DeleteByBuild(_ context.Context, _ int64) error   { return nil }
+func (s *spyTestResultStore) DeleteByProject(_ context.Context, _ int64) error { return nil }
+func (s *spyTestResultStore) CompareBuildsByHistoryID(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) ListTimelineMulti(_ context.Context, _ string, _ []int64, _ int) ([]store.MultiTimelineRow, error) {
+func (s *spyTestResultStore) ListTimelineMulti(_ context.Context, _ int64, _ []int64, _ int) ([]store.MultiTimelineRow, error) {
 	return nil, nil
 }
-func (s *spyTestResultStore) ListFailedForFingerprinting(_ context.Context, _ string, _ int64) ([]store.FailedTestResult, error) {
+func (s *spyTestResultStore) ListFailedForFingerprinting(_ context.Context, _ int64, _ int64) ([]store.FailedTestResult, error) {
 	return nil, nil
 }
 
@@ -159,7 +159,7 @@ func mustWriteResultFile(t *testing.T, dir, filename string) {
 // calls InsertBatchFull with parsed result files from the results/ directory.
 func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 	tmpDir := t.TempDir()
-	projectID := "test-project"
+	projectID := int64(1)
 	buildNumber := 1
 
 	resultsDir := filepath.Join(tmpDir, "results")
@@ -174,7 +174,7 @@ func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	if err := a.storeAndPruneBuild(context.Background(), projectID, tmpDir, buildNumber, store.CIMetadata{}, nil); err != nil {
+	if err := a.storeAndPruneBuild(context.Background(), projectID, "test-project", tmpDir, buildNumber, store.CIMetadata{}, nil); err != nil {
 		t.Fatalf("storeAndPruneBuild: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestStoreAndPruneBuild_InsertBatchFullFailure_NonFatal(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	err := a.storeAndPruneBuild(context.Background(), "proj", tmpDir, 1, store.CIMetadata{}, nil)
+	err := a.storeAndPruneBuild(context.Background(), int64(2), "proj", tmpDir, 1, store.CIMetadata{}, nil)
 	if err != nil {
 		t.Fatalf("storeAndPruneBuild must not fail when InsertBatchFull errors, got: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestStoreAndPruneBuild_NoResultFiles_SkipsInsertBatchFull(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	if err := a.storeAndPruneBuild(context.Background(), "proj", tmpDir, 1, store.CIMetadata{}, nil); err != nil {
+	if err := a.storeAndPruneBuild(context.Background(), int64(3), "proj", tmpDir, 1, store.CIMetadata{}, nil); err != nil {
 		t.Fatalf("storeAndPruneBuild: %v", err)
 	}
 

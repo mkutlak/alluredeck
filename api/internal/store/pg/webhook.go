@@ -98,7 +98,7 @@ func (ws *WebhookStore) GetByID(ctx context.Context, webhookID string) (*store.W
 
 // List returns all webhooks for the given project, ordered by created_at DESC.
 // URLs are decrypted; Secrets are not returned in list responses.
-func (ws *WebhookStore) List(ctx context.Context, projectID string) ([]store.Webhook, error) {
+func (ws *WebhookStore) List(ctx context.Context, projectID int64) ([]store.Webhook, error) {
 	rows, err := ws.pool.Query(ctx, `
 		SELECT id, project_id, name, target_type, url, template, events, is_active, created_at, updated_at
 		FROM webhooks
@@ -179,7 +179,7 @@ func (ws *WebhookStore) Update(ctx context.Context, wh *store.Webhook) error {
 
 // Delete removes a webhook scoped to a project (IDOR prevention).
 // Returns store.ErrWebhookNotFound if no rows were affected.
-func (ws *WebhookStore) Delete(ctx context.Context, webhookID, projectID string) error {
+func (ws *WebhookStore) Delete(ctx context.Context, webhookID string, projectID int64) error {
 	tag, err := ws.pool.Exec(ctx,
 		"DELETE FROM webhooks WHERE id = $1 AND project_id = $2", webhookID, projectID)
 	if err != nil {
@@ -193,7 +193,7 @@ func (ws *WebhookStore) Delete(ctx context.Context, webhookID, projectID string)
 
 // ListActiveForEvent returns all active webhooks for a project that subscribe
 // to the given event. This is the hot-path query used by the delivery engine.
-func (ws *WebhookStore) ListActiveForEvent(ctx context.Context, projectID, event string) ([]store.Webhook, error) {
+func (ws *WebhookStore) ListActiveForEvent(ctx context.Context, projectID int64, event string) ([]store.Webhook, error) {
 	rows, err := ws.pool.Query(ctx, `
 		SELECT id, project_id, name, target_type, url, secret, template, events, is_active, created_at, updated_at
 		FROM webhooks

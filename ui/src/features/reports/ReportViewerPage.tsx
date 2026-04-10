@@ -10,7 +10,7 @@ export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
   const { data: projectsResp } = useQuery(projectListOptions())
   const reportType =
-    projectsResp?.data?.find((p: { project_id: string }) => p.project_id === projectId)
+    projectsResp?.data?.find((p: { project_id: number; slug: string }) => p.slug === projectId)
       ?.report_type ?? 'allure'
 
   const defaultMode: 'playwright' | 'allure' = reportType === 'playwright' ? 'playwright' : 'allure'

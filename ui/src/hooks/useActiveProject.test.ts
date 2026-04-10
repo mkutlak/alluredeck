@@ -103,7 +103,7 @@ describe('useActiveProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetProjects.mockResolvedValue({
-      data: [{ project_id: 'first-project' }, { project_id: 'second-project' }],
+      data: [{ project_id: 1, slug: 'first-project' }, { project_id: 2, slug: 'second-project' }],
       metadata: { message: 'ok' },
       pagination: { total: 2, page: 1, per_page: 20, total_pages: 1 },
     })

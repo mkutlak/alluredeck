@@ -23,7 +23,7 @@ func NewBranchStore(s *PGStore) *BranchStore {
 // GetOrCreate upserts a branch for the given project+name.
 // Returns the branch and whether it was newly created.
 // The first branch created for a project is automatically set as default.
-func (bs *BranchStore) GetOrCreate(ctx context.Context, projectID, name string) (*store.Branch, bool, error) {
+func (bs *BranchStore) GetOrCreate(ctx context.Context, projectID int64, name string) (*store.Branch, bool, error) {
 	// Try to get existing branch first.
 	b, err := bs.GetByName(ctx, projectID, name)
 	if err == nil {
@@ -58,7 +58,7 @@ func (bs *BranchStore) GetOrCreate(ctx context.Context, projectID, name string) 
 }
 
 // List returns all branches for a project ordered by name.
-func (bs *BranchStore) List(ctx context.Context, projectID string) ([]store.Branch, error) {
+func (bs *BranchStore) List(ctx context.Context, projectID int64) ([]store.Branch, error) {
 	rows, err := bs.pool.Query(ctx,
 		"SELECT id, project_id, name, is_default, created_at FROM branches WHERE project_id = $1 ORDER BY name ASC",
 		projectID)
@@ -85,7 +85,7 @@ func (bs *BranchStore) List(ctx context.Context, projectID string) ([]store.Bran
 }
 
 // GetDefault returns the default branch for a project.
-func (bs *BranchStore) GetDefault(ctx context.Context, projectID string) (*store.Branch, error) {
+func (bs *BranchStore) GetDefault(ctx context.Context, projectID int64) (*store.Branch, error) {
 	rows, err := bs.pool.Query(ctx,
 		"SELECT id, project_id, name, is_default, created_at FROM branches WHERE project_id = $1 AND is_default = TRUE",
 		projectID)
@@ -98,7 +98,7 @@ func (bs *BranchStore) GetDefault(ctx context.Context, projectID string) (*store
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("get default branch: %w", err)
 		}
-		return nil, fmt.Errorf("%w: no default branch for project=%s", store.ErrBranchNotFound, projectID)
+		return nil, fmt.Errorf("%w: no default branch for project=%d", store.ErrBranchNotFound, projectID)
 	}
 	b, err := scanBranchRows(rows)
 	if err != nil {
@@ -109,7 +109,7 @@ func (bs *BranchStore) GetDefault(ctx context.Context, projectID string) (*store
 
 // SetDefault sets a branch as the default for its project (in a transaction).
 // Clears is_default from all other branches in the project first.
-func (bs *BranchStore) SetDefault(ctx context.Context, projectID string, branchID int64) error {
+func (bs *BranchStore) SetDefault(ctx context.Context, projectID int64, branchID int64) error {
 	tx, err := bs.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -124,7 +124,7 @@ func (bs *BranchStore) SetDefault(ctx context.Context, projectID string, branchI
 		return fmt.Errorf("verify branch: %w", err)
 	}
 	if count == 0 {
-		return fmt.Errorf("%w: branch=%d project=%s", store.ErrBranchNotFound, branchID, projectID)
+		return fmt.Errorf("%w: branch=%d project=%d", store.ErrBranchNotFound, branchID, projectID)
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -143,13 +143,13 @@ func (bs *BranchStore) SetDefault(ctx context.Context, projectID string, branchI
 
 // Delete deletes a non-default branch by ID. Returns ErrCannotDeleteDefaultBranch
 // if the branch is the current default.
-func (bs *BranchStore) Delete(ctx context.Context, projectID string, branchID int64) error {
+func (bs *BranchStore) Delete(ctx context.Context, projectID int64, branchID int64) error {
 	var isDefault bool
 	err := bs.pool.QueryRow(ctx,
 		"SELECT is_default FROM branches WHERE id = $1 AND project_id = $2", branchID, projectID,
 	).Scan(&isDefault)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("%w: branch=%d project=%s", store.ErrBranchNotFound, branchID, projectID)
+		return fmt.Errorf("%w: branch=%d project=%d", store.ErrBranchNotFound, branchID, projectID)
 	}
 	if err != nil {
 		return fmt.Errorf("get branch for delete: %w", err)
@@ -166,7 +166,7 @@ func (bs *BranchStore) Delete(ctx context.Context, projectID string, branchID in
 }
 
 // GetByName returns a branch by project and name.
-func (bs *BranchStore) GetByName(ctx context.Context, projectID, name string) (*store.Branch, error) {
+func (bs *BranchStore) GetByName(ctx context.Context, projectID int64, name string) (*store.Branch, error) {
 	rows, err := bs.pool.Query(ctx,
 		"SELECT id, project_id, name, is_default, created_at FROM branches WHERE project_id = $1 AND name = $2",
 		projectID, name)
@@ -179,7 +179,7 @@ func (bs *BranchStore) GetByName(ctx context.Context, projectID, name string) (*
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("get branch by name: %w", err)
 		}
-		return nil, fmt.Errorf("%w: branch=%q project=%s", store.ErrBranchNotFound, name, projectID)
+		return nil, fmt.Errorf("%w: branch=%q project=%d", store.ErrBranchNotFound, name, projectID)
 	}
 	b, err := scanBranchRows(rows)
 	if err != nil {

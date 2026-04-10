@@ -12,11 +12,13 @@ import (
 
 // ProjectEntry holds a single project in the paginated project listing.
 type ProjectEntry struct {
-	ProjectID  string   `json:"project_id"`
-	ReportType string   `json:"report_type"`
-	CreatedAt  string   `json:"created_at"`
-	ParentID   *string  `json:"parent_id,omitempty"`
-	Children   []string `json:"children,omitempty"`
+	ProjectID   int64   `json:"project_id"`
+	Slug        string  `json:"slug"`
+	DisplayName string  `json:"display_name"`
+	ReportType  string  `json:"report_type"`
+	CreatedAt   string  `json:"created_at"`
+	ParentID    *int64  `json:"parent_id,omitempty"`
+	Children    []int64 `json:"children,omitempty"`
 }
 
 // ReportHistoryEntry holds metadata for a single generated report.

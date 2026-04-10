@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { NavLink, useSearchParams } from 'react-router'
 import { ArrowUpDown, ChevronRight, Folder, FolderInput, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { dashboardOptions } from '@/lib/queries'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -28,7 +29,16 @@ import { RenameProjectDialog } from '@/features/projects/RenameProjectDialog'
 import { SetParentDialog } from '@/features/projects/SetParentDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
+import { DndProjectProvider, useProjectDndContext } from '@/features/projects/components/DndProjectProvider'
+import { NoGroupDropZone } from '@/features/projects/components/NoGroupDropZone'
+import type { DndProject } from '@/features/projects/hooks/useProjectDnd'
+import { cn } from '@/lib/utils'
 import type { DashboardProjectEntry } from '@/types/api'
+
+/** Returns the human-friendly label for a project: display_name if available, otherwise slug. */
+function projectLabel(p: { slug: string; display_name?: string; project_id: number }) {
+  return p.display_name || p.slug || String(p.project_id)
+}
 
 type SortField = 'name' | 'type' | 'pass_rate'
 type SortDir = 'asc' | 'desc'
@@ -48,7 +58,7 @@ function getPassRate(p: DashboardProjectEntry): number | null {
 function compareRows(a: DashboardProjectEntry, b: DashboardProjectEntry, field: SortField, dir: SortDir): number {
   const cmp =
     field === 'name'
-      ? a.project_id.localeCompare(b.project_id)
+      ? a.slug.localeCompare(b.slug)
       : field === 'type'
         ? getProjectType(a).localeCompare(getProjectType(b))
         : (getPassRate(a) ?? -1) - (getPassRate(b) ?? -1)
@@ -62,7 +72,8 @@ export function DashboardPage() {
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [searchParams, setSearchParams] = useSearchParams()
-  const groupId = searchParams.get('group')
+  const groupIdRaw = searchParams.get('group')
+  const groupId = groupIdRaw != null ? parseInt(groupIdRaw, 10) : null
   const isAdmin = useAuthStore(selectIsAdmin)
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery(dashboardOptions())
@@ -81,27 +92,40 @@ export function DashboardPage() {
     const { projects } = data
 
     // Drill-down: show only children of the selected group
-    if (groupId) {
+    if (groupId != null && !isNaN(groupId)) {
       const group = projects.find((p) => p.project_id === groupId && p.is_group)
       const children = group?.children ?? []
       const filtered = search
-        ? children.filter((c) => c.project_id.toLowerCase().includes(search.toLowerCase()))
+        ? children.filter((c) => {
+            const q = search.toLowerCase()
+            return c.slug.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q)
+          })
         : children
       return [...filtered].sort((a, b) => compareRows(a, b, sortField, sortDir))
     }
 
-    // All mode: flatten everything
+    // All mode: flatten everything (deduplicate by project_id)
     if (viewMode === 'all') {
       const flat: DashboardProjectEntry[] = []
+      const seen = new Set<number>()
       for (const p of projects) {
         if (p.is_group && p.children) {
-          for (const c of p.children) flat.push(c)
-        } else if (!p.is_group) {
+          for (const c of p.children) {
+            if (!seen.has(c.project_id)) {
+              seen.add(c.project_id)
+              flat.push(c)
+            }
+          }
+        } else if (!p.is_group && !seen.has(p.project_id)) {
+          seen.add(p.project_id)
           flat.push(p)
         }
       }
       const filtered = search
-        ? flat.filter((p) => p.project_id.toLowerCase().includes(search.toLowerCase()))
+        ? flat.filter((p) => {
+            const q = search.toLowerCase()
+            return p.slug.toLowerCase().includes(q) || (p.display_name ?? '').toLowerCase().includes(q)
+          })
         : flat
       return [...filtered].sort((a, b) => compareRows(a, b, sortField, sortDir))
     }
@@ -109,12 +133,14 @@ export function DashboardPage() {
     // Grouped mode: groups first, then ungrouped projects
     const filtered = search
       ? projects.filter((p) => {
-          const nameMatch = p.project_id.toLowerCase().includes(search.toLowerCase())
+          const q = search.toLowerCase()
+          const nameMatch = p.slug.toLowerCase().includes(q) || (p.display_name ?? '').toLowerCase().includes(q)
           if (nameMatch) return true
           if (p.is_group && p.children) {
-            return p.children.some((c) =>
-              c.project_id.toLowerCase().includes(search.toLowerCase()),
-            )
+            return p.children.some((c) => {
+              const q = search.toLowerCase()
+              return c.slug.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q)
+            })
           }
           return false
         })
@@ -127,6 +153,30 @@ export function DashboardPage() {
       ...standalone.sort((a, b) => compareRows(a, b, sortField, sortDir)),
     ]
   }, [data, groupId, viewMode, search, sortField, sortDir])
+
+  const dndProjects: DndProject[] = useMemo(() => {
+    if (!data) return []
+    const items: DndProject[] = []
+    for (const p of data.projects) {
+      items.push({
+        slug: p.slug,
+        projectId: p.project_id,
+        parentId: null, // top-level entries in dashboard
+        hasChildren: !!(p.is_group && p.children?.length),
+      })
+      if (p.children) {
+        for (const child of p.children) {
+          items.push({
+            slug: child.slug,
+            projectId: child.project_id,
+            parentId: p.project_id,
+            hasChildren: false,
+          })
+        }
+      }
+    }
+    return items
+  }, [data])
 
   if (isLoading) {
     return (
@@ -175,7 +225,7 @@ export function DashboardPage() {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          {groupId ? (
+          {groupId != null && !isNaN(groupId) ? (
             <>
               <button
                 onClick={() => setSearchParams({})}
@@ -184,7 +234,9 @@ export function DashboardPage() {
                 Projects
               </button>
               <ChevronRight className="text-muted-foreground h-5 w-5" />
-              <h1 className="text-2xl font-bold">{groupId}</h1>
+              <h1 className="text-2xl font-bold">
+                {data?.projects.find((p) => p.project_id === groupId)?.slug ?? String(groupId)}
+              </h1>
             </>
           ) : (
             <h1 className="text-2xl font-bold">Projects</h1>
@@ -200,7 +252,7 @@ export function DashboardPage() {
               className="w-48 pl-8"
             />
           </div>
-          {!groupId && (
+          {(groupId == null || isNaN(groupId)) && (
             <div className="flex rounded-md border">
               <Button
                 size="sm"
@@ -233,53 +285,56 @@ export function DashboardPage() {
       </div>
 
       {/* Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>
-              <button className="flex items-center gap-1" onClick={() => handleSort('name')}>
-                Name
-                <ArrowUpDown className="h-3.5 w-3.5" />
-              </button>
-            </TableHead>
-            <TableHead>
-              <button className="flex items-center gap-1" onClick={() => handleSort('type')}>
-                Type
-                <ArrowUpDown className="h-3.5 w-3.5" />
-              </button>
-            </TableHead>
-            <TableHead>
-              <button className="flex items-center gap-1" onClick={() => handleSort('pass_rate')}>
-                Pass Rate
-                <ArrowUpDown className="h-3.5 w-3.5" />
-              </button>
-            </TableHead>
-            {isAdmin && <TableHead className="w-10" />}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.length === 0 ? (
+      <DndProjectProvider projects={dndProjects}>
+        <NoGroupDropZone />
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={isAdmin ? 4 : 3} className="text-muted-foreground py-8 text-center">
-                {search ? 'No projects match your search.' : 'No projects found.'}
-              </TableCell>
+              <TableHead>
+                <button className="flex items-center gap-1" onClick={() => handleSort('name')}>
+                  Name
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button className="flex items-center gap-1" onClick={() => handleSort('type')}>
+                  Type
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button className="flex items-center gap-1" onClick={() => handleSort('pass_rate')}>
+                  Pass Rate
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                </button>
+              </TableHead>
+              {isAdmin && <TableHead className="w-10" />}
             </TableRow>
-          ) : (
-            rows.map((project) => (
-              <ProjectTableRow
-                key={project.project_id}
-                project={project}
-                isAdmin={isAdmin}
-                onDrillDown={
-                  project.is_group
-                    ? () => setSearchParams({ group: project.project_id })
-                    : undefined
-                }
-              />
-            ))
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={isAdmin ? 4 : 3} className="text-muted-foreground py-8 text-center">
+                  {search ? 'No projects match your search.' : 'No projects found.'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((project) => (
+                <ProjectTableRow
+                  key={project.project_id}
+                  project={project}
+                  isAdmin={isAdmin}
+                  onDrillDown={
+                    project.is_group
+                      ? () => setSearchParams({ group: String(project.project_id) })
+                      : undefined
+                  }
+                />
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </DndProjectProvider>
 
       <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
@@ -302,25 +357,62 @@ function ProjectTableRow({
   const rate = getPassRate(project)
   const type = getProjectType(project)
 
+  const { isProjectDraggable, isProjectDropTarget } = useProjectDndContext()
+
+  const draggable = isProjectDraggable(project.slug)
+  const dropTarget = isProjectDropTarget(project.slug)
+
+  const {
+    attributes: { role: _role, tabIndex: _tabIndex, ...dragAttributes },
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({
+    id: project.slug,
+    disabled: !draggable,
+  })
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: project.slug,
+    disabled: !dropTarget,
+  })
+
+  const setNodeRef = (el: HTMLTableRowElement | null) => {
+    setDragRef(el)
+    setDropRef(el)
+  }
+
   return (
     <>
       <TableRow
-        className={onDrillDown ? 'cursor-pointer' : ''}
+        ref={setNodeRef}
+        {...(draggable ? { ...listeners, ...dragAttributes } : {})}
+        className={cn(
+          onDrillDown ? 'cursor-pointer' : '',
+          isDragging && 'opacity-40',
+          isOver && dropTarget && 'ring-2 ring-blue-500 scale-[1.02]',
+          draggable && !onDrillDown && 'cursor-grab',
+        )}
         onClick={onDrillDown}
       >
         <TableCell className="font-medium">
           <div className="flex items-center gap-2">
             {project.is_group && <Folder className="text-muted-foreground h-4 w-4 shrink-0" />}
             {project.is_group ? (
-              <span>{project.project_id}</span>
+              <span>{project.slug}</span>
             ) : (
-              <NavLink
-                to={`/projects/${project.project_id}`}
-                className="hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {project.project_id}
-              </NavLink>
+              <div className="flex flex-col">
+                <NavLink
+                  to={`/projects/${project.slug}`}
+                  className="hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {projectLabel(project)}
+                </NavLink>
+                {project.display_name && project.display_name !== project.slug && (
+                  <span className="text-muted-foreground text-xs">{project.slug.split('--')[0]}</span>
+                )}
+              </div>
             )}
           </div>
         </TableCell>
@@ -396,7 +488,7 @@ function ProjectTableRow({
       </TableRow>
       {cleanMode && (
         <CleanDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           mode={cleanMode}
           open={!!cleanMode}
           onOpenChange={(o) => {
@@ -407,21 +499,21 @@ function ProjectTableRow({
       )}
       {renameOpen && (
         <RenameProjectDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           open={renameOpen}
           onOpenChange={setRenameOpen}
         />
       )}
       {moveOpen && (
         <SetParentDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           open={moveOpen}
           onOpenChange={setMoveOpen}
         />
       )}
       {deleteOpen && (
         <DeleteProjectDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
         />

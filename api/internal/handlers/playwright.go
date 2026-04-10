@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -57,11 +58,26 @@ func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.Bui
 // @Failure      404  {object}  map[string]any
 // @Failure      413  {object}  map[string]any
 // @Router       /projects/{project_id}/playwright [post]
-func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
-	if !ok {
-		return
+// resolveProjectID tries to parse the path value as a numeric ID.
+// If it fails, treats it as a slug and looks up the project.
+// Returns (id, slug, found).
+func (h *PlaywrightHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, bool) {
+	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
+		p, err := h.projectStore.GetProject(ctx, id)
+		if err == nil {
+			return p.ID, p.Slug, true
+		}
 	}
+	p, err := h.projectStore.GetProjectBySlug(ctx, pathValue)
+	if err == nil {
+		return p.ID, p.Slug, true
+	}
+	return 0, pathValue, false
+}
+
+func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request) {
+	pathValue := r.PathValue("project_id")
+	projectID, slug, found := h.resolveProjectID(r.Context(), pathValue)
 
 	// Extend HTTP deadlines — Playwright archives can contain hundreds of files,
 	// each requiring an S3 round-trip during extraction.
@@ -69,52 +85,56 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	_ = rc.SetReadDeadline(time.Now().Add(5 * time.Minute))
 	_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Minute))
 
-	parentID := r.URL.Query().Get("parent_id")
+	parentIDStr := r.URL.Query().Get("parent_id")
 
-	// Ensure project exists (auto-create if requested)
-	exists, err := h.store.ProjectExists(r.Context(), projectID)
-	if err != nil {
-		h.logger.Error("checking project existence failed", zap.String("project_id", projectID), zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "failed to check project")
-		return
-	}
-	if !exists {
+	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
-			if err := h.store.CreateProject(r.Context(), projectID); err != nil {
-				h.logger.Error("auto-creating project failed", zap.String("project_id", projectID), zap.Error(err))
+			slug = pathValue
+			if err := h.store.CreateProject(r.Context(), slug); err != nil {
+				h.logger.Error("auto-creating project failed", zap.String("slug", slug), zap.Error(err))
 				writeError(w, http.StatusInternalServerError, "failed to create project")
 				return
 			}
-			if parentID != "" {
-				// Ensure parent project exists in DB; create it if missing.
-				if dbErr := h.projectStore.CreateProject(r.Context(), parentID); dbErr != nil {
+			if parentIDStr != "" {
+				parentID, parseErr := strconv.ParseInt(parentIDStr, 10, 64)
+				if parseErr != nil {
+					writeError(w, http.StatusBadRequest, "parent_id must be a numeric ID")
+					return
+				}
+				project, dbErr := h.projectStore.CreateProjectWithParent(r.Context(), slug, parentID)
+				if dbErr != nil {
 					if !errors.Is(dbErr, store.ErrProjectExists) {
-						h.logger.Error("db parent project registration failed", zap.String("parent_id", parentID), zap.Error(dbErr))
+						h.logger.Error("db project registration failed", zap.String("slug", slug), zap.Error(dbErr))
 					}
 				}
-				// Register child project with parent link in DB.
-				if dbErr := h.projectStore.CreateProjectWithParent(r.Context(), projectID, parentID); dbErr != nil {
-					if !errors.Is(dbErr, store.ErrProjectExists) {
-						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
-					}
+				if project != nil {
+					projectID = project.ID
 				}
 			} else {
-				// Register in database so downstream jobs can reference the project.
-				if dbErr := h.projectStore.CreateProject(r.Context(), projectID); dbErr != nil {
+				project, dbErr := h.projectStore.CreateProject(r.Context(), slug)
+				if dbErr != nil {
 					if !errors.Is(dbErr, store.ErrProjectExists) {
-						h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+						h.logger.Error("db project registration failed", zap.String("slug", slug), zap.Error(dbErr))
 					}
+				}
+				if project != nil {
+					projectID = project.ID
+				}
+			}
+			if projectID == 0 {
+				if p, err := h.projectStore.GetProjectBySlug(r.Context(), slug); err == nil {
+					projectID = p.ID
 				}
 			}
 		} else {
-			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id '%s' not found", projectID))
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project '%s' not found", pathValue))
 			return
 		}
 	}
 
 	// Mark as Playwright project.
 	if err := h.projectStore.SetReportType(r.Context(), projectID, "playwright"); err != nil {
-		h.logger.Warn("failed to set project report type", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Warn("failed to set project report type", zap.Int64("project_id", projectID), zap.Error(err))
 	}
 
 	// Limit request body to prevent memory exhaustion.
@@ -145,17 +165,17 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 		}
 		if _, lookupErr := h.buildStore.GetBuildByNumber(r.Context(), projectID, buildNumber); lookupErr != nil {
 			if errors.Is(lookupErr, store.ErrBuildNotFound) {
-				writeError(w, http.StatusNotFound, fmt.Sprintf("build %d not found for project %q", buildNumber, projectID))
+				writeError(w, http.StatusNotFound, fmt.Sprintf("build %d not found for project %d", buildNumber, projectID))
 				return
 			}
-			h.logger.Error("failed to look up build", zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(lookupErr))
+			h.logger.Error("failed to look up build", zap.Int64("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(lookupErr))
 			writeError(w, http.StatusInternalServerError, "failed to look up build")
 			return
 		}
 		targetDir = strconv.Itoa(buildNumber)
 	}
 
-	if err := h.extractPlaywrightArchive(r, projectID, targetDir); err != nil {
+	if err := h.extractPlaywrightArchive(r, slug, targetDir); err != nil {
 		code := http.StatusBadRequest
 		msg := err.Error()
 		var maxBytesErr *http.MaxBytesError
@@ -170,7 +190,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	// If uploading to a specific build, mark it as having a Playwright report.
 	if buildNumber > 0 {
 		if setErr := h.buildStore.SetHasPlaywrightReport(r.Context(), projectID, buildNumber, true); setErr != nil {
-			h.logger.Error("failed to set has_playwright_report", zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(setErr))
+			h.logger.Error("failed to set has_playwright_report", zap.Int64("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(setErr))
 		}
 		writeSuccess(w, http.StatusOK, map[string]any{
 			"status": "uploaded",
@@ -186,7 +206,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
 
 	if h.jobManager != nil && (execName != "" || execFrom != "" || ciBranch != "" || ciCommitSHA != "") {
-		job := h.jobManager.SubmitPlaywright(projectID, execName, execFrom, ciBranch, ciCommitSHA)
+		job := h.jobManager.SubmitPlaywright(projectID, slug, execName, execFrom, ciBranch, ciCommitSHA)
 		writeSuccess(w, http.StatusAccepted, map[string]string{"job_id": job.ID}, "Playwright ingestion queued")
 		return
 	}

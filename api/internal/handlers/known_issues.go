@@ -15,17 +15,17 @@ import (
 // KnownIssueHandler handles HTTP requests for known issue management.
 type KnownIssueHandler struct {
 	knownIssueStore store.KnownIssueStorer
+	projectStore    store.ProjectStorer
 	store           storage.Store
-	projectsDir     string
 	logger          *zap.Logger
 }
 
 // NewKnownIssueHandler creates and returns a new KnownIssueHandler.
-func NewKnownIssueHandler(kis store.KnownIssueStorer, st storage.Store, projectsDir string, logger *zap.Logger) *KnownIssueHandler {
+func NewKnownIssueHandler(kis store.KnownIssueStorer, ps store.ProjectStorer, st storage.Store, logger *zap.Logger) *KnownIssueHandler {
 	return &KnownIssueHandler{
 		knownIssueStore: kis,
+		projectStore:    ps,
 		store:           st,
-		projectsDir:     projectsDir,
 		logger:          logger,
 	}
 }
@@ -33,7 +33,7 @@ func NewKnownIssueHandler(kis store.KnownIssueStorer, st storage.Store, projects
 // knownIssueResponse is the JSON representation of a KnownIssue.
 type knownIssueResponse struct {
 	ID          int64  `json:"id"`
-	ProjectID   string `json:"project_id"`
+	ProjectID   int64  `json:"project_id"`
 	TestName    string `json:"test_name"`
 	Pattern     string `json:"pattern"`
 	TicketURL   string `json:"ticket_url"`
@@ -70,7 +70,7 @@ func kiToResponse(ki *store.KnownIssue) knownIssueResponse {
 func (h *KnownIssueHandler) ListKnownIssues(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -103,7 +103,7 @@ func (h *KnownIssueHandler) ListKnownIssues(w http.ResponseWriter, r *http.Reque
 func (h *KnownIssueHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -159,7 +159,7 @@ func (h *KnownIssueHandler) CreateKnownIssue(w http.ResponseWriter, r *http.Requ
 func (h *KnownIssueHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -223,7 +223,7 @@ func (h *KnownIssueHandler) UpdateKnownIssue(w http.ResponseWriter, r *http.Requ
 func (h *KnownIssueHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -259,10 +259,18 @@ func (h *KnownIssueHandler) DeleteKnownIssue(w http.ResponseWriter, r *http.Requ
 func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
+
+	// Look up slug for storage calls.
+	project, err := h.projectStore.GetProject(ctx, projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	slug := project.Slug
 
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
@@ -297,13 +305,13 @@ func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *htt
 		}
 
 		relBase := "reports/" + reportID + "/data/test-results"
-		entries, err := h.store.ReadDir(ctx, projectID, relBase)
+		entries, err := h.store.ReadDir(ctx, slug, relBase)
 		if err == nil {
 			for _, entry := range entries {
 				if entry.IsDir {
 					continue
 				}
-				data, err := h.store.ReadFile(ctx, projectID, relBase+"/"+entry.Name)
+				data, err := h.store.ReadFile(ctx, slug, relBase+"/"+entry.Name)
 				if err != nil {
 					continue
 				}

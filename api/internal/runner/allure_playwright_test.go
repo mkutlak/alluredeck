@@ -35,25 +35,26 @@ func newTestAllureWithAttachments(t *testing.T, projectsDir string, mocks *testu
 // when playwright-reports/latest/ does not exist.
 func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "pw-no-latest"
+	projectID := int64(1)
+	slug := "pw-no-latest"
 	buildNumber := 1
 
 	mocks := testutil.New()
 	var setHasCalled bool
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ string, _ int, _ bool) error {
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, _ int, _ bool) error {
 		setHasCalled = true
 		return nil
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
 
 	if setHasCalled {
 		t.Error("SetHasPlaywrightReport should not be called when latest/ does not exist")
 	}
 
 	// No numbered build directory should be created.
-	buildDir := filepath.Join(dir, projectID, "playwright-reports", "1")
+	buildDir := filepath.Join(dir, slug, "playwright-reports", "1")
 	if _, err := os.Stat(buildDir); !os.IsNotExist(err) {
 		t.Error("playwright-reports/1/ should not exist when latest/ was absent")
 	}
@@ -63,23 +64,24 @@ func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 // when playwright-reports/latest/ exists but is empty.
 func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "pw-empty-latest"
+	projectID := int64(2)
+	slug := "pw-empty-latest"
 	buildNumber := 1
 
-	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
+	latestDir := filepath.Join(dir, slug, "playwright-reports", "latest")
 	if err := os.MkdirAll(latestDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	mocks := testutil.New()
 	var setHasCalled bool
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ string, _ int, _ bool) error {
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, _ int, _ bool) error {
 		setHasCalled = true
 		return nil
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
 
 	if setHasCalled {
 		t.Error("SetHasPlaywrightReport should not be called when latest/ is empty")
@@ -91,40 +93,41 @@ func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 // has_playwright_report=true, and cleans latest/.
 func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "pw-copy-test"
+	projectID := int64(3)
+	slug := "pw-copy-test"
 	buildNumber := 3
 
 	// Populate latest/ with a minimal Playwright report.
-	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
+	latestDir := filepath.Join(dir, slug, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "index.html"), "<html>pw report</html>")
 	mustWriteFile(t, filepath.Join(latestDir, "data", "abc123.png"), "\x89PNG")
 
 	mocks := testutil.New()
 	var capturedHasReport bool
 	var capturedBuildNumber int
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ string, bo int, value bool) error {
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, bo int, value bool) error {
 		capturedBuildNumber = bo
 		capturedHasReport = value
 		return nil
 	}
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ string, _ int) (int64, error) {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, _ int) (int64, error) {
 		return 99, nil
 	}
 	var capturedAttachments []store.TestAttachment
-	mocks.Attachments.InsertBuildAttachmentsFn = func(_ context.Context, _ int64, _ string, atts []store.TestAttachment) error {
+	mocks.Attachments.InsertBuildAttachmentsFn = func(_ context.Context, _ int64, _ int64, atts []store.TestAttachment) error {
 		capturedAttachments = atts
 		return nil
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
 
 	// Verify report was copied to numbered build directory.
-	buildIndex := filepath.Join(dir, projectID, "playwright-reports", "3", "index.html")
+	buildIndex := filepath.Join(dir, slug, "playwright-reports", "3", "index.html")
 	if _, err := os.Stat(buildIndex); err != nil {
 		t.Errorf("index.html not copied to build dir: %v", err)
 	}
-	buildPNG := filepath.Join(dir, projectID, "playwright-reports", "3", "data", "abc123.png")
+	buildPNG := filepath.Join(dir, slug, "playwright-reports", "3", "data", "abc123.png")
 	if _, err := os.Stat(buildPNG); err != nil {
 		t.Errorf("data/abc123.png not copied to build dir: %v", err)
 	}
@@ -166,26 +169,27 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 // as attachments (they are allure step metadata, not useful attachments).
 func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "pw-skip-dat"
+	projectID := int64(4)
+	slug := "pw-skip-dat"
 	buildNumber := 1
 
-	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
+	latestDir := filepath.Join(dir, slug, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "index.html"), "<html></html>")
 	mustWriteFile(t, filepath.Join(latestDir, "data", "abc.dat"), "metadata")
 	mustWriteFile(t, filepath.Join(latestDir, "data", "trace.zip"), "zipdata")
 
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ string, _ int) (int64, error) {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, _ int) (int64, error) {
 		return 1, nil
 	}
 	var capturedAttachments []store.TestAttachment
-	mocks.Attachments.InsertBuildAttachmentsFn = func(_ context.Context, _ int64, _ string, atts []store.TestAttachment) error {
+	mocks.Attachments.InsertBuildAttachmentsFn = func(_ context.Context, _ int64, _ int64, atts []store.TestAttachment) error {
 		capturedAttachments = atts
 		return nil
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
 
 	// Only trace.zip should be inserted; abc.dat should be skipped.
 	if len(capturedAttachments) != 1 {
@@ -203,26 +207,27 @@ func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 // even when no data/ directory exists in the Playwright report.
 func TestCopyPlaywrightReport_NoDataDir(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "pw-no-data"
+	projectID := int64(5)
+	slug := "pw-no-data"
 	buildNumber := 2
 
-	latestDir := filepath.Join(dir, projectID, "playwright-reports", "latest")
+	latestDir := filepath.Join(dir, slug, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(latestDir, "index.html"), "<html></html>")
 
 	mocks := testutil.New()
 	var setHasCalled bool
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ string, _ int, _ bool) error {
+	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, _ int, _ bool) error {
 		setHasCalled = true
 		return nil
 	}
 	var insertCalled bool
-	mocks.Attachments.InsertBuildAttachmentsFn = func(_ context.Context, _ int64, _ string, _ []store.TestAttachment) error {
+	mocks.Attachments.InsertBuildAttachmentsFn = func(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
 		insertCalled = true
 		return nil
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
 
 	if !setHasCalled {
 		t.Error("SetHasPlaywrightReport should be called when index.html is present")

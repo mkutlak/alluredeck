@@ -3048,7 +3048,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "parent_id": {
-                    "type": "string"
+                    "type": "integer"
                 }
             }
         }

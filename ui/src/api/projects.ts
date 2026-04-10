@@ -27,18 +27,18 @@ export async function createProject(
   return res.data
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
+export async function deleteProject(projectId: string | number): Promise<void> {
   await apiClient.delete(`/projects/${encodeURIComponent(projectId)}`)
 }
 
-export async function renameProject(projectId: string, newId: string): Promise<void> {
+export async function renameProject(projectId: string | number, newId: string): Promise<void> {
   await apiClient.put(`/projects/${encodeURIComponent(projectId)}/rename`, { new_id: newId })
 }
 
-export async function setProjectParent(projectId: string, parentId: string): Promise<void> {
-  await apiClient.put(`/projects/${encodeURIComponent(projectId)}/parent`, { parent_id: parentId })
+export async function setProjectParent(projectId: string | number, parentId: string | number): Promise<void> {
+  await apiClient.put(`/projects/${encodeURIComponent(projectId)}/parent`, { parent_id: Number(parentId) })
 }
 
-export async function clearProjectParent(projectId: string): Promise<void> {
+export async function clearProjectParent(projectId: string | number): Promise<void> {
   await apiClient.delete(`/projects/${encodeURIComponent(projectId)}/parent`)
 }

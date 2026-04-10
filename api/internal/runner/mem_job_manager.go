@@ -48,10 +48,11 @@ func (m *MemJobManager) Shutdown() {
 }
 
 // Submit enqueues a new job and returns it immediately with Pending status.
-func (m *MemJobManager) Submit(projectID string, params JobParams) *Job {
+func (m *MemJobManager) Submit(projectID int64, slug string, params JobParams) *Job {
 	j := &Job{
 		ID:        newMemJobID(),
 		ProjectID: projectID,
+		Slug:      slug,
 		Status:    JobStatusPending,
 		CreatedAt: time.Now(),
 		Params:    params,
@@ -67,11 +68,12 @@ func (m *MemJobManager) Submit(projectID string, params JobParams) *Job {
 
 // SubmitPlaywright enqueues a new Playwright ingestion job.
 // MemJobManager does not execute Playwright ingestion; it records the job as completed immediately.
-func (m *MemJobManager) SubmitPlaywright(projectID string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
+func (m *MemJobManager) SubmitPlaywright(projectID int64, slug string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
 	now := time.Now()
 	j := &Job{
 		ID:          newMemJobID(),
 		ProjectID:   projectID,
+		Slug:        slug,
 		Status:      JobStatusCompleted,
 		CreatedAt:   now,
 		CompletedAt: &now,
@@ -178,7 +180,7 @@ func (m *MemJobManager) runJob(parentCtx context.Context, j *Job) {
 
 	p := j.Params
 	output, err := m.gen.GenerateReport(jobCtx,
-		j.ProjectID, p.ExecName, p.ExecFrom, p.ExecType, p.StoreResults, p.CIBranch, p.CICommitSHA)
+		j.ProjectID, j.Slug, p.ExecName, p.ExecFrom, p.ExecType, p.StoreResults, p.CIBranch, p.CICommitSHA)
 
 	completed := time.Now()
 	m.mu.Lock()

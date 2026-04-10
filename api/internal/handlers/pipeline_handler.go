@@ -3,6 +3,7 @@ package handlers
 import (
 	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -46,7 +47,7 @@ const defaultPipelinePerPage = 10
 //	@Failure      500  {object}  map[string]any
 //	@Router       /projects/{project_id}/pipeline-runs [get]
 func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -55,7 +56,7 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 
 	hasChildren, err := h.projectStore.HasChildren(ctx, projectID)
 	if err != nil {
-		h.logger.Error("check has children", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("check has children", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error checking project")
 		return
 	}
@@ -72,7 +73,7 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 
 	rows, total, err := h.pipelineStore.ListPipelineRuns(ctx, projectID, branch, pp.Page, pp.PerPage)
 	if err != nil {
-		h.logger.Error("list pipeline runs", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list pipeline runs", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error listing pipeline runs")
 		return
 	}
@@ -169,7 +170,7 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 		}
 
 		acc.resp.Suites = append(acc.resp.Suites, pipelineSuiteResp{
-			ProjectID:   r.ProjectID,
+			ProjectID:   strconv.FormatInt(r.ProjectID, 10),
 			BuildNumber: r.BuildNumber,
 			PassRate:    passRate,
 			Total:       total,

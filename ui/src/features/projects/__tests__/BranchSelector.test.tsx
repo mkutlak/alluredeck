@@ -15,7 +15,7 @@ mockApiClient()
 function makeBranch(overrides: Partial<Branch> = {}): Branch {
   return {
     id: 1,
-    project_id: 'myproject',
+    project_id: 1,
     name: 'main',
     is_default: false,
     created_at: '2024-01-01T00:00:00Z',

@@ -20,17 +20,17 @@ async function main() {
 
   // 1. Upload Allure results FIRST — creates the build
   if (fs.existsSync(allureDir)) {
-    const countBefore = await client.getReportCount('e2e-self-test')
+    const latestBefore = await client.getLatestReportId('e2e-self-test')
     const allureTarGz = path.join(os.tmpdir(), 'e2e-self-test-allure.tar.gz')
-    AllureDeckClient.tarGzDirectory(allureDir, allureTarGz)
+    AllureDeckClient.tarGzDirectoryFiltered(allureDir, allureTarGz, ['*.json'])
     await client.uploadAllureResults('e2e-self-test', allureTarGz)
-    await client.waitForNewReport('e2e-self-test', countBefore)
+    await client.waitForNewReport('e2e-self-test', latestBefore)
   } else {
     console.log('[upload] No allure-results found — skipping Allure upload.')
   }
 
   // 2. Upload Playwright HTML report directly to the build — no polling needed.
-  const buildNumber = await client.getLatestReportId('e2e-self-test')
+  const buildNumber = await client.getLatestReportId('e2e-self-test') ?? 'latest'
   const pwTarGz = path.join(os.tmpdir(), 'e2e-self-test-report.tar.gz')
   AllureDeckClient.tarGzDirectory(reportDir, pwTarGz)
   await client.uploadPlaywrightReport('e2e-self-test', pwTarGz, buildNumber)

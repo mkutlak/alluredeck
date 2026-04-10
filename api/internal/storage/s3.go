@@ -502,7 +502,11 @@ func s3DirEntryFiles(page *s3.ListObjectsV2Output, prefix string) []DirEntry {
 		if obj.Size != nil {
 			size = *obj.Size
 		}
-		entries = append(entries, DirEntry{Name: name, Size: size, IsDir: false})
+		var modTime int64
+		if obj.LastModified != nil {
+			modTime = obj.LastModified.UnixNano()
+		}
+		entries = append(entries, DirEntry{Name: name, Size: size, ModTime: modTime, IsDir: false})
 	}
 	return entries
 }

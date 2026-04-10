@@ -55,9 +55,10 @@ func NewPlaywrightRunner(deps PlaywrightRunnerDeps) *PlaywrightRunner {
 // IngestReport processes an already-uploaded Playwright HTML report for a project.
 // It reads the report from playwright-reports/latest/, parses it, copies files to
 // the numbered build directory, and stores test results and stats in the database.
-func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execName, execFrom, ciBranch, ciCommitSHA string) (string, error) {
+// projectID is the numeric surrogate key; slug is the filesystem identifier.
+func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, slug, execName, execFrom, ciBranch, ciCommitSHA string) (string, error) {
 	// 1. Acquire per-project lock to serialize concurrent report ingestion.
-	unlock, err := pr.lockManager.AcquireLock(ctx, projectID)
+	unlock, err := pr.lockManager.AcquireLock(ctx, slug)
 	if err != nil {
 		return "", fmt.Errorf("acquire lock: %w", err)
 	}
@@ -70,7 +71,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	}
 
 	// 3. Read index.html from playwright-reports/latest/ in storage.
-	indexReader, _, err := pr.store.ReadPlaywrightFile(ctx, projectID, "latest/index.html")
+	indexReader, _, err := pr.store.ReadPlaywrightFile(ctx, slug, "latest/index.html")
 	if err != nil {
 		return "", fmt.Errorf("read playwright index.html: %w", err)
 	}
@@ -88,7 +89,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	}
 
 	// 5. Copy playwright-reports/latest/ to playwright-reports/{buildNumber}/.
-	if err := pr.store.CopyPlaywrightLatestToBuild(ctx, projectID, buildNumber); err != nil {
+	if err := pr.store.CopyPlaywrightLatestToBuild(ctx, slug, buildNumber); err != nil {
 		return "", fmt.Errorf("copy playwright report to build: %w", err)
 	}
 
@@ -100,7 +101,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	// 7. Mark this build as having a Playwright report.
 	if err := pr.buildStore.SetHasPlaywrightReport(ctx, projectID, buildNumber, true); err != nil {
 		pr.logger.Error("failed to set has_playwright_report",
-			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
 	// 8. Compute and store BuildStats from PlaywrightMeta.
@@ -114,7 +115,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	}
 	if err := pr.buildStore.UpdateBuildStats(ctx, projectID, buildNumber, stats); err != nil {
 		pr.logger.Error("failed to update build stats",
-			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
 	// 9. Store CI metadata — fall back to report metadata if CI params not provided.
@@ -136,7 +137,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	if ciMeta.Provider != "" || ciMeta.BuildURL != "" || ciMeta.Branch != "" || ciMeta.CommitSHA != "" {
 		if err := pr.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildNumber, ciMeta); err != nil {
 			pr.logger.Warn("failed to store CI metadata",
-				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+				zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 	}
 
@@ -150,7 +151,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 		b, _, branchErr := pr.branchStore.GetOrCreate(ctx, projectID, branch)
 		if branchErr != nil {
 			pr.logger.Warn("failed to get/create branch",
-				zap.String("project_id", projectID),
+				zap.String("slug", slug),
 				zap.String("branch", branch),
 				zap.Error(branchErr))
 		} else {
@@ -160,7 +161,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 	if resolvedBranchID != nil {
 		if err := pr.buildStore.UpdateBuildBranchID(ctx, projectID, buildNumber, *resolvedBranchID); err != nil {
 			pr.logger.Warn("failed to set build branch_id",
-				zap.String("project_id", projectID),
+				zap.String("slug", slug),
 				zap.Int("build_number", buildNumber),
 				zap.Error(err))
 		}
@@ -206,59 +207,59 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 			}
 			if err := pr.testResultStore.InsertBatch(ctx, testResults); err != nil {
 				pr.logger.Warn("failed to insert test results",
-					zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+					zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 			}
 
 			// Enrich with full parsed data (labels, parameters, steps, attachments).
 			if len(results) > 0 {
 				if enrichErr := pr.testResultStore.InsertBatchFull(ctx, buildID, projectID, results); enrichErr != nil {
 					pr.logger.Warn("failed to enrich test results",
-						zap.String("project_id", projectID), zap.Error(enrichErr))
+						zap.String("slug", slug), zap.Error(enrichErr))
 				}
 			}
 
 			// Compute defect fingerprints for failures.
 			if pr.defectStore != nil && len(results) > 0 {
-				if fpErr := pr.computeDefectFingerprints(ctx, projectID, buildID, results); fpErr != nil {
+				if fpErr := pr.computeDefectFingerprints(ctx, projectID, slug, buildID, results); fpErr != nil {
 					pr.logger.Warn("failed to compute defect fingerprints",
-						zap.String("project_id", projectID), zap.Error(fpErr))
+						zap.String("slug", slug), zap.Error(fpErr))
 				}
 			}
 		} else {
 			pr.logger.Warn("failed to get build id",
-				zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+				zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 		}
 	}
 
 	// 12. Set latest and prune.
 	if err := pr.buildStore.SetLatestBranch(ctx, projectID, buildNumber, resolvedBranchID); err != nil {
 		pr.logger.Error("failed to set latest build",
-			zap.String("project_id", projectID), zap.Int("build_number", buildNumber), zap.Error(err))
+			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
 	if pr.cfg.KeepHistory {
 		removed, err := pr.buildStore.PruneBuildsBranch(ctx, projectID, pr.cfg.KeepHistoryLatest, resolvedBranchID)
 		if err != nil {
 			pr.logger.Error("failed to prune builds",
-				zap.String("project_id", projectID), zap.Error(err))
-		} else if err := pr.store.PruneReportDirs(ctx, projectID, removed); err != nil {
+				zap.String("slug", slug), zap.Error(err))
+		} else if err := pr.store.PruneReportDirs(ctx, slug, removed); err != nil {
 			pr.logger.Error("failed to prune report dirs",
-				zap.String("project_id", projectID), zap.Error(err))
+				zap.String("slug", slug), zap.Error(err))
 		}
 
 		if pr.cfg.KeepHistoryMaxAgeDays > 0 {
 			cutoff := time.Now().AddDate(0, 0, -pr.cfg.KeepHistoryMaxAgeDays)
 			aged, err := pr.buildStore.PruneBuildsByAge(ctx, projectID, cutoff)
 			if err == nil {
-				_ = pr.store.PruneReportDirs(ctx, projectID, aged)
+				_ = pr.store.PruneReportDirs(ctx, slug, aged)
 			}
 		}
 	}
 
 	// 13. Clean up the staging directory now that files have been copied to the build.
-	if err := pr.store.CleanPlaywrightLatest(ctx, projectID); err != nil {
+	if err := pr.store.CleanPlaywrightLatest(ctx, slug); err != nil {
 		pr.logger.Warn("failed to clean playwright latest",
-			zap.String("project_id", projectID), zap.Error(err))
+			zap.String("slug", slug), zap.Error(err))
 	}
 
 	// 14. Return success.
@@ -268,7 +269,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID, execNam
 // computeDefectFingerprints queries failed test results, groups them by
 // normalised fingerprint, upserts fingerprints into the defect store, links
 // test results, and runs clean-build / auto-resolve / regression detection.
-func (pr *PlaywrightRunner) computeDefectFingerprints(ctx context.Context, projectID string, buildID int64, _ []*parser.Result) error {
+func (pr *PlaywrightRunner) computeDefectFingerprints(ctx context.Context, projectID int64, slug string, buildID int64, _ []*parser.Result) error {
 	failed, err := pr.testResultStore.ListFailedForFingerprinting(ctx, projectID, buildID)
 	if err != nil {
 		return fmt.Errorf("list failed for fingerprinting: %w", err)
@@ -332,13 +333,12 @@ func (pr *PlaywrightRunner) computeDefectFingerprints(ctx context.Context, proje
 	regressions, err := pr.defectStore.DetectRegressions(ctx, projectID, buildID)
 	if err != nil {
 		pr.logger.Warn("failed to detect regressions",
-			zap.String("project_id", projectID), zap.Error(err))
+			zap.String("slug", slug), zap.Error(err))
 	} else if len(regressions) > 0 {
 		pr.logger.Info("detected defect regressions",
-			zap.String("project_id", projectID),
+			zap.String("slug", slug),
 			zap.Int("count", len(regressions)))
 	}
 
 	return nil
 }
-

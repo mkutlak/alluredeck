@@ -377,21 +377,21 @@ func wireHandlers(
 		project:         handlers.NewProjectHandler(s.project, allureCore, dataStore, cfg, logger),
 		resultUpload:    handlers.NewResultUploadHandler(dataStore, s.project, jobManager, allureCore, cfg, logger),
 		playwright:      handlers.NewPlaywrightHandler(dataStore, s.project, s.build, jobManager, cfg, logger),
-		admin:           handlers.NewAdminHandlerWithProjects(jobManager, dataStore, s.project, cfg.ProjectsPath, logger),
-		branch:          handlers.NewBranchHandler(s.branch, s.build, cfg.ProjectsPath),
-		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, cfg.ProjectsPath),
-		analytics:       handlers.NewAnalyticsHandler(s.analytics, s.branch, s.project, cfg.ProjectsPath, logger),
-		search:          handlers.NewSearchHandler(s.search, cfg.ProjectsPath),
-		compare:         handlers.NewCompareHandler(s.testResult, cfg.ProjectsPath),
+		admin:           handlers.NewAdminHandlerWithProjects(jobManager, dataStore, s.project, logger),
+		branch:          handlers.NewBranchHandler(s.branch, s.build, s.project),
+		testHistory:     handlers.NewTestHistoryHandler(s.testResult, s.build, s.branch, s.project),
+		analytics:       handlers.NewAnalyticsHandler(s.analytics, s.branch, s.project, logger),
+		search:          handlers.NewSearchHandler(s.search),
+		compare:         handlers.NewCompareHandler(s.testResult, s.project),
 		dashboard:       handlers.NewDashboardHandler(s.build, logger),
-		lowPerf:         handlers.NewLowPerformingHandler(s.testResult, s.branch, cfg.ProjectsPath, logger),
-		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, cfg.ProjectsPath),
-		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, dataStore, cfg.ProjectsPath, logger),
-		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, dataStore, cfg.ProjectsPath, logger),
+		lowPerf:         handlers.NewLowPerformingHandler(s.testResult, s.branch, s.project, logger),
+		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, s.project),
+		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, dataStore, logger),
+		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
 		apiKey:          handlers.NewAPIKeyHandler(s.apiKey),
-		parent:          handlers.NewProjectParentHandler(s.project, s.build, cfg.ProjectsPath, logger),
-		defect:          handlers.NewDefectHandler(s.defect, cfg.ProjectsPath, logger),
-		webhook:         handlers.NewWebhookHandler(s.webhook, cfg.ProjectsPath, logger),
+		parent:          handlers.NewProjectParentHandler(s.project, logger),
+		defect:          handlers.NewDefectHandler(s.defect, s.project, logger),
+		webhook:         handlers.NewWebhookHandler(s.webhook, s.project, logger),
 		pipeline:        handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
 		preferences:     handlers.NewPreferenceHandler(s.preference),
 		oidc:            oidcHandler,
@@ -447,11 +447,11 @@ func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectSto
 						removed, err := buildStore.PruneBuildsBranch(ctx, p.ID, cfg.KeepHistoryLatest, nil)
 						if err != nil {
 							logger.Error("retention scheduler: count prune failed",
-								zap.String("project_id", p.ID), zap.Error(err))
+								zap.Int64("project_id", p.ID), zap.Error(err))
 						} else {
-							if err := dataStore.PruneReportDirs(ctx, p.ID, removed); err != nil {
+							if err := dataStore.PruneReportDirs(ctx, p.Slug, removed); err != nil {
 								logger.Error("retention scheduler: prune report dirs failed",
-									zap.String("project_id", p.ID), zap.Error(err))
+									zap.Int64("project_id", p.ID), zap.Error(err))
 							}
 							totalPruned += len(removed)
 						}
@@ -461,11 +461,11 @@ func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectSto
 						aged, err := buildStore.PruneBuildsByAge(ctx, p.ID, cutoff)
 						if err != nil {
 							logger.Error("retention scheduler: age prune failed",
-								zap.String("project_id", p.ID), zap.Error(err))
+								zap.Int64("project_id", p.ID), zap.Error(err))
 						} else {
-							if err := dataStore.PruneReportDirs(ctx, p.ID, aged); err != nil {
+							if err := dataStore.PruneReportDirs(ctx, p.Slug, aged); err != nil {
 								logger.Error("retention scheduler: prune aged report dirs failed",
-									zap.String("project_id", p.ID), zap.Error(err))
+									zap.Int64("project_id", p.ID), zap.Error(err))
 							}
 							totalPruned += len(aged)
 						}
@@ -479,6 +479,36 @@ func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectSto
 					logger.Error("retention scheduler: webhook delivery prune failed", zap.Error(err))
 				} else if n > 0 {
 					logger.Info("retention scheduler: pruned webhook deliveries", zap.Int64("count", n))
+				}
+
+				// Prune stale pending results.
+				if cfg.PendingResultsMaxAgeDays > 0 {
+					pendingCutoff := time.Now().AddDate(0, 0, -cfg.PendingResultsMaxAgeDays)
+					pendingCleaned := 0
+					for _, p := range projects {
+						entries, err := dataStore.ReadDir(ctx, p.Slug, "results")
+						if err != nil || len(entries) == 0 {
+							continue
+						}
+						var newest int64
+						for _, e := range entries {
+							if !e.IsDir && e.ModTime > newest {
+								newest = e.ModTime
+							}
+						}
+						if newest > 0 && time.Unix(0, newest).Before(pendingCutoff) {
+							if err := dataStore.CleanResults(ctx, p.Slug); err != nil {
+								logger.Warn("retention scheduler: pending results cleanup failed",
+									zap.String("slug", p.Slug), zap.Error(err))
+								continue
+							}
+							pendingCleaned++
+						}
+					}
+					if pendingCleaned > 0 {
+						logger.Info("retention scheduler: pending results cleanup",
+							zap.Int("projects_cleaned", pendingCleaned))
+					}
 				}
 			}
 		}
@@ -599,6 +629,7 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("GET "+prefix+"/admin/results", adminOnly(noStore(d.h.admin.ListPendingResults)))
 	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(d.h.admin.CancelJob)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/jobs/{job_id}", adminOnly(noStore(d.h.admin.DeleteJob)))
+	mux.HandleFunc("DELETE "+prefix+"/admin/results", adminOnly(noStore(d.h.admin.CleanBulkResults)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(d.h.admin.CleanProjectResults)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/results/group/{project_id}", adminOnly(noStore(d.h.admin.CleanGroupResults)))
 

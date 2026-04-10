@@ -122,12 +122,13 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 // InsertBuild fails, the error is returned instead of swallowed.
 func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "err-proj"
+	projectID := int64(10)
+	slug := "err-proj"
 
 	cfg := &config.Config{ProjectsPath: dir}
 	st := storage.NewLocalStore(cfg)
 	mocks := testutil.New()
-	mocks.Builds.InsertBuildFn = func(_ context.Context, _ string, _ int) error {
+	mocks.Builds.InsertBuildFn = func(_ context.Context, _ int64, _ int) error {
 		return store.ErrBuildNotFound // any non-nil error
 	}
 	a := NewAllure(AllureDeps{
@@ -138,7 +139,7 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 		Logger:     zap.NewNop(),
 	})
 
-	err := a.storeAndPruneBuild(context.Background(), projectID, dir, 1, store.CIMetadata{}, nil)
+	err := a.storeAndPruneBuild(context.Background(), projectID, slug, dir, 1, store.CIMetadata{}, nil)
 	if err == nil {
 		t.Fatal("expected error from storeAndPruneBuild when InsertBuild fails, got nil")
 	}
@@ -151,7 +152,8 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 // the build is subsequently visible via ListBuilds.
 func TestRecordBuild_RecordsInDB(t *testing.T) {
 	dir := t.TempDir()
-	projectID := "record-proj"
+	projectID := int64(11)
+	slug := "record-proj"
 
 	cfg := &config.Config{ProjectsPath: dir}
 	st := storage.NewLocalStore(cfg)
@@ -159,7 +161,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 
 	// Configure ListBuilds to return the build that recordBuild should have inserted.
 	expectedBuild := store.Build{ProjectID: projectID, BuildNumber: 1}
-	mocks.Builds.ListBuildsFn = func(_ context.Context, _ string) ([]store.Build, error) {
+	mocks.Builds.ListBuildsFn = func(_ context.Context, _ int64) ([]store.Build, error) {
 		return []store.Build{expectedBuild}, nil
 	}
 
@@ -171,7 +173,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 		Logger:     zap.NewNop(),
 	})
 
-	if err := a.recordBuild(context.Background(), projectID, 1); err != nil {
+	if err := a.recordBuild(context.Background(), projectID, slug, 1); err != nil {
 		t.Fatalf("recordBuild: %v", err)
 	}
 

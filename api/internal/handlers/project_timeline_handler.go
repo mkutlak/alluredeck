@@ -30,16 +30,16 @@ type ProjectTimelineHandler struct {
 	buildStore      store.BuildStorer
 	testResultStore store.TestResultStorer
 	branchStore     store.BranchStorer
-	projectsDir     string
+	projectStore    store.ProjectStorer
 }
 
 // NewProjectTimelineHandler creates and returns a new ProjectTimelineHandler.
-func NewProjectTimelineHandler(bs store.BuildStorer, trs store.TestResultStorer, brs store.BranchStorer, projectsDir string) *ProjectTimelineHandler {
+func NewProjectTimelineHandler(bs store.BuildStorer, trs store.TestResultStorer, brs store.BranchStorer, ps store.ProjectStorer) *ProjectTimelineHandler {
 	return &ProjectTimelineHandler{
 		buildStore:      bs,
 		testResultStore: trs,
 		branchStore:     brs,
-		projectsDir:     projectsDir,
+		projectStore:    ps,
 	}
 }
 
@@ -60,7 +60,7 @@ func NewProjectTimelineHandler(bs store.BuildStorer, trs store.TestResultStorer,
 func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}

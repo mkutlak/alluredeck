@@ -44,7 +44,7 @@ func newTestWorker(ws *testutil.MemWebhookStore, client *http.Client) *SendWebho
 func samplePayload(event string) WebhookPayload {
 	return WebhookPayload{
 		Event:       event,
-		ProjectID:   "test-project",
+		ProjectID:   1,
 		BuildNumber: 1,
 		Stats: WebhookStats{
 			Total:    10,
@@ -66,7 +66,7 @@ func TestSendWebhookWorker_Success(t *testing.T) {
 
 	ws := testutil.NewMemWebhookStore()
 	wh := &store.Webhook{
-		ProjectID:  "test-project",
+		ProjectID:  1,
 		Name:       "test",
 		TargetType: "generic",
 		URL:        srv.URL,
@@ -114,7 +114,7 @@ func TestSendWebhookWorker_NonSuccess(t *testing.T) {
 
 	ws := testutil.NewMemWebhookStore()
 	wh := &store.Webhook{
-		ProjectID:  "test-project",
+		ProjectID:  1,
 		Name:       "test",
 		TargetType: "generic",
 		URL:        srv.URL,
@@ -187,7 +187,7 @@ func TestSendWebhookWorker_HMACSignature(t *testing.T) {
 	ws := testutil.NewMemWebhookStore()
 	sec := secret
 	wh := &store.Webhook{
-		ProjectID:  "test-project",
+		ProjectID:  1,
 		Name:       "test",
 		TargetType: "generic",
 		URL:        srv.URL,
@@ -237,7 +237,7 @@ func TestSendWebhookWorker_ContentType(t *testing.T) {
 
 	ws := testutil.NewMemWebhookStore()
 	wh := &store.Webhook{
-		ProjectID:  "test-project",
+		ProjectID:  1,
 		Name:       "test",
 		TargetType: "generic",
 		URL:        srv.URL,

@@ -68,6 +68,7 @@ services:
       KEEP_HISTORY: "true"
       KEEP_HISTORY_LATEST: "20"
       # KEEP_HISTORY_MAX_AGE_DAYS: "0"
+      MAX_UPLOAD_SIZE_MB: "500"
       GOMEMLIMIT: "1GiB"
       DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
     ports:

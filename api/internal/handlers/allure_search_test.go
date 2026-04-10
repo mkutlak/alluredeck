@@ -18,7 +18,7 @@ func makeSearchReq(t *testing.T, query string) *http.Request {
 }
 
 func TestSearch_MissingQuery(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	h.Search(rr, makeSearchReq(t, ""))
 
@@ -35,7 +35,7 @@ func TestSearch_MissingQuery(t *testing.T) {
 }
 
 func TestSearch_QueryTooShort(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	h.Search(rr, makeSearchReq(t, "?q=a"))
 
@@ -45,7 +45,7 @@ func TestSearch_QueryTooShort(t *testing.T) {
 }
 
 func TestSearch_QueryTooLong(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	var longQ strings.Builder
 	for range 101 {
@@ -59,7 +59,7 @@ func TestSearch_QueryTooLong(t *testing.T) {
 }
 
 func TestSearch_ValidQuery_EmptyResults(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	h.Search(rr, makeSearchReq(t, "?q=nonexistent"))
 
@@ -88,7 +88,7 @@ func TestSearch_ValidQuery_EmptyResults(t *testing.T) {
 }
 
 func TestSearch_LimitClampedToMax(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	// limit=999 should be clamped to 50 — handler should not error.
 	h.Search(rr, makeSearchReq(t, "?q=test&limit=999"))
@@ -99,7 +99,7 @@ func TestSearch_LimitClampedToMax(t *testing.T) {
 }
 
 func TestSearch_LimitDefault(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	// No limit param — should default to 10.
 	h.Search(rr, makeSearchReq(t, "?q=test"))
@@ -110,7 +110,7 @@ func TestSearch_LimitDefault(t *testing.T) {
 }
 
 func TestSearch_InvalidLimit(t *testing.T) {
-	h := newTestSearchHandler(t, t.TempDir())
+	h := newTestSearchHandler(t)
 	rr := httptest.NewRecorder()
 	// Non-numeric limit — should default to 10, not error.
 	h.Search(rr, makeSearchReq(t, "?q=test&limit=abc"))

@@ -11,7 +11,7 @@ import { ProjectSwitcher } from '../ProjectSwitcher'
 
 vi.mock('@/api/projects', () => ({
   getProjects: vi.fn().mockResolvedValue({
-    data: [{ project_id: 'project-alpha' }, { project_id: 'my-project' }],
+    data: [{ project_id: 1, slug: 'project-alpha' }, { project_id: 2, slug: 'my-project' }],
     metadata: { message: 'ok' },
     pagination: { total: 2, page: 1, per_page: 20, total_pages: 1 },
   }),

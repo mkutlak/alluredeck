@@ -17,14 +17,12 @@ const (
 // SearchHandler handles HTTP requests for search operations.
 type SearchHandler struct {
 	searchStore store.SearchStorer
-	projectsDir string
 }
 
 // NewSearchHandler creates and returns a new SearchHandler.
-func NewSearchHandler(ss store.SearchStorer, projectsDir string) *SearchHandler {
+func NewSearchHandler(ss store.SearchStorer) *SearchHandler {
 	return &SearchHandler{
 		searchStore: ss,
-		projectsDir: projectsDir,
 	}
 }
 
@@ -68,11 +66,13 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type projectEntry struct {
-		ProjectID string `json:"project_id"`
+		ProjectID int64  `json:"project_id"`
+		Slug      string `json:"slug"`
 		CreatedAt string `json:"created_at"`
 	}
 	type testEntry struct {
-		ProjectID string `json:"project_id"`
+		ProjectID int64  `json:"project_id"`
+		Slug      string `json:"slug"`
 		TestName  string `json:"test_name"`
 		FullName  string `json:"full_name"`
 		Status    string `json:"status"`
@@ -82,6 +82,7 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	for _, p := range projects {
 		pEntries = append(pEntries, projectEntry{
 			ProjectID: p.ID,
+			Slug:      p.Slug,
 			CreatedAt: p.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		})
 	}
@@ -90,6 +91,7 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	for _, t := range tests {
 		tEntries = append(tEntries, testEntry{
 			ProjectID: t.ProjectID,
+			Slug:      t.Slug,
 			TestName:  t.TestName,
 			FullName:  t.FullName,
 			Status:    t.Status,

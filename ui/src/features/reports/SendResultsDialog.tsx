@@ -19,7 +19,7 @@ import { toast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 
 interface SendResultsDialogProps {
-  projectId: string
+  projectId: number
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -35,7 +35,7 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
   const [jobId, setJobId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const { isPolling, isCompleted, isFailed, error: jobError } = useJobPolling(projectId, jobId)
+  const { isPolling, isCompleted, isFailed, error: jobError } = useJobPolling(String(projectId), jobId)
 
   // Ref guard: only handle each job's completion once (no setState inside effect)
   const handledJobRef = useRef<string | null>(null)
@@ -56,7 +56,7 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
   const mutation = useMutation({
     mutationFn: async () => {
       setUploadPhase('uploading')
-      await sendResultsMultipart(projectId, files)
+      await sendResultsMultipart(String(projectId), files)
       if (generateAfterUpload) {
         setUploadPhase('generating')
         const result = await generateReport({ project_id: projectId })

@@ -104,6 +104,7 @@ type Config struct {
 	KeepHistory               bool            `yaml:"keep_history" envconfig:"KEEP_HISTORY"`
 	KeepHistoryLatest         int             `yaml:"keep_history_latest" envconfig:"KEEP_HISTORY_LATEST"`
 	KeepHistoryMaxAgeDays     int             `yaml:"keep_history_max_age_days" envconfig:"KEEP_HISTORY_MAX_AGE_DAYS"`
+	PendingResultsMaxAgeDays  int             `yaml:"pending_results_max_age_days" envconfig:"PENDING_RESULTS_MAX_AGE_DAYS"`
 	TLS                       bool            `yaml:"tls" envconfig:"TLS"`
 	APIResponseLessVerbose    bool            `yaml:"api_response_less_verbose" envconfig:"API_RESPONSE_LESS_VERBOSE"`
 	CORSAllowedOrigins        []string        `yaml:"cors_allowed_origins" envconfig:"CORS_ALLOWED_ORIGINS"`
@@ -144,6 +145,7 @@ func LoadConfig() (*Config, error) {
 		CheckResultsEverySeconds: "NONE",
 		KeepHistory:              true,
 		KeepHistoryLatest:        100,
+		PendingResultsMaxAgeDays: 3,
 		AccessTokenExpiry:        DurationSeconds(3600 * time.Second),
 		RefreshTokenExpiry:       DurationSeconds(2592000 * time.Second),
 		DBMaxOpenConns:           25,

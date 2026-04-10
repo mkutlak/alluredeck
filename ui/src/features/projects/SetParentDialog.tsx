@@ -36,7 +36,7 @@ export function SetParentDialog({ projectId, open, onOpenChange }: Props) {
 
   // Filter: exclude self, exclude projects that already have a parent (they can't be parents)
   const availableParents = (projectsResp?.data ?? []).filter(
-    (p) => p.project_id !== projectId && !p.parent_id,
+    (p) => String(p.project_id) !== projectId && !p.parent_id,
   )
 
   const { mutate, isPending } = useMutation({
@@ -73,8 +73,8 @@ export function SetParentDialog({ projectId, open, onOpenChange }: Props) {
             </SelectTrigger>
             <SelectContent>
               {availableParents.map((p) => (
-                <SelectItem key={p.project_id} value={p.project_id}>
-                  {p.project_id}
+                <SelectItem key={p.project_id} value={String(p.project_id)}>
+                  {p.slug}
                 </SelectItem>
               ))}
               {availableParents.length === 0 && (

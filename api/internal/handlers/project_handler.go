@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +47,7 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pg := parsePagination(r)
 	topLevel := r.URL.Query().Get("top_level") == "true"
-	filterParentID := r.URL.Query().Get("parent_id")
+	filterParentIDStr := r.URL.Query().Get("parent_id")
 
 	var (
 		dbProjects []store.Project
@@ -55,11 +56,16 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	)
 
 	switch {
-	case filterParentID != "":
+	case filterParentIDStr != "":
+		filterParentID, parseErr := strconv.ParseInt(filterParentIDStr, 10, 64)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, "parent_id must be a numeric ID")
+			return
+		}
 		// Return children of the given parent project.
 		children, childErr := h.projectStore.ListChildren(ctx, filterParentID)
 		if childErr != nil {
-			h.logger.Error("listing children failed", zap.String("parent_id", filterParentID), zap.Error(childErr))
+			h.logger.Error("listing children failed", zap.Int64("parent_id", filterParentID), zap.Error(childErr))
 			writeError(w, http.StatusInternalServerError, "error listing children")
 			return
 		}
@@ -82,7 +88,7 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build parent → children map from the fetched projects.
-	childrenOf := make(map[string][]string)
+	childrenOf := make(map[int64][]int64)
 	for _, p := range dbProjects {
 		if p.ParentID != nil {
 			childrenOf[*p.ParentID] = append(childrenOf[*p.ParentID], p.ID)
@@ -91,11 +97,19 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]ProjectEntry, 0, len(dbProjects))
 	for _, p := range dbProjects {
+		displayName := p.DisplayName
+		if displayName == "" {
+			displayName = p.Slug
+		}
 		e := ProjectEntry{
-			ProjectID:  p.ID,
-			ReportType: p.ReportType,
-			CreatedAt:  p.CreatedAt.UTC().Format(time.RFC3339),
-			ParentID:   p.ParentID,
+			ProjectID:   p.ID,
+			Slug:        p.Slug,
+			DisplayName: displayName,
+			ReportType:  p.ReportType,
+			CreatedAt:   p.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		if p.ParentID != nil {
+			e.ParentID = p.ParentID
 		}
 		if kids, ok := childrenOf[p.ID]; ok {
 			e.Children = kids
@@ -120,7 +134,7 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	var reqBody struct {
 		ID       string `json:"id"`
-		ParentID string `json:"parent_id,omitempty"`
+		ParentID *int64 `json:"parent_id,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
@@ -128,41 +142,46 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectID := strings.TrimSpace(reqBody.ID)
-	if err := validateProjectID(h.cfg.ProjectsPath, projectID); err != nil {
+	projectSlug := strings.TrimSpace(reqBody.ID)
+	if err := validateProjectID(h.cfg.ProjectsPath, projectSlug); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	err := h.runner.CreateProject(r.Context(), projectID)
+	// Create filesystem project via runner (storage still uses slug).
+	err := h.runner.CreateProject(r.Context(), projectSlug)
 	if err != nil {
 		if errors.Is(err, runner.ErrProjectExists) {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
-		h.logger.Error("creating project failed", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("creating project failed", zap.String("slug", projectSlug), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error creating project")
 		return
 	}
 
-	// Register in database (INSERT OR IGNORE so an already-synced project is not an error).
-	parentID := strings.TrimSpace(reqBody.ParentID)
+	// Register in database — returns *Project with numeric ID.
+	var project *store.Project
 	var dbErr error
-	if parentID != "" {
-		dbErr = h.projectStore.CreateProjectWithParent(r.Context(), projectID, parentID)
+	if reqBody.ParentID != nil {
+		project, dbErr = h.projectStore.CreateProjectWithParent(r.Context(), projectSlug, *reqBody.ParentID)
 	} else {
-		dbErr = h.projectStore.CreateProject(r.Context(), projectID)
+		project, dbErr = h.projectStore.CreateProject(r.Context(), projectSlug)
 	}
 	if dbErr != nil {
 		if !errors.Is(dbErr, store.ErrProjectExists) {
-			// Log but don't fail — filesystem project was already created successfully.
-			h.logger.Error("db project registration failed", zap.String("project_id", projectID), zap.Error(dbErr))
+			h.logger.Error("db project registration failed", zap.String("slug", projectSlug), zap.Error(dbErr))
+		}
+		// If the project already existed in DB, look it up to get the numeric ID.
+		if project == nil {
+			project, _ = h.projectStore.GetProjectBySlug(r.Context(), projectSlug)
 		}
 	}
 
-	entry := ProjectEntry{ProjectID: projectID}
-	if parentID != "" {
-		entry.ParentID = &parentID
+	entry := ProjectEntry{Slug: projectSlug, DisplayName: projectSlug}
+	if project != nil {
+		entry.ProjectID = project.ID
+		entry.ParentID = reqBody.ParentID
 	}
 	writeSuccess(w, http.StatusCreated, entry, "Project successfully created")
 }
@@ -179,27 +198,37 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id} [delete]
 func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
 
-	if err := h.runner.DeleteProject(r.Context(), projectID); err != nil {
+	// Load project to get slug for storage operations.
+	project, err := h.projectStore.GetProject(r.Context(), projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id %d not found", projectID))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "error fetching project")
+		return
+	}
+	slug := project.Slug
+
+	if err := h.runner.DeleteProject(r.Context(), slug); err != nil {
 		if errors.Is(err, storage.ErrProjectNotFound) {
-			// Filesystem missing — attempt DB cleanup for half-synced state
-			// (project exists in DB but was never on disk, or disk was removed externally).
+			// Filesystem missing — attempt DB cleanup for half-synced state.
 			if dbErr := h.projectStore.DeleteProject(r.Context(), projectID); dbErr == nil {
-				// Stale DB record removed; surface as success so the UI clears it.
 				writeJSON(w, http.StatusOK, map[string]any{
-					"data":     map[string]string{"project_id": projectID},
+					"data":     map[string]any{"project_id": projectID},
 					"metadata": map[string]string{"message": "Project successfully deleted"},
 				})
 				return
 			}
-			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id %q not found", projectID))
+			writeError(w, http.StatusNotFound, fmt.Sprintf("project_id %d not found", projectID))
 			return
 		}
-		h.logger.Error("deleting project failed", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("deleting project failed", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error deleting project")
 		return
 	}
@@ -207,12 +236,12 @@ func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	// Remove from database. Non-fatal: project may not be in DB.
 	if dbErr := h.projectStore.DeleteProject(r.Context(), projectID); dbErr != nil {
 		if !errors.Is(dbErr, store.ErrProjectNotFound) {
-			h.logger.Error("db project cleanup failed", zap.String("project_id", projectID), zap.Error(dbErr))
+			h.logger.Error("db project cleanup failed", zap.Int64("project_id", projectID), zap.Error(dbErr))
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]string{"project_id": projectID},
+		"data":     map[string]any{"project_id": projectID},
 		"metadata": map[string]string{"message": "Project successfully deleted"},
 	})
 }
@@ -233,7 +262,7 @@ func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.cfg.ProjectsPath)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -246,18 +275,15 @@ func (h *ProjectHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newID := strings.TrimSpace(reqBody.NewID)
-	if err := validateProjectID(h.cfg.ProjectsPath, newID); err != nil {
+	newSlug := strings.TrimSpace(reqBody.NewID)
+	if err := validateProjectID(h.cfg.ProjectsPath, newSlug); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if newID == projectID {
-		writeError(w, http.StatusBadRequest, "new_id must differ from current project ID")
-		return
-	}
 
-	// Check old exists.
-	if _, err := h.projectStore.GetProject(ctx, projectID); err != nil {
+	// Check old exists and get slug.
+	project, err := h.projectStore.GetProject(ctx, projectID)
+	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
 			writeError(w, http.StatusNotFound, "project not found")
 			return
@@ -265,28 +291,34 @@ func (h *ProjectHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	oldSlug := project.Slug
 
-	// Check new doesn't exist.
-	if exists, _ := h.projectStore.ProjectExists(ctx, newID); exists {
-		writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newID))
+	if newSlug == oldSlug {
+		writeError(w, http.StatusBadRequest, "new_id must differ from current project slug")
 		return
 	}
 
-	// Rename storage first (reversible).
-	if err := h.store.RenameProject(ctx, projectID, newID); err != nil {
-		h.logger.Error("storage rename failed", zap.String("old", projectID), zap.String("new", newID), zap.Error(err))
+	// Check new slug doesn't exist.
+	if existing, _ := h.projectStore.GetProjectBySlug(ctx, newSlug); existing != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newSlug))
+		return
+	}
+
+	// Rename storage first (reversible) — storage uses slug strings.
+	if err := h.store.RenameProject(ctx, oldSlug, newSlug); err != nil {
+		h.logger.Error("storage rename failed", zap.String("old", oldSlug), zap.String("new", newSlug), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "failed to rename project storage")
 		return
 	}
 
-	// Rename in DB (cascades via ON UPDATE CASCADE).
-	if err := h.projectStore.RenameProject(ctx, projectID, newID); err != nil {
+	// Rename in DB.
+	if err := h.projectStore.RenameProject(ctx, projectID, newSlug); err != nil {
 		h.logger.Error("db rename failed, attempting storage rollback", zap.Error(err))
-		if rbErr := h.store.RenameProject(ctx, newID, projectID); rbErr != nil {
+		if rbErr := h.store.RenameProject(ctx, newSlug, oldSlug); rbErr != nil {
 			h.logger.Error("storage rollback failed", zap.Error(rbErr))
 		}
 		if errors.Is(err, store.ErrProjectExists) {
-			writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newID))
+			writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newSlug))
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to rename project")
@@ -294,7 +326,7 @@ func (h *ProjectHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     map[string]any{"old_id": projectID, "new_id": newID},
-		"metadata": map[string]string{"message": "Project renamed successfully. Note: external references to the old project ID must be updated manually."},
+		"data":     map[string]any{"project_id": projectID, "old_slug": oldSlug, "new_slug": newSlug},
+		"metadata": map[string]string{"message": "Project renamed successfully. Note: external references to the old project slug must be updated manually."},
 	})
 }

@@ -120,7 +120,7 @@ type pwStatsJSON struct {
 // Older Playwright versions use a JS variable; v1.59+ uses a <template> element.
 const (
 	pwBase64Marker   = `window.playwrightReportBase64 = "data:application/zip;base64,`
-	pwTemplateMarker = `<template id="playwrightReportBase64">data:application/zip;base64,`
+	pwTemplateMarker = `<template id="playwrightReportBase64">data:application/zip;base64,` //nolint:gosec // not a credential, HTML template marker
 )
 
 // ExtractPlaywrightData reads a Playwright HTML report from r, locates the

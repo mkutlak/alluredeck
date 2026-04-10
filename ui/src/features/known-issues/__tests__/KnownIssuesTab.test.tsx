@@ -17,7 +17,7 @@ mockApiClient()
 function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
   return {
     id: 1,
-    project_id: 'myproject',
+    project_id: 1,
     test_name: 'Login should succeed',
     pattern: '',
     ticket_url: 'https://jira.com/PROJ-1',
@@ -70,7 +70,7 @@ describe('KnownIssuesTab', () => {
     vi.mocked(kiApi.listKnownIssues).mockResolvedValue([
       {
         id: 1,
-        project_id: 'myproject',
+        project_id: 1,
         test_name: 'Login should succeed',
         pattern: '',
         ticket_url: 'http://ticket/1',

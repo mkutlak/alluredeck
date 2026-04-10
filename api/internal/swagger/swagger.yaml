@@ -68,7 +68,7 @@ definitions:
   internal_handlers.setParentRequest:
     properties:
       parent_id:
-        type: string
+        type: integer
     type: object
 host: localhost:8080
 info:

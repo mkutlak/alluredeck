@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -97,15 +98,21 @@ func TestCreateProject_RunnerError_NoLeakage(t *testing.T) {
 func TestGetReportHistory_StoreError_NoLeakage(t *testing.T) {
 	projectsDir := t.TempDir()
 	mocks := testutil.New()
-	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
+	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
 		return nil, 0, fmt.Errorf("pq: connection refused")
 	}
+
+	proj, err := mocks.Projects.CreateProject(context.Background(), "proj1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
 
 	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/reports", nil)
-	req.SetPathValue("project_id", "proj1")
+		"/api/v1/projects/"+projectIDStr+"/reports", nil)
+	req.SetPathValue("project_id", projectIDStr)
 	rr := httptest.NewRecorder()
 	h.GetReportHistory(rr, req)
 
@@ -134,9 +141,16 @@ func TestDeleteProject_RunnerError_NoLeakage(t *testing.T) {
 	})
 	h := NewProjectHandler(mocks.Projects, r, mockSt, cfg, logger)
 
+	// Create project in store so GetProject succeeds and returns the slug.
+	proj, err := mocks.Projects.CreateProject(context.Background(), "proj1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		"/api/v1/projects/proj1", nil)
-	req.SetPathValue("project_id", "proj1")
+		"/api/v1/projects/"+projectIDStr, nil)
+	req.SetPathValue("project_id", projectIDStr)
 	rr := httptest.NewRecorder()
 	h.DeleteProject(rr, req)
 
@@ -144,15 +158,15 @@ func TestDeleteProject_RunnerError_NoLeakage(t *testing.T) {
 }
 
 // TestSendResults_ProjectCheckError_NoLeakage verifies that a storage error from
-// ProjectExists returns 500 without leaking the internal error string.
+// runner.CreateProject returns 500 without leaking the internal error string.
 func TestSendResults_ProjectCheckError_NoLeakage(t *testing.T) {
 	projectsDir := t.TempDir()
 	mocks := testutil.New()
 
-	cfg := &config.Config{ProjectsPath: projectsDir}
+	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 100}
 	mockSt := &storage.MockStore{
-		ProjectExistsFn: func(_ context.Context, _ string) (bool, error) {
-			return false, fmt.Errorf("pq: connection refused")
+		CreateProjectFn: func(_ context.Context, _ string) error {
+			return fmt.Errorf("pq: connection refused")
 		},
 	}
 	logger := zap.NewNop()
@@ -166,9 +180,11 @@ func TestSendResults_ProjectCheckError_NoLeakage(t *testing.T) {
 	jm := runner.NewMemJobManager(nil, 0, logger)
 	h := NewResultUploadHandler(mockSt, mocks.Projects, jm, r, cfg, logger)
 
+	// Use force_project_creation=true so the handler tries to create the project
+	// via runner.CreateProject, which calls mockSt.CreateProjectFn → error → 500.
 	body := strings.NewReader(`{"results":[]}`)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/projects/proj1/results", body)
+		"/api/v1/projects/proj1/results?force_project_creation=true", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("project_id", "proj1")
 	rr := httptest.NewRecorder()

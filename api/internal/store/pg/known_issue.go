@@ -23,7 +23,7 @@ func NewKnownIssueStore(s *PGStore) *KnownIssueStore {
 }
 
 // Create inserts a new known issue for the given project.
-func (ks *KnownIssueStore) Create(ctx context.Context, projectID, testName, pattern, ticketURL, description string) (*store.KnownIssue, error) {
+func (ks *KnownIssueStore) Create(ctx context.Context, projectID int64, testName, pattern, ticketURL, description string) (*store.KnownIssue, error) {
 	var id int64
 	err := ks.pool.QueryRow(ctx,
 		"INSERT INTO known_issues(project_id, test_name, pattern, ticket_url, description) VALUES($1,$2,$3,$4,$5) RETURNING id",
@@ -57,7 +57,7 @@ func (ks *KnownIssueStore) Get(ctx context.Context, id int64) (*store.KnownIssue
 }
 
 // List returns all known issues for a project. When activeOnly=true, only is_active=TRUE rows.
-func (ks *KnownIssueStore) List(ctx context.Context, projectID string, activeOnly bool) ([]store.KnownIssue, error) {
+func (ks *KnownIssueStore) List(ctx context.Context, projectID int64, activeOnly bool) ([]store.KnownIssue, error) {
 	query := `SELECT id, project_id, test_name, pattern, ticket_url, description, is_active, created_at, updated_at
 		FROM known_issues WHERE project_id = $1`
 	args := []any{projectID}
@@ -75,7 +75,7 @@ func (ks *KnownIssueStore) List(ctx context.Context, projectID string, activeOnl
 }
 
 // ListPaginated returns a page of known issues and the total count.
-func (ks *KnownIssueStore) ListPaginated(ctx context.Context, projectID string, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error) {
+func (ks *KnownIssueStore) ListPaginated(ctx context.Context, projectID int64, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error) {
 	whereClause := "WHERE project_id = $1"
 	args := []any{projectID}
 	if activeOnly {
@@ -109,7 +109,7 @@ func (ks *KnownIssueStore) ListPaginated(ctx context.Context, projectID string, 
 // Update modifies ticket_url, description, and is_active for the given issue.
 // The projectID parameter ensures updates are scoped to the correct project,
 // preventing cross-project IDOR attacks.
-func (ks *KnownIssueStore) Update(ctx context.Context, id int64, projectID, ticketURL, description string, isActive bool) error {
+func (ks *KnownIssueStore) Update(ctx context.Context, id int64, projectID int64, ticketURL, description string, isActive bool) error {
 	tag, err := ks.pool.Exec(ctx, `
 		UPDATE known_issues
 		SET ticket_url=$1, description=$2, is_active=$3, updated_at=NOW()
@@ -126,7 +126,7 @@ func (ks *KnownIssueStore) Update(ctx context.Context, id int64, projectID, tick
 
 // Delete removes a known issue by ID, scoped to the given project.
 // The projectID parameter prevents cross-project IDOR attacks.
-func (ks *KnownIssueStore) Delete(ctx context.Context, id int64, projectID string) error {
+func (ks *KnownIssueStore) Delete(ctx context.Context, id int64, projectID int64) error {
 	tag, err := ks.pool.Exec(ctx, "DELETE FROM known_issues WHERE id=$1 AND project_id=$2", id, projectID)
 	if err != nil {
 		return fmt.Errorf("delete known issue: %w", err)
@@ -138,7 +138,7 @@ func (ks *KnownIssueStore) Delete(ctx context.Context, id int64, projectID strin
 }
 
 // IsKnown returns true if an active known issue with the given test_name exists for the project.
-func (ks *KnownIssueStore) IsKnown(ctx context.Context, projectID, testName string) (bool, error) {
+func (ks *KnownIssueStore) IsKnown(ctx context.Context, projectID int64, testName string) (bool, error) {
 	var count int
 	err := ks.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM known_issues WHERE project_id=$1 AND test_name=$2 AND is_active=TRUE",

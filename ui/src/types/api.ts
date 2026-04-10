@@ -34,11 +34,13 @@ export interface SessionData {
 // Projects
 // ---------------------------------------------------------------------------
 export interface ProjectEntry {
-  project_id: string
+  project_id: number
+  slug: string
+  display_name?: string
   created_at?: string
-  parent_id?: string | null
+  parent_id?: number | null
   report_type?: 'allure' | 'playwright'
-  children?: string[]
+  children?: number[]
 }
 
 export type ProjectsData = ProjectEntry[]
@@ -60,7 +62,7 @@ export interface PaginatedResponse<T> {
 
 export interface CreateProjectRequest {
   id: string
-  parent_id?: string
+  parent_id?: number
 }
 
 export type CreateProjectData = ProjectEntry
@@ -91,7 +93,7 @@ export interface ConfigData {
 // Reports
 // ---------------------------------------------------------------------------
 export interface GenerateReportParams {
-  project_id: string
+  project_id: number
   execution_name?: string
   execution_from?: string
   execution_type?: string
@@ -99,7 +101,7 @@ export interface GenerateReportParams {
 }
 
 export interface GenerateReportData {
-  project_id: string
+  project_id: number
   output: string
 }
 
@@ -110,7 +112,8 @@ export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface JobData {
   job_id: string
-  project_id: string
+  project_id: number
+  slug: string
   status: JobStatus
   created_at: string
   started_at: string | null
@@ -180,7 +183,7 @@ export interface ReportHistoryEntry {
 }
 
 export interface ReportHistoryData {
-  project_id: string
+  project_id: number
   reports: ReportHistoryEntry[]
 }
 
@@ -287,7 +290,7 @@ export interface KnownFailuresData {
 // ---------------------------------------------------------------------------
 export interface KnownIssue {
   id: number
-  project_id: string
+  project_id: number
   test_name: string
   pattern: string
   ticket_url: string
@@ -301,12 +304,14 @@ export interface KnownIssue {
 // Search
 // ---------------------------------------------------------------------------
 export interface SearchProjectMatch {
-  project_id: string
+  project_id: number
+  slug: string
   created_at: string
 }
 
 export interface SearchTestMatch {
-  project_id: string
+  project_id: number
+  slug: string
   test_name: string
   full_name: string
   status: string
@@ -398,7 +403,8 @@ export type AdminJobStatus = 'pending' | 'running' | 'retrying' | 'completed' | 
 
 export interface AdminJobEntry {
   job_id: string
-  project_id: string
+  project_id: number
+  slug: string
   status: AdminJobStatus
   created_at: string
   started_at: string | null
@@ -408,7 +414,8 @@ export interface AdminJobEntry {
 }
 
 export interface AdminResultsEntry {
-  project_id: string
+  project_id: number
+  slug: string
   file_count: number
   total_size: number
   last_modified: string
@@ -435,7 +442,9 @@ export interface DashboardSparklinePoint {
 }
 
 export interface DashboardProjectEntry {
-  project_id: string
+  project_id: number
+  slug: string
+  display_name?: string
   report_type?: 'allure' | 'playwright'
   created_at: string
   latest_build: DashboardLatestBuild | null
@@ -469,7 +478,7 @@ export interface DashboardData {
 // ---------------------------------------------------------------------------
 export interface Branch {
   id: number
-  project_id: string
+  project_id: number
   name: string
   is_default: boolean
   created_at: string
@@ -614,7 +623,7 @@ export type DefectResolution = 'open' | 'fixed' | 'muted' | 'wont_fix'
 
 export interface DefectFingerprint {
   id: string
-  project_id: string
+  project_id: number
   fingerprint_hash: string
   normalized_message: string
   sample_trace: string
@@ -669,7 +678,7 @@ export type WebhookTargetType = 'slack' | 'discord' | 'teams' | 'generic'
 
 export interface Webhook {
   id: string
-  project_id: string
+  project_id: number
   name: string
   target_type: WebhookTargetType
   url: string
@@ -719,7 +728,8 @@ export interface UpdateWebhookRequest {
 // ---------------------------------------------------------------------------
 
 export interface PipelineSuite {
-  project_id: string
+  project_id: number
+  slug: string
   build_order: number
   pass_rate: number
   total: number

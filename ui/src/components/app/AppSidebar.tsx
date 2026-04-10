@@ -67,7 +67,8 @@ export function AppSidebar() {
             <SidebarGroupLabel>Project</SidebarGroupLabel>
             <SidebarMenu>
               {(() => {
-                const currentProject = allProjects.find((p) => p.project_id === projectId)
+                const numericId = Number(projectId)
+                const currentProject = allProjects.find((p) => p.project_id === numericId)
                 const isParent = (currentProject?.children?.length ?? 0) > 0
                 const parentHiddenTabs = ['Timeline', 'Known Issues', 'Attachments']
                 const visibleNavItems = isParent

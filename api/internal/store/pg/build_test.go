@@ -13,7 +13,7 @@ import (
 )
 
 // insertBuildAt inserts a build and back-dates its created_at to ts via a direct UPDATE.
-func insertBuildAt(t *testing.T, ctx context.Context, buildStore *pg.BuildStore, s *pg.PGStore, projectID string, order int, ts time.Time) {
+func insertBuildAt(t *testing.T, ctx context.Context, buildStore *pg.BuildStore, s *pg.PGStore, projectID int64, order int, ts time.Time) {
 	t.Helper()
 	if err := buildStore.InsertBuild(ctx, projectID, order); err != nil {
 		t.Fatalf("InsertBuild %d: %v", order, err)
@@ -32,10 +32,12 @@ func TestPruneBuildsByAge_OlderBuildsRemoved(t *testing.T) {
 	projectStore := pg.NewProjectStore(s, logger)
 	buildStore := pg.NewBuildStore(s, logger)
 
-	projectID := fmt.Sprintf("test-prune-age-%d", time.Now().UnixNano())
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	slug := fmt.Sprintf("test-prune-age-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	now := time.Now().UTC()
@@ -74,10 +76,12 @@ func TestPruneBuildsByAge_LatestBuildNeverPruned(t *testing.T) {
 	projectStore := pg.NewProjectStore(s, logger)
 	buildStore := pg.NewBuildStore(s, logger)
 
-	projectID := fmt.Sprintf("test-prune-age-latest-%d", time.Now().UnixNano())
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	slug := fmt.Sprintf("test-prune-age-latest-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	old := time.Now().UTC().Add(-72 * time.Hour)
@@ -115,10 +119,12 @@ func TestPruneBuildsByAge_EmptyWhenNoMatch(t *testing.T) {
 	projectStore := pg.NewProjectStore(s, logger)
 	buildStore := pg.NewBuildStore(s, logger)
 
-	projectID := fmt.Sprintf("test-prune-age-nomatch-%d", time.Now().UnixNano())
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	slug := fmt.Sprintf("test-prune-age-nomatch-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	recent := time.Now().UTC().Add(-1 * time.Hour)
@@ -143,10 +149,12 @@ func TestPruneBuildsByAge_FutureCutoffPrunesAllNonLatest(t *testing.T) {
 	projectStore := pg.NewProjectStore(s, logger)
 	buildStore := pg.NewBuildStore(s, logger)
 
-	projectID := fmt.Sprintf("test-prune-age-future-%d", time.Now().UnixNano())
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	slug := fmt.Sprintf("test-prune-age-future-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	now := time.Now().UTC()
@@ -196,10 +204,12 @@ func TestGetDashboardData_MultiBranch_ReturnsOneProjectEntry(t *testing.T) {
 	buildStore := pg.NewBuildStore(s, logger)
 	branchStore := pg.NewBranchStore(s)
 
-	projectID := fmt.Sprintf("test-dashboard-multibranch-%d", time.Now().UnixNano())
-	if err := projectStore.CreateProject(ctx, projectID); err != nil {
+	slug := fmt.Sprintf("test-dashboard-multibranch-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
+	projectID := proj.ID
 	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
 
 	// Create two branches — each will have its own is_latest=TRUE build.
@@ -263,7 +273,7 @@ func TestGetDashboardData_MultiBranch_ReturnsOneProjectEntry(t *testing.T) {
 	}
 
 	if len(found) != 1 {
-		t.Fatalf("expected exactly 1 DashboardProject for project %q, got %d", projectID, len(found))
+		t.Fatalf("expected exactly 1 DashboardProject for project %d, got %d", projectID, len(found))
 	}
 	if found[0].Latest == nil {
 		t.Fatal("expected Latest to be non-nil")

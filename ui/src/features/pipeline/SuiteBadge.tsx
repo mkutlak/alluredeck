@@ -13,11 +13,11 @@ export function SuiteBadge({ suite }: SuiteBadgeProps) {
 
   return (
     <NavLink
-      to={`/projects/${encodeURIComponent(suite.project_id)}`}
+      to={`/projects/${encodeURIComponent(suite.slug)}`}
       className="hover:bg-accent block rounded-lg border p-3 transition-colors"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-medium">{suite.project_id}</span>
+        <span className="truncate text-sm font-medium">{suite.slug}</span>
         <Badge className={getPassRateBadgeClass(suite.pass_rate)}>
           {statusIcon} {suite.pass_rate.toFixed(0)}%
         </Badge>

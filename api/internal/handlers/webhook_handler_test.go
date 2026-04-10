@@ -20,12 +20,13 @@ import (
 func newTestWebhookHandler(t *testing.T) (*WebhookHandler, *testutil.MemWebhookStore) {
 	t.Helper()
 	whs := testutil.NewMemWebhookStore()
-	h := NewWebhookHandler(whs, t.TempDir(), zap.NewNop())
+	mocks := testutil.New()
+	h := NewWebhookHandler(whs, mocks.Projects, zap.NewNop())
 	return h, whs
 }
 
 // makeWebhook inserts a webhook into the store and returns it.
-func makeWebhook(t *testing.T, whs *testutil.MemWebhookStore, projectID, name string) store.Webhook {
+func makeWebhook(t *testing.T, whs *testutil.MemWebhookStore, projectID int64, name string) store.Webhook {
 	t.Helper()
 	isActive := true
 	wh := store.Webhook{
@@ -56,7 +57,7 @@ func TestWebhookHandler_List_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.List(rr, req)
@@ -80,7 +81,7 @@ func TestWebhookHandler_List_ReturnsMaskedURLs(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := whs.Create(ctx, &store.Webhook{
-		ProjectID:  "proj-1",
+		ProjectID:  1,
 		Name:       "slack-notify",
 		TargetType: "slack",
 		URL:        "https://hooks.slack.com/services/T00/B00/secret",
@@ -96,7 +97,7 @@ func TestWebhookHandler_List_ReturnsMaskedURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.List(rr, req)
@@ -128,16 +129,16 @@ func TestWebhookHandler_List_IsolatedByProject(t *testing.T) {
 	h, whs := newTestWebhookHandler(t)
 
 	ctx := context.Background()
-	makeWebhook(t, whs, "proj-1", "wh-a")
-	makeWebhook(t, whs, "proj-1", "wh-b")
-	makeWebhook(t, whs, "proj-2", "wh-c")
+	makeWebhook(t, whs, 1, "wh-a")
+	makeWebhook(t, whs, 1, "wh-b")
+	makeWebhook(t, whs, 2, "wh-c")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"/api/v1/projects/proj-1/webhooks", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.List(rr, req)
@@ -176,7 +177,7 @@ func TestWebhookHandler_Create_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -222,7 +223,7 @@ func TestWebhookHandler_Create_DefaultIsActive(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -253,7 +254,7 @@ func TestWebhookHandler_Create_MissingName(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -280,7 +281,7 @@ func TestWebhookHandler_Create_InvalidTargetType(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -307,7 +308,7 @@ func TestWebhookHandler_Create_InvalidURL_NonHTTPS(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -334,7 +335,7 @@ func TestWebhookHandler_Create_InvalidURL_Loopback(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -350,7 +351,7 @@ func TestWebhookHandler_Create_MaxWebhooksLimit(t *testing.T) {
 
 	ctx := context.Background()
 	for i := range maxWebhooksPerProject {
-		makeWebhook(t, whs, "proj-1", fmt.Sprintf("wh-%d", i))
+		makeWebhook(t, whs, 1, fmt.Sprintf("wh-%d", i))
 	}
 
 	body := map[string]any{
@@ -366,7 +367,7 @@ func TestWebhookHandler_Create_MaxWebhooksLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
@@ -384,14 +385,14 @@ func TestWebhookHandler_Get_Found(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "my-hook")
+	wh := makeWebhook(t, whs, 1, "my-hook")
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj-1/webhooks/"+wh.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -419,7 +420,7 @@ func TestWebhookHandler_Get_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", "nonexistent")
 
 	rr := httptest.NewRecorder()
@@ -435,7 +436,7 @@ func TestWebhookHandler_Get_IDOR(t *testing.T) {
 	h, whs := newTestWebhookHandler(t)
 
 	// Webhook belongs to proj-1.
-	wh := makeWebhook(t, whs, "proj-1", "proj1-hook")
+	wh := makeWebhook(t, whs, 1, "proj1-hook")
 
 	// proj-2 requests it — should get 404.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -443,7 +444,7 @@ func TestWebhookHandler_Get_IDOR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-2")
+	req.SetPathValue("project_id", "2")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -462,7 +463,7 @@ func TestWebhookHandler_Update_PartialUpdate(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "original-name")
+	wh := makeWebhook(t, whs, 1, "original-name")
 
 	newName := "updated-name"
 	body := map[string]any{"name": newName}
@@ -474,7 +475,7 @@ func TestWebhookHandler_Update_PartialUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -501,7 +502,7 @@ func TestWebhookHandler_Update_InvalidURL(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "hook")
+	wh := makeWebhook(t, whs, 1, "hook")
 
 	body := map[string]any{"url": "http://localhost/evil"}
 	bodyBytes, _ := json.Marshal(body)
@@ -512,7 +513,7 @@ func TestWebhookHandler_Update_InvalidURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -536,7 +537,7 @@ func TestWebhookHandler_Update_NotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", "nonexistent")
 
 	rr := httptest.NewRecorder()
@@ -555,14 +556,14 @@ func TestWebhookHandler_Delete_Success(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "to-delete")
+	wh := makeWebhook(t, whs, 1, "to-delete")
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
 		"/api/v1/projects/proj-1/webhooks/"+wh.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -582,7 +583,7 @@ func TestWebhookHandler_Delete_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", "nonexistent")
 
 	rr := httptest.NewRecorder()
@@ -597,7 +598,7 @@ func TestWebhookHandler_Delete_WrongProject_IDOR(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "hook")
+	wh := makeWebhook(t, whs, 1, "hook")
 
 	// proj-2 tries to delete proj-1's webhook.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
@@ -605,7 +606,7 @@ func TestWebhookHandler_Delete_WrongProject_IDOR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-2")
+	req.SetPathValue("project_id", "2")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -624,14 +625,14 @@ func TestWebhookHandler_Test_Success(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "hook")
+	wh := makeWebhook(t, whs, 1, "hook")
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		"/api/v1/projects/proj-1/webhooks/"+wh.ID+"/test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -659,7 +660,7 @@ func TestWebhookHandler_Test_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", "nonexistent")
 
 	rr := httptest.NewRecorder()
@@ -678,14 +679,14 @@ func TestWebhookHandler_ListDeliveries_Empty(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "hook")
+	wh := makeWebhook(t, whs, 1, "hook")
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj-1/webhooks/"+wh.ID+"/deliveries", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -708,7 +709,7 @@ func TestWebhookHandler_ListDeliveries_Pagination(t *testing.T) {
 	t.Parallel()
 	h, whs := newTestWebhookHandler(t)
 
-	wh := makeWebhook(t, whs, "proj-1", "hook")
+	wh := makeWebhook(t, whs, 1, "hook")
 
 	ctx := context.Background()
 	// Insert 5 deliveries.
@@ -731,7 +732,7 @@ func TestWebhookHandler_ListDeliveries_Pagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", wh.ID)
 
 	rr := httptest.NewRecorder()
@@ -768,7 +769,7 @@ func TestWebhookHandler_ListDeliveries_WebhookNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj-1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("webhook_id", "nonexistent")
 
 	rr := httptest.NewRecorder()

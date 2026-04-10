@@ -25,7 +25,7 @@ function renderPage(search = '?project=my-project') {
 function makeWebhook(overrides: Partial<Webhook> = {}): Webhook {
   return {
     id: 'wh-1',
-    project_id: 'my-project',
+    project_id: 1,
     name: 'CI Alerts',
     target_type: 'slack',
     url: 'https://hooks.slack.com/services/abc123',

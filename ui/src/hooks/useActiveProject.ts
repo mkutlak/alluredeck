@@ -32,7 +32,7 @@ export function useActiveProject(): ActiveProjectResult {
   }
 
   const projects = data?.data ?? []
-  const firstProject = projects[0]?.project_id ?? null
+  const firstProject = projects[0] != null ? projects[0].slug : null
 
   return {
     projectId: firstProject,

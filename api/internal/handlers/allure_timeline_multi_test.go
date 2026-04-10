@@ -21,14 +21,14 @@ func buildMocksForMultiTimeline() *testutil.MockStores {
 	createdAt := time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)
 
 	// Default: ListBuildsPaginatedBranch returns one build (latest).
-	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
+	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: createdAt},
+			{ID: 100, ProjectID: 1, BuildNumber: 42, CreatedAt: createdAt},
 		}, 1, nil
 	}
 
 	// GetBuildID maps build order → build ID.
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ string, buildNumber int) (int64, error) {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, buildNumber int) (int64, error) {
 		if buildNumber == 42 {
 			return 100, nil
 		}
@@ -39,7 +39,7 @@ func buildMocksForMultiTimeline() *testutil.MockStores {
 	}
 
 	// ListTimelineMulti returns test data.
-	mocks.TestResults.ListTimelineMultiFn = func(_ context.Context, _ string, buildIDs []int64, _ int) ([]store.MultiTimelineRow, error) {
+	mocks.TestResults.ListTimelineMultiFn = func(_ context.Context, _ int64, buildIDs []int64, _ int) ([]store.MultiTimelineRow, error) {
 		var rows []store.MultiTimelineRow
 		for _, bid := range buildIDs {
 			if bid == 100 {
@@ -61,16 +61,15 @@ func buildMocksForMultiTimeline() *testutil.MockStores {
 }
 
 func TestGetProjectTimeline_SingleBuild_Default(t *testing.T) {
-	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
-	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
+	h := newTestProjectTimelineHandler(t, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/timeline", nil)
+		"/api/v1/projects/1/timeline", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectTimeline(rr, req)
@@ -110,11 +109,10 @@ func TestGetProjectTimeline_SingleBuild_Default(t *testing.T) {
 }
 
 func TestGetProjectTimeline_BranchFilter(t *testing.T) {
-	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
 
 	// Branch store resolves "main" to branch ID 10.
-	mocks.Branches.GetByNameFn = func(_ context.Context, _, name string) (*store.Branch, error) {
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, name string) (*store.Branch, error) {
 		if name == "main" {
 			return &store.Branch{ID: 10, Name: "main"}, nil
 		}
@@ -123,21 +121,21 @@ func TestGetProjectTimeline_BranchFilter(t *testing.T) {
 
 	// Override ListBuildsPaginatedBranch to verify branchID is passed.
 	var capturedBranchID *int64
-	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, branchID *int64) ([]store.Build, int, error) {
+	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ int64, _, _ int, branchID *int64) ([]store.Build, int, error) {
 		capturedBranchID = branchID
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
+			{ID: 100, ProjectID: 1, BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
 		}, 1, nil
 	}
 
-	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
+	h := newTestProjectTimelineHandler(t, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/timeline?branch=main", nil)
+		"/api/v1/projects/1/timeline?branch=main", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectTimeline(rr, req)
@@ -152,13 +150,12 @@ func TestGetProjectTimeline_BranchFilter(t *testing.T) {
 }
 
 func TestGetProjectTimeline_DateRange(t *testing.T) {
-	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
 
 	createdAt := time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)
 
 	// Override ListBuildsInRange for date range queries.
-	mocks.Builds.ListBuildsInRangeFn = func(_ context.Context, _ string, _ *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
+	mocks.Builds.ListBuildsInRangeFn = func(_ context.Context, _ int64, _ *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
 		expectedFrom := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
 		expectedTo := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC) // end-of-day inclusive
 		if !from.Equal(expectedFrom) {
@@ -168,19 +165,19 @@ func TestGetProjectTimeline_DateRange(t *testing.T) {
 			return nil, 0, fmt.Errorf("unexpected to: %v", to)
 		}
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: createdAt},
-			{ID: 99, ProjectID: "proj1", BuildNumber: 41, CreatedAt: createdAt.Add(-24 * time.Hour)},
+			{ID: 100, ProjectID: 1, BuildNumber: 42, CreatedAt: createdAt},
+			{ID: 99, ProjectID: 1, BuildNumber: 41, CreatedAt: createdAt.Add(-24 * time.Hour)},
 		}, 5, nil
 	}
 
-	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
+	h := newTestProjectTimelineHandler(t, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/timeline?from=2026-03-20&to=2026-03-25&limit=3", nil)
+		"/api/v1/projects/1/timeline?from=2026-03-20&to=2026-03-25&limit=3", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectTimeline(rr, req)
@@ -206,24 +203,23 @@ func TestGetProjectTimeline_DateRange(t *testing.T) {
 }
 
 func TestGetProjectTimeline_MaxBuildsWarning(t *testing.T) {
-	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
 
 	// Return 1 build but report total=15 to show "showing N of M".
-	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
+	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
+			{ID: 100, ProjectID: 1, BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
 		}, 15, nil
 	}
 
-	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
+	h := newTestProjectTimelineHandler(t, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/timeline?limit=1", nil)
+		"/api/v1/projects/1/timeline?limit=1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectTimeline(rr, req)
@@ -247,16 +243,15 @@ func TestGetProjectTimeline_MaxBuildsWarning(t *testing.T) {
 }
 
 func TestGetProjectTimeline_InvalidDateFormat(t *testing.T) {
-	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
-	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
+	h := newTestProjectTimelineHandler(t, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/timeline?from=not-a-date", nil)
+		"/api/v1/projects/1/timeline?from=not-a-date", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectTimeline(rr, req)
@@ -267,27 +262,26 @@ func TestGetProjectTimeline_InvalidDateFormat(t *testing.T) {
 }
 
 func TestGetProjectTimeline_LimitCap(t *testing.T) {
-	projectsDir := t.TempDir()
 	mocks := buildMocksForMultiTimeline()
 
 	// Track the perPage passed to verify capping.
 	var capturedPerPage int
-	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ string, _, perPage int, _ *int64) ([]store.Build, int, error) {
+	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ int64, _, perPage int, _ *int64) ([]store.Build, int, error) {
 		capturedPerPage = perPage
 		return []store.Build{
-			{ID: 100, ProjectID: "proj1", BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
+			{ID: 100, ProjectID: 1, BuildNumber: 42, CreatedAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)},
 		}, 1, nil
 	}
 
-	h := newTestProjectTimelineHandler(t, projectsDir, mocks)
+	h := newTestProjectTimelineHandler(t, mocks)
 
 	// Request limit=50 — should be capped to 10.
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/timeline?limit=50", nil)
+		"/api/v1/projects/1/timeline?limit=50", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectTimeline(rr, req)

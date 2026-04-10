@@ -33,7 +33,8 @@ import type { DashboardData } from '@/types/api'
 const mockData: DashboardData = {
   projects: [
     {
-      project_id: 'proj-alpha',
+      project_id: 1,
+      slug: 'proj-alpha',
       created_at: '2025-01-01T00:00:00Z',
       latest_build: {
         build_order: 5,
@@ -52,13 +53,15 @@ const mockData: DashboardData = {
       ],
     },
     {
-      project_id: 'proj-beta',
+      project_id: 2,
+      slug: 'proj-beta',
       created_at: '2025-01-02T00:00:00Z',
       latest_build: null,
       sparkline: [],
     },
     {
-      project_id: 'group-one',
+      project_id: 3,
+      slug: 'group-one',
       created_at: '2025-01-03T00:00:00Z',
       latest_build: null,
       sparkline: [],
@@ -66,7 +69,8 @@ const mockData: DashboardData = {
       aggregate: { passed: 72, failed: 8, broken: 2, skipped: 0, total: 82, pass_rate: 87.8 },
       children: [
         {
-          project_id: 'child-a',
+          project_id: 4,
+          slug: 'child-a',
           created_at: '2025-01-03T00:00:00Z',
           latest_build: {
             build_order: 1,
@@ -81,7 +85,8 @@ const mockData: DashboardData = {
           sparkline: [],
         },
         {
-          project_id: 'child-b',
+          project_id: 5,
+          slug: 'child-b',
           created_at: '2025-01-03T00:00:00Z',
           latest_build: null,
           sparkline: [],

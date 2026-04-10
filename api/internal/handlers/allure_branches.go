@@ -11,24 +11,24 @@ import (
 
 // BranchHandler handles HTTP requests for branch management.
 type BranchHandler struct {
-	branchStore store.BranchStorer
-	buildStore  store.BuildStorer
-	projectsDir string
+	branchStore  store.BranchStorer
+	buildStore   store.BuildStorer
+	projectStore store.ProjectStorer
 }
 
 // NewBranchHandler creates a new BranchHandler.
-func NewBranchHandler(bs store.BranchStorer, buildStore store.BuildStorer, projectsDir string) *BranchHandler {
+func NewBranchHandler(bs store.BranchStorer, buildStore store.BuildStorer, ps store.ProjectStorer) *BranchHandler {
 	return &BranchHandler{
-		branchStore: bs,
-		buildStore:  buildStore,
-		projectsDir: projectsDir,
+		branchStore:  bs,
+		buildStore:   buildStore,
+		projectStore: ps,
 	}
 }
 
 // branchJSON is the JSON representation of a branch.
 type branchJSON struct {
 	ID        int64     `json:"id"`
-	ProjectID string    `json:"project_id"`
+	ProjectID int64     `json:"project_id"`
 	Name      string    `json:"name"`
 	IsDefault bool      `json:"is_default"`
 	CreatedAt time.Time `json:"created_at"`
@@ -56,7 +56,7 @@ func branchToJSON(b store.Branch) branchJSON {
 func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -89,7 +89,7 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -128,7 +128,7 @@ func (h *BranchHandler) SetDefaultBranch(w http.ResponseWriter, r *http.Request)
 func (h *BranchHandler) DeleteBranch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}

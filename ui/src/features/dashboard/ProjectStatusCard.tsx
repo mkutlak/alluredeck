@@ -76,7 +76,7 @@ function AdminActions({ project, showRemoveFromGroup }: AdminActionsProps) {
             <FolderInput size={14} />
             Move to group...
           </DropdownMenuItem>
-          {showRemoveFromGroup && <RemoveFromGroupItem projectId={project.project_id} />}
+          {showRemoveFromGroup && <RemoveFromGroupItem projectId={project.slug} />}
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onClick={() => setDeleteOpen(true)}
@@ -89,21 +89,21 @@ function AdminActions({ project, showRemoveFromGroup }: AdminActionsProps) {
 
       {renameOpen && (
         <RenameProjectDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           open={renameOpen}
           onOpenChange={setRenameOpen}
         />
       )}
       {deleteOpen && (
         <DeleteProjectDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
         />
       )}
       {moveOpen && (
         <SetParentDialog
-          projectId={project.project_id}
+          projectId={project.slug}
           open={moveOpen}
           onOpenChange={setMoveOpen}
         />
@@ -129,11 +129,11 @@ export function ProjectStatusCard({ project }: Props) {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-2">
             <NavLink
-              to={`/projects/${project.project_id}`}
+              to={`/projects/${project.slug}`}
               className="truncate font-semibold hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              {project.project_id}
+              {project.display_name || project.slug}
             </NavLink>
             <div className="flex items-center gap-1">
               {latest_build ? (

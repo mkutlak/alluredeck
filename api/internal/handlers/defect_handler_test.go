@@ -16,18 +16,18 @@ import (
 func newTestDefectHandler(t *testing.T) *DefectHandler {
 	t.Helper()
 	mocks := testutil.New()
-	return NewDefectHandler(mocks.Defects, t.TempDir(), zap.NewNop())
+	return NewDefectHandler(mocks.Defects, mocks.Projects, zap.NewNop())
 }
 
 func TestListProjectDefects_Empty(t *testing.T) {
 	h := newTestDefectHandler(t)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/defects", nil)
+		"/api/v1/projects/1/defects", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.ListProjectDefects(rr, req)
@@ -56,11 +56,11 @@ func TestGetProjectDefectSummary(t *testing.T) {
 	h := newTestDefectHandler(t)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/defects/summary", nil)
+		"/api/v1/projects/1/defects/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetProjectDefectSummary(rr, req)
@@ -81,11 +81,11 @@ func TestGetBuildDefectSummary(t *testing.T) {
 	h := newTestDefectHandler(t)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/builds/1/defects/summary", nil)
+		"/api/v1/projects/1/builds/1/defects/summary", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("build_id", "1")
 
 	rr := httptest.NewRecorder()
@@ -107,11 +107,11 @@ func TestGetDefect_NotFound(t *testing.T) {
 	h := newTestDefectHandler(t)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/defects/nonexistent-id", nil)
+		"/api/v1/projects/1/defects/nonexistent-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("defect_id", "nonexistent-id")
 
 	rr := httptest.NewRecorder()
@@ -129,12 +129,12 @@ func TestUpdateDefect_InvalidCategory(t *testing.T) {
 		"category": "not_a_valid_category",
 	})
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPatch,
-		"/api/v1/projects/default/defects/some-id", bytes.NewReader(body))
+		"/api/v1/projects/1/defects/some-id", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("defect_id", "some-id")
 
 	rr := httptest.NewRecorder()
@@ -153,12 +153,12 @@ func TestBulkUpdateDefects_EmptyIDs(t *testing.T) {
 		"resolution": "fixed",
 	})
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/projects/default/defects/bulk", bytes.NewReader(body))
+		"/api/v1/projects/1/defects/bulk", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.BulkUpdateDefects(rr, req)

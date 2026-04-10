@@ -24,7 +24,7 @@ func TestJob_Fields(t *testing.T) {
 	now := time.Now()
 	j := Job{
 		ID:        "test-id",
-		ProjectID: "myproject",
+		ProjectID: int64(1),
 		Status:    JobStatusPending,
 		CreatedAt: now,
 		Params: JobParams{
@@ -40,8 +40,8 @@ func TestJob_Fields(t *testing.T) {
 	if j.ID != "test-id" {
 		t.Errorf("ID: got %q, want %q", j.ID, "test-id")
 	}
-	if j.ProjectID != "myproject" {
-		t.Errorf("ProjectID: got %q, want %q", j.ProjectID, "myproject")
+	if j.ProjectID != int64(1) {
+		t.Errorf("ProjectID: got %d, want %d", j.ProjectID, int64(1))
 	}
 	if j.Status != JobStatusPending {
 		t.Errorf("Status: got %q, want %q", j.Status, JobStatusPending)

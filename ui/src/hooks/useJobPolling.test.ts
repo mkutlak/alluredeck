@@ -15,7 +15,8 @@ mockApiClient()
 function makeJobData(overrides: Partial<JobData> = {}): JobData {
   return {
     job_id: 'job-123',
-    project_id: 'my-project',
+    project_id: 1,
+    slug: 'my-project',
     status: 'pending',
     created_at: '2026-01-01T00:00:00Z',
     started_at: null,

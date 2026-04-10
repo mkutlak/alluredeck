@@ -53,6 +53,19 @@ export class AllureDeckClient {
     console.log(`  Playwright report uploaded to project "${projectId}"`)
   }
 
+  async getLatestReportId(projectId: string): Promise<string | null> {
+    const res = await fetch(
+      `${API_URL}/projects/${encodeURIComponent(projectId)}/reports?per_page=5`,
+      { headers: this.authHeaders() },
+    )
+    if (!res.ok) return null
+    const body = (await res.json()) as { data?: { reports?: Array<{ report_id: string }> } }
+    const reports = body.data?.reports ?? []
+    // Skip the virtual "latest" entry and return the first real report ID
+    const real = reports.find((r) => r.report_id !== 'latest')
+    return real?.report_id ?? null
+  }
+
   async getReportCount(projectId: string): Promise<number> {
     const res = await fetch(
       `${API_URL}/projects/${encodeURIComponent(projectId)}/reports?per_page=100`,
@@ -63,11 +76,12 @@ export class AllureDeckClient {
     return (body.data?.reports ?? []).length
   }
 
-  async waitForNewReport(projectId: string, previousCount: number, timeoutMs = 60_000): Promise<void> {
+  async waitForNewReport(projectId: string, previousReportId: string | null, timeoutMs = 60_000): Promise<void> {
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
-      const count = await this.getReportCount(projectId)
-      if (count > previousCount) {
+      const latestId = await this.getLatestReportId(projectId)
+      if (latestId && latestId !== previousReportId) {
+        const count = await this.getReportCount(projectId)
         console.log(`  Report ready for project "${projectId}" (${count} reports)`)
         return
       }
@@ -93,19 +107,10 @@ export class AllureDeckClient {
     execSync(`tar czf "${outputPath}" -C "${dirPath}" .`, { stdio: 'pipe' })
   }
 
-  async getLatestReportId(projectId: string): Promise<string> {
-    const res = await fetch(
-      `${API_URL}/projects/${encodeURIComponent(projectId)}/reports?per_page=1`,
-      { headers: this.authHeaders() },
-    )
-    if (res.ok) {
-      const body = (await res.json()) as {
-        data?: { reports?: { report_id: string }[] }
-      }
-      const reports = (body.data?.reports ?? []).filter((r) => r.report_id !== 'latest')
-      if (reports.length > 0) return reports[0].report_id
-    }
-    return 'latest'
+  /** Tar only files matching the given glob patterns (e.g. ['*.json']) — strips large attachments. */
+  static tarGzDirectoryFiltered(dirPath: string, outputPath: string, includePatterns: string[]): void {
+    const nameArgs = includePatterns.map((p) => `-name '${p}'`).join(' -o ')
+    execSync(`cd "${dirPath}" && find . -maxdepth 1 -type f \\( ${nameArgs} \\) -print0 | tar czf "${outputPath}" --null -T -`, { stdio: 'pipe' })
   }
 
   getReportUrl(projectId: string, reportId = 'latest'): string {

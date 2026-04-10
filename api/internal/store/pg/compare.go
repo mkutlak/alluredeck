@@ -35,7 +35,7 @@ func pgClassifyDiff(statusA, statusB string) (store.DiffCategory, bool) {
 // Uses PostgreSQL's native FULL OUTER JOIN.
 func (ts *TestResultStore) CompareBuildsByHistoryID(
 	ctx context.Context,
-	projectID string,
+	projectID int64,
 	buildIDA, buildIDB int64,
 ) ([]store.DiffEntry, error) {
 	const query = `

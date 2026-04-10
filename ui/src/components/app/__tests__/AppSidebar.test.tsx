@@ -213,7 +213,7 @@ describe('AppSidebar', () => {
 
   it('auto-selects first project when no stored project', async () => {
     vi.mocked(getProjects).mockResolvedValueOnce({
-      data: [{ project_id: 'first-project' }],
+      data: [{ project_id: 1, slug: 'first-project' }],
       metadata: { message: 'ok' },
       pagination: { total: 1, page: 1, per_page: 20, total_pages: 1 },
     })

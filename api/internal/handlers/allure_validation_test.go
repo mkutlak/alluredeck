@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -65,14 +66,20 @@ func TestValidateTicketURL(t *testing.T) {
 
 func TestGetReportEnvironment_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/reports/../evil/environment", nil)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/../evil/environment", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "../evil")
 
 	rr := httptest.NewRecorder()
@@ -93,14 +100,20 @@ func TestGetReportEnvironment_TraversalReportID(t *testing.T) {
 
 func TestGetReportTimeline_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/reports/../evil/timeline", nil)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/../evil/timeline", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "../evil")
 
 	rr := httptest.NewRecorder()
@@ -113,14 +126,20 @@ func TestGetReportTimeline_TraversalReportID(t *testing.T) {
 
 func TestGetReportStability_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/reports/../evil/stability", nil)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/../evil/stability", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "../evil")
 
 	rr := httptest.NewRecorder()
@@ -133,14 +152,20 @@ func TestGetReportStability_TraversalReportID(t *testing.T) {
 
 func TestGetReportCategories_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/reports/../evil/categories", nil)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/../evil/categories", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "../evil")
 
 	rr := httptest.NewRecorder()
@@ -153,14 +178,20 @@ func TestGetReportCategories_TraversalReportID(t *testing.T) {
 
 func TestGetReportKnownFailures_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h, _ := newTestKnownIssueHandler(t, projectsDir)
+	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/reports/../evil/known-failures", nil)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectIDStr+"/reports/../evil/known-failures", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "../evil")
 
 	rr := httptest.NewRecorder()
@@ -173,14 +204,20 @@ func TestGetReportKnownFailures_TraversalReportID(t *testing.T) {
 
 func TestDeleteReport_TraversalReportID(t *testing.T) {
 	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
+	h, mocks := newTestReportHandler(t, projectsDir)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		"/api/v1/projects/default/reports/../evil", nil)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	projectIDStr := strconv.FormatInt(proj.ID, 10)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
+		"/api/v1/projects/"+projectIDStr+"/reports/../evil", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectIDStr)
 	req.SetPathValue("report_id", "../evil")
 
 	rr := httptest.NewRecorder()

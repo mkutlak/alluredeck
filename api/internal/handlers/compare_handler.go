@@ -33,14 +33,14 @@ type compareSummary struct {
 // CompareHandler handles HTTP requests for build comparison.
 type CompareHandler struct {
 	testResultStore store.TestResultStorer
-	projectsDir     string
+	projectStore    store.ProjectStorer
 }
 
 // NewCompareHandler creates and returns a new CompareHandler.
-func NewCompareHandler(trs store.TestResultStorer, projectsDir string) *CompareHandler {
+func NewCompareHandler(trs store.TestResultStorer, ps store.ProjectStorer) *CompareHandler {
 	return &CompareHandler{
 		testResultStore: trs,
-		projectsDir:     projectsDir,
+		projectStore:    ps,
 	}
 }
 
@@ -58,7 +58,7 @@ func NewCompareHandler(trs store.TestResultStorer, projectsDir string) *CompareH
 func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -91,12 +91,12 @@ func (h *CompareHandler) CompareBuilds(w http.ResponseWriter, r *http.Request) {
 
 	buildIDA, err := h.testResultStore.GetBuildID(ctx, projectID, buildNumberA)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildNumberA, projectID))
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %d", buildNumberA, projectID))
 		return
 	}
 	buildIDB, err := h.testResultStore.GetBuildID(ctx, projectID, buildNumberB)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %s", buildNumberB, projectID))
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("build #%d not found for project %d", buildNumberB, projectID))
 		return
 	}
 

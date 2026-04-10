@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // Sentinel errors for project_id validation.
@@ -127,4 +130,61 @@ func extractProjectID(w http.ResponseWriter, r *http.Request, projectsDir string
 		return "", false
 	}
 	return projectID, true
+}
+
+// extractProjectIntID parses the numeric project ID from the URL path.
+func extractProjectIntID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	idStr := r.PathValue("project_id")
+	if idStr == "" {
+		writeError(w, http.StatusBadRequest, "project_id is required")
+		return 0, false
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_id must be a numeric ID")
+		return 0, false
+	}
+	return id, true
+}
+
+// resolveProjectIntID resolves a project path value (numeric ID or slug) to its
+// int64 primary key. On failure it writes an error response and returns (0, false).
+func resolveProjectIntID(w http.ResponseWriter, r *http.Request, ps store.ProjectStorer) (int64, bool) {
+	pathValue := r.PathValue("project_id")
+	if pathValue == "" {
+		writeError(w, http.StatusBadRequest, "project_id is required")
+		return 0, false
+	}
+
+	// Fallback to numeric-only parsing when no project store is available.
+	if ps == nil {
+		return extractProjectIntID(w, r)
+	}
+
+	// Numeric ID — accept directly without a DB round-trip.
+	if id, parseErr := strconv.ParseInt(pathValue, 10, 64); parseErr == nil {
+		return id, true
+	}
+
+	// Validate slug before DB lookup.
+	if strings.ContainsAny(pathValue, "/\\") || strings.Contains(pathValue, "..") {
+		writeError(w, http.StatusBadRequest, ErrProjectInvalidChars.Error())
+		return 0, false
+	}
+	if reservedProjectNames[pathValue] {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("project_id %q: %s", pathValue, ErrProjectReserved.Error()))
+		return 0, false
+	}
+
+	// Fall back to slug lookup (includes child projects).
+	project, err := ps.GetProjectBySlugAny(r.Context(), pathValue)
+	if err == nil {
+		return project.ID, true
+	}
+	if errors.Is(err, store.ErrProjectNotFound) {
+		writeError(w, http.StatusNotFound, "project not found")
+		return 0, false
+	}
+	writeError(w, http.StatusInternalServerError, "error fetching project")
+	return 0, false
 }

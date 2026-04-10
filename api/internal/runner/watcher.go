@@ -71,7 +71,7 @@ func (w *Watcher) watchLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Track the content hash of each project's results directory
+	// Track the content hash of each project's results directory (keyed by slug).
 	projectHashes := make(map[string]string)
 
 	for {
@@ -87,11 +87,12 @@ func (w *Watcher) watchLoop(interval time.Duration) {
 
 // checkProject checks one project for result changes and triggers report generation if needed.
 // Returns the new hash for the project (empty string signals the project should be skipped).
-func (w *Watcher) checkProject(ctx context.Context, projectID, previousHash string, firstSeen bool) (newHash string, skip bool) {
-	currentHash, err := w.store.ResultsDirHash(ctx, projectID)
+// slug is the filesystem project identifier discovered by the storage layer.
+func (w *Watcher) checkProject(ctx context.Context, slug, previousHash string, firstSeen bool) (newHash string, skip bool) {
+	currentHash, err := w.store.ResultsDirHash(ctx, slug)
 	if err != nil {
 		w.logger.Error("watcher error hashing results",
-			zap.String("project_id", projectID), zap.Error(err))
+			zap.String("slug", slug), zap.Error(err))
 		return "", true
 	}
 
@@ -104,18 +105,26 @@ func (w *Watcher) checkProject(ctx context.Context, projectID, previousHash stri
 	// currentHash == "" means S3 mode (no-op) or empty dir.
 	if currentHash != previousHash && currentHash != "" && currentHash != emptyDirHash() {
 		w.logger.Info("watcher detected changes, triggering report generation",
-			zap.String("project_id", projectID))
+			zap.String("slug", slug))
+
+		// Look up the numeric project ID from the database.
+		proj, projErr := w.projectStore.GetProjectBySlug(ctx, slug)
+		if projErr != nil {
+			w.logger.Error("watcher failed to look up project",
+				zap.String("slug", slug), zap.Error(projErr))
+			return currentHash, false
+		}
 
 		// Bug 1 fix: call KeepHistory (preserves history) instead of CleanHistory (deletes all history).
-		if err := w.allureCore.KeepHistory(ctx, projectID); err != nil {
+		if err := w.allureCore.KeepHistory(ctx, slug); err != nil {
 			w.logger.Error("watcher failed to keep history",
-				zap.String("project_id", projectID), zap.Error(err))
+				zap.String("slug", slug), zap.Error(err))
 		}
 
 		// Bug 4 fix: storeResults=true so numbered history dirs (reports/1/, reports/2/, …) are created.
-		if _, err := w.allureCore.GenerateReport(ctx, projectID, "", "", "", true, "", ""); err != nil {
+		if _, err := w.allureCore.GenerateReport(ctx, proj.ID, slug, "", "", "", true, "", ""); err != nil {
 			w.logger.Error("watcher failed to generate report",
-				zap.String("project_id", projectID), zap.Error(err))
+				zap.String("slug", slug), zap.Error(err))
 		}
 
 	}
@@ -126,36 +135,36 @@ func (w *Watcher) checkProject(ctx context.Context, projectID, previousHash stri
 func (w *Watcher) checkProjects(projectHashes map[string]string) {
 	ctx := context.Background()
 
-	projects, err := w.store.ListProjects(ctx)
+	slugs, err := w.store.ListProjects(ctx)
 	if err != nil {
 		w.logger.Error("watcher error listing projects", zap.Error(err))
 		return
 	}
 
-	currentProjects := make(map[string]bool)
-	for _, projectID := range projects {
-		currentProjects[projectID] = true
+	currentSlugs := make(map[string]bool)
+	for _, slug := range slugs {
+		currentSlugs[slug] = true
 
 		// Auto-register in DB if discovered via filesystem (e.g. volume-mounted projects).
-		if exists, err := w.projectStore.ProjectExists(ctx, projectID); err == nil && !exists {
-			if err := w.projectStore.CreateProject(ctx, projectID); err != nil {
+		if _, err := w.projectStore.GetProjectBySlug(ctx, slug); err != nil {
+			if _, err := w.projectStore.CreateProject(ctx, slug); err != nil {
 				w.logger.Error("watcher failed to register project in DB",
-					zap.String("project_id", projectID), zap.Error(err))
+					zap.String("slug", slug), zap.Error(err))
 			}
 		}
 
-		previousHash, firstSeen := projectHashes[projectID]
-		newHash, skip := w.checkProject(ctx, projectID, previousHash, !firstSeen)
+		previousHash, firstSeen := projectHashes[slug]
+		newHash, skip := w.checkProject(ctx, slug, previousHash, !firstSeen)
 		if skip {
 			continue
 		}
-		projectHashes[projectID] = newHash
+		projectHashes[slug] = newHash
 	}
 
 	// Clean up removed projects from tracking map
-	for id := range projectHashes {
-		if !currentProjects[id] {
-			delete(projectHashes, id)
+	for slug := range projectHashes {
+		if !currentSlugs[slug] {
+			delete(projectHashes, slug)
 		}
 	}
 }

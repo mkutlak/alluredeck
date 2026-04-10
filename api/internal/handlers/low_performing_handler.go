@@ -30,16 +30,16 @@ type analyticsTestEntry struct {
 type LowPerformingHandler struct {
 	testResultStore store.TestResultStorer
 	branchStore     store.BranchStorer
-	projectsDir     string
+	projectStore    store.ProjectStorer
 	logger          *zap.Logger
 }
 
 // NewLowPerformingHandler creates and returns a new LowPerformingHandler.
-func NewLowPerformingHandler(trs store.TestResultStorer, brs store.BranchStorer, projectsDir string, logger *zap.Logger) *LowPerformingHandler {
+func NewLowPerformingHandler(trs store.TestResultStorer, brs store.BranchStorer, ps store.ProjectStorer, logger *zap.Logger) *LowPerformingHandler {
 	return &LowPerformingHandler{
 		testResultStore: trs,
 		branchStore:     brs,
-		projectsDir:     projectsDir,
+		projectStore:    ps,
 		logger:          logger,
 	}
 }
@@ -59,7 +59,7 @@ func NewLowPerformingHandler(trs store.TestResultStorer, brs store.BranchStorer,
 func (h *LowPerformingHandler) GetLowPerformingTests(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -117,7 +117,7 @@ func (h *LowPerformingHandler) GetLowPerformingTests(w http.ResponseWriter, r *h
 	if sortBy == "duration" {
 		results, err := h.testResultStore.ListSlowest(ctx, projectID, buildsParam, limitParam, branchID)
 		if err != nil {
-			h.logger.Error("analytics: list slowest failed", zap.String("project_id", projectID), zap.Error(err))
+			h.logger.Error("analytics: list slowest failed", zap.Int64("project_id", projectID), zap.Error(err))
 			writeError(w, http.StatusInternalServerError, "failed to retrieve analytics data")
 			return
 		}
@@ -138,7 +138,7 @@ func (h *LowPerformingHandler) GetLowPerformingTests(w http.ResponseWriter, r *h
 	} else {
 		results, err := h.testResultStore.ListLeastReliable(ctx, projectID, buildsParam, limitParam, branchID)
 		if err != nil {
-			h.logger.Error("analytics: list least reliable failed", zap.String("project_id", projectID), zap.Error(err))
+			h.logger.Error("analytics: list least reliable failed", zap.Int64("project_id", projectID), zap.Error(err))
 			writeError(w, http.StatusInternalServerError, "failed to retrieve analytics data")
 			return
 		}

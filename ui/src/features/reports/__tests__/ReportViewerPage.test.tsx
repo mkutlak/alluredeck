@@ -23,7 +23,7 @@ function renderPage(
 ) {
   mockUseQuery.mockReturnValue({
     data: {
-      data: [{ project_id: projectId, report_type: reportType }],
+      data: [{ project_id: 1, slug: projectId, report_type: reportType }],
     },
     isLoading: false,
     error: null,

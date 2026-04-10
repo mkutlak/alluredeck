@@ -47,7 +47,7 @@ describe('SearchCommand', () => {
     const user = userEvent.setup()
     vi.mocked(searchApi.search).mockResolvedValue({
       data: {
-        projects: [{ project_id: 'my-project', created_at: '2026-01-01T00:00:00Z' }],
+        projects: [{ project_id: 1, slug: 'my-project', created_at: '2026-01-01T00:00:00Z' }],
         tests: [],
       },
       metadata: { message: 'Search results' },
@@ -69,7 +69,8 @@ describe('SearchCommand', () => {
         projects: [],
         tests: [
           {
-            project_id: 'my-project',
+            project_id: 1,
+            slug: 'my-project',
             test_name: 'LoginTest',
             full_name: 'com.auth.LoginTest',
             status: 'passed',

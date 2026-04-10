@@ -9,6 +9,7 @@ import {
   fetchAdminResults,
   cancelJob,
   cleanAdminResults,
+  cleanAdminResultsBulk,
   deleteJob,
 } from '@/api/admin'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -197,7 +198,7 @@ function JobsCard() {
                       to={`/projects/${job.project_id}`}
                       className="font-medium hover:underline"
                     >
-                      {job.project_id}
+                      {job.slug || String(job.project_id)}
                     </Link>
                   </TableCell>
                   <TableCell>
@@ -233,7 +234,9 @@ function JobsCard() {
 
 function ResultsCard() {
   const queryClient = useQueryClient()
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingSlug, setDeletingSlug] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false)
 
   const { data: results = [], isLoading } = useQuery({
     queryKey: queryKeys.adminResults,
@@ -244,16 +247,78 @@ function ResultsCard() {
   const { mutate: doClean } = useMutation({
     mutationFn: cleanAdminResults,
     onSuccess: () => {
-      setDeletingId(null)
+      setDeletingSlug(null)
       void queryClient.invalidateQueries({ queryKey: queryKeys.adminResults })
     },
   })
 
+  const { mutate: doDeleteSelected } = useMutation({
+    mutationFn: cleanAdminResultsBulk,
+    onSuccess: () => {
+      setSelectedIds(new Set())
+      setConfirmBulkDeleteOpen(false)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminResults })
+    },
+  })
+
+  const allSelected = results.length > 0 && results.every((r) => selectedIds.has(r.project_id))
+  const someSelected = results.some((r) => selectedIds.has(r.project_id))
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(results.map((r) => r.project_id)))
+    }
+  }
+
+  const toggleResult = (projectId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Pending Results</CardTitle>
-        <CardDescription>Projects with unprocessed result files</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Pending Results</CardTitle>
+            <CardDescription>Projects with unprocessed result files</CardDescription>
+          </div>
+          {someSelected && (
+            <AlertDialog open={confirmBulkDeleteOpen} onOpenChange={setConfirmBulkDeleteOpen}>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="destructive">
+                  Delete selected ({selectedIds.size})
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Delete {selectedIds.size} result{selectedIds.size !== 1 ? 's' : ''}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all unprocessed result files for the selected
+                    projects. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => doDeleteSelected(Array.from(selectedIds))}>
+                    Confirm
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -267,6 +332,14 @@ function ResultsCard() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all pending results"
+                    disabled={results.length === 0}
+                  />
+                </TableHead>
                 <TableHead>Project</TableHead>
                 <TableHead>Files</TableHead>
                 <TableHead>Total Size</TableHead>
@@ -278,11 +351,18 @@ function ResultsCard() {
               {results.map((entry) => (
                 <TableRow key={entry.project_id}>
                   <TableCell>
+                    <Checkbox
+                      checked={selectedIds.has(entry.project_id)}
+                      onCheckedChange={() => toggleResult(entry.project_id)}
+                      aria-label={`Select ${entry.slug}`}
+                    />
+                  </TableCell>
+                  <TableCell>
                     <Link
                       to={`/projects/${entry.project_id}`}
                       className="font-medium hover:underline"
                     >
-                      {entry.project_id}
+                      {entry.slug || String(entry.project_id)}
                     </Link>
                   </TableCell>
                   <TableCell>{entry.file_count}</TableCell>
@@ -294,8 +374,8 @@ function ResultsCard() {
                   </TableCell>
                   <TableCell className="text-right">
                     <AlertDialog
-                      open={deletingId === entry.project_id}
-                      onOpenChange={(open) => setDeletingId(open ? entry.project_id : null)}
+                      open={deletingSlug === entry.slug}
+                      onOpenChange={(open) => setDeletingSlug(open ? entry.slug : null)}
                     >
                       <AlertDialogTrigger asChild>
                         <Button size="sm" variant="destructive">
@@ -307,12 +387,12 @@ function ResultsCard() {
                           <AlertDialogTitle>Delete pending results?</AlertDialogTitle>
                           <AlertDialogDescription>
                             This will permanently delete all unprocessed result files for{' '}
-                            <strong>{entry.project_id}</strong>. This action cannot be undone.
+                            <strong>{entry.slug || String(entry.project_id)}</strong>. This action cannot be undone.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => doClean(entry.project_id)}>
+                          <AlertDialogAction onClick={() => doClean(entry.slug)}>
                             Confirm
                           </AlertDialogAction>
                         </AlertDialogFooter>

@@ -24,41 +24,48 @@ func NewProjectStore(s *PGStore, logger *zap.Logger) *ProjectStore {
 	return &ProjectStore{pool: s.pool, logger: logger}
 }
 
-// CreateProject inserts a new project. Returns store.ErrProjectExists if the ID is taken.
-func (ps *ProjectStore) CreateProject(ctx context.Context, id string) error {
-	_, err := ps.pool.Exec(ctx,
-		"INSERT INTO projects(id) VALUES($1)", id)
+// CreateProject inserts a new project. Returns the created project with generated ID.
+// Returns store.ErrProjectExists if the slug is taken.
+func (ps *ProjectStore) CreateProject(ctx context.Context, slug string) (*store.Project, error) {
+	var p store.Project
+	err := ps.pool.QueryRow(ctx,
+		`INSERT INTO projects(slug, display_name) VALUES($1, $1) RETURNING id, slug, parent_id, display_name, report_type, created_at`,
+		slug,
+	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("%w: %s", store.ErrProjectExists, id)
+			return nil, fmt.Errorf("%w: %s", store.ErrProjectExists, slug)
 		}
-		return fmt.Errorf("create project: %w", err)
+		return nil, fmt.Errorf("create project: %w", err)
 	}
-	return nil
+	return &p, nil
 }
 
 // CreateProjectWithParent inserts a new project with the given parent ID.
-// Returns store.ErrProjectExists if the ID is taken.
-func (ps *ProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
-	_, err := ps.pool.Exec(ctx,
-		"INSERT INTO projects(id, parent_id) VALUES($1, $2)", id, parentID)
+// Returns store.ErrProjectExists if the slug is taken.
+func (ps *ProjectStore) CreateProjectWithParent(ctx context.Context, slug string, parentID int64) (*store.Project, error) {
+	var p store.Project
+	err := ps.pool.QueryRow(ctx,
+		`INSERT INTO projects(slug, parent_id, display_name) VALUES($1, $2, $1) RETURNING id, slug, parent_id, display_name, report_type, created_at`,
+		slug, parentID,
+	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("%w: %s", store.ErrProjectExists, id)
+			return nil, fmt.Errorf("%w: %s", store.ErrProjectExists, slug)
 		}
-		return fmt.Errorf("insert project: %w", err)
+		return nil, fmt.Errorf("insert project: %w", err)
 	}
-	return nil
+	return &p, nil
 }
 
 // GetProject returns the project with the given ID or store.ErrProjectNotFound.
-func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
+func (ps *ProjectStore) GetProject(ctx context.Context, id int64) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		"SELECT id, parent_id, report_type, created_at FROM projects WHERE id = $1", id,
-	).Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt)
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE id = $1", id,
+	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, id)
+		return nil, fmt.Errorf("%w: %d", store.ErrProjectNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
@@ -66,10 +73,41 @@ func (ps *ProjectStore) GetProject(ctx context.Context, id string) (*store.Proje
 	return &p, nil
 }
 
+// GetProjectBySlug returns the top-level project with the given slug or store.ErrProjectNotFound.
+func (ps *ProjectStore) GetProjectBySlug(ctx context.Context, slug string) (*store.Project, error) {
+	var p store.Project
+	err := ps.pool.QueryRow(ctx,
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE slug = $1 AND parent_id IS NULL", slug,
+	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, slug)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get project by slug: %w", err)
+	}
+	return &p, nil
+}
+
+// GetProjectBySlugAny returns a project matching the slug regardless of parent status.
+// If multiple projects share the slug (one top-level, one child), the top-level project is preferred.
+func (ps *ProjectStore) GetProjectBySlugAny(ctx context.Context, slug string) (*store.Project, error) {
+	var p store.Project
+	err := ps.pool.QueryRow(ctx,
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE slug = $1 ORDER BY parent_id IS NOT NULL, id LIMIT 1", slug,
+	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, slug)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get project by slug any: %w", err)
+	}
+	return &p, nil
+}
+
 // ListProjects returns all projects ordered by ID.
 func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, report_type, created_at FROM projects ORDER BY id")
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -78,7 +116,7 @@ func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, erro
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -98,7 +136,7 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 
 	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, report_type, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
 		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list projects paginated: %w", err)
@@ -108,7 +146,7 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -130,7 +168,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 
 	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, report_type, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
 		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list top-level projects paginated: %w", err)
@@ -140,7 +178,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -152,9 +190,9 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 }
 
 // ListChildren returns all child projects for a given parent project ID, ordered by ID.
-func (ps *ProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+func (ps *ProjectStore) ListChildren(ctx context.Context, parentID int64) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, parent_id, report_type, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
+		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
 	if err != nil {
 		return nil, fmt.Errorf("list children: %w", err)
 	}
@@ -163,7 +201,7 @@ func (ps *ProjectStore) ListChildren(ctx context.Context, parentID string) ([]st
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.ParentID, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -175,7 +213,7 @@ func (ps *ProjectStore) ListChildren(ctx context.Context, parentID string) ([]st
 }
 
 // HasChildren returns true if any project has the given projectID as its parent.
-func (ps *ProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+func (ps *ProjectStore) HasChildren(ctx context.Context, projectID int64) (bool, error) {
 	var exists bool
 	err := ps.pool.QueryRow(ctx,
 		"SELECT EXISTS(SELECT 1 FROM projects WHERE parent_id = $1)", projectID,
@@ -187,60 +225,60 @@ func (ps *ProjectStore) HasChildren(ctx context.Context, projectID string) (bool
 }
 
 // SetParent sets the parent_id for a project. Returns store.ErrProjectNotFound if the project does not exist.
-func (ps *ProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
+func (ps *ProjectStore) SetParent(ctx context.Context, projectID, parentID int64) error {
 	tag, err := ps.pool.Exec(ctx,
 		"UPDATE projects SET parent_id = $1 WHERE id = $2", parentID, projectID)
 	if err != nil {
 		return fmt.Errorf("set parent: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, projectID)
+		return fmt.Errorf("%w: %d", store.ErrProjectNotFound, projectID)
 	}
 	return nil
 }
 
 // ClearParent sets parent_id to NULL for a project. Returns store.ErrProjectNotFound if the project does not exist.
-func (ps *ProjectStore) ClearParent(ctx context.Context, projectID string) error {
+func (ps *ProjectStore) ClearParent(ctx context.Context, projectID int64) error {
 	tag, err := ps.pool.Exec(ctx,
 		"UPDATE projects SET parent_id = NULL WHERE id = $1", projectID)
 	if err != nil {
 		return fmt.Errorf("clear parent: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, projectID)
+		return fmt.Errorf("%w: %d", store.ErrProjectNotFound, projectID)
 	}
 	return nil
 }
 
 // DeleteProject removes a project and all its builds (CASCADE).
-func (ps *ProjectStore) DeleteProject(ctx context.Context, id string) error {
+func (ps *ProjectStore) DeleteProject(ctx context.Context, id int64) error {
 	tag, err := ps.pool.Exec(ctx, "DELETE FROM projects WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, id)
+		return fmt.Errorf("%w: %d", store.ErrProjectNotFound, id)
 	}
 	return nil
 }
 
-// RenameProject changes a project's ID. ON UPDATE CASCADE propagates to all child tables.
-func (ps *ProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
-	tag, err := ps.pool.Exec(ctx, "UPDATE projects SET id = $1 WHERE id = $2", newID, oldID)
+// RenameProject updates a project's slug and display_name.
+func (ps *ProjectStore) RenameProject(ctx context.Context, id int64, newSlug string) error {
+	tag, err := ps.pool.Exec(ctx, "UPDATE projects SET slug = $1, display_name = $1 WHERE id = $2", newSlug, id)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("%w: %s", store.ErrProjectExists, newID)
+			return fmt.Errorf("%w: %s", store.ErrProjectExists, newSlug)
 		}
 		return fmt.Errorf("rename project: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", store.ErrProjectNotFound, oldID)
+		return fmt.Errorf("%w: %d", store.ErrProjectNotFound, id)
 	}
 	return nil
 }
 
 // ProjectExists returns true if a project with the given ID exists.
-func (ps *ProjectStore) ProjectExists(ctx context.Context, id string) (bool, error) {
+func (ps *ProjectStore) ProjectExists(ctx context.Context, id int64) (bool, error) {
 	var count int
 	err := ps.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM projects WHERE id = $1", id,
@@ -253,17 +291,17 @@ func (ps *ProjectStore) ProjectExists(ctx context.Context, id string) (bool, err
 
 // InsertOrIgnore inserts a project row, silently ignoring duplicate-key errors.
 // Used by SyncMetadata.
-func (ps *ProjectStore) InsertOrIgnore(ctx context.Context, id string) error {
+func (ps *ProjectStore) InsertOrIgnore(ctx context.Context, slug string) error {
 	_, err := ps.pool.Exec(ctx,
-		"INSERT INTO projects(id) VALUES($1) ON CONFLICT (id) DO NOTHING", id)
+		"INSERT INTO projects(slug, display_name) VALUES($1, $1) ON CONFLICT DO NOTHING", slug)
 	if err != nil {
-		return fmt.Errorf("insert project %q: %w", id, err)
+		return fmt.Errorf("insert project %q: %w", slug, err)
 	}
 	return nil
 }
 
 // SetReportType updates the report_type for a project.
-func (ps *ProjectStore) SetReportType(ctx context.Context, id, reportType string) error {
+func (ps *ProjectStore) SetReportType(ctx context.Context, id int64, reportType string) error {
 	_, err := ps.pool.Exec(ctx,
 		"UPDATE projects SET report_type = $1 WHERE id = $2", reportType, id)
 	if err != nil {
@@ -272,9 +310,9 @@ func (ps *ProjectStore) SetReportType(ctx context.Context, id, reportType string
 	return nil
 }
 
-// ListChildIDs returns the IDs of all projects whose parent_id matches the given ID.
-func (ps *ProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]string, error) {
-	rows, err := ps.pool.Query(ctx, "SELECT id FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
+// ListChildIDs returns the slugs of all projects whose parent_id matches the given ID.
+func (ps *ProjectStore) ListChildIDs(ctx context.Context, parentID int64) ([]string, error) {
+	rows, err := ps.pool.Query(ctx, "SELECT slug FROM projects WHERE parent_id = $1 ORDER BY slug", parentID)
 	if err != nil {
 		return nil, fmt.Errorf("list children: %w", err)
 	}

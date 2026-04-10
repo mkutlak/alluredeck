@@ -47,7 +47,7 @@ func TestRegisterRoutes(t *testing.T) {
 			auth:         handlers.NewAuthHandler(cfg, jwtManager),
 			project:      handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop()),
 			resultUpload: handlers.NewResultUploadHandler(localStore, mocks.Projects, runner.NewMemJobManager(nil, 0, zap.NewNop()), allureCore, cfg, zap.NewNop()),
-			admin:        handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop()),
+			admin:        handlers.NewAdminHandler(nil, nil, zap.NewNop()),
 		},
 	})
 
@@ -111,7 +111,7 @@ func TestBareRoutes_Return404(t *testing.T) {
 			auth:         handlers.NewAuthHandler(cfg, jwtManager),
 			project:      handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop()),
 			resultUpload: handlers.NewResultUploadHandler(localStore, mocks.Projects, runner.NewMemJobManager(nil, 0, zap.NewNop()), allureCore, cfg, zap.NewNop()),
-			admin:        handlers.NewAdminHandler(nil, nil, t.TempDir(), zap.NewNop()),
+			admin:        handlers.NewAdminHandler(nil, nil, zap.NewNop()),
 		},
 	})
 

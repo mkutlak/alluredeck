@@ -15,7 +15,7 @@ import (
 
 func newTestHistoryHandler(t *testing.T, mocks *testutil.MockStores) *TestHistoryHandler {
 	t.Helper()
-	return NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches, t.TempDir())
+	return NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches, mocks.Projects)
 }
 
 func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {
@@ -23,8 +23,8 @@ func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {
 	h := newTestHistoryHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/test-history", nil)
-	req.SetPathValue("project_id", "myproj")
+		"/api/v1/projects/1/test-history", nil)
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetTestHistory(rr, req)
@@ -45,15 +45,15 @@ func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {
 
 func TestTestHistoryHandler_NoResults(t *testing.T) {
 	mocks := testutil.New()
-	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
 		return []store.TestHistoryEntry{}, nil
 	}
 
 	h := newTestHistoryHandler(t, mocks)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/empty-proj/test-history?history_id=nonexistent", nil)
-	req.SetPathValue("project_id", "empty-proj")
+		"/api/v1/projects/1/test-history?history_id=nonexistent", nil)
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.GetTestHistory(rr, req)
@@ -80,9 +80,9 @@ func TestTestHistoryHandler_NoResults(t *testing.T) {
 
 func TestTestHistoryHandler_WithResults(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "hist-handler-proj"
+	projectID := "1"
 	now := time.Now().UTC().Truncate(time.Second)
-	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
 		return []store.TestHistoryEntry{
 			{BuildNumber: 1, BuildID: 101, Status: "passed", DurationMs: 400, CreatedAt: now},
 			{BuildNumber: 2, BuildID: 102, Status: "passed", DurationMs: 800, CreatedAt: now},
@@ -148,8 +148,8 @@ func TestTestHistoryHandler_WithResults(t *testing.T) {
 
 func TestTestHistoryHandler_BranchFilter_NotFound(t *testing.T) {
 	mocks := testutil.New()
-	projectID := "hist-branch-proj"
-	mocks.Branches.GetByNameFn = func(_ context.Context, _, _ string) (*store.Branch, error) {
+	projectID := "1"
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, _ string) (*store.Branch, error) {
 		return nil, fmt.Errorf("%w: branch=nonexistent-branch project=%s", store.ErrBranchNotFound, projectID)
 	}
 

@@ -30,8 +30,8 @@ func syncTestBuildsFromFilesystem(t *testing.T, projectsDir string, builds *test
 		if !pe.IsDir() {
 			continue
 		}
-		projectID := pe.Name()
-		reportsDir := filepath.Join(projectsDir, projectID, "reports")
+		slug := pe.Name()
+		reportsDir := filepath.Join(projectsDir, slug, "reports")
 		reportEntries, err := os.ReadDir(reportsDir)
 		if err != nil {
 			continue
@@ -44,8 +44,9 @@ func syncTestBuildsFromFilesystem(t *testing.T, projectsDir string, builds *test
 			if err != nil {
 				continue // skip "latest" and any non-numeric dirs
 			}
+			const projectID int64 = 1
 			if err := builds.InsertBuild(ctx, projectID, order); err != nil {
-				t.Logf("syncTestBuildsFromFilesystem: InsertBuild %s/%d: %v", projectID, order, err)
+				t.Logf("syncTestBuildsFromFilesystem: InsertBuild %s/%d: %v", slug, order, err)
 				continue
 			}
 			// Parse summary.json for stats if present.
@@ -106,6 +107,7 @@ func newTestReportHandler(t *testing.T, projectsDir string) (*ReportHandler, *te
 		BuildStore:      mocks.MemBuilds,
 		BranchStore:     mocks.Branches,
 		KnownIssueStore: mocks.KnownIssues,
+		ProjectStore:    mocks.Projects,
 		Store:           st,
 		Config:          cfg,
 		Logger:          logger,
@@ -136,6 +138,7 @@ func newTestReportHandlerWithMocks(t *testing.T, projectsDir string, mocks *test
 		BranchStore:     mocks.Branches,
 		TestResultStore: mocks.TestResults,
 		KnownIssueStore: mocks.KnownIssues,
+		ProjectStore:    mocks.Projects,
 		Store:           st,
 		Config:          cfg,
 		Logger:          logger,
@@ -144,7 +147,7 @@ func newTestReportHandlerWithMocks(t *testing.T, projectsDir string, mocks *test
 
 // newTestReportHandlerWithJobManager builds a ReportHandler with a real JobManager
 // backed by the provided generator, for async job handler tests.
-func newTestReportHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) *ReportHandler {
+func newTestReportHandlerWithJobManager(t *testing.T, projectsDir string, gen runner.ReportGenerator) (*ReportHandler, *testutil.MockStores) {
 	t.Helper()
 	cfg := &config.Config{ProjectsPath: projectsDir, KeepHistory: false}
 	logger := zap.NewNop()
@@ -163,14 +166,15 @@ func newTestReportHandlerWithJobManager(t *testing.T, projectsDir string, gen ru
 	t.Cleanup(func() { jm.Shutdown() })
 
 	return NewReportHandler(ReportHandlerDeps{
-		JobManager:  jm,
-		Runner:      r,
-		BuildStore:  mocks.Builds,
-		BranchStore: mocks.Branches,
-		Store:       st,
-		Config:      cfg,
-		Logger:      logger,
-	})
+		JobManager:   jm,
+		Runner:       r,
+		BuildStore:   mocks.Builds,
+		BranchStore:  mocks.Branches,
+		ProjectStore: mocks.Projects,
+		Store:        st,
+		Config:       cfg,
+		Logger:       logger,
+	}), mocks
 }
 
 // newTestProjectHandler creates a ProjectHandler backed by stateful in-memory stores.
@@ -212,22 +216,22 @@ func newTestResultUploadHandler(t *testing.T, projectsDir string) (*ResultUpload
 }
 
 // newTestSearchHandler creates a SearchHandler backed by an in-memory search store.
-func newTestSearchHandler(t *testing.T, projectsDir string) *SearchHandler {
+func newTestSearchHandler(t *testing.T) *SearchHandler {
 	t.Helper()
 	mocks := testutil.New()
-	return NewSearchHandler(mocks.Search, projectsDir)
+	return NewSearchHandler(mocks.Search)
 }
 
 // newTestCompareHandler creates a CompareHandler with the given mock stores.
-func newTestCompareHandler(t *testing.T, projectsDir string, mocks *testutil.MockStores) *CompareHandler {
+func newTestCompareHandler(t *testing.T, mocks *testutil.MockStores) *CompareHandler {
 	t.Helper()
-	return NewCompareHandler(mocks.TestResults, projectsDir)
+	return NewCompareHandler(mocks.TestResults, mocks.Projects)
 }
 
 // newTestProjectTimelineHandler creates a ProjectTimelineHandler with the given mock stores.
-func newTestProjectTimelineHandler(t *testing.T, projectsDir string, mocks *testutil.MockStores) *ProjectTimelineHandler {
+func newTestProjectTimelineHandler(t *testing.T, mocks *testutil.MockStores) *ProjectTimelineHandler {
 	t.Helper()
-	return NewProjectTimelineHandler(mocks.Builds, mocks.TestResults, mocks.Branches, projectsDir)
+	return NewProjectTimelineHandler(mocks.Builds, mocks.TestResults, mocks.Branches, mocks.Projects)
 }
 
 // newTestKnownIssueHandler creates a KnownIssueHandler backed by in-memory stores
@@ -238,7 +242,7 @@ func newTestKnownIssueHandler(t *testing.T, projectsDir string) (*KnownIssueHand
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	h := NewKnownIssueHandler(mocks.KnownIssues, st, projectsDir, logger)
+	h := NewKnownIssueHandler(mocks.KnownIssues, mocks.Projects, st, logger)
 	return h, mocks
 }
 

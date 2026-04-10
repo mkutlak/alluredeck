@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, LayoutGrid, List, RefreshCw, FolderX } from 'lucide-react'
@@ -9,6 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectCard } from './ProjectCard'
 import { CreateProjectDialog } from './CreateProjectDialog'
+import { DndProjectProvider } from './components/DndProjectProvider'
+import { NoGroupDropZone } from './components/NoGroupDropZone'
+import { type DndProject } from './hooks/useProjectDnd'
 
 export function ProjectsPage() {
   const isAdmin = useAuthStore(selectIsAdmin)
@@ -19,6 +22,17 @@ export function ProjectsPage() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery(projectListOptions())
 
   const projects = data?.data ?? []
+
+  const dndProjects: DndProject[] = useMemo(
+    () =>
+      projects.map((p) => ({
+        slug: p.slug,
+        projectId: p.project_id,
+        parentId: p.parent_id ?? null,
+        hasChildren: !!(p.children?.length),
+      })),
+    [projects],
+  )
 
   return (
     <div className="space-y-6">
@@ -109,28 +123,32 @@ export function ProjectsPage() {
       )}
 
       {/* Project grid / list */}
-      {!isLoading && !isError && projects.length > 0 && viewMode === 'grid' && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {projects.map((p) => (
-            <ProjectCard key={p.project_id} projectId={p.project_id} />
-          ))}
-        </div>
-      )}
-
-      {!isLoading && !isError && projects.length > 0 && viewMode === 'table' && (
-        <div className="rounded-lg border">
-          {projects.map((p, idx) => (
-            <div
-              key={p.project_id}
-              className={`flex items-center justify-between px-4 py-3 ${idx < projects.length - 1 ? 'border-b' : ''}`}
-            >
-              <span className="font-mono text-sm">{p.project_id}</span>
-              <Button asChild size="sm" variant="ghost">
-                <Link to={`/projects/${p.project_id}`}>View reports →</Link>
-              </Button>
+      {!isLoading && !isError && projects.length > 0 && (
+        <DndProjectProvider projects={dndProjects}>
+          <NoGroupDropZone />
+          {viewMode === 'grid' && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {projects.map((p) => (
+                <ProjectCard key={p.project_id} projectId={p.slug} />
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          {viewMode === 'table' && (
+            <div className="rounded-lg border">
+              {projects.map((p, idx) => (
+                <div
+                  key={p.project_id}
+                  className={`flex items-center justify-between px-4 py-3 ${idx < projects.length - 1 ? 'border-b' : ''}`}
+                >
+                  <span className="font-mono text-sm">{p.slug}</span>
+                  <Button asChild size="sm" variant="ghost">
+                    <Link to={`/projects/${p.slug}`}>View reports →</Link>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </DndProjectProvider>
       )}
 
       {isAdmin && <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />}

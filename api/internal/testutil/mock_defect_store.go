@@ -28,7 +28,7 @@ func NewMemDefectStore() *MemDefectStore {
 	}
 }
 
-func (m *MemDefectStore) UpsertFingerprints(_ context.Context, _ string, _ int64, _ []store.DefectFingerprint) error {
+func (m *MemDefectStore) UpsertFingerprints(_ context.Context, _ int64, _ int64, _ []store.DefectFingerprint) error {
 	return nil
 }
 
@@ -36,22 +36,22 @@ func (m *MemDefectStore) LinkTestResults(_ context.Context, _ string, _ int64, _
 	return nil
 }
 
-func (m *MemDefectStore) UpdateCleanBuildCounts(_ context.Context, _ string, _ int64) error {
+func (m *MemDefectStore) UpdateCleanBuildCounts(_ context.Context, _ int64, _ int64) error {
 	return nil
 }
 
-func (m *MemDefectStore) AutoResolveFixed(_ context.Context, _ string, _ int) (int, error) {
+func (m *MemDefectStore) AutoResolveFixed(_ context.Context, _ int64, _ int) (int, error) {
 	return 0, nil
 }
 
-func (m *MemDefectStore) DetectRegressions(_ context.Context, _ string, _ int64) ([]string, error) {
+func (m *MemDefectStore) DetectRegressions(_ context.Context, _ int64, _ int64) ([]string, error) {
 	return []string{}, nil
 }
 
-func (m *MemDefectStore) GetByHash(_ context.Context, projectID, hash string) (*store.DefectFingerprint, error) {
+func (m *MemDefectStore) GetByHash(_ context.Context, projectID int64, hash string) (*store.DefectFingerprint, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	key := projectID + "\x00" + hash
+	key := fmt.Sprintf("%d\x00%s", projectID, hash)
 	id, ok := m.byHash[key]
 	if !ok {
 		return nil, fmt.Errorf("%w: hash=%s", store.ErrDefectNotFound, hash)
@@ -61,11 +61,11 @@ func (m *MemDefectStore) GetByHash(_ context.Context, projectID, hash string) (*
 	return &cp, nil
 }
 
-func (m *MemDefectStore) ListByProject(_ context.Context, _ string, _ store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (m *MemDefectStore) ListByProject(_ context.Context, _ int64, _ store.DefectFilter) ([]store.DefectListRow, int, error) {
 	return []store.DefectListRow{}, 0, nil
 }
 
-func (m *MemDefectStore) ListByBuild(_ context.Context, _ string, _ int64, _ store.DefectFilter) ([]store.DefectListRow, int, error) {
+func (m *MemDefectStore) ListByBuild(_ context.Context, _ int64, _ int64, _ store.DefectFilter) ([]store.DefectListRow, int, error) {
 	return []store.DefectListRow{}, 0, nil
 }
 
@@ -84,13 +84,13 @@ func (m *MemDefectStore) GetTestResults(_ context.Context, _ string, _ *int64, _
 	return []store.TestResult{}, 0, nil
 }
 
-func (m *MemDefectStore) GetProjectSummary(_ context.Context, _ string) (*store.DefectProjectSummary, error) {
+func (m *MemDefectStore) GetProjectSummary(_ context.Context, _ int64) (*store.DefectProjectSummary, error) {
 	return &store.DefectProjectSummary{
 		ByCategory: map[string]int{},
 	}, nil
 }
 
-func (m *MemDefectStore) GetBuildSummary(_ context.Context, _ string, _ int64) (*store.DefectBuildSummary, error) {
+func (m *MemDefectStore) GetBuildSummary(_ context.Context, _ int64, _ int64) (*store.DefectBuildSummary, error) {
 	return &store.DefectBuildSummary{
 		ByCategory:   map[string]int{},
 		ByResolution: map[string]int{},

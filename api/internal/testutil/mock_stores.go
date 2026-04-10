@@ -73,39 +73,54 @@ func New() *MockStores {
 // MockProjectStore is a test double for store.ProjectStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockProjectStore struct {
-	CreateProjectFn                 func(ctx context.Context, id string) error
-	CreateProjectWithParentFn       func(ctx context.Context, id string, parentID string) error
-	GetProjectFn                    func(ctx context.Context, id string) (*store.Project, error)
+	CreateProjectFn                 func(ctx context.Context, slug string) (*store.Project, error)
+	CreateProjectWithParentFn       func(ctx context.Context, slug string, parentID int64) (*store.Project, error)
+	GetProjectFn                    func(ctx context.Context, id int64) (*store.Project, error)
+	GetProjectBySlugFn              func(ctx context.Context, slug string) (*store.Project, error)
 	ListProjectsFn                  func(ctx context.Context) ([]store.Project, error)
 	ListProjectsPaginatedFn         func(ctx context.Context, page, perPage int) ([]store.Project, int, error)
 	ListProjectsPaginatedTopLevelFn func(ctx context.Context, page, perPage int) ([]store.Project, int, error)
-	ListChildrenFn                  func(ctx context.Context, parentID string) ([]store.Project, error)
-	HasChildrenFn                   func(ctx context.Context, projectID string) (bool, error)
-	SetParentFn                     func(ctx context.Context, projectID, parentID string) error
-	ClearParentFn                   func(ctx context.Context, projectID string) error
-	DeleteProjectFn                 func(ctx context.Context, id string) error
-	RenameProjectFn                 func(ctx context.Context, oldID, newID string) error
-	ProjectExistsFn                 func(ctx context.Context, id string) (bool, error)
-	SetReportTypeFn                 func(ctx context.Context, id, reportType string) error
+	ListChildrenFn                  func(ctx context.Context, parentID int64) ([]store.Project, error)
+	HasChildrenFn                   func(ctx context.Context, projectID int64) (bool, error)
+	SetParentFn                     func(ctx context.Context, projectID, parentID int64) error
+	ClearParentFn                   func(ctx context.Context, projectID int64) error
+	DeleteProjectFn                 func(ctx context.Context, id int64) error
+	RenameProjectFn                 func(ctx context.Context, id int64, newSlug string) error
+	ProjectExistsFn                 func(ctx context.Context, id int64) (bool, error)
+	SetReportTypeFn                 func(ctx context.Context, id int64, reportType string) error
 }
 
-func (m *MockProjectStore) CreateProject(ctx context.Context, id string) error {
+func (m *MockProjectStore) CreateProject(ctx context.Context, slug string) (*store.Project, error) {
 	if m.CreateProjectFn != nil {
-		return m.CreateProjectFn(ctx, id)
+		return m.CreateProjectFn(ctx, slug)
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *MockProjectStore) CreateProjectWithParent(ctx context.Context, id string, parentID string) error {
+func (m *MockProjectStore) CreateProjectWithParent(ctx context.Context, slug string, parentID int64) (*store.Project, error) {
 	if m.CreateProjectWithParentFn != nil {
-		return m.CreateProjectWithParentFn(ctx, id, parentID)
+		return m.CreateProjectWithParentFn(ctx, slug, parentID)
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *MockProjectStore) GetProject(ctx context.Context, id string) (*store.Project, error) {
+func (m *MockProjectStore) GetProject(ctx context.Context, id int64) (*store.Project, error) {
 	if m.GetProjectFn != nil {
 		return m.GetProjectFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *MockProjectStore) GetProjectBySlug(ctx context.Context, slug string) (*store.Project, error) {
+	if m.GetProjectBySlugFn != nil {
+		return m.GetProjectBySlugFn(ctx, slug)
+	}
+	return nil, nil
+}
+
+func (m *MockProjectStore) GetProjectBySlugAny(ctx context.Context, slug string) (*store.Project, error) {
+	if m.GetProjectBySlugFn != nil {
+		return m.GetProjectBySlugFn(ctx, slug)
 	}
 	return nil, nil
 }
@@ -131,60 +146,60 @@ func (m *MockProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, pa
 	return nil, 0, nil
 }
 
-func (m *MockProjectStore) ListChildren(ctx context.Context, parentID string) ([]store.Project, error) {
+func (m *MockProjectStore) ListChildren(ctx context.Context, parentID int64) ([]store.Project, error) {
 	if m.ListChildrenFn != nil {
 		return m.ListChildrenFn(ctx, parentID)
 	}
 	return nil, nil
 }
 
-func (m *MockProjectStore) ListChildIDs(ctx context.Context, parentID string) ([]string, error) {
+func (m *MockProjectStore) ListChildIDs(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }
 
-func (m *MockProjectStore) HasChildren(ctx context.Context, projectID string) (bool, error) {
+func (m *MockProjectStore) HasChildren(ctx context.Context, projectID int64) (bool, error) {
 	if m.HasChildrenFn != nil {
 		return m.HasChildrenFn(ctx, projectID)
 	}
 	return false, nil
 }
 
-func (m *MockProjectStore) SetParent(ctx context.Context, projectID, parentID string) error {
+func (m *MockProjectStore) SetParent(ctx context.Context, projectID, parentID int64) error {
 	if m.SetParentFn != nil {
 		return m.SetParentFn(ctx, projectID, parentID)
 	}
 	return nil
 }
 
-func (m *MockProjectStore) ClearParent(ctx context.Context, projectID string) error {
+func (m *MockProjectStore) ClearParent(ctx context.Context, projectID int64) error {
 	if m.ClearParentFn != nil {
 		return m.ClearParentFn(ctx, projectID)
 	}
 	return nil
 }
 
-func (m *MockProjectStore) DeleteProject(ctx context.Context, id string) error {
+func (m *MockProjectStore) DeleteProject(ctx context.Context, id int64) error {
 	if m.DeleteProjectFn != nil {
 		return m.DeleteProjectFn(ctx, id)
 	}
 	return nil
 }
 
-func (m *MockProjectStore) RenameProject(ctx context.Context, oldID, newID string) error {
+func (m *MockProjectStore) RenameProject(ctx context.Context, id int64, newSlug string) error {
 	if m.RenameProjectFn != nil {
-		return m.RenameProjectFn(ctx, oldID, newID)
+		return m.RenameProjectFn(ctx, id, newSlug)
 	}
 	return nil
 }
 
-func (m *MockProjectStore) ProjectExists(ctx context.Context, id string) (bool, error) {
+func (m *MockProjectStore) ProjectExists(ctx context.Context, id int64) (bool, error) {
 	if m.ProjectExistsFn != nil {
 		return m.ProjectExistsFn(ctx, id)
 	}
 	return false, nil
 }
 
-func (m *MockProjectStore) SetReportType(ctx context.Context, id, reportType string) error {
+func (m *MockProjectStore) SetReportType(ctx context.Context, id int64, reportType string) error {
 	if m.SetReportTypeFn != nil {
 		return m.SetReportTypeFn(ctx, id, reportType)
 	}
@@ -197,107 +212,107 @@ func (m *MockProjectStore) SetReportType(ctx context.Context, id, reportType str
 
 // MockBuildStore is a test double for store.BuildStorer.
 type MockBuildStore struct {
-	NextBuildNumberFn           func(ctx context.Context, projectID string) (int, error)
-	InsertBuildFn               func(ctx context.Context, projectID string, buildNumber int) error
-	UpdateBuildStatsFn          func(ctx context.Context, projectID string, buildNumber int, stats store.BuildStats) error
-	UpdateBuildCIMetadataFn     func(ctx context.Context, projectID string, buildNumber int, ciMeta store.CIMetadata) error
-	GetBuildByNumberFn          func(ctx context.Context, projectID string, buildNumber int) (store.Build, error)
-	GetPreviousBuildFn          func(ctx context.Context, projectID string, buildNumber int) (store.Build, error)
-	GetLatestBuildFn            func(ctx context.Context, projectID string) (store.Build, error)
-	ListBuildsFn                func(ctx context.Context, projectID string) ([]store.Build, error)
-	ListBuildsPaginatedFn       func(ctx context.Context, projectID string, page, perPage int) ([]store.Build, int, error)
-	PruneBuildsFn               func(ctx context.Context, projectID string, keep int) ([]int, error)
-	SetLatestFn                 func(ctx context.Context, projectID string, buildNumber int) error
-	DeleteAllBuildsFn           func(ctx context.Context, projectID string) error
+	NextBuildNumberFn           func(ctx context.Context, projectID int64) (int, error)
+	InsertBuildFn               func(ctx context.Context, projectID int64, buildNumber int) error
+	UpdateBuildStatsFn          func(ctx context.Context, projectID int64, buildNumber int, stats store.BuildStats) error
+	UpdateBuildCIMetadataFn     func(ctx context.Context, projectID int64, buildNumber int, ciMeta store.CIMetadata) error
+	GetBuildByNumberFn          func(ctx context.Context, projectID int64, buildNumber int) (store.Build, error)
+	GetPreviousBuildFn          func(ctx context.Context, projectID int64, buildNumber int) (store.Build, error)
+	GetLatestBuildFn            func(ctx context.Context, projectID int64) (store.Build, error)
+	ListBuildsFn                func(ctx context.Context, projectID int64) ([]store.Build, error)
+	ListBuildsPaginatedFn       func(ctx context.Context, projectID int64, page, perPage int) ([]store.Build, int, error)
+	PruneBuildsFn               func(ctx context.Context, projectID int64, keep int) ([]int, error)
+	SetLatestFn                 func(ctx context.Context, projectID int64, buildNumber int) error
+	DeleteAllBuildsFn           func(ctx context.Context, projectID int64) error
 	GetDashboardDataFn          func(ctx context.Context, sparklineDepth int) ([]store.DashboardProject, error)
-	DeleteBuildFn               func(ctx context.Context, projectID string, buildNumber int) error
-	UpdateBuildBranchIDFn       func(ctx context.Context, projectID string, buildNumber int, branchID int64) error
-	SetLatestBranchFn           func(ctx context.Context, projectID string, buildNumber int, branchID *int64) error
-	PruneBuildsBranchFn         func(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error)
-	PruneBuildsByAgeFn          func(ctx context.Context, projectID string, olderThan time.Time) ([]int, error)
-	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error)
-	ListBuildsInRangeFn         func(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
-	SetHasPlaywrightReportFn    func(ctx context.Context, projectID string, buildNumber int, value bool) error
+	DeleteBuildFn               func(ctx context.Context, projectID int64, buildNumber int) error
+	UpdateBuildBranchIDFn       func(ctx context.Context, projectID int64, buildNumber int, branchID int64) error
+	SetLatestBranchFn           func(ctx context.Context, projectID int64, buildNumber int, branchID *int64) error
+	PruneBuildsBranchFn         func(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error)
+	PruneBuildsByAgeFn          func(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error)
+	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]store.Build, int, error)
+	ListBuildsInRangeFn         func(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
+	SetHasPlaywrightReportFn    func(ctx context.Context, projectID int64, buildNumber int, value bool) error
 }
 
-func (m *MockBuildStore) NextBuildNumber(ctx context.Context, projectID string) (int, error) {
+func (m *MockBuildStore) NextBuildNumber(ctx context.Context, projectID int64) (int, error) {
 	if m.NextBuildNumberFn != nil {
 		return m.NextBuildNumberFn(ctx, projectID)
 	}
 	return 0, nil
 }
 
-func (m *MockBuildStore) InsertBuild(ctx context.Context, projectID string, buildNumber int) error {
+func (m *MockBuildStore) InsertBuild(ctx context.Context, projectID int64, buildNumber int) error {
 	if m.InsertBuildFn != nil {
 		return m.InsertBuildFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) UpdateBuildStats(ctx context.Context, projectID string, buildNumber int, stats store.BuildStats) error {
+func (m *MockBuildStore) UpdateBuildStats(ctx context.Context, projectID int64, buildNumber int, stats store.BuildStats) error {
 	if m.UpdateBuildStatsFn != nil {
 		return m.UpdateBuildStatsFn(ctx, projectID, buildNumber, stats)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID string, buildNumber int, ciMeta store.CIMetadata) error {
+func (m *MockBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID int64, buildNumber int, ciMeta store.CIMetadata) error {
 	if m.UpdateBuildCIMetadataFn != nil {
 		return m.UpdateBuildCIMetadataFn(ctx, projectID, buildNumber, ciMeta)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) GetBuildByNumber(ctx context.Context, projectID string, buildNumber int) (store.Build, error) {
+func (m *MockBuildStore) GetBuildByNumber(ctx context.Context, projectID int64, buildNumber int) (store.Build, error) {
 	if m.GetBuildByNumberFn != nil {
 		return m.GetBuildByNumberFn(ctx, projectID, buildNumber)
 	}
 	return store.Build{}, nil
 }
 
-func (m *MockBuildStore) GetPreviousBuild(ctx context.Context, projectID string, buildNumber int) (store.Build, error) {
+func (m *MockBuildStore) GetPreviousBuild(ctx context.Context, projectID int64, buildNumber int) (store.Build, error) {
 	if m.GetPreviousBuildFn != nil {
 		return m.GetPreviousBuildFn(ctx, projectID, buildNumber)
 	}
 	return store.Build{}, nil
 }
 
-func (m *MockBuildStore) GetLatestBuild(ctx context.Context, projectID string) (store.Build, error) {
+func (m *MockBuildStore) GetLatestBuild(ctx context.Context, projectID int64) (store.Build, error) {
 	if m.GetLatestBuildFn != nil {
 		return m.GetLatestBuildFn(ctx, projectID)
 	}
 	return store.Build{}, nil
 }
 
-func (m *MockBuildStore) ListBuilds(ctx context.Context, projectID string) ([]store.Build, error) {
+func (m *MockBuildStore) ListBuilds(ctx context.Context, projectID int64) ([]store.Build, error) {
 	if m.ListBuildsFn != nil {
 		return m.ListBuildsFn(ctx, projectID)
 	}
 	return nil, nil
 }
 
-func (m *MockBuildStore) ListBuildsPaginated(ctx context.Context, projectID string, page, perPage int) ([]store.Build, int, error) {
+func (m *MockBuildStore) ListBuildsPaginated(ctx context.Context, projectID int64, page, perPage int) ([]store.Build, int, error) {
 	if m.ListBuildsPaginatedFn != nil {
 		return m.ListBuildsPaginatedFn(ctx, projectID, page, perPage)
 	}
 	return nil, 0, nil
 }
 
-func (m *MockBuildStore) PruneBuilds(ctx context.Context, projectID string, keep int) ([]int, error) {
+func (m *MockBuildStore) PruneBuilds(ctx context.Context, projectID int64, keep int) ([]int, error) {
 	if m.PruneBuildsFn != nil {
 		return m.PruneBuildsFn(ctx, projectID, keep)
 	}
 	return nil, nil
 }
 
-func (m *MockBuildStore) SetLatest(ctx context.Context, projectID string, buildNumber int) error {
+func (m *MockBuildStore) SetLatest(ctx context.Context, projectID int64, buildNumber int) error {
 	if m.SetLatestFn != nil {
 		return m.SetLatestFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) DeleteAllBuilds(ctx context.Context, projectID string) error {
+func (m *MockBuildStore) DeleteAllBuilds(ctx context.Context, projectID int64) error {
 	if m.DeleteAllBuildsFn != nil {
 		return m.DeleteAllBuildsFn(ctx, projectID)
 	}
@@ -311,56 +326,56 @@ func (m *MockBuildStore) GetDashboardData(ctx context.Context, sparklineDepth in
 	return nil, nil
 }
 
-func (m *MockBuildStore) DeleteBuild(ctx context.Context, projectID string, buildNumber int) error {
+func (m *MockBuildStore) DeleteBuild(ctx context.Context, projectID int64, buildNumber int) error {
 	if m.DeleteBuildFn != nil {
 		return m.DeleteBuildFn(ctx, projectID, buildNumber)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) UpdateBuildBranchID(ctx context.Context, projectID string, buildNumber int, branchID int64) error {
+func (m *MockBuildStore) UpdateBuildBranchID(ctx context.Context, projectID int64, buildNumber int, branchID int64) error {
 	if m.UpdateBuildBranchIDFn != nil {
 		return m.UpdateBuildBranchIDFn(ctx, projectID, buildNumber, branchID)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) SetLatestBranch(ctx context.Context, projectID string, buildNumber int, branchID *int64) error {
+func (m *MockBuildStore) SetLatestBranch(ctx context.Context, projectID int64, buildNumber int, branchID *int64) error {
 	if m.SetLatestBranchFn != nil {
 		return m.SetLatestBranchFn(ctx, projectID, buildNumber, branchID)
 	}
 	return nil
 }
 
-func (m *MockBuildStore) PruneBuildsBranch(ctx context.Context, projectID string, keep int, branchID *int64) ([]int, error) {
+func (m *MockBuildStore) PruneBuildsBranch(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error) {
 	if m.PruneBuildsBranchFn != nil {
 		return m.PruneBuildsBranchFn(ctx, projectID, keep, branchID)
 	}
 	return nil, nil
 }
 
-func (m *MockBuildStore) PruneBuildsByAge(ctx context.Context, projectID string, olderThan time.Time) ([]int, error) {
+func (m *MockBuildStore) PruneBuildsByAge(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error) {
 	if m.PruneBuildsByAgeFn != nil {
 		return m.PruneBuildsByAgeFn(ctx, projectID, olderThan)
 	}
 	return nil, nil
 }
 
-func (m *MockBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID string, page, perPage int, branchID *int64) ([]store.Build, int, error) {
+func (m *MockBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]store.Build, int, error) {
 	if m.ListBuildsPaginatedBranchFn != nil {
 		return m.ListBuildsPaginatedBranchFn(ctx, projectID, page, perPage, branchID)
 	}
 	return nil, 0, nil
 }
 
-func (m *MockBuildStore) ListBuildsInRange(ctx context.Context, projectID string, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
+func (m *MockBuildStore) ListBuildsInRange(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error) {
 	if m.ListBuildsInRangeFn != nil {
 		return m.ListBuildsInRangeFn(ctx, projectID, branchID, from, to, limit)
 	}
 	return nil, 0, nil
 }
 
-func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID string, buildNumber int, value bool) error {
+func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID int64, buildNumber int, value bool) error {
 	if m.SetHasPlaywrightReportFn != nil {
 		return m.SetHasPlaywrightReportFn(ctx, projectID, buildNumber, value)
 	}
@@ -374,17 +389,17 @@ func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID s
 // MockTestResultStore is a test double for store.TestResultStorer.
 type MockTestResultStore struct {
 	InsertBatchFn              func(ctx context.Context, results []store.TestResult) error
-	InsertBatchFullFn          func(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error
-	GetBuildIDFn               func(ctx context.Context, projectID string, buildNumber int) (int64, error)
-	ListSlowestFn              func(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
-	ListLeastReliableFn        func(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
-	ListTimelineFn             func(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TimelineRow, error)
-	ListFailedByBuildFn        func(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TestResult, error)
-	GetTestHistoryFn           func(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
+	InsertBatchFullFn          func(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error
+	GetBuildIDFn               func(ctx context.Context, projectID int64, buildNumber int) (int64, error)
+	ListSlowestFn              func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
+	ListLeastReliableFn        func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
+	ListTimelineFn             func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error)
+	ListFailedByBuildFn        func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error)
+	GetTestHistoryFn           func(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
 	DeleteByBuildFn            func(ctx context.Context, buildID int64) error
-	DeleteByProjectFn          func(ctx context.Context, projectID string) error
-	CompareBuildsByHistoryIDFn func(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
-	ListTimelineMultiFn        func(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
+	DeleteByProjectFn          func(ctx context.Context, projectID int64) error
+	CompareBuildsByHistoryIDFn func(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
+	ListTimelineMultiFn        func(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
 }
 
 func (m *MockTestResultStore) InsertBatch(ctx context.Context, results []store.TestResult) error {
@@ -394,49 +409,49 @@ func (m *MockTestResultStore) InsertBatch(ctx context.Context, results []store.T
 	return nil
 }
 
-func (m *MockTestResultStore) InsertBatchFull(ctx context.Context, buildID int64, projectID string, results []*parser.Result) error {
+func (m *MockTestResultStore) InsertBatchFull(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error {
 	if m.InsertBatchFullFn != nil {
 		return m.InsertBatchFullFn(ctx, buildID, projectID, results)
 	}
 	return nil
 }
 
-func (m *MockTestResultStore) GetBuildID(ctx context.Context, projectID string, buildNumber int) (int64, error) {
+func (m *MockTestResultStore) GetBuildID(ctx context.Context, projectID int64, buildNumber int) (int64, error) {
 	if m.GetBuildIDFn != nil {
 		return m.GetBuildIDFn(ctx, projectID, buildNumber)
 	}
 	return 0, nil
 }
 
-func (m *MockTestResultStore) ListSlowest(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
+func (m *MockTestResultStore) ListSlowest(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
 	if m.ListSlowestFn != nil {
 		return m.ListSlowestFn(ctx, projectID, builds, limit, branchID)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListLeastReliable(ctx context.Context, projectID string, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
+func (m *MockTestResultStore) ListLeastReliable(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error) {
 	if m.ListLeastReliableFn != nil {
 		return m.ListLeastReliableFn(ctx, projectID, builds, limit, branchID)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListTimeline(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TimelineRow, error) {
+func (m *MockTestResultStore) ListTimeline(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error) {
 	if m.ListTimelineFn != nil {
 		return m.ListTimelineFn(ctx, projectID, buildID, limit)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListFailedByBuild(ctx context.Context, projectID string, buildID int64, limit int) ([]store.TestResult, error) {
+func (m *MockTestResultStore) ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error) {
 	if m.ListFailedByBuildFn != nil {
 		return m.ListFailedByBuildFn(ctx, projectID, buildID, limit)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) GetTestHistory(ctx context.Context, projectID, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error) {
+func (m *MockTestResultStore) GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error) {
 	if m.GetTestHistoryFn != nil {
 		return m.GetTestHistoryFn(ctx, projectID, historyID, branchID, limit)
 	}
@@ -450,28 +465,28 @@ func (m *MockTestResultStore) DeleteByBuild(ctx context.Context, buildID int64) 
 	return nil
 }
 
-func (m *MockTestResultStore) DeleteByProject(ctx context.Context, projectID string) error {
+func (m *MockTestResultStore) DeleteByProject(ctx context.Context, projectID int64) error {
 	if m.DeleteByProjectFn != nil {
 		return m.DeleteByProjectFn(ctx, projectID)
 	}
 	return nil
 }
 
-func (m *MockTestResultStore) CompareBuildsByHistoryID(ctx context.Context, projectID string, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {
+func (m *MockTestResultStore) CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {
 	if m.CompareBuildsByHistoryIDFn != nil {
 		return m.CompareBuildsByHistoryIDFn(ctx, projectID, buildIDA, buildIDB)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListTimelineMulti(ctx context.Context, projectID string, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
+func (m *MockTestResultStore) ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
 	if m.ListTimelineMultiFn != nil {
 		return m.ListTimelineMultiFn(ctx, projectID, buildIDs, limit)
 	}
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListFailedForFingerprinting(ctx context.Context, projectID string, buildID int64) ([]store.FailedTestResult, error) {
+func (m *MockTestResultStore) ListFailedForFingerprinting(_ context.Context, _ int64, _ int64) ([]store.FailedTestResult, error) {
 	return nil, nil
 }
 
@@ -481,16 +496,16 @@ func (m *MockTestResultStore) ListFailedForFingerprinting(ctx context.Context, p
 
 // MockKnownIssueStore is a test double for store.KnownIssueStorer.
 type MockKnownIssueStore struct {
-	CreateFn        func(ctx context.Context, projectID, testName, pattern, ticketURL, description string) (*store.KnownIssue, error)
+	CreateFn        func(ctx context.Context, projectID int64, testName, pattern, ticketURL, description string) (*store.KnownIssue, error)
 	GetFn           func(ctx context.Context, id int64) (*store.KnownIssue, error)
-	ListFn          func(ctx context.Context, projectID string, activeOnly bool) ([]store.KnownIssue, error)
-	ListPaginatedFn func(ctx context.Context, projectID string, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error)
-	UpdateFn        func(ctx context.Context, id int64, projectID, ticketURL, description string, isActive bool) error
-	DeleteFn        func(ctx context.Context, id int64, projectID string) error
-	IsKnownFn       func(ctx context.Context, projectID, testName string) (bool, error)
+	ListFn          func(ctx context.Context, projectID int64, activeOnly bool) ([]store.KnownIssue, error)
+	ListPaginatedFn func(ctx context.Context, projectID int64, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error)
+	UpdateFn        func(ctx context.Context, id int64, projectID int64, ticketURL, description string, isActive bool) error
+	DeleteFn        func(ctx context.Context, id int64, projectID int64) error
+	IsKnownFn       func(ctx context.Context, projectID int64, testName string) (bool, error)
 }
 
-func (m *MockKnownIssueStore) Create(ctx context.Context, projectID, testName, pattern, ticketURL, description string) (*store.KnownIssue, error) {
+func (m *MockKnownIssueStore) Create(ctx context.Context, projectID int64, testName, pattern, ticketURL, description string) (*store.KnownIssue, error) {
 	if m.CreateFn != nil {
 		return m.CreateFn(ctx, projectID, testName, pattern, ticketURL, description)
 	}
@@ -504,35 +519,35 @@ func (m *MockKnownIssueStore) Get(ctx context.Context, id int64) (*store.KnownIs
 	return nil, nil
 }
 
-func (m *MockKnownIssueStore) List(ctx context.Context, projectID string, activeOnly bool) ([]store.KnownIssue, error) {
+func (m *MockKnownIssueStore) List(ctx context.Context, projectID int64, activeOnly bool) ([]store.KnownIssue, error) {
 	if m.ListFn != nil {
 		return m.ListFn(ctx, projectID, activeOnly)
 	}
 	return nil, nil
 }
 
-func (m *MockKnownIssueStore) ListPaginated(ctx context.Context, projectID string, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error) {
+func (m *MockKnownIssueStore) ListPaginated(ctx context.Context, projectID int64, activeOnly bool, page, perPage int) ([]store.KnownIssue, int, error) {
 	if m.ListPaginatedFn != nil {
 		return m.ListPaginatedFn(ctx, projectID, activeOnly, page, perPage)
 	}
 	return nil, 0, nil
 }
 
-func (m *MockKnownIssueStore) Update(ctx context.Context, id int64, projectID, ticketURL, description string, isActive bool) error {
+func (m *MockKnownIssueStore) Update(ctx context.Context, id int64, projectID int64, ticketURL, description string, isActive bool) error {
 	if m.UpdateFn != nil {
 		return m.UpdateFn(ctx, id, projectID, ticketURL, description, isActive)
 	}
 	return nil
 }
 
-func (m *MockKnownIssueStore) Delete(ctx context.Context, id int64, projectID string) error {
+func (m *MockKnownIssueStore) Delete(ctx context.Context, id int64, projectID int64) error {
 	if m.DeleteFn != nil {
 		return m.DeleteFn(ctx, id, projectID)
 	}
 	return nil
 }
 
-func (m *MockKnownIssueStore) IsKnown(ctx context.Context, projectID, testName string) (bool, error) {
+func (m *MockKnownIssueStore) IsKnown(ctx context.Context, projectID int64, testName string) (bool, error) {
 	if m.IsKnownFn != nil {
 		return m.IsKnownFn(ctx, projectID, testName)
 	}
@@ -577,50 +592,50 @@ func (m *MockBlacklistStore) PruneExpired(ctx context.Context) (int64, error) {
 
 // MockBranchStore is a test double for store.BranchStorer.
 type MockBranchStore struct {
-	GetOrCreateFn func(ctx context.Context, projectID, name string) (*store.Branch, bool, error)
-	ListFn        func(ctx context.Context, projectID string) ([]store.Branch, error)
-	GetDefaultFn  func(ctx context.Context, projectID string) (*store.Branch, error)
-	SetDefaultFn  func(ctx context.Context, projectID string, branchID int64) error
-	DeleteFn      func(ctx context.Context, projectID string, branchID int64) error
-	GetByNameFn   func(ctx context.Context, projectID, name string) (*store.Branch, error)
+	GetOrCreateFn func(ctx context.Context, projectID int64, name string) (*store.Branch, bool, error)
+	ListFn        func(ctx context.Context, projectID int64) ([]store.Branch, error)
+	GetDefaultFn  func(ctx context.Context, projectID int64) (*store.Branch, error)
+	SetDefaultFn  func(ctx context.Context, projectID int64, branchID int64) error
+	DeleteFn      func(ctx context.Context, projectID int64, branchID int64) error
+	GetByNameFn   func(ctx context.Context, projectID int64, name string) (*store.Branch, error)
 }
 
-func (m *MockBranchStore) GetOrCreate(ctx context.Context, projectID, name string) (*store.Branch, bool, error) {
+func (m *MockBranchStore) GetOrCreate(ctx context.Context, projectID int64, name string) (*store.Branch, bool, error) {
 	if m.GetOrCreateFn != nil {
 		return m.GetOrCreateFn(ctx, projectID, name)
 	}
 	return nil, false, nil
 }
 
-func (m *MockBranchStore) List(ctx context.Context, projectID string) ([]store.Branch, error) {
+func (m *MockBranchStore) List(ctx context.Context, projectID int64) ([]store.Branch, error) {
 	if m.ListFn != nil {
 		return m.ListFn(ctx, projectID)
 	}
 	return nil, nil
 }
 
-func (m *MockBranchStore) GetDefault(ctx context.Context, projectID string) (*store.Branch, error) {
+func (m *MockBranchStore) GetDefault(ctx context.Context, projectID int64) (*store.Branch, error) {
 	if m.GetDefaultFn != nil {
 		return m.GetDefaultFn(ctx, projectID)
 	}
 	return nil, nil
 }
 
-func (m *MockBranchStore) SetDefault(ctx context.Context, projectID string, branchID int64) error {
+func (m *MockBranchStore) SetDefault(ctx context.Context, projectID int64, branchID int64) error {
 	if m.SetDefaultFn != nil {
 		return m.SetDefaultFn(ctx, projectID, branchID)
 	}
 	return nil
 }
 
-func (m *MockBranchStore) Delete(ctx context.Context, projectID string, branchID int64) error {
+func (m *MockBranchStore) Delete(ctx context.Context, projectID int64, branchID int64) error {
 	if m.DeleteFn != nil {
 		return m.DeleteFn(ctx, projectID, branchID)
 	}
 	return nil
 }
 
-func (m *MockBranchStore) GetByName(ctx context.Context, projectID, name string) (*store.Branch, error) {
+func (m *MockBranchStore) GetByName(ctx context.Context, projectID int64, name string) (*store.Branch, error) {
 	if m.GetByNameFn != nil {
 		return m.GetByNameFn(ctx, projectID, name)
 	}
@@ -781,12 +796,12 @@ func (m *MockUserStore) Deactivate(ctx context.Context, id int64) error {
 // MockAttachmentStore is a test double for store.AttachmentStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockAttachmentStore struct {
-	ListByBuildFn            func(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error)
+	ListByBuildFn            func(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error)
 	GetBySourceFn            func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
-	InsertBuildAttachmentsFn func(ctx context.Context, buildID int64, projectID string, attachments []store.TestAttachment) error
+	InsertBuildAttachmentsFn func(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error
 }
 
-func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID string, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
+func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
 	if m.ListByBuildFn != nil {
 		return m.ListByBuildFn(ctx, projectID, buildID, mimeFilter, limit, offset)
 	}
@@ -800,7 +815,7 @@ func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, so
 	return nil, nil
 }
 
-func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildID int64, projectID string, attachments []store.TestAttachment) error {
+func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error {
 	if m.InsertBuildAttachmentsFn != nil {
 		return m.InsertBuildAttachmentsFn(ctx, buildID, projectID, attachments)
 	}
@@ -813,10 +828,10 @@ func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildI
 
 // MockPipelineStore is a test double for store.PipelineStorer.
 type MockPipelineStore struct {
-	ListPipelineRunsFn func(ctx context.Context, parentID string, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
+	ListPipelineRunsFn func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
 }
 
-func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID string, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
+func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
 	if m.ListPipelineRunsFn != nil {
 		return m.ListPipelineRunsFn(ctx, parentID, branch, page, perPage)
 	}

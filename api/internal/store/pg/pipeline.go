@@ -26,6 +26,7 @@ WITH child_builds AS (
            COALESCE(b.ci_build_url, '') AS ci_build_url,
            b.created_at,
            b.project_id,
+           p.slug AS project_slug,
            b.build_order,
            b.stat_passed, b.stat_failed, b.stat_broken, b.stat_total,
            b.duration_ms
@@ -50,7 +51,7 @@ paginated_shas AS (
     LIMIT $3 OFFSET $4
 )
 SELECT cb.ci_commit_sha, cb.ci_branch, cb.ci_build_url, cb.created_at,
-       cb.project_id, cb.build_order,
+       cb.project_id, cb.project_slug, cb.build_order,
        cb.stat_passed, cb.stat_failed, cb.stat_broken, cb.stat_total,
        cb.duration_ms,
        tc.cnt
@@ -61,7 +62,7 @@ ORDER BY cb.created_at DESC, cb.project_id ASC`
 
 // ListPipelineRuns returns builds from child projects of the given parent,
 // paginated by distinct commit SHA. Returns flat rows that the caller groups.
-func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID string, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
+func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
 	offset := (page - 1) * perPage
 
 	rows, err := s.pool.Query(ctx, pipelineRunsQuery, parentID, branch, perPage, offset)
@@ -78,7 +79,7 @@ func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID string, b
 		var r store.PipelineRunRow
 		if err := rows.Scan(
 			&r.CommitSHA, &r.Branch, &r.CIBuildURL, &r.CreatedAt,
-			&r.ProjectID, &r.BuildNumber,
+			&r.ProjectID, &r.Slug, &r.BuildNumber,
 			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatTotal,
 			&r.DurationMs,
 			&total,

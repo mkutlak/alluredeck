@@ -17,14 +17,14 @@ import (
 
 // WebhookHandler handles HTTP requests for webhook management.
 type WebhookHandler struct {
-	store       store.WebhookStorer
-	projectsDir string
-	logger      *zap.Logger
+	store        store.WebhookStorer
+	projectStore store.ProjectStorer
+	logger       *zap.Logger
 }
 
 // NewWebhookHandler creates a WebhookHandler.
-func NewWebhookHandler(s store.WebhookStorer, projectsDir string, logger *zap.Logger) *WebhookHandler {
-	return &WebhookHandler{store: s, projectsDir: projectsDir, logger: logger}
+func NewWebhookHandler(s store.WebhookStorer, ps store.ProjectStorer, logger *zap.Logger) *WebhookHandler {
+	return &WebhookHandler{store: s, projectStore: ps, logger: logger}
 }
 
 // createWebhookRequest is the payload for POST /projects/{project_id}/webhooks.
@@ -52,7 +52,7 @@ type updateWebhookRequest struct {
 // webhookResponse is the JSON representation of a webhook (URL masked, secret omitted).
 type webhookResponse struct {
 	ID         string   `json:"id"`
-	ProjectID  string   `json:"project_id"`
+	ProjectID  int64    `json:"project_id"`
 	Name       string   `json:"name"`
 	TargetType string   `json:"target_type"`
 	URL        string   `json:"url"`
@@ -153,14 +153,14 @@ const maxWebhooksPerProject = 10
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks [get]
 func (h *WebhookHandler) List(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
 
 	webhooks, err := h.store.List(r.Context(), projectID)
 	if err != nil {
-		h.logger.Error("list webhooks", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("list webhooks", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error listing webhooks")
 		return
 	}
@@ -189,7 +189,7 @@ func (h *WebhookHandler) List(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks [post]
 func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -230,7 +230,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Enforce per-project webhook limit.
 	existing, err := h.store.List(r.Context(), projectID)
 	if err != nil {
-		h.logger.Error("create webhook: list existing", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("create webhook: list existing", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error checking webhook count")
 		return
 	}
@@ -262,7 +262,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	created, err := h.store.Create(r.Context(), &wh)
 	if err != nil {
-		h.logger.Error("create webhook", zap.String("project_id", projectID), zap.Error(err))
+		h.logger.Error("create webhook", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error creating webhook")
 		return
 	}
@@ -283,7 +283,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id} [get]
 func (h *WebhookHandler) Get(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -327,7 +327,7 @@ func (h *WebhookHandler) Get(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id} [put]
 func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -432,7 +432,7 @@ func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id} [delete]
 func (h *WebhookHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -468,7 +468,7 @@ func (h *WebhookHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id}/test [post]
 func (h *WebhookHandler) Test(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}
@@ -511,7 +511,7 @@ func (h *WebhookHandler) Test(w http.ResponseWriter, r *http.Request) {
 // @Failure      500 {object} map[string]interface{}
 // @Router       /projects/{project_id}/webhooks/{webhook_id}/deliveries [get]
 func (h *WebhookHandler) ListDeliveries(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := extractProjectID(w, r, h.projectsDir)
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
 	if !ok {
 		return
 	}

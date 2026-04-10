@@ -15,6 +15,7 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ type mockAttachmentStore struct {
 	source      *store.TestAttachment
 }
 
-func (m *mockAttachmentStore) ListByBuild(_ context.Context, _ string, _ int64, _ string, _, _ int) ([]store.TestAttachment, int, error) {
+func (m *mockAttachmentStore) ListByBuild(_ context.Context, _ int64, _ int64, _ string, _, _ int) ([]store.TestAttachment, int, error) {
 	return m.attachments, m.total, m.errToReturn
 }
 
@@ -39,7 +40,7 @@ func (m *mockAttachmentStore) GetBySource(_ context.Context, _ int64, _ string) 
 	return m.source, nil
 }
 
-func (m *mockAttachmentStore) InsertBuildAttachments(_ context.Context, _ int64, _ string, _ []store.TestAttachment) error {
+func (m *mockAttachmentStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
 	return nil
 }
 
@@ -52,68 +53,68 @@ type mockAttachmentBuildStore struct {
 	errToReturn error
 }
 
-func (m *mockAttachmentBuildStore) NextBuildNumber(_ context.Context, _ string) (int, error) {
+func (m *mockAttachmentBuildStore) NextBuildNumber(_ context.Context, _ int64) (int, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) InsertBuild(_ context.Context, _ string, _ int) error {
+func (m *mockAttachmentBuildStore) InsertBuild(_ context.Context, _ int64, _ int) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) UpdateBuildStats(_ context.Context, _ string, _ int, _ store.BuildStats) error {
+func (m *mockAttachmentBuildStore) UpdateBuildStats(_ context.Context, _ int64, _ int, _ store.BuildStats) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) UpdateBuildCIMetadata(_ context.Context, _ string, _ int, _ store.CIMetadata) error {
+func (m *mockAttachmentBuildStore) UpdateBuildCIMetadata(_ context.Context, _ int64, _ int, _ store.CIMetadata) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) GetBuildByNumber(_ context.Context, _ string, _ int) (store.Build, error) {
+func (m *mockAttachmentBuildStore) GetBuildByNumber(_ context.Context, _ int64, _ int) (store.Build, error) {
 	return m.build, m.errToReturn
 }
-func (m *mockAttachmentBuildStore) GetPreviousBuild(_ context.Context, _ string, _ int) (store.Build, error) {
+func (m *mockAttachmentBuildStore) GetPreviousBuild(_ context.Context, _ int64, _ int) (store.Build, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) GetLatestBuild(_ context.Context, _ string) (store.Build, error) {
+func (m *mockAttachmentBuildStore) GetLatestBuild(_ context.Context, _ int64) (store.Build, error) {
 	return m.build, m.errToReturn
 }
-func (m *mockAttachmentBuildStore) ListBuilds(_ context.Context, _ string) ([]store.Build, error) {
+func (m *mockAttachmentBuildStore) ListBuilds(_ context.Context, _ int64) ([]store.Build, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) ListBuildsPaginated(_ context.Context, _ string, _, _ int) ([]store.Build, int, error) {
+func (m *mockAttachmentBuildStore) ListBuildsPaginated(_ context.Context, _ int64, _, _ int) ([]store.Build, int, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) PruneBuilds(_ context.Context, _ string, _ int) ([]int, error) {
+func (m *mockAttachmentBuildStore) PruneBuilds(_ context.Context, _ int64, _ int) ([]int, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) SetLatest(_ context.Context, _ string, _ int) error {
+func (m *mockAttachmentBuildStore) SetLatest(_ context.Context, _ int64, _ int) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) DeleteAllBuilds(_ context.Context, _ string) error {
+func (m *mockAttachmentBuildStore) DeleteAllBuilds(_ context.Context, _ int64) error {
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) DeleteBuild(_ context.Context, _ string, _ int) error {
+func (m *mockAttachmentBuildStore) DeleteBuild(_ context.Context, _ int64, _ int) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) UpdateBuildBranchID(_ context.Context, _ string, _ int, _ int64) error {
+func (m *mockAttachmentBuildStore) UpdateBuildBranchID(_ context.Context, _ int64, _ int, _ int64) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) SetLatestBranch(_ context.Context, _ string, _ int, _ *int64) error {
+func (m *mockAttachmentBuildStore) SetLatestBranch(_ context.Context, _ int64, _ int, _ *int64) error {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) PruneBuildsBranch(_ context.Context, _ string, _ int, _ *int64) ([]int, error) {
+func (m *mockAttachmentBuildStore) PruneBuildsBranch(_ context.Context, _ int64, _ int, _ *int64) ([]int, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ string, _ time.Time) ([]int, error) {
+func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ string, _, _ int, _ *int64) ([]store.Build, int, error) {
+func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
 	panic("not implemented")
 }
-func (m *mockAttachmentBuildStore) ListBuildsInRange(_ context.Context, _ string, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
+func (m *mockAttachmentBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
 	panic("not implemented")
 }
 
-func (m *mockAttachmentBuildStore) SetHasPlaywrightReport(_ context.Context, _ string, _ int, _ bool) error {
+func (m *mockAttachmentBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int, _ bool) error {
 	panic("not implemented")
 }
 
@@ -206,7 +207,12 @@ func (m *mockDataStore) ReadPlaywrightFile(_ context.Context, _, _ string) (io.R
 
 func newAttachmentHandler(t *testing.T, as store.AttachmentStorer, bs store.BuildStorer, ds storage.Store) *AttachmentHandler {
 	t.Helper()
-	return NewAttachmentHandler(as, bs, ds, t.TempDir(), zap.NewNop())
+	ps := testutil.NewMemProjectStore()
+	// Pre-register a project so ServeAttachment can resolve project ID 1 → slug.
+	if _, err := ps.CreateProject(context.Background(), "test-proj"); err != nil {
+		t.Fatal(err)
+	}
+	return NewAttachmentHandler(as, bs, ps, ds, zap.NewNop())
 }
 
 // ---------------------------------------------------------------------------
@@ -216,8 +222,8 @@ func newAttachmentHandler(t *testing.T, as store.AttachmentStorer, bs store.Buil
 func TestListAttachments_InvalidReportID(t *testing.T) {
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, &mockAttachmentBuildStore{}, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/reports/abc!!/attachments", nil)
-	req.SetPathValue("project_id", "myproj")
+		"/api/v1/projects/1/reports/abc!!/attachments", nil)
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "abc!!")
 	rr := httptest.NewRecorder()
 	h.ListAttachments(rr, req)
@@ -232,7 +238,7 @@ func TestListAttachments_BuildNotFound(t *testing.T) {
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/reports/5/attachments", nil)
-	req.SetPathValue("project_id", "myproj")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "5")
 	rr := httptest.NewRecorder()
 	h.ListAttachments(rr, req)
@@ -243,12 +249,12 @@ func TestListAttachments_BuildNotFound(t *testing.T) {
 }
 
 func TestListAttachments_Empty(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 5, ProjectID: "myproj"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 5, ProjectID: 1}}
 	as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
 	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/myproj/reports/5/attachments", nil)
-	req.SetPathValue("project_id", "myproj")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "5")
 	rr := httptest.NewRecorder()
 	h.ListAttachments(rr, req)
@@ -278,7 +284,7 @@ func TestListAttachments_Empty(t *testing.T) {
 }
 
 func TestListAttachments_WithResults(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 10, BuildNumber: 3, ProjectID: "proj1"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 10, BuildNumber: 3, ProjectID: 1}}
 	as := &mockAttachmentStore{
 		attachments: []store.TestAttachment{
 			{ID: 1, TestResultID: 100, Name: "screenshot.png", Source: "abc123-result.png", MimeType: "image/png", SizeBytes: 1024, TestName: "shouldRegister", TestStatus: "failed"},
@@ -290,7 +296,7 @@ func TestListAttachments_WithResults(t *testing.T) {
 	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj1/reports/3/attachments", nil)
-	req.SetPathValue("project_id", "proj1")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "3")
 	rr := httptest.NewRecorder()
 	h.ListAttachments(rr, req)
@@ -341,7 +347,7 @@ func TestListAttachments_WithResults(t *testing.T) {
 
 func TestListAttachments_MimeFilter(t *testing.T) {
 	var capturedMime string
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
 	as := &mockAttachmentStore{}
 	as.attachments = []store.TestAttachment{}
 	// Override ListByBuild to capture the mimeFilter arg.
@@ -349,7 +355,7 @@ func TestListAttachments_MimeFilter(t *testing.T) {
 	h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments?mime_type=image", nil)
-	req.SetPathValue("project_id", "p")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "1")
 	rr := httptest.NewRecorder()
 	h.ListAttachments(rr, req)
@@ -368,7 +374,7 @@ type captureMimeStore struct {
 	capturedMime *string
 }
 
-func (c *captureMimeStore) ListByBuild(_ context.Context, _ string, _ int64, mimeFilter string, _, _ int) ([]store.TestAttachment, int, error) {
+func (c *captureMimeStore) ListByBuild(_ context.Context, _ int64, _ int64, mimeFilter string, _, _ int) ([]store.TestAttachment, int, error) {
 	*c.capturedMime = mimeFilter
 	return c.inner.attachments, c.inner.total, c.inner.errToReturn
 }
@@ -377,7 +383,7 @@ func (c *captureMimeStore) GetBySource(_ context.Context, _ int64, _ string) (*s
 	return c.inner.source, c.inner.errToReturn
 }
 
-func (c *captureMimeStore) InsertBuildAttachments(_ context.Context, _ int64, _ string, _ []store.TestAttachment) error {
+func (c *captureMimeStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
 	return nil
 }
 
@@ -392,13 +398,13 @@ func TestServeAttachment_PathTraversal(t *testing.T) {
 	cases := []string{"dotdot-secret", "a-dotdot-b", "a-slash-b", "a-backslash-b", "a-null-b"}
 	rawSources := []string{"../secret", "a/../b", "a/b", "a\\b", "a\x00b"}
 
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
 
 	for i, src := range rawSources {
 		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 			"/api/v1/projects/p/reports/1/attachments/"+cases[i], nil)
-		req.SetPathValue("project_id", "p")
+		req.SetPathValue("project_id", "1")
 		req.SetPathValue("report_id", "1")
 		req.SetPathValue("source", src)
 		rr := httptest.NewRecorder()
@@ -411,12 +417,12 @@ func TestServeAttachment_PathTraversal(t *testing.T) {
 }
 
 func TestServeAttachment_FileNotFound(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
 	ds := &mockDataStore{errToReturn: errors.New("not found")}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments/abc.png", nil)
-	req.SetPathValue("project_id", "p")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "1")
 	req.SetPathValue("source", "abc.png")
 	rr := httptest.NewRecorder()
@@ -428,12 +434,12 @@ func TestServeAttachment_FileNotFound(t *testing.T) {
 }
 
 func TestServeAttachment_Success(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 2, ProjectID: "proj"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 2, ProjectID: 1}}
 	ds := &mockDataStore{content: "PNG_DATA", mimeType: "image/png"}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/proj/reports/2/attachments/screenshot.png", nil)
-	req.SetPathValue("project_id", "proj")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "2")
 	req.SetPathValue("source", "screenshot.png")
 	rr := httptest.NewRecorder()
@@ -451,12 +457,12 @@ func TestServeAttachment_Success(t *testing.T) {
 }
 
 func TestServeAttachment_InlineDisposition(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
 	ds := &mockDataStore{content: "data", mimeType: "image/png"}
 	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments/shot.png", nil)
-	req.SetPathValue("project_id", "p")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "1")
 	req.SetPathValue("source", "shot.png")
 	rr := httptest.NewRecorder()
@@ -472,13 +478,13 @@ func TestServeAttachment_InlineDisposition(t *testing.T) {
 }
 
 func TestServeAttachment_DownloadDisposition(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: "p"}}
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
 	ds := &mockDataStore{content: "data", mimeType: "image/png"}
 	as := &mockAttachmentStore{source: &store.TestAttachment{Name: "my-screenshot.png", Source: "abc123hash.png"}}
 	h := newAttachmentHandler(t, as, bs, ds)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/p/reports/1/attachments/abc123hash.png?dl=1", nil)
-	req.SetPathValue("project_id", "p")
+	req.SetPathValue("project_id", "1")
 	req.SetPathValue("report_id", "1")
 	req.SetPathValue("source", "abc123hash.png")
 	rr := httptest.NewRecorder()

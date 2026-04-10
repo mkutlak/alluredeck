@@ -13,11 +13,10 @@ import (
 )
 
 func TestCompareBuilds_Success(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "cmp-handler"
+	projectID := "1"
 
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid int64, buildNumber int) (int64, error) {
 		switch buildNumber {
 		case 1:
 			return 10, nil
@@ -26,14 +25,14 @@ func TestCompareBuilds_Success(t *testing.T) {
 		}
 		return 0, store.ErrBuildNotFound
 	}
-	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, pid string, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, pid int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {
 		return []store.DiffEntry{
 			{TestName: "LoginTest", FullName: "pkg.LoginTest", HistoryID: "h1", StatusA: "passed", StatusB: "failed", DurationA: 1000, DurationB: 2000, Category: store.DiffRegressed},
 			{TestName: "NewTest", FullName: "pkg.NewTest", HistoryID: "h3", StatusA: "", StatusB: "passed", DurationA: 0, DurationB: 300, Category: store.DiffAdded},
 		}, nil
 	}
 
-	h := newTestCompareHandler(t, projectsDir, mocks)
+	h := newTestCompareHandler(t, mocks)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		fmt.Sprintf("/api/v1/projects/%s/compare?a=1&b=2", projectID), nil)
@@ -107,8 +106,7 @@ func TestCompareBuilds_Success(t *testing.T) {
 }
 
 func TestCompareBuilds_MissingParams(t *testing.T) {
-	projectsDir := t.TempDir()
-	h := newTestCompareHandler(t, projectsDir, testutil.New())
+	h := newTestCompareHandler(t, testutil.New())
 
 	cases := []struct {
 		name  string
@@ -127,8 +125,8 @@ func TestCompareBuilds_MissingParams(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-				"/api/v1/projects/proj/compare"+tc.query, nil)
-			req.SetPathValue("project_id", "proj")
+				"/api/v1/projects/1/compare"+tc.query, nil)
+			req.SetPathValue("project_id", "1")
 
 			rr := httptest.NewRecorder()
 			h.CompareBuilds(rr, req)
@@ -141,12 +139,11 @@ func TestCompareBuilds_MissingParams(t *testing.T) {
 }
 
 func TestCompareBuilds_SameBuild(t *testing.T) {
-	projectsDir := t.TempDir()
-	h := newTestCompareHandler(t, projectsDir, testutil.New())
+	h := newTestCompareHandler(t, testutil.New())
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj/compare?a=1&b=1", nil)
-	req.SetPathValue("project_id", "proj")
+		"/api/v1/projects/1/compare?a=1&b=1", nil)
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.CompareBuilds(rr, req)
@@ -166,22 +163,20 @@ func TestCompareBuilds_SameBuild(t *testing.T) {
 }
 
 func TestCompareBuilds_BuildNotFound(t *testing.T) {
-	projectsDir := t.TempDir()
-
 	mocks := testutil.New()
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid string, buildNumber int) (int64, error) {
+	mocks.TestResults.GetBuildIDFn = func(_ context.Context, pid int64, buildNumber int) (int64, error) {
 		if buildNumber == 99 {
 			return 0, store.ErrBuildNotFound
 		}
 		return 10, nil
 	}
 
-	h := newTestCompareHandler(t, projectsDir, mocks)
+	h := newTestCompareHandler(t, mocks)
 
 	// Build 99 does not exist
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/cmp-notfound/compare?a=1&b=99", nil)
-	req.SetPathValue("project_id", "cmp-notfound")
+		"/api/v1/projects/1/compare?a=1&b=99", nil)
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.CompareBuilds(rr, req)
@@ -192,8 +187,7 @@ func TestCompareBuilds_BuildNotFound(t *testing.T) {
 }
 
 func TestCompareBuilds_InvalidProjectID(t *testing.T) {
-	projectsDir := t.TempDir()
-	h := newTestCompareHandler(t, projectsDir, testutil.New())
+	h := newTestCompareHandler(t, testutil.New())
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/../evil/compare?a=1&b=2", nil)
@@ -209,13 +203,12 @@ func TestCompareBuilds_InvalidProjectID(t *testing.T) {
 
 func TestCompareBuilds_NoStore(t *testing.T) {
 	// When testResultStore is nil, handler returns empty data (same pattern as analytics)
-	projectsDir := t.TempDir()
 	// newTestCompareHandler with nil testResultStore
-	h := NewCompareHandler(nil, projectsDir)
+	h := NewCompareHandler(nil, nil)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/someproj/compare?a=1&b=2", nil)
-	req.SetPathValue("project_id", "someproj")
+		"/api/v1/projects/1/compare?a=1&b=2", nil)
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.CompareBuilds(rr, req)

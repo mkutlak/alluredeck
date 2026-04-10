@@ -39,7 +39,7 @@ function makePaginated(
   pagination: { page: number; per_page: number; total: number; total_pages: number },
 ) {
   return {
-    data: { project_id: 'test-project', reports },
+    data: { project_id: 1, reports },
     metadata: { message: 'ok' },
     pagination,
   }

@@ -15,11 +15,11 @@ func TestListKnownIssues_Empty(t *testing.T) {
 	h, _ := newTestKnownIssueHandler(t, projectsDir)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/default/known-issues", nil)
+		"/api/v1/projects/1/known-issues", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "default")
+	req.SetPathValue("project_id", "1")
 
 	rr := httptest.NewRecorder()
 	h.ListKnownIssues(rr, req)
@@ -43,19 +43,21 @@ func TestListKnownIssues_WithEntries(t *testing.T) {
 
 	// Pre-create project and known issue via store
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "testproj"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.knownIssueStore.Create(ctx, "testproj", "My flaky test", "", "http://ticket/1", "desc"); err != nil {
-		t.Fatal(err)
-	}
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/testproj/known-issues", nil)
+	proj, err := mocks.Projects.CreateProject(ctx, "testproj")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "testproj")
+	if _, err := h.knownIssueStore.Create(ctx, proj.ID, "My flaky test", "", "http://ticket/1", "desc"); err != nil {
+		t.Fatal(err)
+	}
+	projectID := fmt.Sprintf("%d", proj.ID)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/"+projectID+"/known-issues", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectID)
 
 	rr := httptest.NewRecorder()
 	h.ListKnownIssues(rr, req)
@@ -78,9 +80,11 @@ func TestCreateKnownIssue_Success(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "cproj"); err != nil {
+	proj, err := mocks.Projects.CreateProject(ctx, "cproj")
+	if err != nil {
 		t.Fatal(err)
 	}
+	projectID := fmt.Sprintf("%d", proj.ID)
 
 	body := map[string]any{
 		"test_name":   "Slow checkout test",
@@ -91,13 +95,13 @@ func TestCreateKnownIssue_Success(t *testing.T) {
 	bodyBytes, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/projects/cproj/known-issues",
+		"/api/v1/projects/"+projectID+"/known-issues",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "cproj")
+	req.SetPathValue("project_id", projectID)
 
 	rr := httptest.NewRecorder()
 	h.CreateKnownIssue(rr, req)
@@ -123,10 +127,12 @@ func TestCreateKnownIssue_Duplicate(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "dproj"); err != nil {
+	proj, err := mocks.Projects.CreateProject(ctx, "dproj")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.knownIssueStore.Create(ctx, "dproj", "Dup test", "", "", ""); err != nil {
+	projectID := fmt.Sprintf("%d", proj.ID)
+	if _, err := h.knownIssueStore.Create(ctx, proj.ID, "Dup test", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,13 +140,13 @@ func TestCreateKnownIssue_Duplicate(t *testing.T) {
 	bodyBytes, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/projects/dproj/known-issues",
+		"/api/v1/projects/"+projectID+"/known-issues",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "dproj")
+	req.SetPathValue("project_id", projectID)
 
 	rr := httptest.NewRecorder()
 	h.CreateKnownIssue(rr, req)
@@ -179,10 +185,12 @@ func TestUpdateKnownIssue_ToggleActive(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "uproj"); err != nil {
+	proj, err := mocks.Projects.CreateProject(ctx, "uproj")
+	if err != nil {
 		t.Fatal(err)
 	}
-	issue, err := h.knownIssueStore.Create(ctx, "uproj", "Toggle me", "", "", "")
+	projectID := fmt.Sprintf("%d", proj.ID)
+	issue, err := h.knownIssueStore.Create(ctx, proj.ID, "Toggle me", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +203,13 @@ func TestUpdateKnownIssue_ToggleActive(t *testing.T) {
 	bodyBytes, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut,
-		"/api/v1/projects/uproj/known-issues/1",
+		"/api/v1/projects/"+projectID+"/known-issues/1",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "uproj")
+	req.SetPathValue("project_id", projectID)
 	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
 
 	rr := httptest.NewRecorder()
@@ -217,20 +225,22 @@ func TestDeleteKnownIssue_Success(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "delproj"); err != nil {
+	proj, err := mocks.Projects.CreateProject(ctx, "delproj")
+	if err != nil {
 		t.Fatal(err)
 	}
-	issue, err := h.knownIssueStore.Create(ctx, "delproj", "Delete me", "", "", "")
+	projectID := fmt.Sprintf("%d", proj.ID)
+	issue, err := h.knownIssueStore.Create(ctx, proj.ID, "Delete me", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		"/api/v1/projects/delproj/known-issues/1", nil)
+		"/api/v1/projects/"+projectID+"/known-issues/1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "delproj")
+	req.SetPathValue("project_id", projectID)
 	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
 
 	rr := httptest.NewRecorder()
@@ -246,13 +256,16 @@ func TestUpdateKnownIssue_CrossProjectRejected(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "projA"); err != nil {
+	projA, err := mocks.Projects.CreateProject(ctx, "projA")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := mocks.Projects.CreateProject(ctx, "projB"); err != nil {
+	projB, err := mocks.Projects.CreateProject(ctx, "projB")
+	if err != nil {
 		t.Fatal(err)
 	}
-	issue, err := h.knownIssueStore.Create(ctx, "projA", "Test in projA", "", "http://ticket/1", "desc")
+	projBID := fmt.Sprintf("%d", projB.ID)
+	issue, err := h.knownIssueStore.Create(ctx, projA.ID, "Test in projA", "", "http://ticket/1", "desc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +279,13 @@ func TestUpdateKnownIssue_CrossProjectRejected(t *testing.T) {
 
 	// Try updating projA's issue via projB's URL.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
-		"/api/v1/projects/projB/known-issues/1",
+		"/api/v1/projects/"+projBID+"/known-issues/1",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "projB")
+	req.SetPathValue("project_id", projBID)
 	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
 
 	rr := httptest.NewRecorder()
@@ -288,24 +301,27 @@ func TestDeleteKnownIssue_CrossProjectRejected(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "projA"); err != nil {
+	projA, err := mocks.Projects.CreateProject(ctx, "projA")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := mocks.Projects.CreateProject(ctx, "projB"); err != nil {
+	projB, err := mocks.Projects.CreateProject(ctx, "projB")
+	if err != nil {
 		t.Fatal(err)
 	}
-	issue, err := h.knownIssueStore.Create(ctx, "projA", "Test in projA", "", "", "")
+	projBID := fmt.Sprintf("%d", projB.ID)
+	issue, err := h.knownIssueStore.Create(ctx, projA.ID, "Test in projA", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Try deleting projA's issue via projB's URL.
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		"/api/v1/projects/projB/known-issues/1", nil)
+		"/api/v1/projects/"+projBID+"/known-issues/1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "projB")
+	req.SetPathValue("project_id", projBID)
 	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
 
 	rr := httptest.NewRecorder()
@@ -326,9 +342,11 @@ func TestCreateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "xss"); err != nil {
+	proj, err := mocks.Projects.CreateProject(ctx, "xss")
+	if err != nil {
 		t.Fatal(err)
 	}
+	projectID := fmt.Sprintf("%d", proj.ID)
 
 	body := map[string]any{
 		"test_name":  "XSS test",
@@ -337,13 +355,13 @@ func TestCreateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 	bodyBytes, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"/api/v1/projects/xss/known-issues",
+		"/api/v1/projects/"+projectID+"/known-issues",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "xss")
+	req.SetPathValue("project_id", projectID)
 
 	rr := httptest.NewRecorder()
 	h.CreateKnownIssue(rr, req)
@@ -358,10 +376,12 @@ func TestUpdateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "xss2"); err != nil {
+	proj, err := mocks.Projects.CreateProject(ctx, "xss2")
+	if err != nil {
 		t.Fatal(err)
 	}
-	issue, err := h.knownIssueStore.Create(ctx, "xss2", "Some test", "", "http://valid", "desc")
+	projectID := fmt.Sprintf("%d", proj.ID)
+	issue, err := h.knownIssueStore.Create(ctx, proj.ID, "Some test", "", "http://valid", "desc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,13 +394,13 @@ func TestUpdateKnownIssue_RejectsJavascriptURL(t *testing.T) {
 	bodyBytes, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
-		"/api/v1/projects/xss2/known-issues/1",
+		"/api/v1/projects/"+projectID+"/known-issues/1",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("project_id", "xss2")
+	req.SetPathValue("project_id", projectID)
 	req.SetPathValue("issue_id", fmt.Sprintf("%d", issue.ID))
 
 	rr := httptest.NewRecorder()
@@ -396,16 +416,18 @@ func TestGetReportKnownFailures_NoKnown(t *testing.T) {
 	h, mocks := newTestKnownIssueHandler(t, projectsDir)
 
 	ctx := context.Background()
-	if err := mocks.Projects.CreateProject(ctx, "kfproj"); err != nil {
-		t.Fatal(err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"/api/v1/projects/kfproj/reports/latest/known-failures", nil)
+	proj, err := mocks.Projects.CreateProject(ctx, "kfproj")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetPathValue("project_id", "kfproj")
+	projectID := fmt.Sprintf("%d", proj.ID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"/api/v1/projects/"+projectID+"/reports/latest/known-failures", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("project_id", projectID)
 	req.SetPathValue("report_id", "latest")
 
 	rr := httptest.NewRecorder()

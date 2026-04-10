@@ -50,7 +50,9 @@ type aggregateStats struct {
 }
 
 type dashboardProjectResp struct {
-	ProjectID   string                 `json:"project_id"`
+	ProjectID   int64                  `json:"project_id"`
+	Slug        string                 `json:"slug"`
+	DisplayName string                 `json:"display_name"`
 	ReportType  string                 `json:"report_type"`
 	CreatedAt   string                 `json:"created_at"`
 	LatestBuild *latestBuildResp       `json:"latest_build"`
@@ -99,7 +101,7 @@ func (h *DashboardHandler) GetDashboard(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Build lookup: parent_id -> child responses.
-	childrenOf := map[string][]dashboardProjectResp{}
+	childrenOf := map[int64][]dashboardProjectResp{}
 	for _, dp := range projects {
 		if dp.ParentID != nil {
 			childrenOf[*dp.ParentID] = append(childrenOf[*dp.ParentID], buildProjectResp(dp))
@@ -193,11 +195,17 @@ func buildProjectResp(dp store.DashboardProject) dashboardProjectResp {
 	if reportType == "" {
 		reportType = "allure"
 	}
+	displayName := dp.DisplayName
+	if displayName == "" {
+		displayName = dp.Slug
+	}
 	pr := dashboardProjectResp{
-		ProjectID:  dp.ProjectID,
-		ReportType: reportType,
-		CreatedAt:  dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		Sparkline:  buildSparkline(dp.Sparkline),
+		ProjectID:   dp.ProjectID,
+		Slug:        dp.Slug,
+		DisplayName: displayName,
+		ReportType:  reportType,
+		CreatedAt:   dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		Sparkline:   buildSparkline(dp.Sparkline),
 	}
 	if dp.Latest != nil {
 		pr.LatestBuild = buildLatestResp(dp.Latest)
@@ -208,11 +216,11 @@ func buildProjectResp(dp store.DashboardProject) dashboardProjectResp {
 // computeAggregate sums the latest-build stats of all children and derives pass rate.
 func computeAggregate(children []dashboardProjectResp) *aggregateStats {
 	agg := &aggregateStats{}
-	for _, c := range children {
-		if c.LatestBuild == nil {
+	for i := range children {
+		if children[i].LatestBuild == nil {
 			continue
 		}
-		s := c.LatestBuild.Statistics
+		s := children[i].LatestBuild.Statistics
 		agg.Passed += s.Passed
 		agg.Failed += s.Failed
 		agg.Broken += s.Broken
