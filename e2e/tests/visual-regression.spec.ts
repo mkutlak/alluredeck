@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures/auth'
+import { test, expect } from '../fixtures/project'
 
 test.describe('Visual Regression', () => {
   test('login page', async ({ browser }) => {
@@ -15,31 +15,31 @@ test.describe('Visual Regression', () => {
     await context.close()
   })
 
-  test('dashboard page', async ({ authenticatedPage: page }) => {
+  test('dashboard page', async ({ authenticatedPage: page, freshProject }) => {
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
     await page.getByRole('main').getByRole('button', { name: 'All' }).click()
-    await expect(page.getByRole('main').getByRole('link', { name: 'e2e-demo' })).toBeVisible({
-      timeout: 10_000,
-    })
+    await expect(
+      page.getByRole('main').getByRole('link', { name: freshProject.projectSlug }),
+    ).toBeVisible({ timeout: 10_000 })
 
     await expect(page).toHaveScreenshot('dashboard.png', {
       maxDiffPixelRatio: 0.05,
     })
   })
 
-  test('project overview', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects/e2e-demo')
-    await expect(page.getByText('Overview')).toBeVisible({ timeout: 10_000 })
+  test('project overview', async ({ authenticatedPage: page, freshProject }) => {
+    await page.goto(`/projects/${freshProject.projectSlug}`)
+    await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
 
     await expect(page).toHaveScreenshot('project-overview.png', {
       maxDiffPixelRatio: 0.05,
     })
   })
 
-  test('analytics page', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects/e2e-demo/analytics')
+  test('analytics page', async ({ authenticatedPage: page, freshProject }) => {
+    await page.goto(`/projects/${freshProject.projectSlug}/analytics`)
     await page.waitForLoadState('networkidle')
 
     await expect(page).toHaveScreenshot('analytics.png', {
@@ -47,21 +47,19 @@ test.describe('Visual Regression', () => {
     })
   })
 
-  test('report viewer', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects/e2e-demo')
-    await expect(page.getByText('Overview')).toBeVisible({ timeout: 10_000 })
+  test('report viewer', async ({ authenticatedPage: page, freshProject }) => {
+    await page.goto(`/projects/${freshProject.projectSlug}`)
+    await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
 
-    const reportLink = page.getByRole('link', { name: /report|#1/i }).first()
-    if (await reportLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await reportLink.click()
-      await page.waitForURL(/\/reports\//)
+    const reportRow = page.getByTestId('report-row').first()
+    await expect(reportRow).toBeVisible({ timeout: 10_000 })
+    await reportRow.getByRole('link', { name: 'View' }).click()
+    await page.waitForURL(/\/reports\//, { timeout: 10_000 })
 
-      const iframe = page.locator('iframe')
-      await expect(iframe).toBeVisible()
+    await expect(page.getByTestId('allure-iframe')).toBeVisible()
 
-      await expect(page).toHaveScreenshot('report-viewer.png', {
-        maxDiffPixelRatio: 0.05,
-      })
-    }
+    await expect(page).toHaveScreenshot('report-viewer.png', {
+      maxDiffPixelRatio: 0.05,
+    })
   })
 })

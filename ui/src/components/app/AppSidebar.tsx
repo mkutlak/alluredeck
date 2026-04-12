@@ -78,7 +78,11 @@ export function AppSidebar() {
                 return visibleNavItems.map(({ label, path, icon: Icon, end }) => (
                   <SidebarMenuItem key={label}>
                     <SidebarMenuButton asChild tooltip={label}>
-                      <NavLink to={`/projects/${projectId}${path}`} end={end}>
+                      <NavLink
+                        to={`/projects/${projectId}${path}`}
+                        end={end}
+                        data-testid={`sidebar-nav-${label.toLowerCase().replace(/\s+/g, '-')}`}
+                      >
                         <Icon />
                         <span>{label}</span>
                       </NavLink>

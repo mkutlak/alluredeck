@@ -131,10 +131,35 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 				} else {
 					parent, lookupErr := h.projectStore.GetProjectBySlugAny(r.Context(), parentIDStr)
 					if lookupErr != nil {
-						writeError(w, http.StatusBadRequest, fmt.Sprintf("parent_id '%s' not found", parentIDStr))
-						return
+						// Parent slug not found — auto-create it as a top-level project.
+						// force_project_creation=true means "recreate whatever I reference",
+						// which must include the parent after a full-wipe reset.
+						if fsErr := h.runner.CreateProject(r.Context(), parentIDStr); fsErr != nil && !errors.Is(fsErr, runner.ErrProjectExists) {
+							h.logger.Error("auto-creating parent project failed", zap.String("slug", parentIDStr), zap.Error(fsErr))
+							writeError(w, http.StatusInternalServerError, "failed to create parent project")
+							return
+						}
+						created, dbErr := h.projectStore.CreateProject(r.Context(), parentIDStr)
+						if dbErr != nil && !errors.Is(dbErr, store.ErrProjectExists) {
+							h.logger.Error("db parent registration failed", zap.String("slug", parentIDStr), zap.Error(dbErr))
+							writeError(w, http.StatusInternalServerError, "failed to register parent project")
+							return
+						}
+						if created != nil {
+							parentID = created.ID
+						} else {
+							// Raced with a concurrent creator; look it up again.
+							p, err := h.projectStore.GetProjectBySlugAny(r.Context(), parentIDStr)
+							if err != nil {
+								h.logger.Error("parent project lookup after create failed", zap.String("slug", parentIDStr), zap.Error(err))
+								writeError(w, http.StatusInternalServerError, "failed to resolve parent project")
+								return
+							}
+							parentID = p.ID
+						}
+					} else {
+						parentID = parent.ID
 					}
-					parentID = parent.ID
 				}
 				// Register child project with parent link.
 				project, dbErr := h.projectStore.CreateProjectWithParent(r.Context(), slug, parentID)

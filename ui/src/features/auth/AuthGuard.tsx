@@ -1,12 +1,17 @@
 import { useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router'
 import { Loader2 } from 'lucide-react'
+import { attemptRefresh } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { useSessionRestore } from '@/hooks/useSessionRestore'
 
 interface AuthGuardProps {
   children: React.ReactNode
 }
+
+// Refresh the access token this many ms before its real expiry so the user
+// never experiences a failed request or loading spinner mid-click.
+const REFRESH_MARGIN_MS = 60 * 1000
 
 export function AuthGuard({ children }: AuthGuardProps) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -18,13 +23,38 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     if (expiresAt === null) return
-    const remaining = expiresAt - Date.now()
-    if (remaining <= 0) {
-      clearAuth()
-      return
+
+    let cancelled = false
+    const doRefreshOrClear = async () => {
+      const ok = await attemptRefresh()
+      if (cancelled) return
+      if (!ok) {
+        clearAuth()
+        return
+      }
+      // On success, attemptRefresh() already called setAuth() which updated
+      // expiresAt, which re-triggers this effect with a fresh timer.
     }
-    const timer = setTimeout(() => clearAuth(), remaining)
-    return () => clearTimeout(timer)
+
+    const remaining = expiresAt - Date.now()
+
+    if (remaining <= REFRESH_MARGIN_MS) {
+      // Already in the "about to expire" window (or past it) → refresh now.
+      void doRefreshOrClear()
+      return () => {
+        cancelled = true
+      }
+    }
+
+    // Schedule proactive refresh REFRESH_MARGIN_MS before real expiry.
+    const timer = setTimeout(() => {
+      void doRefreshOrClear()
+    }, remaining - REFRESH_MARGIN_MS)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [expiresAt, clearAuth])
 
   if (isRestoring) {

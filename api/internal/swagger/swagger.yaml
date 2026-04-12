@@ -333,6 +333,26 @@ paths:
       summary: Delete an API key
       tags:
       - api-keys
+  /auth/refresh:
+    post:
+      description: Validates the refresh token, rotates it (OAuth 2.0 BCP), and issues
+        a new access + refresh + csrf cookie set.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Refresh access token
+      tags:
+      - auth
   /auth/session:
     get:
       description: Returns the authenticated user's session information from JWT claims.

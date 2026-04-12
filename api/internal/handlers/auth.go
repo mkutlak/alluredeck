@@ -397,9 +397,13 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 
 	// Compute remaining seconds from the JWT exp claim — not the configured TTL —
 	// so the client doesn't drift its expiresAt forward on each /auth/session call.
+	//
+	// MUST use claims.GetExpirationTime() (not a type assertion on claims["exp"])
+	// because jwt.Parse stores numeric claims as float64, not *jwt.NumericDate.
+	// GetExpirationTime() normalises across float64, *NumericDate, json.Number, int64.
 	expiresIn := 0
-	if exp, ok := claims["exp"].(*jwt.NumericDate); ok && exp != nil {
-		if remaining := time.Until(exp.Time); remaining > 0 {
+	if expNum, err := claims.GetExpirationTime(); err == nil && expNum != nil {
+		if remaining := time.Until(expNum.Time); remaining > 0 {
 			expiresIn = int(remaining.Seconds())
 		}
 	}

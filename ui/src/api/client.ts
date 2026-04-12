@@ -118,7 +118,7 @@ async function performRefresh(): Promise<boolean> {
   }
 }
 
-async function attemptRefresh(): Promise<boolean> {
+export async function attemptRefresh(): Promise<boolean> {
   // Single-flight inside this tab — any concurrent callers await the same
   // promise so only one /auth/refresh request is in flight at a time.
   if (refreshPromise) return refreshPromise

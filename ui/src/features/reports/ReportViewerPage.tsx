@@ -52,6 +52,7 @@ export function ReportViewerPage() {
               className={`rounded-r-none border-r px-3 py-1 text-xs ${viewMode === 'playwright' ? 'bg-muted font-semibold' : 'font-normal'}`}
               onClick={() => setUserOverride('playwright')}
               aria-pressed={viewMode === 'playwright'}
+              data-testid="view-toggle-playwright"
             >
               Playwright
             </Button>
@@ -61,6 +62,7 @@ export function ReportViewerPage() {
               className={`rounded-l-none px-3 py-1 text-xs ${viewMode === 'allure' ? 'bg-muted font-semibold' : 'font-normal'}`}
               onClick={() => setUserOverride('allure')}
               aria-pressed={viewMode === 'allure'}
+              data-testid="view-toggle-allure"
             >
               Allure
             </Button>
@@ -81,6 +83,7 @@ export function ReportViewerPage() {
         title={iframeTitle}
         className="flex-1 border-0"
         sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+        data-testid="allure-iframe"
       />
     </div>
   )

@@ -1,84 +1,81 @@
-import { test, expect } from '../fixtures/auth'
+import { test, expect } from '../fixtures/project'
 
 test.describe('Dashboard & Navigation', () => {
-  test('dashboard shows project cards', async ({ authenticatedPage: page }) => {
+  test('dashboard shows project cards', async ({ authenticatedPage: page, freshProject }) => {
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
     // Switch to "All" view to see individual projects (default is "Grouped")
     await page.getByRole('main').getByRole('button', { name: 'All' }).click()
-    await expect(page.getByRole('main').getByRole('link', { name: 'e2e-demo' })).toBeVisible({
-      timeout: 10_000,
-    })
+    await expect(
+      page.getByRole('main').getByRole('link', { name: freshProject.projectSlug }),
+    ).toBeVisible({ timeout: 10_000 })
   })
 
-  test('navigate into project overview', async ({ authenticatedPage: page }) => {
+  test('navigate into project overview', async ({ authenticatedPage: page, freshProject }) => {
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
     await page.getByRole('main').getByRole('button', { name: 'All' }).click()
-    await expect(page.getByRole('main').getByRole('link', { name: 'e2e-demo' })).toBeVisible({
-      timeout: 10_000,
-    })
+    await expect(
+      page.getByRole('main').getByRole('link', { name: freshProject.projectSlug }),
+    ).toBeVisible({ timeout: 10_000 })
 
-    await page.getByRole('main').getByRole('link', { name: 'e2e-demo' }).first().click()
-    await page.waitForURL(/\/projects\/e2e-demo/, { timeout: 10_000 })
+    await page.getByRole('main').getByRole('link', { name: freshProject.projectSlug }).click()
+    await page.waitForURL(new RegExp(`/projects/${freshProject.projectSlug}`), { timeout: 10_000 })
 
-    await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible()
+    await expect(page.getByTestId('sidebar-nav-overview')).toBeVisible()
   })
 
-  test('navigate project tabs', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects/e2e-demo')
-    await expect(page.getByText('Overview')).toBeVisible({ timeout: 10_000 })
+  test('navigate project tabs', async ({ authenticatedPage: page, freshProject }) => {
+    await page.goto(`/projects/${freshProject.projectSlug}`)
+    await expect(page.getByTestId('sidebar-nav-overview')).toBeVisible({ timeout: 10_000 })
 
     // Analytics
-    await page.getByRole('link', { name: 'Analytics' }).click()
-    await expect(page).toHaveURL(/\/projects\/e2e-demo\/analytics/)
+    await page.getByTestId('sidebar-nav-analytics').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/analytics`))
 
     // Defects
-    await page.getByRole('link', { name: 'Defects' }).click()
-    await expect(page).toHaveURL(/\/projects\/e2e-demo\/defects/)
+    await page.getByTestId('sidebar-nav-defects').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/defects`))
 
     // Timeline
-    await page.getByRole('link', { name: 'Timeline' }).click()
-    await expect(page).toHaveURL(/\/projects\/e2e-demo\/timeline/)
+    await page.getByTestId('sidebar-nav-timeline').click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/timeline`))
   })
 
-  test('view allure report in iframe', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects/e2e-demo')
-    await expect(page.getByText('Overview')).toBeVisible({ timeout: 10_000 })
+  test('view allure report in iframe', async ({ authenticatedPage: page, freshProject }) => {
+    await page.goto(`/projects/${freshProject.projectSlug}`)
+    await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
 
-    const reportLink = page.getByRole('link', { name: /report|#1/i }).first()
-    if (await reportLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await reportLink.click()
-      await page.waitForURL(/\/reports\//)
+    const reportRow = page.getByTestId('report-row').first()
+    await expect(reportRow).toBeVisible({ timeout: 10_000 })
+    await reportRow.getByRole('link', { name: 'View' }).click()
+    await page.waitForURL(/\/reports\//, { timeout: 10_000 })
 
-      const iframe = page.locator('iframe')
-      await expect(iframe).toBeVisible()
-      await expect(page.getByRole('link', { name: /open in new tab/i })).toBeVisible()
-    }
+    await expect(page.getByTestId('allure-iframe')).toBeVisible()
+    await expect(page.getByRole('link', { name: /open in new tab/i })).toBeVisible()
   })
 
-  test('toggle playwright/allure view', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects/e2e-demo')
-    await expect(page.getByText('Overview')).toBeVisible({ timeout: 10_000 })
+  test('toggle playwright/allure view', async ({ authenticatedPage: page, freshProject }) => {
+    await page.goto(`/projects/${freshProject.projectSlug}`)
+    await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
 
-    const reportLink = page.getByRole('link', { name: /report|#1/i }).first()
-    if (await reportLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await reportLink.click()
-      await page.waitForURL(/\/reports\//)
+    const reportRow = page.getByTestId('report-row').first()
+    await expect(reportRow).toBeVisible({ timeout: 10_000 })
+    await reportRow.getByRole('link', { name: 'View' }).click()
+    await page.waitForURL(/\/reports\//, { timeout: 10_000 })
 
-      const playwrightToggle = page.getByRole('button', { name: 'Playwright' })
-      const allureToggle = page.getByRole('button', { name: 'Allure' })
+    const playwrightToggle = page.getByTestId('view-toggle-playwright')
+    const allureToggle = page.getByTestId('view-toggle-allure')
 
-      if (await playwrightToggle.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        await allureToggle.click()
-        const iframe = page.locator('iframe')
-        await expect(iframe).toHaveAttribute('src', /\/reports\//)
+    if (await playwrightToggle.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await allureToggle.click()
+      const iframe = page.getByTestId('allure-iframe')
+      await expect(iframe).toHaveAttribute('src', /\/reports\//)
 
-        await playwrightToggle.click()
-        await expect(iframe).toHaveAttribute('src', /\/playwright-reports\//)
-      }
+      await playwrightToggle.click()
+      await expect(iframe).toHaveAttribute('src', /\/playwright-reports\//)
     }
   })
 

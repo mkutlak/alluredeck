@@ -683,6 +683,64 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 	}
 }
 
+// TestSendResults_ForceProjectCreation_AutoCreatesMissingParentSlug verifies
+// that when force_project_creation=true is used with a parent_id slug that
+// doesn't exist (e.g. after wiping all projects), the handler auto-creates the
+// parent as a top-level project instead of returning 400. Regression test for
+// the "project 'X' not found" / "parent_id 'Y' not found" failure mode after a
+// full AllureDeck reset.
+func TestSendResults_ForceProjectCreation_AutoCreatesMissingParentSlug(t *testing.T) {
+	projectsDir := t.TempDir()
+	childSlug := "api-users"
+	parentSlug := "roger-api-tests-api"
+
+	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 10}
+	st := storage.NewLocalStore(cfg)
+	logger := zap.NewNop()
+	mocks := testutil.New()
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      st,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
+	jm := runner.NewMemJobManager(nil, 0, logger)
+	h := NewResultUploadHandler(st, mocks.Projects, jm, r, cfg, logger)
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
+	req := makeJSONSendResultsReq(t, childSlug, []map[string]string{
+		{"file_name": "result.xml", "content_base64": encoded},
+	})
+	q := req.URL.Query()
+	q.Set("force_project_creation", "true")
+	q.Set("parent_id", parentSlug)
+	req.URL.RawQuery = q.Encode()
+
+	w := httptest.NewRecorder()
+	h.SendResults(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	parent, err := mocks.Projects.GetProjectBySlugAny(context.Background(), parentSlug)
+	if err != nil {
+		t.Fatalf("parent project was not auto-created: %v", err)
+	}
+	if parent.ParentID != nil {
+		t.Errorf("parent project should be top-level, got ParentID=%v", parent.ParentID)
+	}
+
+	child, err := mocks.Projects.GetProjectBySlugAny(context.Background(), childSlug)
+	if err != nil {
+		t.Fatalf("child project was not created: %v", err)
+	}
+	if child.ParentID == nil || *child.ParentID != parent.ID {
+		t.Errorf("child project not linked to auto-created parent: child.ParentID=%v parent.ID=%d", child.ParentID, parent.ID)
+	}
+}
+
 // TestParseResultsBody_TarGzRouting verifies parseResultsBody routes tar.gz content types correctly.
 func TestParseResultsBody_TarGzRouting(t *testing.T) {
 	h, projectID, _ := setupTarGzTest(t)

@@ -113,6 +113,16 @@ export class AllureDeckClient {
     execSync(`cd "${dirPath}" && find . -maxdepth 1 -type f \\( ${nameArgs} \\) -print0 | tar czf "${outputPath}" --null -T -`, { stdio: 'pipe' })
   }
 
+  async deleteProject(projectId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+      headers: this.authHeaders(),
+    })
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`Delete project "${projectId}" failed: ${res.status} ${await res.text()}`)
+    }
+  }
+
   getReportUrl(projectId: string, reportId = 'latest'): string {
     const baseUrl = process.env.ALLUREDECK_URL ?? 'http://localhost:7474'
     return `${baseUrl}/projects/${encodeURIComponent(projectId)}/reports/${reportId}`

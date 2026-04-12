@@ -1,16 +1,28 @@
 import { render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthGuard } from './AuthGuard'
+import { attemptRefresh } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
 }))
 
+vi.mock('@/api/client', () => ({
+  attemptRefresh: vi.fn(),
+}))
+
 vi.mock('react-router', () => ({
   Navigate: () => null,
   useLocation: () => ({ pathname: '/' }),
 }))
+
+// Token TTL large enough that the proactive refresh timer fires after we
+// advance fake timers, rather than firing synchronously on first render.
+// (AuthGuard refreshes REFRESH_MARGIN_MS=60s before real expiry, so we need
+// remaining > 60s to NOT refresh immediately.)
+const TTL_AHEAD_MS = 5 * 60 * 1000 // 5 minutes
+const SCHEDULED_FIRE_MS = TTL_AHEAD_MS - 60 * 1000 // margin is 60s
 
 function setupStore(overrides: { expiresAt: number | null; isAuthenticated?: boolean }) {
   const mockClearAuth = vi.fn()
@@ -19,26 +31,37 @@ function setupStore(overrides: { expiresAt: number | null; isAuthenticated?: boo
       isAuthenticated: overrides.isAuthenticated ?? true,
       expiresAt: overrides.expiresAt,
       clearAuth: mockClearAuth,
-      roles: [],
-      username: null,
-      provider: null,
+      // Non-empty roles so useSessionRestore.needsRestore === false and the
+      // hook doesn't fire an unmocked /auth/session fetch that would fail
+      // in jsdom and call clearAuth in its .catch branch, polluting asserts.
+      roles: ['admin'],
+      username: 'admin',
+      provider: 'local',
       setAuth: vi.fn(),
     }),
   )
   return mockClearAuth
 }
 
+// Flush microtasks so async .then chains inside the effect run under fake timers.
+async function flushMicrotasks() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 describe('AuthGuard', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.mocked(attemptRefresh).mockReset()
   })
 
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('calls clearAuth after timeout elapses', () => {
-    const expiresAt = Date.now() + 5000
+  it('attempts refresh before clearing auth when the proactive timer fires', async () => {
+    vi.mocked(attemptRefresh).mockResolvedValue(false)
+    const expiresAt = Date.now() + TTL_AHEAD_MS
     const mockClearAuth = setupStore({ expiresAt })
 
     render(
@@ -47,13 +70,38 @@ describe('AuthGuard', () => {
       </AuthGuard>,
     )
 
+    // Timer hasn't fired yet — neither refresh nor clearAuth should have run.
+    expect(attemptRefresh).not.toHaveBeenCalled()
     expect(mockClearAuth).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(5001)
+
+    vi.advanceTimersByTime(SCHEDULED_FIRE_MS + 1)
+    await flushMicrotasks()
+
+    expect(attemptRefresh).toHaveBeenCalledTimes(1)
     expect(mockClearAuth).toHaveBeenCalledTimes(1)
   })
 
-  it('clears timer on unmount without calling clearAuth', () => {
-    const expiresAt = Date.now() + 5000
+  it('does not call clearAuth when refresh succeeds', async () => {
+    vi.mocked(attemptRefresh).mockResolvedValue(true)
+    const expiresAt = Date.now() + TTL_AHEAD_MS
+    const mockClearAuth = setupStore({ expiresAt })
+
+    render(
+      <AuthGuard>
+        <div>protected</div>
+      </AuthGuard>,
+    )
+
+    vi.advanceTimersByTime(SCHEDULED_FIRE_MS + 1)
+    await flushMicrotasks()
+
+    expect(attemptRefresh).toHaveBeenCalledTimes(1)
+    expect(mockClearAuth).not.toHaveBeenCalled()
+  })
+
+  it('does not call refresh or clearAuth after unmount', async () => {
+    vi.mocked(attemptRefresh).mockResolvedValue(false)
+    const expiresAt = Date.now() + TTL_AHEAD_MS
     const mockClearAuth = setupStore({ expiresAt })
 
     const { unmount } = render(
@@ -63,11 +111,15 @@ describe('AuthGuard', () => {
     )
 
     unmount()
-    vi.advanceTimersByTime(5001)
+    vi.advanceTimersByTime(SCHEDULED_FIRE_MS + 1)
+    await flushMicrotasks()
+
+    expect(attemptRefresh).not.toHaveBeenCalled()
     expect(mockClearAuth).not.toHaveBeenCalled()
   })
 
-  it('does not set a timer when expiresAt is null', () => {
+  it('does nothing when expiresAt is null', async () => {
+    vi.mocked(attemptRefresh).mockResolvedValue(false)
     const mockClearAuth = setupStore({ expiresAt: null })
 
     render(
@@ -77,10 +129,14 @@ describe('AuthGuard', () => {
     )
 
     vi.advanceTimersByTime(60 * 60 * 1000)
+    await flushMicrotasks()
+
+    expect(attemptRefresh).not.toHaveBeenCalled()
     expect(mockClearAuth).not.toHaveBeenCalled()
   })
 
-  it('calls clearAuth immediately when session is already expired', () => {
+  it('attempts refresh immediately when already expired and clears auth on failure', async () => {
+    vi.mocked(attemptRefresh).mockResolvedValue(false)
     const expiresAt = Date.now() - 1000
     const mockClearAuth = setupStore({ expiresAt })
 
@@ -90,6 +146,26 @@ describe('AuthGuard', () => {
       </AuthGuard>,
     )
 
+    await flushMicrotasks()
+
+    expect(attemptRefresh).toHaveBeenCalledTimes(1)
     expect(mockClearAuth).toHaveBeenCalledTimes(1)
+  })
+
+  it('attempts refresh immediately when already expired and skips clearAuth on success', async () => {
+    vi.mocked(attemptRefresh).mockResolvedValue(true)
+    const expiresAt = Date.now() - 1000
+    const mockClearAuth = setupStore({ expiresAt })
+
+    render(
+      <AuthGuard>
+        <div>protected</div>
+      </AuthGuard>,
+    )
+
+    await flushMicrotasks()
+
+    expect(attemptRefresh).toHaveBeenCalledTimes(1)
+    expect(mockClearAuth).not.toHaveBeenCalled()
   })
 })

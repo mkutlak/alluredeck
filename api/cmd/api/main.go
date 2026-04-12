@@ -180,7 +180,7 @@ func main() {
 	// Uses the same dynamic frame-ancestors so the UI can embed the viewer.
 	mux.Handle("/trace/", newTraceViewerHandler(frameAncestors))
 
-	reportCSP := "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; frame-ancestors " + frameAncestors
+	reportCSP := "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'self'; img-src 'self' data: blob:; frame-ancestors " + frameAncestors
 	reportHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", reportCSP)
 		// Remove X-Frame-Options set by SecurityHeaders middleware; CSP frame-ancestors

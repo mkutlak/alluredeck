@@ -140,7 +140,7 @@ export function OverviewTab() {
       : null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="project-overview">
       {/* Page title + action buttons */}
       <div>
         <div className="flex items-center justify-between gap-4">

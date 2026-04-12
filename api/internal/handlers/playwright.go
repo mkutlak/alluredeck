@@ -96,10 +96,39 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			if parentIDStr != "" {
-				parentID, parseErr := strconv.ParseInt(parentIDStr, 10, 64)
-				if parseErr != nil {
-					writeError(w, http.StatusBadRequest, "parent_id must be a numeric ID")
-					return
+				var parentID int64
+				if id, parseErr := strconv.ParseInt(parentIDStr, 10, 64); parseErr == nil {
+					parentID = id
+				} else {
+					parent, lookupErr := h.projectStore.GetProjectBySlugAny(r.Context(), parentIDStr)
+					if lookupErr != nil {
+						// Parent slug not found — auto-create it as a top-level project,
+						// mirroring the behavior of the Allure results upload handler.
+						if fsErr := h.store.CreateProject(r.Context(), parentIDStr); fsErr != nil {
+							h.logger.Error("auto-creating parent project failed", zap.String("slug", parentIDStr), zap.Error(fsErr))
+							writeError(w, http.StatusInternalServerError, "failed to create parent project")
+							return
+						}
+						created, dbErr := h.projectStore.CreateProject(r.Context(), parentIDStr)
+						if dbErr != nil && !errors.Is(dbErr, store.ErrProjectExists) {
+							h.logger.Error("db parent registration failed", zap.String("slug", parentIDStr), zap.Error(dbErr))
+							writeError(w, http.StatusInternalServerError, "failed to register parent project")
+							return
+						}
+						if created != nil {
+							parentID = created.ID
+						} else {
+							p, lookErr := h.projectStore.GetProjectBySlugAny(r.Context(), parentIDStr)
+							if lookErr != nil {
+								h.logger.Error("parent project lookup after create failed", zap.String("slug", parentIDStr), zap.Error(lookErr))
+								writeError(w, http.StatusInternalServerError, "failed to resolve parent project")
+								return
+							}
+							parentID = p.ID
+						}
+					} else {
+						parentID = parent.ID
+					}
 				}
 				project, dbErr := h.projectStore.CreateProjectWithParent(r.Context(), slug, parentID)
 				if dbErr != nil {

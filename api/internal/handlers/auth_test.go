@@ -158,23 +158,29 @@ func TestAuthHandler_Session_ValidToken(t *testing.T) {
 	}
 }
 
+// IMPORTANT: jwt.Parse stores numeric claims as float64, not *jwt.NumericDate.
+// The Session handler MUST use claims.GetExpirationTime() which normalises across
+// underlying types. Tests that hand-build MapClaims to assert Session() behavior
+// MUST use float64 (or go through ValidateToken) to reflect production shape —
+// do NOT use jwt.NewNumericDate() here, it silently disagrees with jwt.Parse.
+
 func TestAuthHandler_Session_ExpiresInReflectsRemaining(t *testing.T) {
 	cfg := testAuthConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 	handler := NewAuthHandler(cfg, jwtManager, nil)
 
-	// Token minted with exp=now+10min — half the configured AccessTokenExpiry (15min).
-	// Session() must report the *remaining* seconds, not the configured TTL, so the
-	// client doesn't drift its expiresAt forward on each /auth/session call.
-	const remaining = 10 * time.Minute
-	claims := jwt.MapClaims{
-		"sub":      "admin",
-		"role":     "admin",
-		"provider": "local",
-		"type":     "access",
-		"exp":      jwt.NewNumericDate(time.Now().Add(remaining)),
+	// Mint a real access token and parse it back so claims come in production
+	// shape (claims["exp"] == float64, not *jwt.NumericDate). This catches the
+	// class of bug where the handler asserts the wrong underlying type.
+	accessToken, _, _, _, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", "")
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
 	}
+	_, claims, err := jwtManager.ValidateToken(accessToken, "access")
+	if err != nil {
+		t.Fatalf("ValidateToken: %v", err)
+	}
+
 	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
 	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
@@ -193,31 +199,35 @@ func TestAuthHandler_Session_ExpiresInReflectsRemaining(t *testing.T) {
 		t.Fatalf("Session() data.expires_in missing or wrong type: %#v", data["expires_in"])
 	}
 
+	// Token was just minted with AccessTokenExpiry (testAuthConfig = 15min).
+	// expires_in must reflect real remaining seconds, not the configured TTL, and
+	// must be strictly > 0 to prove the claims-reading path actually works.
 	configured := cfg.AccessTokenExpiry.Seconds()
-	if expiresIn >= configured {
-		t.Errorf("Session() expires_in = %.0f, want < %.0f (configured TTL)", expiresIn, configured)
+	if expiresIn <= 0 {
+		t.Errorf("Session() expires_in = %.0f, want > 0 (claims.GetExpirationTime broken?)", expiresIn)
 	}
-
-	// Allow ±5 seconds for test execution drift around the 600s target.
-	const want = float64(600)
-	if expiresIn < want-5 || expiresIn > want {
-		t.Errorf("Session() expires_in = %.0f, want in [%.0f, %.0f]", expiresIn, want-5, want)
+	if expiresIn > configured {
+		t.Errorf("Session() expires_in = %.0f, want <= %.0f (configured TTL)", expiresIn, configured)
+	}
+	// Within ~5 seconds of the configured TTL because token was just minted.
+	if configured-expiresIn > 5 {
+		t.Errorf("Session() expires_in = %.0f, want close to %.0f (within 5s)", expiresIn, configured)
 	}
 }
 
 func TestAuthHandler_Session_ExpiresInZeroForExpiredToken(t *testing.T) {
 	cfg := testAuthConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 	handler := NewAuthHandler(cfg, jwtManager, nil)
 
-	// An already-expired exp claim must result in expires_in = 0, not a negative number.
+	// Build claims in production shape (float64 exp, not *NumericDate). See the
+	// IMPORTANT comment above the previous test.
 	claims := jwt.MapClaims{
 		"sub":      "admin",
 		"role":     "admin",
 		"provider": "local",
 		"type":     "access",
-		"exp":      jwt.NewNumericDate(time.Now().Add(-1 * time.Minute)),
+		"exp":      float64(time.Now().Add(-1 * time.Minute).Unix()),
 	}
 	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
 	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)

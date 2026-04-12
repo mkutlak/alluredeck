@@ -60,6 +60,8 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
           isActiveDropTarget && 'scale-[1.02] ring-2 ring-blue-500',
           draggable && 'cursor-grab',
         )}
+        data-testid="project-card"
+        data-project-slug={projectId}
         {...(draggable ? { ...listeners, ...attributes } : {})}
       >
         <CardHeader className="pb-2">

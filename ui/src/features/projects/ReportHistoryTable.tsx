@@ -55,7 +55,11 @@ function ReportRow({
   const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
 
   return (
-    <TableRow className="hover:bg-muted/50 cursor-pointer">
+    <TableRow
+      className="hover:bg-muted/50 cursor-pointer"
+      data-testid="report-row"
+      data-report-id={r.report_id}
+    >
       <TableCell onClick={(e) => e.stopPropagation()}>
         <Checkbox
           checked={selectedBuilds.has(r.report_id)}
@@ -246,7 +250,7 @@ export function ReportHistoryTable({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="report-list">
       {/* Table */}
       <div className="rounded-lg border">
         <Table>
