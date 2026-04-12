@@ -33,11 +33,13 @@ import {
 import { toast } from '@/components/ui/use-toast'
 import { formatDate } from '@/lib/utils'
 import type { KnownIssue } from '@/types/api'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { CreateKnownIssueDialog } from './CreateKnownIssueDialog'
 import { EditKnownIssueDialog } from './EditKnownIssueDialog'
 
 export function KnownIssuesTab() {
   const { id: projectId } = useParams<{ id: string }>()
+  const displayName = useProjectDisplay(projectId)
   const isEditor = useAuthStore(selectIsEditor)
   const queryClient = useQueryClient()
 
@@ -103,7 +105,7 @@ export function KnownIssuesTab() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">Known Issues</p>
       </div>
 

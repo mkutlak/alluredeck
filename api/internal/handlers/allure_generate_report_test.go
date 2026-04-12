@@ -238,6 +238,58 @@ func TestGetJobStatus_Returns404WhenProjectIDMismatch(t *testing.T) {
 	}
 }
 
+// TestGetJobStatus_ResolvesNestedChildSlug verifies that GetJobStatus resolves a
+// nested child project by slug (parent_id IS NOT NULL) and returns 200.
+func TestGetJobStatus_ResolvesNestedChildSlug(t *testing.T) {
+	projectsDir := t.TempDir()
+	blockCh := make(chan struct{})
+	defer close(blockCh)
+	gen := &blockingMockGenerator{ch: blockCh}
+	h, mocks := newTestReportHandlerWithJobManager(t, projectsDir, gen)
+
+	// Create parent project then child linked to it.
+	parent, err := mocks.Projects.CreateProject(context.Background(), "parent-proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := mocks.Projects.CreateProjectWithParent(context.Background(), "child-proj", parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childIDStr := strconv.FormatInt(child.ID, 10)
+
+	// Queue a job for the child's numeric ID.
+	genRR := httptest.NewRecorder()
+	h.GenerateReport(genRR, makeGenerateReportReq(t, childIDStr))
+	if genRR.Code != http.StatusAccepted {
+		t.Fatalf("generate: expected 202, got %d: %s", genRR.Code, genRR.Body.String())
+	}
+	var genResp map[string]any
+	if err := json.Unmarshal(genRR.Body.Bytes(), &genResp); err != nil {
+		t.Fatal(err)
+	}
+	jobID := genResp["data"].(map[string]any)["job_id"].(string)
+
+	// Poll job status using the child slug (not numeric id) — must resolve and return 200.
+	rr := httptest.NewRecorder()
+	h.GetJobStatus(rr, makeGetJobStatusReq(t, "child-proj", jobID))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for nested child slug, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected data object in response")
+	}
+	if status, _ := data["status"].(string); status == "" {
+		t.Errorf("expected non-empty 'status' in data, got %v", data)
+	}
+}
+
 // blockingMockGenerator blocks until ch is closed, used to hold jobs in-flight.
 type blockingMockGenerator struct {
 	ch chan struct{}

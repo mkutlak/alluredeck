@@ -6,12 +6,14 @@ import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BranchSelector } from '@/features/projects/BranchSelector'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { TimelineChart } from './TimelineChart'
 import { DateRangePicker } from './DateRangePicker'
 import { BuildCountSelector } from './BuildCountSelector'
 
 export function TimelineTab() {
   const { id: projectId } = useParams<{ id: string }>()
+  const displayName = useProjectDisplay(projectId)
 
   const [branch, setBranch] = useState<string | undefined>(undefined)
   const [dateFrom, setDateFrom] = useState<string | undefined>(undefined)
@@ -104,7 +106,7 @@ export function TimelineTab() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">
           Test Timeline · {totalTests} tests · {totalSec}s total
         </p>

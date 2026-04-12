@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
 import { BranchSelector } from '@/features/projects/BranchSelector'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { PipelineRunCard } from './PipelineRunCard'
 
 interface PipelineRunsTabProps {
@@ -15,6 +16,7 @@ interface PipelineRunsTabProps {
 }
 
 export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
+  const displayName = useProjectDisplay(projectId)
   const [page, setPage] = useState(1)
   const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
 
@@ -34,7 +36,7 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground flex items-center gap-1 text-sm">
           <Layers size={14} />
           Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}

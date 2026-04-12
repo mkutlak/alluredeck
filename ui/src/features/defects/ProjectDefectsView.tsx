@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchProjectDefectSummary } from '@/api/defects'
 import { queryKeys } from '@/lib/query-keys'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { DefectSummaryCards } from './DefectSummaryCards'
 import { DefectTrendChart } from './DefectTrendChart'
 import { DefectList } from './DefectList'
@@ -17,12 +18,14 @@ export function ProjectDefectsView() {
     staleTime: 30_000,
   })
 
+  const displayName = useProjectDisplay(projectId)
+
   if (!projectId) return null
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">Defect Grouping</p>
       </div>
 

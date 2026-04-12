@@ -144,7 +144,7 @@ export function OverviewTab() {
       {/* Page title + action buttons */}
       <div>
         <div className="flex items-center justify-between gap-4">
-          <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+          <h1 className="font-mono text-2xl font-semibold">{currentProject?.display_name || currentProject?.slug || projectId}</h1>
           <ActionBar />
         </div>
         {parentProject ? (
@@ -310,7 +310,7 @@ export function OverviewTab() {
             <AlertDialogDescription>
               This will permanently delete report{' '}
               <span className="font-mono font-medium">#{deleteReportId}</span> for project{' '}
-              <span className="font-mono font-medium">{projectId}</span>. This cannot be undone.
+              <span className="font-mono font-medium">{currentProject?.display_name || currentProject?.slug || projectId}</span>. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

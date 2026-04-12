@@ -17,6 +17,7 @@ import {
 import { AttachmentRow } from './AttachmentRow'
 import { AttachmentLightbox } from './AttachmentLightbox'
 import { isPlaywrightTrace } from '@/features/trace/utils'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
 
 const MIME_FILTERS = [
@@ -58,6 +59,7 @@ function filterAttachments(
 
 export function AttachmentsTab() {
   const { id: projectId } = useParams<{ id: string }>()
+  const displayName = useProjectDisplay(projectId)
   const navigate = useNavigate()
   const [selectedAttachment, setSelectedAttachment] = useState<AttachmentEntry | null>(null)
   const [mimeFilter, setMimeFilter] = useState<MimeFilter>('')
@@ -130,7 +132,7 @@ export function AttachmentsTab() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">
           Attachments · Report {reportLabel} · {total} total
         </p>

@@ -60,6 +60,7 @@ func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.Bui
 // @Router       /projects/{project_id}/playwright [post]
 // resolveProjectID tries to parse the path value as a numeric ID.
 // If it fails, treats it as a slug and looks up the project.
+// Uses GetProjectBySlugAny so nested child slugs (parent_id IS NOT NULL) resolve correctly.
 // Returns (id, slug, found).
 func (h *PlaywrightHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, bool) {
 	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
@@ -68,7 +69,7 @@ func (h *PlaywrightHandler) resolveProjectID(ctx context.Context, pathValue stri
 			return p.ID, p.Slug, true
 		}
 	}
-	p, err := h.projectStore.GetProjectBySlug(ctx, pathValue)
+	p, err := h.projectStore.GetProjectBySlugAny(ctx, pathValue)
 	if err == nil {
 		return p.ID, p.Slug, true
 	}
@@ -151,7 +152,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 				}
 			}
 			if projectID == 0 {
-				if p, err := h.projectStore.GetProjectBySlug(r.Context(), slug); err == nil {
+				if p, err := h.projectStore.GetProjectBySlugAny(r.Context(), slug); err == nil {
 					projectID = p.ID
 				}
 			}

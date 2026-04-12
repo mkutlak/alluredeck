@@ -27,10 +27,12 @@ import { SuitePassRateChart } from './SuitePassRateChart'
 import { LabelBreakdownCard } from './LabelBreakdownCard'
 import { AnalyticsSection } from './AnalyticsSection'
 import { KpiSummaryRow } from './KpiSummaryRow'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import type { Branch } from '@/types/api'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
+  const displayName = useProjectDisplay(projectId)
   const [branch, setBranch] = useState<string | undefined>(undefined)
 
   // Fetch branches for the selector
@@ -135,7 +137,7 @@ export function AnalyticsTab() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+            <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
             <p className="text-muted-foreground text-sm">Analytics</p>
           </div>
           {branchesData && branchesData.length > 0 && (
@@ -157,7 +159,7 @@ export function AnalyticsTab() {
       {/* Header with branch selector */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+          <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
           <p className="text-muted-foreground text-sm">Analytics</p>
         </div>
         {branchesData && branchesData.length > 0 && (

@@ -5,10 +5,12 @@ import { fetchBuildDefectSummary } from '@/api/defects'
 import { queryKeys } from '@/lib/query-keys'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { DefectList } from './DefectList'
 
 export function BuildDefectsView() {
   const { id: projectId, buildId: buildIdParam } = useParams<{ id: string; buildId: string }>()
+  const displayName = useProjectDisplay(projectId)
   const buildId = Number(buildIdParam)
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
@@ -36,7 +38,7 @@ export function BuildDefectsView() {
           <ArrowLeft size={14} />
           Back to project defects
         </Link>
-        <h1 className="font-mono text-2xl font-semibold">{projectId}</h1>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">Build #{buildId} — Defects</p>
       </div>
 

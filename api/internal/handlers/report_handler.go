@@ -114,8 +114,10 @@ func (h *ReportHandler) lookupProjectSlug(w http.ResponseWriter, r *http.Request
 		return 0, "", false
 	}
 
-	// Fall back to slug lookup.
-	project, err := h.projectStore.GetProjectBySlug(ctx, pathValue)
+	// Fall back to slug lookup. Use GetProjectBySlugAny so nested child
+	// projects (parent_id != NULL) resolve — CI scripts poll job status
+	// with the child slug and must not 404.
+	project, err := h.projectStore.GetProjectBySlugAny(ctx, pathValue)
 	if err == nil {
 		return project.ID, project.Slug, true
 	}
