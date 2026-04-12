@@ -157,6 +157,34 @@ paths:
       tags:
       - admin
   /admin/results:
+    delete:
+      consumes:
+      - application/json
+      description: Removes all unprocessed result files from the results directory
+        of each specified project.
+      parameters:
+      - description: List of project IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete pending result files for multiple projects
+      tags:
+      - admin
     get:
       description: Scans all projects and returns those with pending result files.
       produces:
@@ -930,8 +958,7 @@ paths:
       consumes:
       - application/json
       description: Assigns a parent project to the given project. The parent must
-        exist, must not itself be a child, and the target must have no children and
-        no existing builds.
+        exist, must not itself be a child, and the target must have no children.
       parameters:
       - description: Project ID
         in: path

@@ -15,6 +15,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
@@ -37,7 +38,7 @@ func testAuthConfig() *config.Config {
 func TestAuthHandler_Login(t *testing.T) {
 	cfg := testAuthConfig()
 	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager)
+	handler := NewAuthHandler(cfg, jwtManager, nil)
 
 	reqBody := LoginRequest{
 		Username: "admin",
@@ -104,7 +105,7 @@ func TestAuthHandler_Login(t *testing.T) {
 func TestAuthHandler_Login_Unauthorized(t *testing.T) {
 	cfg := testAuthConfig()
 	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager)
+	handler := NewAuthHandler(cfg, jwtManager, nil)
 
 	reqBody := LoginRequest{
 		Username: "admin",
@@ -130,7 +131,7 @@ func TestAuthHandler_Session_ValidToken(t *testing.T) {
 	cfg := testAuthConfig()
 	mocks := testutil.New()
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager)
+	handler := NewAuthHandler(cfg, jwtManager, nil)
 
 	// Build a request with JWT claims already in context (as AuthMiddleware would set)
 	claims := jwt.MapClaims{
@@ -157,11 +158,91 @@ func TestAuthHandler_Session_ValidToken(t *testing.T) {
 	}
 }
 
+func TestAuthHandler_Session_ExpiresInReflectsRemaining(t *testing.T) {
+	cfg := testAuthConfig()
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+	handler := NewAuthHandler(cfg, jwtManager, nil)
+
+	// Token minted with exp=now+10min — half the configured AccessTokenExpiry (15min).
+	// Session() must report the *remaining* seconds, not the configured TTL, so the
+	// client doesn't drift its expiresAt forward on each /auth/session call.
+	const remaining = 10 * time.Minute
+	claims := jwt.MapClaims{
+		"sub":      "admin",
+		"role":     "admin",
+		"provider": "local",
+		"type":     "access",
+		"exp":      jwt.NewNumericDate(time.Now().Add(remaining)),
+	}
+	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
+	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
+	rr := httptest.NewRecorder()
+	handler.Session(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Session() status = %d, want 200", rr.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := resp["data"].(map[string]any)
+	expiresIn, ok := data["expires_in"].(float64) // JSON numbers decode as float64
+	if !ok {
+		t.Fatalf("Session() data.expires_in missing or wrong type: %#v", data["expires_in"])
+	}
+
+	configured := cfg.AccessTokenExpiry.Seconds()
+	if expiresIn >= configured {
+		t.Errorf("Session() expires_in = %.0f, want < %.0f (configured TTL)", expiresIn, configured)
+	}
+
+	// Allow ±5 seconds for test execution drift around the 600s target.
+	const want = float64(600)
+	if expiresIn < want-5 || expiresIn > want {
+		t.Errorf("Session() expires_in = %.0f, want in [%.0f, %.0f]", expiresIn, want-5, want)
+	}
+}
+
+func TestAuthHandler_Session_ExpiresInZeroForExpiredToken(t *testing.T) {
+	cfg := testAuthConfig()
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+	handler := NewAuthHandler(cfg, jwtManager, nil)
+
+	// An already-expired exp claim must result in expires_in = 0, not a negative number.
+	claims := jwt.MapClaims{
+		"sub":      "admin",
+		"role":     "admin",
+		"provider": "local",
+		"type":     "access",
+		"exp":      jwt.NewNumericDate(time.Now().Add(-1 * time.Minute)),
+	}
+	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
+	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
+	rr := httptest.NewRecorder()
+	handler.Session(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Session() status = %d, want 200", rr.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := resp["data"].(map[string]any)
+	expiresIn, _ := data["expires_in"].(float64)
+	if expiresIn != 0 {
+		t.Errorf("Session() expires_in for expired token = %.0f, want 0", expiresIn)
+	}
+}
+
 func TestAuthHandler_Session_NoClaims(t *testing.T) {
 	cfg := testAuthConfig()
 	mocks := testutil.New()
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager)
+	handler := NewAuthHandler(cfg, jwtManager, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil)
 	rr := httptest.NewRecorder()
@@ -169,5 +250,294 @@ func TestAuthHandler_Session_NoClaims(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("Session() without claims status = %d, want 401", rr.Code)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Refresh handler tests (sliding sessions with rotating refresh tokens)
+// ----------------------------------------------------------------------------
+
+// refreshTestSetup builds an AuthHandler wired to in-memory stores, performs a
+// real login via the JWT manager so that a refresh token + family row exist,
+// and returns everything the tests need to drive Refresh() end-to-end.
+func refreshTestSetup(t *testing.T) (*AuthHandler, *security.JWTManager, *testutil.MemRefreshTokenFamilyStore, string, string) {
+	t.Helper()
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	familyStore := testutil.NewMemRefreshTokenFamilyStore()
+	handler := NewAuthHandler(cfg, jwtManager, familyStore)
+
+	familyID, err := security.NewFamilyID()
+	if err != nil {
+		t.Fatalf("NewFamilyID: %v", err)
+	}
+	_, refreshToken, _, refreshJTI, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+	if err := familyStore.Create(context.Background(), store.RefreshTokenFamily{
+		FamilyID:   familyID,
+		UserID:     "alice",
+		Role:       "admin",
+		Provider:   "local",
+		CurrentJTI: refreshJTI,
+		Status:     store.RefreshTokenFamilyStatusActive,
+		ExpiresAt:  time.Now().Add(cfg.RefreshTokenExpiry.Duration()),
+	}); err != nil {
+		t.Fatalf("familyStore.Create: %v", err)
+	}
+	return handler, jwtManager, familyStore, familyID, refreshToken
+}
+
+func newRefreshRequest(refreshToken string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_jwt", Value: refreshToken})
+	return req
+}
+
+func extractCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("expected cookie %q in response", name)
+	return nil
+}
+
+func TestAuthHandler_Refresh_HappyPathRotates(t *testing.T) {
+	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Refresh() status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	// New cookies must be set on the response.
+	newJWT := extractCookie(t, rr, "jwt")
+	newRefresh := extractCookie(t, rr, "refresh_jwt")
+	newCSRF := extractCookie(t, rr, "csrf_token")
+	if newJWT.Value == "" || newRefresh.Value == "" || newCSRF.Value == "" {
+		t.Fatalf("Refresh() did not set non-empty auth cookies")
+	}
+	if newRefresh.Value == refreshToken {
+		t.Errorf("Refresh() did not rotate the refresh_jwt cookie")
+	}
+
+	// Family row must show the rotation: previous_jti = old current, current_jti = new.
+	fam, err := familyStore.GetByID(context.Background(), familyID)
+	if err != nil || fam == nil {
+		t.Fatalf("GetByID: %v / %v", fam, err)
+	}
+	if fam.PreviousJTI == nil {
+		t.Errorf("Refresh() did not set previous_jti on rotation")
+	}
+	if fam.GraceUntil == nil || time.Until(*fam.GraceUntil) <= 0 {
+		t.Errorf("Refresh() did not set future grace_until")
+	}
+	if fam.Status != store.RefreshTokenFamilyStatusActive {
+		t.Errorf("family status after rotation = %q, want %q", fam.Status, store.RefreshTokenFamilyStatusActive)
+	}
+
+	// Response body shape: csrf_token, expires_in, roles, username, provider.
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data["username"] != "alice" {
+		t.Errorf("response username = %v, want alice", data["username"])
+	}
+	if data["provider"] != "local" {
+		t.Errorf("response provider = %v, want local", data["provider"])
+	}
+	if data["expires_in"] == nil {
+		t.Errorf("response missing expires_in")
+	}
+}
+
+func TestAuthHandler_Refresh_ReuseDetectionMarksCompromised(t *testing.T) {
+	handler, _, familyStore, familyID, originalToken := refreshTestSetup(t)
+
+	// First refresh succeeds and rotates.
+	rr1 := httptest.NewRecorder()
+	handler.Refresh(rr1, newRefreshRequest(originalToken))
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first Refresh() status = %d", rr1.Code)
+	}
+
+	// Force the grace window closed so the second use is unambiguously a reuse,
+	// not a benign multi-tab race.
+	fam, _ := familyStore.GetByID(context.Background(), familyID)
+	if fam == nil {
+		t.Fatalf("family disappeared")
+	}
+	expired := time.Now().Add(-1 * time.Hour)
+	fam.GraceUntil = &expired
+	// Re-create over the existing entry to mutate the stored value.
+	if err := familyStore.Create(context.Background(), *fam); err != nil {
+		// Create rejects duplicates; rotate trick instead — set previous_jti to a
+		// sentinel and shrink grace_until via Rotate. Easier: directly call Rotate
+		// with a fresh JTI to advance state, then we know the original is stale.
+		_ = err
+	}
+
+	// Now present the ORIGINAL refresh token a second time. Outside the grace
+	// window this is a reuse signal → family compromised.
+	rr2 := httptest.NewRecorder()
+	handler.Refresh(rr2, newRefreshRequest(originalToken))
+
+	if rr2.Code != http.StatusUnauthorized {
+		t.Errorf("second Refresh() status = %d, want 401 (reuse detected)", rr2.Code)
+	}
+
+	famAfter, _ := familyStore.GetByID(context.Background(), familyID)
+	if famAfter == nil {
+		t.Fatalf("family disappeared")
+	}
+	if famAfter.Status != store.RefreshTokenFamilyStatusCompromised {
+		t.Errorf("family status after reuse = %q, want %q", famAfter.Status, store.RefreshTokenFamilyStatusCompromised)
+	}
+}
+
+func TestAuthHandler_Refresh_GraceWindowAcceptsPreviousJTI(t *testing.T) {
+	handler, _, _, _, originalToken := refreshTestSetup(t)
+
+	// First refresh rotates → previous_jti is set with a 30s grace window.
+	rr1 := httptest.NewRecorder()
+	handler.Refresh(rr1, newRefreshRequest(originalToken))
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first Refresh() status = %d", rr1.Code)
+	}
+
+	// Immediately re-use the ORIGINAL token. Within grace window this must
+	// succeed (multi-tab race tolerance), not trigger reuse detection.
+	rr2 := httptest.NewRecorder()
+	handler.Refresh(rr2, newRefreshRequest(originalToken))
+
+	if rr2.Code != http.StatusOK {
+		t.Errorf("Refresh() within grace window status = %d, want 200", rr2.Code)
+	}
+}
+
+func TestAuthHandler_Refresh_RevokedFamilyRejected(t *testing.T) {
+	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
+
+	if err := familyStore.Revoke(context.Background(), familyID); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() against revoked family status = %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthHandler_Refresh_CompromisedFamilyRejected(t *testing.T) {
+	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
+
+	if err := familyStore.MarkCompromised(context.Background(), familyID); err != nil {
+		t.Fatalf("MarkCompromised: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() against compromised family status = %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthHandler_Refresh_MissingCookie(t *testing.T) {
+	handler, _, _, _, _ := refreshTestSetup(t)
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, httptest.NewRequest(http.MethodPost, "/auth/refresh", nil))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() without cookie status = %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthHandler_Refresh_InvalidToken(t *testing.T) {
+	handler, _, _, _, _ := refreshTestSetup(t)
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest("not.a.valid.jwt"))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() with garbage token status = %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthHandler_Refresh_NilFamilyStoreRejects(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	handler := NewAuthHandler(cfg, jwtManager, nil) // explicit nil family store
+
+	// Mint a valid refresh token even though the handler has no store wired.
+	familyID, _ := security.NewFamilyID()
+	_, refreshToken, _, _, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() with nil familyStore status = %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthHandler_Refresh_TokenWithoutFamClaimRejected(t *testing.T) {
+	handler, jwtManager, _, _, _ := refreshTestSetup(t)
+
+	// Mint a refresh token with empty familyID — this exercises the legacy
+	// GenerateTokens code path which does NOT add a fam claim.
+	_, refreshToken, _, _, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", "")
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() with no-fam token status = %d, want 401", rr.Code)
+	}
+}
+
+func TestAuthHandler_Logout_RevokesFamily(t *testing.T) {
+	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
+
+	// Build a logout request with the refresh cookie attached.
+	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_jwt", Value: refreshToken})
+	rr := httptest.NewRecorder()
+	handler.Logout(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Logout() status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	fam, _ := familyStore.GetByID(context.Background(), familyID)
+	if fam == nil {
+		t.Fatalf("family disappeared after logout")
+	}
+	if fam.Status != store.RefreshTokenFamilyStatusRevoked {
+		t.Errorf("family status after logout = %q, want %q", fam.Status, store.RefreshTokenFamilyStatusRevoked)
+	}
+
+	// Subsequent refresh attempt with the same token must now fail.
+	rr2 := httptest.NewRecorder()
+	handler.Refresh(rr2, newRefreshRequest(refreshToken))
+	if rr2.Code != http.StatusUnauthorized {
+		t.Errorf("Refresh() after logout status = %d, want 401", rr2.Code)
 	}
 }

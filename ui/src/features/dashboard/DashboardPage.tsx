@@ -104,21 +104,28 @@ export function DashboardPage() {
       return [...filtered].sort((a, b) => compareRows(a, b, sortField, sortDir))
     }
 
-    // All mode: flatten everything (deduplicate by project_id)
+    // All mode: flatten everything.
+    // Dedup by slug (not project_id) because the URL `/projects/:slug` resolves
+    // to a single project via GetProjectBySlugAny — two entries with the same
+    // slug would both link to the same page and break strict-mode locators.
+    // Prefer standalone entries over same-slug children (matches URL resolution).
     if (viewMode === 'all') {
       const flat: DashboardProjectEntry[] = []
-      const seen = new Set<number>()
+      const seen = new Set<string>()
+      for (const p of projects) {
+        if (!p.is_group && !seen.has(p.slug)) {
+          seen.add(p.slug)
+          flat.push(p)
+        }
+      }
       for (const p of projects) {
         if (p.is_group && p.children) {
           for (const c of p.children) {
-            if (!seen.has(c.project_id)) {
-              seen.add(c.project_id)
+            if (!seen.has(c.slug)) {
+              seen.add(c.slug)
               flat.push(c)
             }
           }
-        } else if (!p.is_group && !seen.has(p.project_id)) {
-          seen.add(p.project_id)
-          flat.push(p)
         }
       }
       const filtered = search

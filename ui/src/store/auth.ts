@@ -39,7 +39,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'allure-auth',
-      storage: createJSONStorage(() => sessionStorage),
+      storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
         // roles intentionally excluded — re-derived from server; client state is UI-only

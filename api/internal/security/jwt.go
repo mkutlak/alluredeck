@@ -50,19 +50,38 @@ func NewJWTManager(cfg *config.Config, blacklist BlacklistStore, logger *zap.Log
 // The role is embedded in the access token claims for RBAC enforcement (REVIEW #9).
 // The optional provider parameter (default "local") is embedded as the "provider" claim
 // so the Session endpoint can report the authentication source.
+//
+// This is a backwards-compatible wrapper around GenerateTokensForFamily that does NOT
+// participate in refresh-token-family rotation. Production callers (Login, OIDC, Refresh)
+// should use GenerateTokensForFamily directly so the refresh token gets a `fam` claim.
 func (m *JWTManager) GenerateTokens(username, role string, provider ...string) (accessToken, refreshToken string, err error) {
 	prov := "local"
 	if len(provider) > 0 && provider[0] != "" {
 		prov = provider[0]
 	}
+	access, refresh, _, _, err := m.GenerateTokensForFamily(username, role, prov, "")
+	return access, refresh, err
+}
 
-	accessJTI, err := generateJTI()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate access token JTI: %w", err)
+// GenerateTokensForFamily creates access and refresh tokens and returns the JTIs of both
+// so callers can persist them in a refresh-token-family record for rotation tracking.
+//
+// If familyID is non-empty, it is added to the refresh token as the `fam` claim. If empty,
+// the refresh token is minted without a `fam` claim (legacy behavior used by GenerateTokens).
+//
+// The provider parameter is embedded as the "provider" claim in the access token.
+func (m *JWTManager) GenerateTokensForFamily(username, role, provider, familyID string) (accessToken, refreshToken, accessJTI, refreshJTI string, err error) {
+	if provider == "" {
+		provider = "local"
 	}
-	refreshJTI, err := generateJTI()
+
+	accessJTI, err = generateJTI()
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate refresh token JTI: %w", err)
+		return "", "", "", "", fmt.Errorf("failed to generate access token JTI: %w", err)
+	}
+	refreshJTI, err = generateJTI()
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("failed to generate refresh token JTI: %w", err)
 	}
 
 	now := time.Now()
@@ -70,7 +89,7 @@ func (m *JWTManager) GenerateTokens(username, role string, provider ...string) (
 	accessClaims := jwt.MapClaims{
 		"sub":      username,
 		"role":     role,
-		"provider": prov,
+		"provider": provider,
 		"type":     "access",
 		"jti":      accessJTI,
 		"exp":      jwt.NewNumericDate(now.Add(m.cfg.AccessTokenExpiry.Duration())),
@@ -80,7 +99,7 @@ func (m *JWTManager) GenerateTokens(username, role string, provider ...string) (
 	accessJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessToken, err = accessJWT.SignedString([]byte(m.cfg.JWTSecret))
 	if err != nil {
-		return "", "", fmt.Errorf("failed to sign access token: %w", err)
+		return "", "", "", "", fmt.Errorf("failed to sign access token: %w", err)
 	}
 
 	refreshClaims := jwt.MapClaims{
@@ -90,14 +109,24 @@ func (m *JWTManager) GenerateTokens(username, role string, provider ...string) (
 		"exp":  jwt.NewNumericDate(now.Add(m.cfg.RefreshTokenExpiry.Duration())),
 		"iat":  jwt.NewNumericDate(now),
 	}
+	if familyID != "" {
+		refreshClaims["fam"] = familyID
+	}
 
 	refreshJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshToken, err = refreshJWT.SignedString([]byte(m.cfg.JWTSecret))
 	if err != nil {
-		return "", "", fmt.Errorf("failed to sign refresh token: %w", err)
+		return "", "", "", "", fmt.Errorf("failed to sign refresh token: %w", err)
 	}
 
-	return accessToken, refreshToken, nil
+	return accessToken, refreshToken, accessJTI, refreshJTI, nil
+}
+
+// NewFamilyID generates a fresh refresh-token-family ID using the same RNG as JTIs.
+// This is exported so callers (Login handlers) can mint a family ID before calling
+// GenerateTokensForFamily and persisting the family in the store.
+func NewFamilyID() (string, error) {
+	return generateJTI()
 }
 
 // ValidateToken parses and validates a token, returning claims for downstream use

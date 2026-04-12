@@ -15,19 +15,24 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// AuthHandler handles HTTP requests for authentication (login/logout).
+// AuthHandler handles HTTP requests for authentication (login/logout/refresh).
 type AuthHandler struct {
-	cfg        *config.Config
-	jwtManager *security.JWTManager
+	cfg         *config.Config
+	jwtManager  *security.JWTManager
+	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
 }
 
-// NewAuthHandler creates and returns a new AuthHandler.
-func NewAuthHandler(cfg *config.Config, jwtManager *security.JWTManager) *AuthHandler {
+// NewAuthHandler creates and returns a new AuthHandler. The familyStore parameter
+// is optional — pass nil to disable refresh-token rotation (sessions then behave
+// as before: a single 1h access token, no refresh).
+func NewAuthHandler(cfg *config.Config, jwtManager *security.JWTManager, familyStore store.RefreshTokenFamilyStorer) *AuthHandler {
 	return &AuthHandler{
-		cfg:        cfg,
-		jwtManager: jwtManager,
+		cfg:         cfg,
+		jwtManager:  jwtManager,
+		familyStore: familyStore,
 	}
 }
 
@@ -91,10 +96,33 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, refreshToken, err := h.jwtManager.GenerateTokens(username, roles[0])
+	familyID, err := security.NewFamilyID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to generate session ID")
+		return
+	}
+	accessToken, refreshToken, _, refreshJTI, err := h.jwtManager.GenerateTokensForFamily(username, roles[0], "local", familyID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to generate tokens")
 		return
+	}
+
+	// Persist the refresh-token family for rotation tracking. Failure here must not
+	// block login — log and continue. Without a family record the user can still
+	// authenticate, they just can't refresh (Refresh handler will reject and force
+	// a re-login). This is no worse than today's behavior (no refresh at all).
+	if h.familyStore != nil {
+		if err := h.familyStore.Create(r.Context(), store.RefreshTokenFamily{
+			FamilyID:   familyID,
+			UserID:     username,
+			Role:       roles[0],
+			Provider:   "local",
+			CurrentJTI: refreshJTI,
+			Status:     "active",
+			ExpiresAt:  time.Now().Add(h.cfg.RefreshTokenExpiry.Duration()),
+		}); err != nil {
+			logging.FromContext(r.Context()).Warn("auth: failed to persist refresh token family", zap.Error(err))
+		}
 	}
 
 	// Generate CSRF token for double-submit cookie pattern (REVIEW #11).
@@ -115,34 +143,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"metadata": map[string]string{"message": "Successfully logged"},
 	}
 
-	// CSRF cookie — HttpOnly=false so JavaScript can read it (REVIEW #11).
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrf_token",
-		Value:    csrfToken,
-		HttpOnly: false, //nolint:gosec // intentionally readable by JS for double-submit pattern
-		Secure:   h.cfg.TLS,
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-	})
-
-	// SameSite: Lax prevents CSRF while allowing top-level navigation (AUDIT 1.1).
-	http.SetCookie(w, &http.Cookie{
-		Name:     "jwt",
-		Value:    accessToken,
-		HttpOnly: true,
-		Secure:   h.cfg.TLS,
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-	})
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_jwt",
-		Value:    refreshToken,
-		HttpOnly: true,
-		Secure:   h.cfg.TLS,
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-	})
+	// CSRF cookie is HttpOnly=false so JavaScript can read it (REVIEW #11).
+	// jwt + refresh_jwt are HttpOnly. SameSite: Lax prevents CSRF while allowing
+	// top-level navigation (AUDIT 1.1).
+	setAuthCookies(w, h.cfg, accessToken, refreshToken, csrfToken)
 
 	writeJSON(w, http.StatusOK, response)
 }
@@ -171,8 +175,20 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	// Also blacklist the refresh token JTI so it cannot be used to mint new access
 	// tokens after logout — fixes AUDIT 1.6 (incomplete token revocation).
+	// If the refresh token has a `fam` claim, also revoke the family so any
+	// concurrent refresh attempt from another tab fails immediately.
 	refreshTokenStr := extractCookieToken(r, "refresh_jwt")
 	if refreshTokenStr != "" {
+		if h.familyStore != nil {
+			if _, claims, err := h.jwtManager.ValidateToken(refreshTokenStr, "refresh"); err == nil {
+				if famID, ok := claims["fam"].(string); ok && famID != "" {
+					if revokeErr := h.familyStore.Revoke(r.Context(), famID); revokeErr != nil {
+						logging.FromContext(r.Context()).Warn("auth: failed to revoke refresh token family on logout",
+							zap.String("family", famID), zap.Error(revokeErr))
+					}
+				}
+			}
+		}
 		h.blacklistToken(refreshTokenStr, "refresh", h.cfg.RefreshTokenExpiry.Duration())
 	}
 
@@ -210,6 +226,148 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Refresh godoc
+// @Summary      Refresh access token
+// @Description  Validates the refresh token, rotates it (OAuth 2.0 BCP), and issues a new access + refresh + csrf cookie set.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  map[string]any
+// @Failure      401  {object}  map[string]any
+// @Router       /auth/refresh [post]
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	if !h.cfg.SecurityEnabled {
+		writeError(w, http.StatusNotFound, "SECURITY is not enabled")
+		return
+	}
+	if h.familyStore == nil {
+		// Refresh-token rotation not configured. The client should re-login.
+		writeError(w, http.StatusUnauthorized, "Refresh not available")
+		return
+	}
+
+	tokenStr := extractCookieToken(r, "refresh_jwt")
+	if tokenStr == "" {
+		writeError(w, http.StatusUnauthorized, "Missing refresh token")
+		return
+	}
+
+	_, claims, err := h.jwtManager.ValidateToken(tokenStr, "refresh")
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Invalid refresh token")
+		return
+	}
+
+	famID, _ := claims["fam"].(string)
+	presentedJTI, _ := claims["jti"].(string)
+	if famID == "" || presentedJTI == "" {
+		writeError(w, http.StatusUnauthorized, "Malformed refresh token")
+		return
+	}
+
+	family, err := h.familyStore.GetByID(r.Context(), famID)
+	if err != nil {
+		logging.FromContext(r.Context()).Error("auth: refresh family lookup failed", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "Failed to load session")
+		return
+	}
+	if family == nil {
+		writeError(w, http.StatusUnauthorized, "Unknown session")
+		return
+	}
+	if family.Status != store.RefreshTokenFamilyStatusActive {
+		writeError(w, http.StatusUnauthorized, "Session no longer active")
+		return
+	}
+
+	// Reuse detection: presented JTI must equal current_jti, or previous_jti
+	// while still inside the grace window. Anything else is token theft.
+	matchesCurrent := presentedJTI == family.CurrentJTI
+	matchesPrevious := family.PreviousJTI != nil &&
+		presentedJTI == *family.PreviousJTI &&
+		family.GraceUntil != nil &&
+		time.Now().Before(*family.GraceUntil)
+
+	if !matchesCurrent && !matchesPrevious {
+		if revokeErr := h.familyStore.MarkCompromised(r.Context(), famID); revokeErr != nil {
+			logging.FromContext(r.Context()).Error("auth: failed to mark compromised family",
+				zap.String("family", famID), zap.Error(revokeErr))
+		}
+		logging.FromContext(r.Context()).Warn("auth: refresh token reuse detected, family compromised",
+			zap.String("user", family.UserID),
+			zap.String("family", famID))
+		writeError(w, http.StatusUnauthorized, "Session compromised")
+		return
+	}
+
+	// Mint a new access + refresh pair against the same family.
+	accessToken, refreshToken, _, newRefreshJTI, err := h.jwtManager.GenerateTokensForFamily(
+		family.UserID, family.Role, family.Provider, famID)
+	if err != nil {
+		logging.FromContext(r.Context()).Error("auth: failed to mint refreshed tokens", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "Failed to generate tokens")
+		return
+	}
+
+	// Atomically rotate: previous_jti = (old) current_jti, current_jti = newRefreshJTI,
+	// grace_until = NOW() + 30s. The 30s grace window absorbs benign multi-tab
+	// races where a second tab still holds the prior refresh cookie in flight.
+	if rotErr := h.familyStore.Rotate(r.Context(), famID, newRefreshJTI, 30); rotErr != nil {
+		logging.FromContext(r.Context()).Error("auth: failed to rotate refresh family",
+			zap.String("family", famID), zap.Error(rotErr))
+		writeError(w, http.StatusInternalServerError, "Failed to rotate session")
+		return
+	}
+
+	csrfToken, err := middleware.GenerateCSRFToken()
+	if err != nil {
+		logging.FromContext(r.Context()).Error("auth: failed to generate CSRF token on refresh", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "Failed to generate CSRF token")
+		return
+	}
+
+	setAuthCookies(w, h.cfg, accessToken, refreshToken, csrfToken)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"csrf_token": csrfToken,
+			"expires_in": int(h.cfg.AccessTokenExpiry.Seconds()),
+			"roles":      []string{family.Role},
+			"username":   family.UserID,
+			"provider":   family.Provider,
+		},
+		"metadata": map[string]string{"message": "Session refreshed"},
+	})
+}
+
+// setAuthCookies writes the jwt, refresh_jwt, and csrf_token cookies with the
+// shared attributes used by Login, OIDC.Callback, and Refresh.
+func setAuthCookies(w http.ResponseWriter, cfg *config.Config, accessToken, refreshToken, csrfToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    csrfToken,
+		HttpOnly: false, //nolint:gosec // intentionally readable by JS for double-submit pattern
+		Secure:   cfg.TLS,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "jwt",
+		Value:    accessToken,
+		HttpOnly: true,
+		Secure:   cfg.TLS,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_jwt",
+		Value:    refreshToken,
+		HttpOnly: true,
+		Secure:   cfg.TLS,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+}
+
 // Session godoc
 // @Summary      Get current session info
 // @Description  Returns the authenticated user's session information from JWT claims.
@@ -237,11 +395,20 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 		roles = []string{role}
 	}
 
+	// Compute remaining seconds from the JWT exp claim — not the configured TTL —
+	// so the client doesn't drift its expiresAt forward on each /auth/session call.
+	expiresIn := 0
+	if exp, ok := claims["exp"].(*jwt.NumericDate); ok && exp != nil {
+		if remaining := time.Until(exp.Time); remaining > 0 {
+			expiresIn = int(remaining.Seconds())
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"username":   username,
 			"roles":      roles,
-			"expires_in": int(h.cfg.AccessTokenExpiry.Seconds()),
+			"expires_in": expiresIn,
 			"provider":   provider,
 		},
 		"metadata": map[string]string{"message": "Session successfully obtained"},

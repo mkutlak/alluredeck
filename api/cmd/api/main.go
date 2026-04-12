@@ -29,21 +29,22 @@ import (
 
 // stores groups all database store instances.
 type stores struct {
-	project    store.ProjectStorer
-	build      store.BuildStorer
-	blacklist  store.BlacklistStorer
-	testResult store.TestResultStorer
-	branch     store.BranchStorer
-	knownIssue store.KnownIssueStorer
-	search     store.SearchStorer
-	analytics  store.AnalyticsStorer
-	apiKey     store.APIKeyStorer
-	attachment store.AttachmentStorer
-	user       store.UserStorer
-	defect     store.DefectStorer
-	webhook    store.WebhookStorer
-	pipeline   store.PipelineStorer
-	preference store.PreferenceStorer
+	project       store.ProjectStorer
+	build         store.BuildStorer
+	blacklist     store.BlacklistStorer
+	testResult    store.TestResultStorer
+	branch        store.BranchStorer
+	knownIssue    store.KnownIssueStorer
+	search        store.SearchStorer
+	analytics     store.AnalyticsStorer
+	apiKey        store.APIKeyStorer
+	attachment    store.AttachmentStorer
+	user          store.UserStorer
+	defect        store.DefectStorer
+	webhook       store.WebhookStorer
+	pipeline      store.PipelineStorer
+	preference    store.PreferenceStorer
+	refreshFamily store.RefreshTokenFamilyStorer
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -310,21 +311,22 @@ func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, 
 	pgBuild := pg.NewBuildStore(pgDB, logger)
 
 	s := stores{
-		project:    pgProj,
-		build:      pgBuild,
-		blacklist:  pg.NewBlacklistStore(pgDB),
-		testResult: pg.NewTestResultStore(pgDB, logger),
-		branch:     pg.NewBranchStore(pgDB),
-		knownIssue: pg.NewKnownIssueStore(pgDB),
-		search:     pg.NewSearchStore(pgDB, logger),
-		analytics:  pg.NewAnalyticsStore(pgDB),
-		apiKey:     pg.NewAPIKeyStore(pgDB),
-		attachment: pg.NewAttachmentStore(pgDB),
-		user:       pg.NewUserStore(pgDB),
-		defect:     pg.NewDefectStore(pgDB),
-		webhook:    pg.NewWebhookStore(pgDB, encKey, logger),
-		pipeline:   pg.NewPipelineStore(pgDB),
-		preference: pg.NewPreferenceStore(pgDB),
+		project:       pgProj,
+		build:         pgBuild,
+		refreshFamily: pg.NewRefreshTokenFamilyStore(pgDB),
+		blacklist:     pg.NewBlacklistStore(pgDB),
+		testResult:    pg.NewTestResultStore(pgDB, logger),
+		branch:        pg.NewBranchStore(pgDB),
+		knownIssue:    pg.NewKnownIssueStore(pgDB),
+		search:        pg.NewSearchStore(pgDB, logger),
+		analytics:     pg.NewAnalyticsStore(pgDB),
+		apiKey:        pg.NewAPIKeyStore(pgDB),
+		attachment:    pg.NewAttachmentStore(pgDB),
+		user:          pg.NewUserStore(pgDB),
+		defect:        pg.NewDefectStore(pgDB),
+		webhook:       pg.NewWebhookStore(pgDB, encKey, logger),
+		pipeline:      pg.NewPipelineStore(pgDB),
+		preference:    pg.NewPreferenceStore(pgDB),
 	}
 
 	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
@@ -355,13 +357,13 @@ func wireHandlers(
 		if oidcErr != nil {
 			logger.Fatal("OIDC discovery failed", zap.Error(oidcErr))
 		}
-		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, s.user, logger)
+		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, s.user, s.refreshFamily, logger)
 		logger.Info("OIDC SSO enabled", zap.String("issuer", cfg.OIDC.IssuerURL))
 	}
 
 	return handlerSet{
 		system: handlers.NewSystemHandler(cfg, sqlDB),
-		auth:   handlers.NewAuthHandler(cfg, jwtManager),
+		auth:   handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily),
 		report: handlers.NewReportHandler(handlers.ReportHandlerDeps{
 			JobManager:      jobManager,
 			Runner:          allureCore,
@@ -664,6 +666,10 @@ func registerRoutes(d routeDeps) {
 
 	// Session endpoint (auth-required).
 	mux.HandleFunc("GET "+prefix+"/auth/session", auth(noStore(d.h.auth.Session)))
+
+	// Refresh endpoint — no auth middleware; the refresh_jwt cookie IS the credential,
+	// validated inside the handler. Rate-limited to prevent refresh-loop abuse.
+	mux.HandleFunc("POST "+prefix+"/auth/refresh", noStore(rateLimit(d.h.auth.Refresh)))
 
 	// OIDC SSO routes (public, rate-limited).
 	if d.h.oidc != nil {

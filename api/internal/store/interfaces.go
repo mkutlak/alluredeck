@@ -25,6 +25,7 @@ var (
 	ErrDefectNotFound            = errors.New("defect fingerprint not found")
 	ErrWebhookNotFound           = errors.New("webhook not found")
 	ErrPreferencesNotFound       = errors.New("preferences not found")
+	ErrRefreshFamilyNotFound     = errors.New("refresh token family not found")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -106,6 +107,42 @@ type BlacklistStorer interface {
 	AddToBlacklist(ctx context.Context, jti string, expiresAt time.Time) error
 	IsBlacklisted(ctx context.Context, jti string) (bool, error)
 	PruneExpired(ctx context.Context) (int64, error)
+}
+
+// RefreshTokenFamilyStorer is the interface for refresh-token rotation storage
+// with reuse detection (OAuth 2.0 BCP). Each login produces a family; every
+// refresh rotates current_jti and records the previous value with a short grace
+// window. A request that presents an already-rotated refresh JTI outside the
+// grace window is token theft and should transition the family to
+// RefreshTokenFamilyStatusCompromised.
+type RefreshTokenFamilyStorer interface {
+	// Create inserts a new refresh-token family row. The caller must populate
+	// FamilyID (e.g. with a pre-generated UUID) as well as UserID, Role,
+	// Provider, CurrentJTI, and ExpiresAt. Status defaults to 'active' when empty.
+	Create(ctx context.Context, family RefreshTokenFamily) error
+
+	// GetByID returns the family row identified by familyID. It returns
+	// (nil, nil) when no row exists so callers can distinguish not-found from
+	// database errors (matching the BlacklistStorer convention).
+	GetByID(ctx context.Context, familyID string) (*RefreshTokenFamily, error)
+
+	// Rotate atomically sets previous_jti = current_jti, current_jti = newJTI,
+	// grace_until = NOW() + graceSeconds, and updated_at = NOW() for the given
+	// family in a single UPDATE statement. It returns ErrRefreshFamilyNotFound
+	// when the family does not exist.
+	Rotate(ctx context.Context, familyID, newJTI string, graceSeconds int) error
+
+	// MarkCompromised transitions the family's status to 'compromised'. It
+	// returns ErrRefreshFamilyNotFound when the family does not exist.
+	MarkCompromised(ctx context.Context, familyID string) error
+
+	// Revoke transitions the family's status to 'revoked'. It returns
+	// ErrRefreshFamilyNotFound when the family does not exist.
+	Revoke(ctx context.Context, familyID string) error
+
+	// DeleteExpired removes every row whose expires_at is strictly before NOW().
+	// It returns the number of rows deleted.
+	DeleteExpired(ctx context.Context) (int, error)
 }
 
 // BranchStorer is the interface for branch operations.

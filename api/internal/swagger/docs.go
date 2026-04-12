@@ -150,6 +150,46 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "description": "Removes all unprocessed result files from the results directory of each specified project.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Delete pending result files for multiple projects",
+                "parameters": [
+                    {
+                        "description": "List of project IDs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
             }
         },
         "/admin/results/group/{project_id}": {
@@ -1210,7 +1250,7 @@ const docTemplate = `{
         },
         "/projects/{project_id}/parent": {
             "put": {
-                "description": "Assigns a parent project to the given project. The parent must exist, must not itself be a child, and the target must have no children and no existing builds.",
+                "description": "Assigns a parent project to the given project. The parent must exist, must not itself be a child, and the target must have no children.",
                 "consumes": [
                     "application/json"
                 ],

@@ -61,7 +61,7 @@ func TestOIDCHandler_Login_Redirects(t *testing.T) {
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
 	userStore := testutil.NewMemUserStore()
 	oidcProv := &mockOIDCExchanger{}
-	handler := NewOIDCHandler(cfg, oidcProv, jwtManager, userStore, zap.NewNop())
+	handler := NewOIDCHandler(cfg, oidcProv, jwtManager, userStore, nil, zap.NewNop())
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/login", nil)
 	rr := httptest.NewRecorder()
@@ -99,7 +99,7 @@ func TestOIDCHandler_Callback_MissingStateCookie(t *testing.T) {
 	cfg := testOIDCConfig()
 	mocks := testutil.New()
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), zap.NewNop())
+	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=abc&code=xyz", nil)
 	rr := httptest.NewRecorder()
@@ -114,7 +114,7 @@ func TestOIDCHandler_Callback_StateMismatch(t *testing.T) {
 	cfg := testOIDCConfig()
 	mocks := testutil.New()
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), zap.NewNop())
+	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
 
 	// Create a valid state cookie with state="correct-state"
 	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "correct-state", "nonce", "verifier")
@@ -132,7 +132,7 @@ func TestOIDCHandler_Callback_IdPError(t *testing.T) {
 	cfg := testOIDCConfig()
 	mocks := testutil.New()
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), zap.NewNop())
+	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
 
 	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&error=access_denied", nil)
@@ -149,7 +149,7 @@ func TestOIDCHandler_Callback_ExpiredStateCookie(t *testing.T) {
 	cfg := testOIDCConfig()
 	mocks := testutil.New()
 	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), zap.NewNop())
+	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
 
 	// Override TTL to force expiry
 	orig := security.StateCookieTTL()
@@ -186,7 +186,7 @@ func TestOIDCHandler_Callback_DeactivatedUser(t *testing.T) {
 		},
 	}
 
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, zap.NewNop())
+	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop())
 
 	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
@@ -214,7 +214,7 @@ func TestOIDCHandler_Callback_Success(t *testing.T) {
 		},
 	}
 
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, zap.NewNop())
+	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop())
 
 	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
 	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)

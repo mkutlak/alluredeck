@@ -239,3 +239,204 @@ describe('apiClient', () => {
     expect(typeof apiClient.defaults.baseURL).toBe('string')
   })
 })
+
+// ---------------------------------------------------------------------------
+// refresh-on-401 retry logic
+// ---------------------------------------------------------------------------
+describe('apiClient refresh-on-401', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  function refreshBody(overrides: Record<string, unknown> = {}) {
+    return {
+      data: {
+        csrf_token: 'new-csrf',
+        expires_in: 3600,
+        roles: ['admin'],
+        username: 'alice',
+        provider: 'local',
+        ...overrides,
+      },
+      metadata: { message: 'Session refreshed' },
+    }
+  }
+
+  beforeEach(() => {
+    fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    Object.defineProperty(document, 'cookie', { value: '', writable: true, configurable: true })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  async function getModule() {
+    vi.resetModules()
+    return import('./client')
+  }
+
+  async function getAuthStore() {
+    return import('@/store/auth')
+  }
+
+  it('successfully refreshes and retries on 401', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+      .mockResolvedValueOnce(jsonResponse(refreshBody()))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, value: 42 }))
+
+    const { apiClient } = await getModule()
+    const { useAuthStore } = await getAuthStore()
+    useAuthStore.getState().clearAuth()
+
+    const res = await apiClient.get<{ ok: boolean; value: number }>('/widgets')
+
+    expect(res.data).toEqual({ ok: true, value: 42 })
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+
+    const [firstUrl] = fetchSpy.mock.calls[0] as [string]
+    const [refreshUrl, refreshInit] = fetchSpy.mock.calls[1] as [string, RequestInit]
+    const [retryUrl] = fetchSpy.mock.calls[2] as [string]
+    expect(firstUrl).toContain('/widgets')
+    expect(refreshUrl).toContain('/auth/refresh')
+    expect(refreshInit.method).toBe('POST')
+    expect(retryUrl).toContain('/widgets')
+
+    const state = useAuthStore.getState()
+    expect(state.isAuthenticated).toBe(true)
+    expect(state.username).toBe('alice')
+    expect(state.roles).toEqual(['admin'])
+    expect(state.provider).toBe('local')
+  })
+
+  it('dispatches allure:unauthorized when refresh also fails', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+      .mockResolvedValueOnce(jsonResponse({ error: 'refresh denied' }, 401))
+
+    const { apiClient, ApiError } = await getModule()
+    const handler = vi.fn()
+    window.addEventListener('allure:unauthorized', handler)
+
+    await expect(apiClient.get('/widgets')).rejects.toThrow(ApiError)
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).toHaveBeenCalledTimes(2) // original + refresh, no retry
+    const [, refreshUrl] = fetchSpy.mock.calls.map((c) => c[0] as string)
+    expect(refreshUrl).toContain('/auth/refresh')
+
+    window.removeEventListener('allure:unauthorized', handler)
+  })
+
+  it('does not attempt refresh on /auth/refresh 401', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ error: 'refresh denied' }, 401))
+
+    const { apiClient, ApiError } = await getModule()
+    const handler = vi.fn()
+    window.addEventListener('allure:unauthorized', handler)
+
+    await expect(apiClient.post('/auth/refresh')).rejects.toThrow(ApiError)
+
+    // Exactly one fetch: the original call. No follow-up /auth/refresh loop.
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url] = fetchSpy.mock.calls[0] as [string]
+    expect(url).toContain('/auth/refresh')
+    expect(handler).toHaveBeenCalledTimes(1)
+
+    window.removeEventListener('allure:unauthorized', handler)
+  })
+
+  it('does not attempt refresh on /login 401', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ error: 'bad credentials' }, 401))
+
+    const { apiClient, ApiError } = await getModule()
+    const handler = vi.fn()
+    window.addEventListener('allure:unauthorized', handler)
+
+    await expect(apiClient.post('/login', { username: 'x', password: 'y' })).rejects.toThrow(
+      ApiError,
+    )
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url] = fetchSpy.mock.calls[0] as [string]
+    expect(url).toContain('/login')
+    // /login must not trigger a refresh POST
+    for (const call of fetchSpy.mock.calls) {
+      expect((call[0] as string)).not.toContain('/auth/refresh')
+    }
+    expect(handler).toHaveBeenCalledTimes(1)
+
+    window.removeEventListener('allure:unauthorized', handler)
+  })
+
+  it('concurrent 401s share single refresh promise', async () => {
+    // Gate the refresh so all 5 original calls 401 before the refresh resolves,
+    // guaranteeing they all contend for the same in-flight refresh promise.
+    let resolveRefresh: (value: Response) => void = () => undefined
+    const refreshPending = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve
+    })
+
+    fetchSpy.mockImplementation((input: string | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/auth/refresh')) {
+        return refreshPending
+      }
+      // First time each /x is hit, return 401; after the refresh we switch
+      // to returning 200. Track by occurrence count.
+      const prior = fetchSpy.mock.calls.filter(
+        (c) => typeof c[0] === 'string' && (c[0] as string).includes('/x'),
+      ).length
+      // prior counts the CURRENT call, so the first hit has prior === 1
+      // and the first five calls all return 401, subsequent retries return 200.
+      if (prior <= 5) {
+        return Promise.resolve(jsonResponse({ error: 'unauthorized' }, 401))
+      }
+      return Promise.resolve(jsonResponse({ ok: true, n: prior }))
+    })
+
+    const { apiClient } = await getModule()
+    const { useAuthStore } = await getAuthStore()
+    useAuthStore.getState().clearAuth()
+
+    const promises = [
+      apiClient.get<{ ok: boolean; n: number }>('/x'),
+      apiClient.get<{ ok: boolean; n: number }>('/x'),
+      apiClient.get<{ ok: boolean; n: number }>('/x'),
+      apiClient.get<{ ok: boolean; n: number }>('/x'),
+      apiClient.get<{ ok: boolean; n: number }>('/x'),
+    ]
+
+    // Give the 5 original 401s a tick to land and register as waiters on the
+    // single-flight refresh promise, then resolve /auth/refresh.
+    await new Promise((r) => setTimeout(r, 0))
+    resolveRefresh(jsonResponse(refreshBody()))
+
+    const results = await Promise.all(promises)
+
+    // All 5 callers received a successful retry response.
+    expect(results).toHaveLength(5)
+    for (const res of results) {
+      expect(res.data.ok).toBe(true)
+    }
+
+    // Exactly one call to /auth/refresh across the entire test.
+    const refreshCalls = fetchSpy.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/auth/refresh'),
+    )
+    expect(refreshCalls).toHaveLength(1)
+
+    // Sanity: auth store was updated once with the refreshed session.
+    const state = useAuthStore.getState()
+    expect(state.isAuthenticated).toBe(true)
+    expect(state.username).toBe('alice')
+  })
+})

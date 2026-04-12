@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -17,21 +18,24 @@ import (
 
 // OIDCHandler handles OIDC SSO login and callback flows.
 type OIDCHandler struct {
-	cfg        *config.Config
-	oidcProv   security.OIDCExchanger
-	jwtManager *security.JWTManager
-	userStore  store.UserStorer
-	logger     *zap.Logger
+	cfg         *config.Config
+	oidcProv    security.OIDCExchanger
+	jwtManager  *security.JWTManager
+	userStore   store.UserStorer
+	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
+	logger      *zap.Logger
 }
 
-// NewOIDCHandler creates and returns a new OIDCHandler.
-func NewOIDCHandler(cfg *config.Config, oidcProv security.OIDCExchanger, jwtManager *security.JWTManager, userStore store.UserStorer, logger *zap.Logger) *OIDCHandler {
+// NewOIDCHandler creates and returns a new OIDCHandler. The familyStore parameter
+// is optional — pass nil to disable refresh-token rotation for OIDC sessions.
+func NewOIDCHandler(cfg *config.Config, oidcProv security.OIDCExchanger, jwtManager *security.JWTManager, userStore store.UserStorer, familyStore store.RefreshTokenFamilyStorer, logger *zap.Logger) *OIDCHandler {
 	return &OIDCHandler{
-		cfg:        cfg,
-		oidcProv:   oidcProv,
-		jwtManager: jwtManager,
-		userStore:  userStore,
-		logger:     logger,
+		cfg:         cfg,
+		oidcProv:    oidcProv,
+		jwtManager:  jwtManager,
+		userStore:   userStore,
+		familyStore: familyStore,
+		logger:      logger,
 	}
 }
 
@@ -145,12 +149,35 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. Generate JWT tokens with OIDC provider claim
-	accessToken, refreshToken, err := h.jwtManager.GenerateTokens(user.Email, user.Role, "oidc")
+	// 8. Generate refresh-token family ID + JWT tokens with OIDC provider claim
+	familyID, err := security.NewFamilyID()
+	if err != nil {
+		h.logger.Error("oidc: failed to generate session ID", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "Failed to generate session tokens")
+		return
+	}
+	accessToken, refreshToken, _, refreshJTI, err := h.jwtManager.GenerateTokensForFamily(user.Email, user.Role, "oidc", familyID)
 	if err != nil {
 		h.logger.Error("oidc: failed to generate tokens", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "Failed to generate session tokens")
 		return
+	}
+
+	// 8b. Persist the refresh-token family for rotation tracking. Failure here
+	// must not block login — log and continue. Without a family record the user
+	// can still authenticate, they just can't refresh.
+	if h.familyStore != nil {
+		if famErr := h.familyStore.Create(r.Context(), store.RefreshTokenFamily{
+			FamilyID:   familyID,
+			UserID:     user.Email,
+			Role:       user.Role,
+			Provider:   "oidc",
+			CurrentJTI: refreshJTI,
+			Status:     store.RefreshTokenFamilyStatusActive,
+			ExpiresAt:  time.Now().Add(h.cfg.RefreshTokenExpiry.Duration()),
+		}); famErr != nil {
+			h.logger.Warn("oidc: failed to persist refresh token family", zap.Error(famErr))
+		}
 	}
 
 	// 9. Generate CSRF token
@@ -161,31 +188,8 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 10. Set auth cookies (same pattern as local login)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrf_token",
-		Value:    csrfToken,
-		HttpOnly: false, //nolint:gosec // intentionally readable by JS for double-submit pattern
-		Secure:   h.cfg.TLS,
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "jwt",
-		Value:    accessToken,
-		HttpOnly: true,
-		Secure:   h.cfg.TLS,
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_jwt",
-		Value:    refreshToken,
-		HttpOnly: true,
-		Secure:   h.cfg.TLS,
-		SameSite: http.SameSiteLaxMode,
-		Path:     "/",
-	})
+	// 10. Set auth cookies (shared with local Login + Refresh).
+	setAuthCookies(w, h.cfg, accessToken, refreshToken, csrfToken)
 
 	// 11. Clear the state cookie
 	http.SetCookie(w, &http.Cookie{

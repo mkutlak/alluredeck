@@ -296,6 +296,31 @@ type Webhook struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
+// RefreshTokenFamilyStatus values recognised by the refresh-token rotation store.
+const (
+	RefreshTokenFamilyStatusActive      = "active"
+	RefreshTokenFamilyStatusCompromised = "compromised"
+	RefreshTokenFamilyStatusRevoked     = "revoked"
+)
+
+// RefreshTokenFamily represents a single row in the refresh_token_families table.
+// A family tracks the chain of refresh tokens that originated from a single login.
+// On each refresh the current_jti is rotated to a new one and recorded in previous_jti
+// with a short grace window so benign retries do not trigger reuse detection.
+type RefreshTokenFamily struct {
+	FamilyID    string
+	UserID      string
+	Role        string
+	Provider    string
+	CurrentJTI  string
+	PreviousJTI *string
+	GraceUntil  *time.Time
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ExpiresAt   time.Time
+}
+
 // WebhookDelivery records one delivery attempt for audit/debugging.
 type WebhookDelivery struct {
 	ID           string    `json:"id"`
