@@ -1,3 +1,10 @@
+## [0.21.0](https://github.com/mkutlak/alluredeck/compare/v0.20.0...v0.21.0) (2026-04-12)
+
+### Features
+
+* **auth:** sliding sessions with rotating refresh tokens + session drift fix ([60e5806](https://github.com/mkutlak/alluredeck/commit/60e5806e2e69381e9e4371a872726363fac917d0))
+* surrogate PKs, DnD project grouping, pending results improvements, and bug fixes ([7561f21](https://github.com/mkutlak/alluredeck/commit/7561f21c4c2e64e21b6649053469817cbaf5aa0a))
+
 ## [0.20.0](https://github.com/mkutlak/alluredeck/compare/v0.19.0...v0.20.0) (2026-04-07)
 
 ### Features
