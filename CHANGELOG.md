@@ -1,3 +1,9 @@
+## [0.22.0](https://github.com/mkutlak/alluredeck/compare/v0.21.0...v0.22.0) (2026-04-12)
+
+### Features
+
+* proactive token refresh, E2E stability improvements, and security hardening ([cfe6962](https://github.com/mkutlak/alluredeck/commit/cfe6962b1ec1389aaca63758dba8486c4126be79))
+
 ## [0.21.0](https://github.com/mkutlak/alluredeck/compare/v0.20.0...v0.21.0) (2026-04-12)
 
 ### Features
