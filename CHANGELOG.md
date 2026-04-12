@@ -1,3 +1,9 @@
+## [0.22.1](https://github.com/mkutlak/alluredeck/compare/v0.22.0...v0.22.1) (2026-04-12)
+
+### Bug Fixes
+
+* **api:** resolve nested child projects by slug in handlers ([f9fd7f6](https://github.com/mkutlak/alluredeck/commit/f9fd7f6c39d1a466dab32455047617ff84792540))
+
 ## [0.22.0](https://github.com/mkutlak/alluredeck/compare/v0.21.0...v0.22.0) (2026-04-12)
 
 ### Features
