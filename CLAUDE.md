@@ -49,11 +49,12 @@ alluredeck/
 ### API (Go backend)
 - **Language**: Go 1.25 (module: `github.com/mkutlak/alluredeck/api`)
 - **HTTP**: `net/http` stdlib only (no third-party router)
-- **Auth**: JWT (`golang-jwt/jwt/v5`) + bcrypt passwords
+- **Auth**: JWT (`golang-jwt/jwt/v5`) + bcrypt passwords; optional OIDC SSO via `coreos/go-oidc/v3`
 - **Config**: env vars + optional YAML file (`go.yaml.in/yaml/v3`, `kelseyhightower/envconfig`)
 - **DB**: PostgreSQL (pgx/v5 + goose v3 migrations)
-- **Job Queue**: River v0.31 (PostgreSQL only)
+- **Job Queue**: River v0.34 (PostgreSQL-backed; `riverpgxv5` driver)
 - **Storage**: Local filesystem or S3 (`aws-sdk-go-v2`)
+- **Report formats**: Allure 2 and Allure 3 (auto-detected via `report_type`); Playwright HTML reports with embedded trace viewer at `/trace/`
 - **Logging**: Uber Zap (`go.uber.org/zap`) — JSON in prod, console in dev
 - **Docs**: Swagger via `swaggo/swag` + `swaggo/http-swagger`
 - **Lint**: golangci-lint v2

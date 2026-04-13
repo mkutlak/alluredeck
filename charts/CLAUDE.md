@@ -26,13 +26,11 @@ charts/alluredeck/
       service.yaml
       configmap.yaml
       serviceaccount.yaml
-  tests/
-    test-api-connection.yaml
-    test-ui-connection.yaml
 ```
 
 ## values.yaml Sections
-- **api**: `image`, `config` (logLevel, storageType, CORS, upload limits, goMemLimit), `s3` (endpoint, bucket, region, credentials), `security` (users, passwords, JWT keys), `persistence` (projects PVC + database PVC), `resources`, `probes`, `kind` (Deployment or StatefulSet)
+- **global**: cluster-wide defaults — `imagePullSecrets`, `storageClassName` (inherited by PVCs unless overridden)
+- **api**: `image`, `config` (logLevel, storageType, CORS, upload limits, goMemLimit), `s3` (endpoint, bucket, region, credentials), `security` (users, passwords, JWT keys, `existingSecret`), `oidc` (enabled, issuerUrl, clientId, redirectUrl, scopes, groups mapping), `persistence` (projects PVC + database PVC), `resources`, `probes`, `kind` (Deployment or StatefulSet)
 - **ui**: `image`, `config` (apiUrl, appTitle), `resources`, `probes`
 - **ingress**: path-based routing — hardcoded `/api` + `/trace` → API, `/` → UI, optional `/swagger` → API; `extraPaths` for custom rules
 - **networkPolicy**: optional allow rules for ingress controller pods

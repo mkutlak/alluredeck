@@ -15,16 +15,24 @@
 
 ## Features
 
-- **Project management** — create, list, delete projects; grid and list view; paginated API
-- **Analytics** — Status Trend, Pass Rate Trend, Duration Trend, Status Distribution charts
-- **Test timeline** — Gantt-chart visualization of parallel test execution with swim lanes
-- **Known issues tracking** — tag flaky/known-failing tests; adjusted pass rate calculation
-- **Report history** — colour-coded table with per-build stats, view and delete actions
-- **Embedded report viewer** — Allure 2 & 3 reports rendered inline
-- **Admin actions** — drag & drop result upload, generate report, clean results/history
-- **Authentication** — JWT-based login, admin vs viewer RBAC, CSRF protection, per-IP rate limiting
-- **Storage backends** — local filesystem and S3/MinIO
-- **Dark / light mode** — system-aware theme toggle
+- **Project management** — create, list, delete projects; parent/child grouping with drag & drop; grid and list views; paginated API
+- **Cross-project dashboard** — Healthy / Degraded / Failing health summary with per-project sparklines
+- **Analytics** — Status Trend, Pass Rate Trend, Duration Trend, Status Distribution, failure categories, low-performing tests
+- **Test timeline** — interactive D3 Gantt chart of parallel test execution with zoom, minimap, and keyboard navigation
+- **Build comparison** — diff two builds to see regressed / fixed / added / removed tests
+- **Defects** — fingerprint-grouped failure tracking with bulk classification and per-build summaries
+- **Known issues** — tag flaky/known-failing tests with regex matching; adjusted pass rate calculation
+- **Pipeline runs** — aggregate CI runs across child projects by commit SHA (parent projects only)
+- **Report history** — colour-coded table with per-build stats, pagination, CI metadata, view and delete actions
+- **Embedded report viewer** — Allure 2 & 3 reports rendered inline, with embedded Playwright trace viewer at `/trace/`
+- **Playwright support** — upload Playwright HTML reports alongside Allure; auto-detected per project
+- **Webhooks** — Slack, Discord, Teams, and generic HTTP notifications with delivery tracking
+- **API keys** — per-user `ald_` prefixed keys for CI/CD uploads (SHA-256 hashed, optional expiry)
+- **Admin actions** — drag & drop result upload, generate report, clean results/history, admin system monitor
+- **Authentication** — local JWT login with refresh-token rotation, admin/editor/viewer RBAC, CSRF protection, per-IP rate limiting; optional OIDC SSO (Azure AD, Keycloak, Okta, Google Workspace)
+- **Global search** — Cmd+K command palette over projects and test names (PostgreSQL FTS)
+- **Storage backends** — local filesystem and S3/MinIO (IRSA on EKS supported)
+- **Dark / light mode** — system-aware theme toggle (Catppuccin)
 - **Multi-arch images** — `linux/amd64` and `linux/arm64`
 
 ## Quick Start
@@ -52,6 +60,7 @@ See the [Helm Chart README](charts/alluredeck/README.md) for full configuration 
 ## Documentation
 
 - [Product Features](docs/features.md) — comprehensive feature guide with screenshots
+- [Authentication](docs/authentication.md) — local auth, OIDC SSO, provider examples (Azure AD, Keycloak, Okta, Google)
 - [Deployment and Security](docs/deployment.md) — Docker Compose, Helm, JWT auth, RBAC, production checklist
 - [Configuration Reference](docs/configuration.md) — all environment variables and YAML config
 - [Storage](docs/storage.md) — local filesystem and S3/MinIO setup, IRSA on EKS

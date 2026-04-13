@@ -102,11 +102,12 @@ For details on roles, token types, CSRF protection, and the production security 
 | `PROJECTS_PATH` | `projects_path` | `/data/projects` | Directory where Allure project results and reports are stored. Must be readable and writable |
 | `DATABASE_URL` | `database_url` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
 | `DB_MAX_OPEN_CONNS` | `db_max_open_conns` | `25` | Maximum open database connections |
-| `DB_MAX_IDLE_CONNS` | `db_max_idle_conns` | `0` | Maximum idle database connections (0 = use Go default) |
-| `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `0` | Maximum connection lifetime (e.g., `30m`; 0 = no limit) |
+| `DB_MAX_IDLE_CONNS` | `db_max_idle_conns` | `5` | Maximum idle database connections kept in the pool |
+| `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `5m` | Maximum connection lifetime before the pool recycles it (Go duration string, e.g., `30m`, `1h`) |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
-| `KEEP_HISTORY_LATEST` | `keep_history_latest` | `20` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning |
+| `KEEP_HISTORY_LATEST` | `keep_history_latest` | `100` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning |
 | `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted |
+| `PENDING_RESULTS_MAX_AGE_DAYS` | `pending_results_max_age_days` | `3` | Delete uploaded but never-generated result files older than N days. Pending results are files that were uploaded via `POST /results` but never had a report generated from them. Cleaned up by the same daily background scheduler that prunes report history |
 
 ### Example
 
@@ -192,6 +193,7 @@ export CHECK_RESULTS_EVERY_SECONDS="NONE"
 |----------------------|----------|---------|-------------|
 | `API_RESPONSE_LESS_VERBOSE` | `api_response_less_verbose` | `false` | Return minimal JSON responses (omit extra fields, arrays of objects). Useful for reducing payload size in bandwidth-constrained environments |
 | `CORS_ALLOWED_ORIGINS` | `cors_allowed_origins` | *(empty list)* | Comma-separated list of allowed CORS origins (via env var) or YAML list. Empty = CORS disabled. Examples: `https://dashboard.example.com,https://ci.example.com` |
+| `EXTERNAL_URL` | `external_url` | *(empty)* | Public-facing base URL the API is reachable at (e.g., `https://alluredeck.example.com`). Used to compute the OIDC redirect URL and other absolute links when the API is behind a reverse proxy. If empty, the API derives the URL from the incoming request — set this explicitly when the request `Host` header may be wrong (e.g., behind ALB or nginx without `X-Forwarded-Host`) |
 
 ### CORS Example
 

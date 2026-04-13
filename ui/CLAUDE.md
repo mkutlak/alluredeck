@@ -9,10 +9,20 @@
 
 ## Key Versions
 - React 19, React Router v7, Zustand v5
-- Vite 8, Vitest 4, TypeScript 5 (strict)
+- Vite 8, Vitest 4, TypeScript 6 (strict)
 - ESLint 10 (flat config — `eslint.config.js`), Prettier 3
 - TanStack Query v5, Recharts 3, Tailwind CSS 4
 - Radix UI primitives, shadcn-style components
+
+## Key Libraries
+- **Icons**: `lucide-react`
+- **Command palette**: `cmdk` (Cmd+K global search)
+- **Theme toggle**: `next-themes` (Catppuccin Latte / Mocha)
+- **Markdown rendering**: `marked` + `dompurify` (safe HTML, used for known-issues notes and webhook payload previews)
+- **Syntax highlighting**: `shiki`
+- **Timeline Gantt chart**: `d3-selection`, `d3-scale`, `d3-axis`, `d3-brush`, `d3-zoom` (used in `features/timeline/`)
+- **Class composition**: `clsx`, `class-variance-authority`, `tailwind-merge`
+- **Allure reporting for tests**: `allure-vitest`
 
 ## Dev Server
 Runs on port **7474** (`npm run dev` / `make ui-dev`).

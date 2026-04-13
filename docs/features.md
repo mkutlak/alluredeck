@@ -12,22 +12,29 @@ Related documentation: [Deployment & Security](deployment.md) · [Configuration 
 2. [API Keys for CI/CD](#api-keys-for-cicd)
 3. [Projects Dashboard](#projects-dashboard)
 4. [Project Management](#project-management)
+   - [Project Hierarchy & Grouping](#project-hierarchy--grouping)
+   - [Project Display Names](#project-display-names)
 5. [Project Overview](#project-overview)
    - [Report History](#report-history)
 6. [Analytics](#analytics)
 7. [Known Issues](#known-issues)
-8. [Test Execution Timeline](#test-execution-timeline)
-9. [Test History](#test-history)
-10. [Build Comparison](#build-comparison)
-11. [Report Viewer](#report-viewer)
-12. [Report Operations](#report-operations)
-13. [Report Retention](#report-retention)
-14. [Global Search](#global-search)
-15. [Admin System Monitor](#admin-system-monitor)
-16. [Navigation & UI](#navigation--ui)
-17. [Backend & Deployment](#backend--deployment)
-18. [CI/CD Integration](#cicd-integration)
-19. [Configuration Quick Reference](#configuration-quick-reference)
+8. [Defects](#defects)
+9. [Test Execution Timeline](#test-execution-timeline)
+10. [Test History](#test-history)
+11. [Build Comparison](#build-comparison)
+12. [Pipeline Runs](#pipeline-runs)
+13. [Report Viewer](#report-viewer)
+14. [Playwright Reports](#playwright-reports)
+15. [Report Operations](#report-operations)
+16. [Webhooks](#webhooks)
+17. [Report Retention](#report-retention)
+18. [Global Search](#global-search)
+19. [Admin System Monitor](#admin-system-monitor)
+20. [Navigation & UI](#navigation--ui)
+21. [User Preferences](#user-preferences)
+22. [Backend & Deployment](#backend--deployment)
+23. [CI/CD Integration](#cicd-integration)
+24. [Configuration Quick Reference](#configuration-quick-reference)
 
 ---
 
@@ -132,7 +139,33 @@ Projects are the top-level organisational unit. Each project has a unique slug (
 
 ![Project tags dropdown](screenshots/project-tags.png)
 
-**Views:** The dashboard supports grid and list views. Toggle between them using the view switcher in the top-right of the dashboard.
+**Views:** The dashboard supports grid and list views. Toggle between them using the view switcher in the top-right of the dashboard. The selected view is persisted per user (see [User Preferences](#user-preferences)).
+
+### Project Hierarchy & Grouping
+
+Projects can be organised into one-level **parent / child** relationships. A parent project acts as a group; its children are the actual test suites. This is useful when a single CI pipeline runs multiple suites (e.g. `api-tests`, `ui-tests`, `contract-tests`) and you want to aggregate them under one project card — and then view them by commit SHA on the [Pipeline Runs](#pipeline-runs) tab.
+
+**Rules:**
+- Hierarchy is **exactly one level deep** — a parent cannot itself be a child, and a child cannot have its own children
+- A project cannot be re-parented if it already has children (enforced server-side with `409 Conflict`)
+
+**Dashboard grouping:** When the dashboard is in **grouped** view mode (default), parent projects appear first with a folder icon and are non-navigable — clicking drills down into the group to show that parent's children. Switch to **all** view to see a flat list of every project regardless of hierarchy.
+
+**Drag & drop grouping:** In the dashboard, drag a child project card onto a parent project card to nest it. Drag it onto empty space to un-parent. The underlying move calls `PUT /projects/{id}/parent` (to nest) or `DELETE /projects/{id}/parent` (to un-parent).
+
+**API endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `PUT` | `/api/v1/projects/{project_id}/parent` | Set a project's parent. Body: `{"parent_id": <int>}`. Admin only |
+| `DELETE` | `/api/v1/projects/{project_id}/parent` | Un-parent a project (returns `400` if it has no parent). Admin only |
+| `GET` | `/api/v1/projects/{project_id}/children` | List direct children of a parent project (flat, not nested) |
+
+### Project Display Names
+
+Each project has both a **slug** (the ID used in URLs and API calls, e.g. `ui-workflow`) and a **display name** that's shown in the sidebar, project card, and breadcrumbs. By default the display name matches the slug, but it can carry spaces, capitalization, and non-URL-safe characters for readability (e.g. "UI Workflow — Staging").
+
+**Renaming:** The `PUT /api/v1/projects/{project_id}/rename` endpoint updates the slug (and storage paths); display names are populated at project creation and displayed by the UI via a `projectLabel()` helper that falls back to the slug when empty.
 
 ---
 
@@ -211,6 +244,51 @@ Known Issues lets you tag test cases that are currently broken by design — fla
 
 ---
 
+## Defects
+
+Defects group repeat test failures by **error fingerprint**, so a cluster of tests failing with the same root cause appears as a single tracked item that you can classify and triage — separate from Known Issues (which is about individually-tagged tests).
+
+Each defect has:
+- A **fingerprint** derived from the normalized error message and stack trace
+- A **category** — `product_bug`, `test_bug`, `infrastructure`, or `to_investigate`
+- A **resolution** — `open`, `fixed`, `muted`, or `won't fix`
+- First / last seen build, total occurrence count, and consecutive-clean-build count (used to detect regressions)
+- An optional link to a Known Issue
+
+The defects page lives at `/projects/{id}/defects` and is also reachable from the sidebar under a project.
+
+**Project-level view (`ProjectDefectsView`):**
+- Four stat cards at the top: **Open**, **Fixed**, **Muted**, **Regressions**
+- A trend chart showing defect counts per build
+- A filterable, sortable, paginated defect table with columns for category badge, error message, test count, build range, and new/regression flags
+
+**Filters** (above the table):
+- Text search on the normalized error message
+- Category dropdown (All / Product Bug / Test Bug / Infrastructure / To Investigate)
+- Resolution dropdown (All / Open / Fixed / Muted / Won't Fix)
+- Sort by last seen, first seen, or occurrence count
+
+**Defect detail:** Clicking a row expands an inline drawer with the metadata grid (first seen, last seen, total occurrences, consecutive clean builds), a category selector, and resolution action buttons (Mute, Won't Fix, Reopen).
+
+**Bulk actions:** Check multiple rows and a toolbar appears with **Set category** and **Set resolution** selectors — the chosen values apply to all selected defects via a single API call.
+
+**Build-level view (`BuildDefectsView`):** Accessible at `/projects/{id}/builds/{build_id}/defects` (e.g., from the Report History table). Shows only the defects observed in that build, with summary badges for **Groups**, **Affected tests**, **New**, and **Regressions**.
+
+**API endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/projects/{project_id}/defects` | Paginated project-wide defect list (with filters) |
+| `GET` | `/api/v1/projects/{project_id}/defects/summary` | Open / fixed / muted / regression counts and category breakdown |
+| `GET` | `/api/v1/projects/{project_id}/defects/{defect_id}` | Single defect metadata |
+| `GET` | `/api/v1/projects/{project_id}/defects/{defect_id}/tests` | Tests currently attached to this defect |
+| `PATCH` | `/api/v1/projects/{project_id}/defects/{defect_id}` | Update category / resolution / known-issue link (editor+) |
+| `POST` | `/api/v1/projects/{project_id}/defects/bulk` | Bulk-update category / resolution on many defects (editor+) |
+| `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/defects` | Defects observed in a specific build |
+| `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/defects/summary` | Build-scoped summary counts |
+
+---
+
 ## Test Execution Timeline
 
 ![Test Execution Timeline](screenshots/timeline.png)
@@ -261,18 +339,98 @@ Select two builds from the Report History table and click "Compare" to open the 
 
 ---
 
+## Pipeline Runs
+
+Pipeline Runs is a tab that appears on **parent projects** (see [Project Hierarchy & Grouping](#project-hierarchy--grouping)) and aggregates CI builds from all child projects by **commit SHA**, giving you a per-commit view of how every test suite in the pipeline performed.
+
+Typical use case: a single CI pipeline runs `API tests` and `UI tests` as separate child projects under a `my-service` parent. When a commit lands, the Pipeline Runs tab shows a row for that commit with both suites side-by-side and a cross-suite aggregate (total passed / failed / skipped).
+
+**When the tab appears:** Only on parent projects that have at least one child project. Leaf (non-parent) projects don't see the Pipeline Runs tab; parent projects hide the Timeline, Known Issues, and Attachments tabs instead and show Pipeline Runs in their place.
+
+**Table columns:**
+- **Commit SHA** — truncated; hover for full value
+- **Branch**
+- **Timestamp** of the pipeline run
+- **Suites** — one entry per child project's build, with test counts and status
+- **Aggregate** — cross-suite passed / failed / skipped totals
+
+**Filters:** optional branch filter; paginated (default 10 per page).
+
+Clicking a suite's build icon navigates to that child project's report view.
+
+**Prerequisite:** Child project builds must include the CI commit SHA in their CI metadata (`executorInfo.json` or the `ci_commit_sha` query parameter on upload) — without it, builds can't be grouped into a pipeline run.
+
+**API:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/projects/{project_id}/pipeline-runs` | Paginated pipeline runs (parent projects only; returns 400 otherwise). Query params: `page`, `per_page`, `branch` |
+
+---
+
 ## Report Viewer
 
 ![Report Viewer](screenshots/report-viewer.png)
 
-AllureDeck embeds Allure reports directly in the dashboard via an iframe, with a breadcrumb navigation bar at the top.
+AllureDeck embeds test reports directly in the dashboard via an iframe, with a breadcrumb navigation bar at the top. The viewer renders either an Allure report or a Playwright HTML report depending on the project's `report_type`, which is auto-detected when results are uploaded.
 
 **Features:**
-- Supports both **Allure 2** and **Allure 3** report formats
+- Supports both **Allure 2** and **Allure 3** report formats (auto-detected)
+- Also supports **Playwright HTML reports** — see [Playwright Reports](#playwright-reports)
 - **Breadcrumb** — `project-name / Report #N` with a back link
-- **Open in new tab** — button to open the raw Allure report in a standalone browser tab
+- **Open in new tab** — button to open the raw report in a standalone browser tab
 - **Split view** icon to toggle sidebar/main layout
-- The embedded report includes all standard Allure features: test results tree, quality gates, global attachments, global errors, retries, flaky test indicators
+- For Playwright projects that also have Allure reports uploaded, a **Playwright / Allure** toggle lets you switch between the two views on the same build
+- The embedded Allure report includes all standard Allure features: test results tree, quality gates, global attachments, global errors, retries, flaky test indicators
+
+---
+
+## Playwright Reports
+
+AllureDeck accepts full Playwright HTML reports alongside Allure results. A single project can store both formats on the same build, and attached Playwright traces open inline in an embedded trace viewer — no download required.
+
+**Uploading a Playwright report:**
+
+Playwright reports are uploaded as a **gzipped tar archive** (`tar -czf report.tar.gz -C playwright-report .`) whose root contains `index.html`. The API endpoint is:
+
+```bash
+curl -X POST "https://alluredeck.example.com/api/v1/projects/my-project/playwright?ci_branch=main&ci_commit_sha=$GITHUB_SHA" \
+  -H "Authorization: Bearer $ALLUREDECK_API_KEY" \
+  --data-binary @report.tar.gz
+```
+
+Supported query parameters: `build_number` (pair with an existing build; defaults to the latest), `ci_branch`, `ci_commit_sha`, `execution_name`, `execution_from` (for CI metadata), and `force_project_creation=true` + `parent_id` to auto-create missing projects.
+
+On upload the server streams, validates (max 10,000 files, path traversal rejected), and stores the archive under `playwright-reports/{buildNumber}/` in local storage or S3. The build is then marked with `has_playwright_report=true`.
+
+**Viewing a Playwright report:**
+
+Navigate to the report via the normal report history table (`/projects/{id}/reports/{reportId}`). The Report Viewer detects the project's `report_type` and points its iframe at the Playwright report (`/api/v1/projects/{id}/playwright-reports/{reportId}/index.html`) instead of the Allure one.
+
+If the build also has an Allure report, a toggle in the action bar lets you switch between the two.
+
+**Embedded trace viewer:**
+
+Playwright `trace.zip` files attached to a test render inline. The trace viewer itself is served from `/trace/` — a static-file handler with the embedded Playwright trace viewer assets — and is wrapped by the `/projects/{id}/trace/{source}` route on the UI side, which injects the trace file URL as a query parameter.
+
+No authentication is required to load `/trace/` (it's pure static assets), but the trace file it opens is served through AllureDeck's authenticated attachment endpoint, so traces remain protected.
+
+**Action bar behavior:**
+
+The report action bar adapts to the project's `report_type`:
+- **Allure projects** show the standard "Send results" upload dialog (Allure `-result.json` files, attachments, or a tar.gz)
+- **Playwright projects** show an "Upload Playwright report" dialog accepting the `report.tar.gz` archive
+
+Both upload paths can coexist — you can upload Allure results for one build and a Playwright report for the next without changing any settings.
+
+**API endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/projects/{project_id}/playwright` | Upload a Playwright HTML report (gzipped tar, raw body) |
+| `GET` | `/api/v1/projects/{project_id}/playwright-reports/{reportID}/{rest...}` | Serve the static Playwright HTML report (viewer+, cached) |
+
+The embedded trace viewer static assets live under `/trace/` on the server and are populated at build time via `scripts/fetch-trace-viewer.sh`, which installs `playwright-core` via npm and copies `lib/vite/traceViewer` into the Go `api/static/trace/` embed.
 
 ---
 
@@ -318,6 +476,52 @@ TOKEN=$(curl -s -X POST http://localhost:5050/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin"}' | jq -r .token)
 ```
+
+---
+
+## Webhooks
+
+Webhooks send outbound notifications when report generation finishes, letting you surface test results directly in Slack, Discord, Microsoft Teams, or any custom HTTP endpoint.
+
+Manage webhooks at `/settings/webhooks`. Each webhook belongs to a project, and a project can have up to **10 webhooks**.
+
+**Target types:**
+
+| Target | Description |
+|--------|-------------|
+| `slack` | Slack Incoming Webhook — payload rendered as a Slack message block |
+| `discord` | Discord Channel Webhook — payload rendered as a Discord embed |
+| `teams` | Microsoft Teams Incoming Webhook — payload rendered as a MessageCard |
+| `generic` | Any HTTPS endpoint — receives a signed JSON payload (HMAC-SHA256 header if a secret is set) |
+
+**Event subscriptions:** A webhook subscribes to one or more events via the `events` array. The primary event today is `report_completed`, fired after report generation finishes with the build's pass/fail counts.
+
+**Create / edit form fields:**
+- **Name** — display label
+- **Target type** — one of the four above
+- **URL** — the webhook endpoint (validated for SSRF — private, loopback, and RFC1918 addresses are rejected)
+- **Secret** *(optional, generic only)* — used to sign the payload with HMAC-SHA256
+- **Custom template** *(optional)* — override the default payload body
+- **Events** — which events trigger this webhook
+- **Active** — toggle without deleting
+
+**Security:** Webhook URLs and secrets are encrypted at rest. URLs are masked in API responses (e.g., `https://hooks.slack.com/****`). Secrets are never returned.
+
+**Test send:** Each webhook row has a "Send test" action that queues a synthetic `report_completed` delivery so you can verify wiring before a real build.
+
+**Delivery history:** Click the history action on a webhook row to see the last deliveries with status code, response body (truncated), error message, attempt number, and duration in milliseconds. Entries are ordered newest first and paginated.
+
+**API endpoints** (editor+):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/projects/{project_id}/webhooks` | List webhooks for a project |
+| `POST` | `/api/v1/projects/{project_id}/webhooks` | Create a webhook |
+| `GET` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}` | Fetch a single webhook |
+| `PUT` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}` | Update a webhook |
+| `DELETE` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}` | Delete a webhook |
+| `POST` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}/test` | Queue a test delivery |
+| `GET` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}/deliveries` | Paginated delivery history |
 
 ---
 
@@ -371,28 +575,58 @@ Accessible via "System Monitor" in the sidebar (admin only), this page provides 
 
 ## Navigation & UI
 
-**Sidebar:** The collapsible left sidebar shows the current project's navigation tabs in order:
+**Sidebar:** The collapsible left sidebar shows the current project's navigation tabs in this order:
 1. Overview
 2. Analytics
-3. Timeline
-4. Known Issues
-5. Attachments
+3. Defects
+4. Timeline
+5. Known Issues
+6. Attachments
 
-The Administration section (System Monitor) appears below for admin users. Collapse the sidebar with the toggle button to maximise the main content area.
+**Parent projects:** When the selected project is a **parent** (has children — see [Project Hierarchy & Grouping](#project-hierarchy--grouping)), the sidebar hides Timeline, Known Issues, and Attachments and shows the [Pipeline Runs](#pipeline-runs) tab instead. Overview, Analytics, and Defects remain visible.
 
-**Project switcher:** The project name button in the sidebar opens a dropdown to switch between projects without returning to the dashboard.
+The Administration section appears below the project section and contains **System Monitor** (`/admin`), **API Keys** (`/settings/api-keys`), and **Webhooks** (`/settings/webhooks`). The System Monitor entry is admin-only.
 
-**Theme toggle:** The moon/sun icon in the top navigation bar switches between light and dark mode (Catppuccin Latte/Mocha colour scheme). The preference is persisted in local storage.
+Collapse the sidebar with the toggle button in the header to maximise the main content area.
 
-**Branch management:** The branch selector dropdown on the Project Overview and Analytics pages filters all history and stats to the selected branch.
+**Top bar:** The top navigation bar is fixed above the main content and contains (left to right): the sidebar toggle, the AllureDeck favicon/home link, the **ProjectSwitcher** (a searchable dropdown showing the active project — click to switch to any project without returning to the dashboard), a flexible spacer, a **Search** trigger (⌘K / Ctrl+K), a **Create** button for admins (new project), the **theme toggle** (light/dark, Catppuccin Latte/Mocha), and the **user menu** (username, role badge, API Keys link, Sign out).
 
-**Persistent preferences:** Pagination size (rows per page) and group-by mode for the report history table are persisted across navigation via Zustand + localStorage.
+**Theme toggle:** The moon/sun icon in the top bar switches between light and dark mode (Catppuccin Latte/Mocha colour scheme). The preference is persisted per user (see [User Preferences](#user-preferences)).
+
+**Branch management:** The branch selector dropdown on the Project Overview and Analytics pages filters all history and stats to the selected branch. The selected branch is remembered per user across sessions.
 
 **Keyboard shortcuts:**
 - **Cmd+K / Ctrl+K** — Open global search
 - **Arrow keys** — Navigate search results
 - **Enter** — Select search result
 - **Escape** — Close search / clear timeline selection
+
+---
+
+## User Preferences
+
+Per-user UI preferences are persisted server-side in PostgreSQL (previously they lived in localStorage only) so your pagination, view mode, and filter selections follow you across browsers and devices.
+
+The UI syncs preferences to the server via a small background sync hook — changes are flushed a few seconds after you make them, and reloaded on sign-in so the UI opens in the same state you left it.
+
+**Preferences that persist:**
+
+| Preference | Where it's adjusted |
+|------------|---------------------|
+| `projectViewMode` | Dashboard view toggle (grid / table) |
+| `reportsPerPage` | Rows-per-page selector on the Report History table (10 / 20 / 50 / 100) |
+| `reportsGroupBy` | Group-by selector on Report History (None / Commit SHA / Branch) |
+| `selectedBranch` | Branch filter dropdown (Overview / Analytics / Report History) |
+| `lastProjectId` | Auto-tracked — used to route you to your last-viewed project on next login |
+
+**API endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/preferences` | Fetch the current user's preferences blob (JSON). Returns `{}` for new users |
+| `PUT` | `/api/v1/preferences` | Upsert the current user's preferences blob |
+
+Both endpoints are scoped to the authenticated user (via the JWT `sub` claim). Preferences are stored as a single JSONB column — new preference keys can be added without a migration.
 
 ---
 
@@ -465,8 +699,9 @@ AllureDeck is designed to integrate into any CI/CD pipeline via its REST API. Us
 | `ADMIN_PASS` | Admin password | *(empty)* |
 | `JWT_SECRET_KEY` | JWT signing secret | `super-secret-key-for-dev` |
 | `KEEP_HISTORY` | Retain report history between builds | `true` |
-| `KEEP_HISTORY_LATEST` | Max historical builds per project | `20` |
+| `KEEP_HISTORY_LATEST` | Max historical builds per project | `100` |
 | `KEEP_HISTORY_MAX_AGE_DAYS` | Delete reports older than N days (0 = disabled) | `0` |
+| `PENDING_RESULTS_MAX_AGE_DAYS` | Delete un-generated uploaded result files older than N days | `3` |
 | `MAKE_VIEWER_ENDPOINTS_PUBLIC` | Allow unauthenticated read access | `false` |
 | `CHECK_RESULTS_EVERY_SECONDS` | Auto-scan interval for new results (`NONE` to disable) | `NONE` |
 | `SWAGGER_ENABLED` | Enable Swagger UI | `false` |
