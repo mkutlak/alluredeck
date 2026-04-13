@@ -264,11 +264,12 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 
 - **Language**: Go 1.25 (module: `github.com/mkutlak/alluredeck/api`)
 - **HTTP**: `net/http` stdlib (no third-party router)
-- **Auth**: `golang-jwt/jwt/v5` + bcrypt passwords
+- **Auth**: `golang-jwt/jwt/v5` + bcrypt passwords; optional OIDC SSO via `coreos/go-oidc/v3` + `golang.org/x/oauth2`
 - **Config**: environment variables + optional YAML (`go.yaml.in/yaml/v3`, `kelseyhightower/envconfig`)
 - **Database**: PostgreSQL via `jackc/pgx/v5` + goose v3 migrations
-- **Job queue**: River v0.31 (PostgreSQL-backed)
+- **Job queue**: River v0.34 (PostgreSQL-backed; `riverdriver/riverpgxv5` driver)
 - **Storage**: local filesystem or S3 (`aws-sdk-go-v2`)
+- **Report formats**: Allure 2 and Allure 3 (auto-detected); Playwright HTML reports with embedded trace viewer served at `/trace/`
 - **Logging**: Uber Zap (`go.uber.org/zap`) — JSON in production, console in development
 - **Documentation**: Swagger/OpenAPI via `swaggo/swag`
 - **Linting**: golangci-lint v2
@@ -276,14 +277,21 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 ### UI (React frontend)
 
 - **Framework**: React 19 + React Router v7
-- **State Management**: Zustand (global state), TanStack Query v5 (server state)
+- **State Management**: Zustand v5 (global state), TanStack Query v5 (server state)
 - **UI Components**: Radix UI primitives + Tailwind CSS 4 + shadcn-style components
 - **Charts**: Recharts 3
+- **Timeline**: D3 (`d3-selection`, `d3-scale`, `d3-axis`, `d3-brush`, `d3-zoom`) for the interactive Gantt chart
+- **Command palette**: `cmdk` (Cmd+K / Ctrl+K global search)
+- **Theme**: `next-themes` with Catppuccin Latte / Mocha palettes
+- **Icons**: `lucide-react`
+- **Markdown**: `marked` + `dompurify` for safe HTML rendering; `shiki` for syntax highlighting
 - **Build Tool**: Vite 8
-- **Testing**: Vitest + Testing Library (jsdom)
-- **Type Checking**: TypeScript 5 (strict mode)
+- **Testing**: Vitest 4 + Testing Library (jsdom); `allure-vitest` reporter for Allure integration
+- **Type Checking**: TypeScript 6 (strict mode)
 - **Linting**: ESLint 10 (flat config)
 - **Formatting**: Prettier with `prettier-plugin-tailwindcss`
+
+**Playwright trace viewer:** The Go binary embeds the Playwright trace viewer static assets at build time via `scripts/fetch-trace-viewer.sh`, which installs `playwright-core` via npm and copies `lib/vite/traceViewer` into `api/static/trace/`. The assets are served from `/trace/` at runtime — no separate runtime install required.
 
 ## Code Conventions
 

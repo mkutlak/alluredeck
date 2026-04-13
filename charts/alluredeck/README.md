@@ -1,8 +1,8 @@
 # AllureDeck Helm Chart
 
 [![Release Helm Chart](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml/badge.svg)](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml)
-![Version: 0.10.0](https://img.shields.io/badge/Version-0.10.0-informational?style=flat-square)
-![AppVersion: 0.14.0](https://img.shields.io/badge/AppVersion-0.14.0-informational?style=flat-square)
+![Version: 0.13.0](https://img.shields.io/badge/Version-0.13.0-informational?style=flat-square)
+![AppVersion: 0.22.3](https://img.shields.io/badge/AppVersion-0.22.3-informational?style=flat-square)
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for [AllureDeck](https://github.com/mkutlak/alluredeck) — an Allure Reports Dashboard that provides a centralized UI for viewing and managing Allure test reports.
@@ -36,8 +36,18 @@ helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck -f values.yaml
 To pin a specific chart version:
 
 ```bash
-helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.4.0
+helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.13.0
 ```
+
+**Upgrade an existing release** (preserves auto-generated credentials and previous values):
+
+```bash
+helm upgrade --install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck \
+  --version 0.13.0 \
+  -f values.yaml
+```
+
+Use `--reuse-values` to preserve prior `--set` flags without re-specifying them; use `-f values.yaml` when your values file is the source of truth. The chart uses Helm `lookup` to preserve any auto-generated admin / viewer / JWT credentials across upgrades, so you don't need to re-supply them.
 
 ## PostgreSQL
 
@@ -155,6 +165,15 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 
 ## Configuration
 
+### Global
+
+`global.*` values are cluster-wide defaults inherited by any sub-chart key that doesn't set its own value (most commonly PVC `storageClassName`).
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `global.imagePullSecrets` | List of image pull secret names injected into every Deployment / StatefulSet | `[]` |
+| `global.storageClassName` | Default storage class used by `api.persistence.projects` when it doesn't set its own | `""` |
+
 ### API
 
 | Key | Description | Default |
@@ -169,6 +188,8 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.config.keepHistoryLatest` | Number of history entries to keep (0 = unlimited) | `"100"` |
 | `api.config.keepHistoryMaxAgeDays` | Delete reports older than N days (0 = disabled) | `"0"` |
 | `api.config.maxUploadSizeMb` | Max upload size in MB | `"100"` |
+| `api.config.apiResponseLessVerbose` | Return minimal JSON responses (omit verbose fields) | `"false"` |
+| `api.config.staticContentProjects` | Root directory for static project content (embedded report overlay file server) | `"/data/projects"` |
 | `api.config.goMemLimit` | Go memory limit (set to ~80% of memory limit) | `"768MiB"` |
 | `api.config.swaggerEnabled` | Enable Swagger UI | `"false"` |
 | `api.config.makeViewerEndpointsPublic` | Allow unauthenticated read access | `"false"` |
@@ -180,6 +201,8 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.resources.requests.cpu` | CPU request | `100m` |
 | `api.resources.requests.memory` | Memory request | `256Mi` |
 | `api.resources.limits.memory` | Memory limit | `1Gi` |
+
+> **`api.kind` tip:** use `StatefulSet` when `storageType=local` so the API pod re-binds to the same PVC on restart. Use `Deployment` for S3/MinIO storage or ephemeral dev environments where no PVC is needed.
 
 ### S3 / MinIO
 
@@ -206,6 +229,49 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.security.jwtAccessTokenExpires` | Access token TTL in seconds | `"3600"` |
 | `api.security.jwtRefreshTokenExpires` | Refresh token TTL in seconds | `"2592000"` |
 | `api.security.existingSecret` | Use a pre-created Secret | `""` |
+
+### OIDC SSO
+
+OpenID Connect SSO is **disabled by default**. When enabled, users can sign in via any OIDC-compliant identity provider (Azure AD / Entra ID, Keycloak, Okta, Google Workspace). Local authentication (`admin` / `viewer`) continues to work alongside SSO as a break-glass fallback.
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `api.oidc.enabled` | Enable OIDC SSO | `false` |
+| `api.oidc.issuerUrl` | IdP discovery URL (e.g. `https://login.microsoftonline.com/{tenant}/v2.0`) | `""` |
+| `api.oidc.clientId` | OIDC client ID | `""` |
+| `api.oidc.clientSecret` | Confidential client secret (stored in Secret — prefer `existingSecret` in prod) | `""` |
+| `api.oidc.redirectUrl` | Callback URL; must match `https://<host>/api/v1/auth/oidc/callback` | `""` |
+| `api.oidc.scopes` | Comma-separated OIDC scopes | `"openid,profile,email"` |
+| `api.oidc.groupsClaim` | Claim name containing group memberships | `"groups"` |
+| `api.oidc.adminGroups` | Comma-separated group IDs that map to the `admin` role | `""` |
+| `api.oidc.editorGroups` | Comma-separated group IDs that map to the `editor` role | `""` |
+| `api.oidc.defaultRole` | Role for users not matching any group (`admin`, `editor`, or `viewer`) | `"viewer"` |
+| `api.oidc.stateCookieSecret` | AES-GCM key (exactly 16, 24, or 32 bytes) for state-cookie encryption; empty = auto-generated | `""` |
+| `api.oidc.postLoginRedirect` | Frontend URL after successful SSO login | `"/"` |
+| `api.oidc.endSessionUrl` | Optional RP-initiated logout URL | `""` |
+
+**Role mapping:** AllureDeck has three roles — `admin` (full control), `editor` (upload, generate reports, manage known issues), `viewer` (read-only). On each OIDC login the API reads the claim named by `groupsClaim` from the ID token and matches each group against `adminGroups` → `editorGroups` → `defaultRole` (first match wins).
+
+**Example — Azure AD (Entra ID):**
+
+```yaml
+api:
+  oidc:
+    enabled: true
+    issuerUrl: "https://login.microsoftonline.com/{tenant-id}/v2.0"
+    clientId: "{app-registration-client-id}"
+    redirectUrl: "https://alluredeck.example.com/api/v1/auth/oidc/callback"
+    groupsClaim: "groups"
+    adminGroups: "{admin-group-object-id}"
+    editorGroups: "{editor-group-object-id}"
+    defaultRole: "viewer"
+  security:
+    existingSecret: alluredeck-credentials   # provides oidcClientSecret + oidcStateCookieSecret
+```
+
+See [docs/authentication.md](../../docs/authentication.md) for Keycloak, Okta, Google Workspace walk-throughs and the full OIDC feature reference (PKCE, JIT provisioning, state cookie encryption, JWT blacklist).
+
+**IRSA on EKS for OIDC:** Use the same `api.serviceAccount.annotations` pattern as S3. If your OIDC client secret is stored in AWS Secrets Manager, mount it via the AWS Secrets Store CSI driver (see [Extra resources](#extra-resources)) and reference it from `api.security.existingSecret`.
 
 ### UI
 
@@ -298,16 +364,24 @@ api:
 
 Required Secret keys:
 
-| Key | Description |
-| --- | ----------- |
-| `adminUser` | Admin username |
-| `adminPassword` | Admin password |
-| `viewerUser` | Viewer username |
-| `viewerPassword` | Viewer password |
-| `jwtSecretKey` | HMAC signing key for JWTs |
-| `jwtAccessTokenExpires` | Access token TTL in seconds |
-| `jwtRefreshTokenExpires` | Refresh token TTL in seconds |
-| `databaseURL` | PostgreSQL connection string |
+| Key | Description | Required when |
+| --- | ----------- | ------------- |
+| `adminUser` | Admin username | always |
+| `adminPassword` | Admin password | always |
+| `viewerUser` | Viewer username | always |
+| `viewerPassword` | Viewer password | always |
+| `jwtSecretKey` | HMAC signing key for JWTs | always |
+| `jwtAccessTokenExpires` | Access token TTL in seconds | always |
+| `jwtRefreshTokenExpires` | Refresh token TTL in seconds | always |
+| `databaseURL` | PostgreSQL connection string | always |
+| `oidcClientSecret` | OIDC confidential client secret | `api.oidc.enabled=true` |
+| `oidcStateCookieSecret` | AES-GCM key for state cookie encryption (exactly 16/24/32 bytes) | `api.oidc.enabled=true` |
+| `S3_ACCESS_KEY` | S3 access key ID | `api.s3.existingSecret` used and not on IRSA |
+| `S3_SECRET_KEY` | S3 secret access key | `api.s3.existingSecret` used and not on IRSA |
+
+**Tip:** you can put all of these keys in a single `Secret` and reference it from each of `api.security.existingSecret`, `api.s3.existingSecret`, and `api.oidc.existingSecret` (whichever the chart wires up for each section) — that way one Secret resource holds every credential the chart needs.
+
+**3-role RBAC:** the chart wires three roles — `admin`, `editor`, and `viewer`. With local auth only, the `admin` account (from `adminUser`/`adminPassword`) has role `admin` and `viewerUser`/`viewerPassword` has role `viewer`; there's no local "editor" account. With OIDC enabled, group-based role mapping via `api.oidc.adminGroups` / `api.oidc.editorGroups` / `api.oidc.defaultRole` promotes SSO users into any of the three roles. See the [OIDC SSO](#oidc-sso) section above.
 
 ## Ingress routing
 
@@ -338,6 +412,24 @@ ingress:
 ```
 
 > **Tip:** Set `nginx.ingress.kubernetes.io/proxy-body-size` to match or exceed `api.config.maxUploadSizeMb` to allow large test result uploads.
+
+### Extra ingress paths
+
+The chart's Ingress has hardcoded `/api` → API, `/trace` → API, and `/` → UI routes. If you need to expose additional services under the same host (e.g. a Grafana dashboard on `/grafana`), use `ingress.extraPaths` to inject extra rules **before** the catch-all UI rule:
+
+```yaml
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  host: alluredeck.example.com
+  extraPaths:
+    - path: /grafana
+      pathType: Prefix
+      serviceName: grafana
+      servicePortName: http
+```
+
+Each extra path becomes an additional backend on the same Ingress resource, inheriting all host-level TLS and annotations.
 
 ## Network policy
 
