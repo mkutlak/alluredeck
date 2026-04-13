@@ -1,3 +1,9 @@
+## [0.22.2](https://github.com/mkutlak/alluredeck/compare/v0.22.1...v0.22.2) (2026-04-13)
+
+### Bug Fixes
+
+* **ui:** default branch filter to "All branches" and persist across projects ([d66811e](https://github.com/mkutlak/alluredeck/commit/d66811ed7d7a588ea9ac0eae315fda50991c56f1))
+
 ## [0.22.1](https://github.com/mkutlak/alluredeck/compare/v0.22.0...v0.22.1) (2026-04-12)
 
 ### Bug Fixes
