@@ -292,8 +292,11 @@ func (ps *ProjectStore) ProjectExists(ctx context.Context, id int64) (bool, erro
 // InsertOrIgnore inserts a project row, silently ignoring duplicate-key errors.
 // Used by SyncMetadata.
 func (ps *ProjectStore) InsertOrIgnore(ctx context.Context, slug string) error {
-	_, err := ps.pool.Exec(ctx,
-		"INSERT INTO projects(slug, display_name) VALUES($1, $1) ON CONFLICT DO NOTHING", slug)
+	_, err := ps.pool.Exec(ctx, `
+		INSERT INTO projects(slug, display_name)
+		SELECT $1, $1
+		WHERE NOT EXISTS (SELECT 1 FROM projects WHERE slug = $1)
+	`, slug)
 	if err != nil {
 		return fmt.Errorf("insert project %q: %w", slug, err)
 	}

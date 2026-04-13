@@ -108,7 +108,7 @@ func (w *Watcher) checkProject(ctx context.Context, slug, previousHash string, f
 			zap.String("slug", slug))
 
 		// Look up the numeric project ID from the database.
-		proj, projErr := w.projectStore.GetProjectBySlug(ctx, slug)
+		proj, projErr := w.projectStore.GetProjectBySlugAny(ctx, slug)
 		if projErr != nil {
 			w.logger.Error("watcher failed to look up project",
 				zap.String("slug", slug), zap.Error(projErr))
@@ -146,7 +146,7 @@ func (w *Watcher) checkProjects(projectHashes map[string]string) {
 		currentSlugs[slug] = true
 
 		// Auto-register in DB if discovered via filesystem (e.g. volume-mounted projects).
-		if _, err := w.projectStore.GetProjectBySlug(ctx, slug); err != nil {
+		if _, err := w.projectStore.GetProjectBySlugAny(ctx, slug); err != nil {
 			if _, err := w.projectStore.CreateProject(ctx, slug); err != nil {
 				w.logger.Error("watcher failed to register project in DB",
 					zap.String("slug", slug), zap.Error(err))

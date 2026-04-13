@@ -11,6 +11,9 @@ import (
 
 // SyncMetadata syncs projects via the storage store and imports any projects and builds
 // not yet recorded in the PostgreSQL database.
+// TODO(test): Add TestSyncMetadata_DoesNotDuplicateChildProjects once a lightweight
+// DB-backed test harness is available for the pg package. The fix is covered at the
+// InsertOrIgnore level by TestInsertOrIgnore_ChildSlugExists in project_test.go.
 func SyncMetadata(ctx context.Context, st storage.Store, projectStore *ProjectStore, buildStore *BuildStore, logger *zap.Logger) error {
 	projects, err := st.ListProjects(ctx)
 	if err != nil {
@@ -41,7 +44,9 @@ func pgSyncProject(ctx context.Context, st storage.Store, ps *ProjectStore, bs *
 	}
 
 	// Look up the project's numeric ID for build operations.
-	proj, err := ps.GetProjectBySlug(ctx, slug)
+	// Use GetProjectBySlugAny so that child-only slugs (inserted by a previous
+	// upload before InsertOrIgnore ran) are found even when no top-level row exists.
+	proj, err := ps.GetProjectBySlugAny(ctx, slug)
 	if err != nil {
 		return fmt.Errorf("get project by slug %q: %w", slug, err)
 	}
