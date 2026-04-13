@@ -3,9 +3,14 @@ import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
 import { PipelineRunsTab } from '../PipelineRunsTab'
 import type { PaginatedResponse, PipelineRun } from '@/types/api'
+import { useUIStore } from '@/store/ui'
 
 vi.mock('@/api/pipeline', () => ({
   fetchPipelineRuns: vi.fn(),
+}))
+
+vi.mock('@/api/branches', () => ({
+  fetchBranches: vi.fn().mockResolvedValue([]),
 }))
 
 // Must import after mock
@@ -49,6 +54,7 @@ const sampleRun: PipelineRun = {
 describe('PipelineRunsTab', () => {
   beforeEach(() => {
     vi.mocked(fetchPipelineRuns).mockReset()
+    useUIStore.setState({ selectedBranch: undefined })
   })
 
   it('renders pipeline run cards after data loads', async () => {

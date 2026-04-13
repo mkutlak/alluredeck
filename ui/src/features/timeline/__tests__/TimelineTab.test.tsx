@@ -10,6 +10,10 @@ vi.mock('@/api/reports', () => ({
   fetchProjectTimeline: vi.fn(),
 }))
 
+vi.mock('@/api/branches', () => ({
+  fetchBranches: vi.fn().mockResolvedValue([]),
+}))
+
 // Mock BranchSelector
 vi.mock('@/features/projects/BranchSelector', () => ({
   BranchSelector: () => <div data-testid="mock-branch-selector" />,
@@ -37,6 +41,7 @@ vi.mock('../TimelineChart', () => ({
 }))
 
 import { fetchProjectTimeline } from '@/api/reports'
+import { useUIStore } from '@/store/ui'
 import { TimelineTab } from '../TimelineTab'
 
 function makeClient() {
@@ -100,6 +105,7 @@ const mockMultiTimeline: MultiTimelineData = {
 describe('TimelineTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useUIStore.setState({ selectedBranch: undefined })
   })
 
   it('shows loading skeletons while fetching', () => {

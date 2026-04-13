@@ -3,6 +3,7 @@ import { Link, NavLink, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { RefreshCw, Clock, GitCommitHorizontal, GitBranch } from 'lucide-react'
 import { fetchReportHistory, deleteReport } from '@/api/reports'
+import { fetchBranches } from '@/api/branches'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { projectListOptions } from '@/lib/queries'
@@ -48,6 +49,17 @@ export function OverviewTab() {
   const groupBy = useUIStore((s) => s.reportsGroupBy)
   const setGroupBy = useUIStore((s) => s.setReportsGroupBy)
 
+  const { data: branchesData } = useQuery({
+    queryKey: queryKeys.branches.list(projectId ?? ''),
+    queryFn: () => fetchBranches(projectId ?? ''),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  })
+  const effectiveBranch =
+    selectedBranch && branchesData?.some((b) => b.name === selectedBranch)
+      ? selectedBranch
+      : undefined
+
   // Hierarchy detection: fetch the project list to find parent/child relationships
   const { data: projectsResp } = useQuery({ ...projectListOptions(), enabled: !!projectId })
   const allProjects = projectsResp?.data ?? []
@@ -75,8 +87,8 @@ export function OverviewTab() {
   }
 
   const { data: historyData, isLoading } = useQuery({
-    queryKey: queryKeys.reportHistory(projectId ?? '', page, selectedBranch, reportsPerPage),
-    queryFn: () => fetchReportHistory(projectId ?? '', page, reportsPerPage, selectedBranch),
+    queryKey: queryKeys.reportHistory(projectId ?? '', page, effectiveBranch, reportsPerPage),
+    queryFn: () => fetchReportHistory(projectId ?? '', page, reportsPerPage, effectiveBranch),
     enabled: !!projectId,
     staleTime: 10_000,
     placeholderData: keepPreviousData,

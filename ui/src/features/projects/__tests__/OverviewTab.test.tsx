@@ -5,6 +5,7 @@ import { createMemoryRouter } from 'react-router'
 import { renderWithProviders } from '@/test/render'
 import { OverviewTab } from '../OverviewTab'
 import * as reportsApi from '@/api/reports'
+import * as branchesApi from '@/api/branches'
 import { useAuthStore } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 
@@ -83,7 +84,7 @@ function renderTab(isAdminUser = false) {
 describe('OverviewTab - report history pagination', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useUIStore.setState({ reportsPerPage: 20, reportsGroupBy: 'none' })
+    useUIStore.setState({ selectedBranch: undefined, reportsPerPage: 20, reportsGroupBy: 'none' })
   })
 
   it('filters the synthetic "latest" alias out of the history table', async () => {
@@ -545,6 +546,25 @@ describe('OverviewTab - report history pagination', () => {
     await user.click(screen.getByRole('button', { name: /next/i }))
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
+    })
+  })
+
+  it('falls back to undefined when stored branch is not in project\'s branch list', async () => {
+    useUIStore.setState({ selectedBranch: 'missing-branch' })
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
+      { id: 1, project_id: 1, name: 'master', is_default: true, created_at: '2024-01-01T00:00:00Z' },
+    ])
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated([makeReport('latest', true), makeReport('1')], {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        total_pages: 1,
+      }),
+    )
+    renderTab()
+    await waitFor(() => {
+      expect(reportsApi.fetchReportHistory).toHaveBeenCalledWith('test-project', 1, 20, undefined)
     })
   })
 })

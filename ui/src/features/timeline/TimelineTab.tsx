@@ -2,7 +2,9 @@ import { useState, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchProjectTimeline } from '@/api/reports'
+import { fetchBranches } from '@/api/branches'
 import { queryKeys } from '@/lib/query-keys'
+import { useUIStore } from '@/store/ui'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BranchSelector } from '@/features/projects/BranchSelector'
@@ -15,7 +17,18 @@ export function TimelineTab() {
   const { id: projectId } = useParams<{ id: string }>()
   const displayName = useProjectDisplay(projectId)
 
-  const [branch, setBranch] = useState<string | undefined>(undefined)
+  const branch = useUIStore((s) => s.selectedBranch)
+  const setBranch = useUIStore((s) => s.setSelectedBranch)
+
+  const { data: branchesData } = useQuery({
+    queryKey: queryKeys.branches.list(projectId ?? ''),
+    queryFn: () => fetchBranches(projectId ?? ''),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  })
+  const effectiveBranch =
+    branch && branchesData?.some((b) => b.name === branch) ? branch : undefined
+
   const [dateFrom, setDateFrom] = useState<string | undefined>(undefined)
   const [dateTo, setDateTo] = useState<string | undefined>(undefined)
   const [buildLimit, setBuildLimit] = useState(1)
@@ -28,10 +41,10 @@ export function TimelineTab() {
   const hasDateRange = dateFrom !== undefined || dateTo !== undefined
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: queryKeys.projectTimeline(projectId!, branch, dateFrom, dateTo, buildLimit),
+    queryKey: queryKeys.projectTimeline(projectId!, effectiveBranch, dateFrom, dateTo, buildLimit),
     queryFn: () =>
       fetchProjectTimeline(projectId!, {
-        branch,
+        branch: effectiveBranch,
         from: dateFrom,
         to: dateTo,
         limit: buildLimit,

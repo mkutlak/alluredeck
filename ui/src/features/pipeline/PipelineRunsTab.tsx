@@ -3,6 +3,9 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, GitCommitHorizontal, Layers } from 'lucide-react'
 
 import { pipelineRunsOptions } from '@/lib/queries'
+import { queryKeys } from '@/lib/query-keys'
+import { fetchBranches } from '@/api/branches'
+import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
@@ -18,13 +21,26 @@ interface PipelineRunsTabProps {
 export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
   const displayName = useProjectDisplay(projectId)
   const [page, setPage] = useState(1)
-  const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined)
 
   // Use the first child's projectId for the branch selector (children share CI branches)
   const branchProjectId = childIds[0] ?? projectId
 
+  const selectedBranch = useUIStore((s) => s.selectedBranch)
+  const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
+
+  const { data: branchesData } = useQuery({
+    queryKey: queryKeys.branches.list(branchProjectId),
+    queryFn: () => fetchBranches(branchProjectId),
+    enabled: !!branchProjectId,
+    staleTime: 60_000,
+  })
+  const effectiveBranch =
+    selectedBranch && branchesData?.some((b) => b.name === selectedBranch)
+      ? selectedBranch
+      : undefined
+
   const { data, isLoading } = useQuery({
-    ...pipelineRunsOptions(projectId, page, selectedBranch),
+    ...pipelineRunsOptions(projectId, page, effectiveBranch),
     placeholderData: keepPreviousData,
   })
 

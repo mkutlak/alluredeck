@@ -69,15 +69,53 @@ describe('BranchSelector', () => {
     })
   })
 
-  it('pre-selects the default branch', async () => {
+  it('shows "All branches" and does not call onBranchChange on mount when selectedBranch is undefined', async () => {
     vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
-      makeBranch({ id: 1, name: 'main', is_default: false }),
-      makeBranch({ id: 2, name: 'release', is_default: true }),
+      makeBranch({ id: 1, name: 'main', is_default: true }),
     ])
-    renderSelector()
+    const { onBranchChange } = renderSelector({ selectedBranch: undefined })
     await waitFor(() => {
-      expect(screen.getByRole('combobox')).toHaveTextContent('release')
+      expect(screen.getByRole('combobox')).toHaveTextContent('All branches')
     })
+    expect(onBranchChange).not.toHaveBeenCalled()
+  })
+
+  it('shows the stored branch when it exists in the branch list', async () => {
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
+      makeBranch({ id: 1, name: 'master', is_default: true }),
+      makeBranch({ id: 2, name: 'dev', is_default: false }),
+    ])
+    renderSelector({ selectedBranch: 'dev' })
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveTextContent('dev')
+    })
+  })
+
+  it('shows "All branches" and does not call onBranchChange when stored branch is absent from list', async () => {
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
+      makeBranch({ id: 1, name: 'master', is_default: true }),
+    ])
+    const { onBranchChange } = renderSelector({ selectedBranch: 'dev' })
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveTextContent('All branches')
+    })
+    expect(onBranchChange).not.toHaveBeenCalled()
+  })
+
+  it('calls onBranchChange with undefined when user selects "All branches"', async () => {
+    const user = userEvent.setup()
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
+      makeBranch({ id: 1, name: 'master', is_default: true }),
+      makeBranch({ id: 2, name: 'dev', is_default: false }),
+    ])
+    const { onBranchChange } = renderSelector({ selectedBranch: 'dev' })
+    await waitFor(() => screen.getByRole('combobox'))
+
+    await user.click(screen.getByRole('combobox'))
+    const allOption = await screen.findByRole('option', { name: 'All branches' })
+    await user.click(allOption)
+
+    expect(onBranchChange).toHaveBeenCalledWith(undefined)
   })
 
   it('calls onBranchChange when a branch is selected', async () => {

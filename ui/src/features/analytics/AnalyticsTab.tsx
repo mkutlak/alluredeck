@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
@@ -28,12 +28,14 @@ import { LabelBreakdownCard } from './LabelBreakdownCard'
 import { AnalyticsSection } from './AnalyticsSection'
 import { KpiSummaryRow } from './KpiSummaryRow'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
+import { useUIStore } from '@/store/ui'
 import type { Branch } from '@/types/api'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
   const displayName = useProjectDisplay(projectId)
-  const [branch, setBranch] = useState<string | undefined>(undefined)
+  const branch = useUIStore((s) => s.selectedBranch)
+  const setBranch = useUIStore((s) => s.setSelectedBranch)
 
   // Fetch branches for the selector
   const { data: branchesData } = useQuery({
@@ -41,6 +43,8 @@ export function AnalyticsTab() {
     queryFn: () => fetchBranches(projectId ?? ''),
     enabled: !!projectId,
   })
+  const effectiveBranch =
+    branch && branchesData?.some((b) => b.name === branch) ? branch : undefined
 
   // Fetch pre-computed trend data from the backend.
   const {
@@ -48,16 +52,16 @@ export function AnalyticsTab() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: queryKeys.trends(projectId ?? '', 100, branch),
-    queryFn: () => fetchTrends(projectId ?? '', 100, branch),
+    queryKey: queryKeys.trends(projectId ?? '', 100, effectiveBranch),
+    queryFn: () => fetchTrends(projectId ?? '', 100, effectiveBranch),
     enabled: !!projectId,
     staleTime: 10_000,
   })
 
   // Fetch only the latest report for pie chart (1 entry instead of 100).
   const { data: latestData } = useQuery({
-    queryKey: queryKeys.reportHistory(projectId ?? '', 1, branch, 1),
-    queryFn: () => fetchReportHistory(projectId ?? '', 1, 1, branch),
+    queryKey: queryKeys.reportHistory(projectId ?? '', 1, effectiveBranch, 1),
+    queryFn: () => fetchReportHistory(projectId ?? '', 1, 1, effectiveBranch),
     enabled: !!projectId,
     staleTime: 10_000,
   })
