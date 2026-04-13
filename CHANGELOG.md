@@ -1,3 +1,9 @@
+## [0.22.3](https://github.com/mkutlak/alluredeck/compare/v0.22.2...v0.22.3) (2026-04-13)
+
+### Bug Fixes
+
+* **api:** dedupe top-level project rows after surrogate-PK migration ([8ef86aa](https://github.com/mkutlak/alluredeck/commit/8ef86aa3d3ad1f59034764495b2fbbb70f0357f5))
+
 ## [0.22.2](https://github.com/mkutlak/alluredeck/compare/v0.22.1...v0.22.2) (2026-04-13)
 
 ### Bug Fixes
