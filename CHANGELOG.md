@@ -1,3 +1,9 @@
+## [0.22.5](https://github.com/mkutlak/alluredeck/compare/v0.22.4...v0.22.5) (2026-04-14)
+
+### Bug Fixes
+
+* add REPORT_GENERATION_TIMEOUT and rename chart containers ([f3f4694](https://github.com/mkutlak/alluredeck/commit/f3f46949d2f9e60ec5b7717f4890d45a7e955af9))
+
 ## [0.22.4](https://github.com/mkutlak/alluredeck/compare/v0.22.3...v0.22.4) (2026-04-14)
 
 ### Bug Fixes
