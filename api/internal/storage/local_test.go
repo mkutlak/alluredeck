@@ -652,9 +652,9 @@ func TestLocalStore_ReadBuildStats_Allure3Timing(t *testing.T) {
 	if stats.Total != 4 {
 		t.Errorf("Total: got %d, want 4", stats.Total)
 	}
-	// Duration = sum of individual test durations = 2000 + 4000 = 6000
-	if stats.DurationMs != 6000 {
-		t.Errorf("DurationMs: got %d, want 6000", stats.DurationMs)
+	// Duration = wall-clock max(stop) - min(start) = 1700000005000 - 1700000000000 = 5000
+	if stats.DurationMs != 5000 {
+		t.Errorf("DurationMs: got %d, want 5000", stats.DurationMs)
 	}
 }
 

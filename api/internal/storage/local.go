@@ -729,16 +729,19 @@ func isDirEmpty(name string) (bool, error) {
 	return false, nil
 }
 
-// durationFromTestResultFiles computes total test duration (ms) from Allure test result JSON files.
-// It scans all *.json files in dir, parses "start" and "stop" epoch-millisecond fields, and
-// returns the sum of individual test durations (stop - start per file).
+// durationFromTestResultFiles computes wall-clock build duration (ms) from Allure test
+// result JSON files. It scans all *.json files in dir, parses "start" and "stop" epoch-
+// millisecond fields, and returns max(stop) - min(start) across files. This matches what
+// CI reports as build duration regardless of how many tests ran in parallel — summing
+// per-test durations would multiply by the worker count.
 // Returns 0 when no valid timing data is found.
 func durationFromTestResultFiles(dir string) int64 {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
-	var totalDuration int64
+	var minStart, maxStop int64
+	seen := false
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -752,12 +755,19 @@ func durationFromTestResultFiles(dir string) int64 {
 			Start int64 `json:"start"`
 			Stop  int64 `json:"stop"`
 		}
-		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
+		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 || tr.Stop <= tr.Start {
 			continue
 		}
-		if tr.Stop > tr.Start {
-			totalDuration += tr.Stop - tr.Start
+		if !seen || tr.Start < minStart {
+			minStart = tr.Start
 		}
+		if !seen || tr.Stop > maxStop {
+			maxStop = tr.Stop
+		}
+		seen = true
 	}
-	return totalDuration
+	if !seen {
+		return 0
+	}
+	return maxStop - minStart
 }

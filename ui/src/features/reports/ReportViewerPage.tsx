@@ -16,6 +16,7 @@ export function ReportViewerPage() {
   const defaultMode: 'playwright' | 'allure' = reportType === 'playwright' ? 'playwright' : 'allure'
   const [userOverride, setUserOverride] = useState<'playwright' | 'allure' | null>(null)
   const viewMode = userOverride ?? defaultMode
+  const [iframeReloadKey, setIframeReloadKey] = useState(0)
 
   if (!projectId || !reportId) return null
 
@@ -40,7 +41,15 @@ export function ReportViewerPage() {
           </Link>
         </Button>
         <span className="text-muted-foreground text-sm">/</span>
-        <span className="font-mono text-sm font-medium">Report #{reportId}</span>
+        <button
+          type="button"
+          onClick={() => setIframeReloadKey((k) => k + 1)}
+          title="Return to report home"
+          className="hover:text-primary cursor-pointer font-mono text-sm font-medium hover:underline"
+          data-testid="report-home-link"
+        >
+          Report #{reportId}
+        </button>
 
         <div className="flex-1" />
 
@@ -79,6 +88,7 @@ export function ReportViewerPage() {
 
       {/* Iframe — full remaining height */}
       <iframe
+        key={`${viewMode}-${iframeReloadKey}`}
         src={reportUrl}
         title={iframeTitle}
         className="flex-1 border-0"

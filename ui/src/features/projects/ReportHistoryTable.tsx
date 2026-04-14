@@ -214,17 +214,13 @@ export function ReportHistoryTable({
 
     const groupList: ReportGroup[] = []
     for (const [key, groupReports] of keyMap.entries()) {
-      if (groupReports.length < 2) {
-        ungroupedList.push(...groupReports)
-      } else {
-        const latestDate = groupReports.reduce<string | null>((best, r) => {
-          if (!r.generated_at) return best
-          if (!best) return r.generated_at
-          return r.generated_at > best ? r.generated_at : best
-        }, null)
-        const label = groupBy === 'commit' ? key.slice(0, 7) : key
-        groupList.push({ key, label, reports: groupReports, latestDate })
-      }
+      const latestDate = groupReports.reduce<string | null>((best, r) => {
+        if (!r.generated_at) return best
+        if (!best) return r.generated_at
+        return r.generated_at > best ? r.generated_at : best
+      }, null)
+      const label = groupBy === 'commit' ? key.slice(0, 7) : key
+      groupList.push({ key, label, reports: groupReports, latestDate })
     }
 
     return { groups: groupList, ungrouped: ungroupedList }

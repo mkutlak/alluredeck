@@ -95,9 +95,16 @@ function isRefreshResponseBody(value: unknown): value is RefreshResponseBody {
 
 async function performRefresh(): Promise<boolean> {
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    const csrfToken = getCSRFToken()
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken
+    }
     const response = await fetch(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       credentials: 'include',
     })
     if (!response.ok) return false
