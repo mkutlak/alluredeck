@@ -1,3 +1,9 @@
+## [0.22.4](https://github.com/mkutlak/alluredeck/compare/v0.22.3...v0.22.4) (2026-04-14)
+
+### Bug Fixes
+
+* branch grouping, CSRF refresh, Allure 3 duration, and report viewer home link ([f7f688f](https://github.com/mkutlak/alluredeck/commit/f7f688f3fae9af7992cf2e7c9b55127dcc3d0a7a))
+
 ## [0.22.3](https://github.com/mkutlak/alluredeck/compare/v0.22.2...v0.22.3) (2026-04-13)
 
 ### Bug Fixes
