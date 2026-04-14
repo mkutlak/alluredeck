@@ -1,8 +1,8 @@
 # AllureDeck Helm Chart
 
 [![Release Helm Chart](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml/badge.svg)](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml)
-![Version: 0.13.0](https://img.shields.io/badge/Version-0.13.0-informational?style=flat-square)
-![AppVersion: 0.22.3](https://img.shields.io/badge/AppVersion-0.22.3-informational?style=flat-square)
+![Version: 0.13.1](https://img.shields.io/badge/Version-0.13.4-informational?style=flat-square)
+![AppVersion: 0.22.4](https://img.shields.io/badge/AppVersion-0.22.4-informational?style=flat-square)
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for [AllureDeck](https://github.com/mkutlak/alluredeck) — an Allure Reports Dashboard that provides a centralized UI for viewing and managing Allure test reports.
