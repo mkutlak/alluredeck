@@ -113,6 +113,7 @@ type Config struct {
 	SwaggerHost               string          `yaml:"swagger_host" envconfig:"SWAGGER_HOST"`
 	AccessTokenExpiry         DurationSeconds `yaml:"jwt_access_token_expires" envconfig:"JWT_ACCESS_TOKEN_EXPIRES"`
 	RefreshTokenExpiry        DurationSeconds `yaml:"jwt_refresh_token_expires" envconfig:"JWT_REFRESH_TOKEN_EXPIRES"`
+	ReportGenerationTimeout   DurationSeconds `yaml:"report_generation_timeout" envconfig:"REPORT_GENERATION_TIMEOUT"`
 	// PostgreSQL connection URL
 	DatabaseURL string `yaml:"database_url" envconfig:"DATABASE_URL"`
 	// PostgreSQL connection pool settings
@@ -148,6 +149,7 @@ func LoadConfig() (*Config, error) {
 		PendingResultsMaxAgeDays: 3,
 		AccessTokenExpiry:        DurationSeconds(3600 * time.Second),
 		RefreshTokenExpiry:       DurationSeconds(2592000 * time.Second),
+		ReportGenerationTimeout:  DurationSeconds(5 * time.Minute),
 		DBMaxOpenConns:           25,
 		DBMaxIdleConns:           5,
 		DBConnMaxLifetime:        5 * time.Minute,

@@ -57,6 +57,7 @@ type GenerateReportWorker struct {
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
 	reportIDs    *sync.Map
+	jobTimeout   time.Duration
 	logger       *zap.Logger
 }
 
@@ -89,6 +90,14 @@ func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[Generate
 	return nil
 }
 
+// Timeout overrides River's 1-minute default. Report generation downloads
+// all Allure results from storage, runs the Allure CLI locally, and
+// uploads the generated report back. Large projects (>1 GiB of results or
+// heavy attachments such as .webm) easily exceed the default.
+func (w *GenerateReportWorker) Timeout(*river.Job[GenerateReportArgs]) time.Duration {
+	return w.jobTimeout
+}
+
 // enqueueWebhooks constructs a WebhookPayload from the latest build and enqueues
 // delivery jobs for all active webhooks. Errors are non-fatal.
 func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID int64) error {
@@ -104,6 +113,7 @@ type PlaywrightIngestWorker struct {
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
 	reportIDs    *sync.Map
+	jobTimeout   time.Duration
 	logger       *zap.Logger
 }
 
@@ -134,6 +144,12 @@ func (w *PlaywrightIngestWorker) Work(ctx context.Context, job *river.Job[Playwr
 			zap.String("slug", a.Slug), zap.Error(err))
 	}
 	return nil
+}
+
+// Timeout overrides River's 1-minute default for Playwright ingestion,
+// which can run long for reports with many trace and video attachments.
+func (w *PlaywrightIngestWorker) Timeout(*river.Job[PlaywrightIngestArgs]) time.Duration {
+	return w.jobTimeout
 }
 
 func (w *PlaywrightIngestWorker) enqueueWebhooks(ctx context.Context, projectID int64) error {
@@ -261,7 +277,7 @@ type RiverJobManager struct {
 var _ JobQueuer = (*RiverJobManager)(nil)
 
 // NewRiverJobManager creates a new RiverJobManager. Call Start to begin processing jobs.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, logger *zap.Logger) (*RiverJobManager, error) {
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
 	jm := &RiverJobManager{pool: pool, logger: logger}
 
 	workers := river.NewWorkers()
@@ -271,6 +287,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		webhookStore: webhookStore,
 		externalURL:  externalURL,
 		reportIDs:    &jm.reportIDs,
+		jobTimeout:   jobTimeout,
 		logger:       logger,
 	}
 	river.AddWorker(workers, reportWorker)
@@ -289,6 +306,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 			webhookStore: webhookStore,
 			externalURL:  externalURL,
 			reportIDs:    &jm.reportIDs,
+			jobTimeout:   jobTimeout,
 			logger:       logger,
 		}
 		river.AddWorker(workers, pwWorker)

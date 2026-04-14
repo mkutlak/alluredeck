@@ -100,6 +100,15 @@ check_results_every_secs: "NONE"
 # Default: "/app/version"
 allure_version_path: "/app/version"
 
+# Maximum wall-clock time the background worker may spend on a single Allure
+# report generation job (download Allure results, run Allure CLI, upload the
+# generated report). Raise for very large projects (>1 GiB of results) or
+# reports with many video/screenshot attachments. Accepts a Go duration string
+# in quotes (e.g. "5m", "30m", "1h") or integer seconds.
+# Env var: REPORT_GENERATION_TIMEOUT
+# Default: "5m"
+report_generation_timeout: "5m"
+
 # --- UI / API behaviour ---
 
 # Return minimal JSON responses from the API. Env var: API_RESPONSE_LESS_VERBOSE

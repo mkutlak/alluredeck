@@ -176,6 +176,7 @@ export S3_PATH_STYLE="true"
 |----------------------|----------|---------|-------------|
 | `CHECK_RESULTS_EVERY_SECONDS` | `check_results_every_secs` | `NONE` | Seconds between automatic result scans for new test data. Set to `NONE` to disable automatic scanning. Valid values: positive integers or `NONE` |
 | `ALLURE_VERSION_FILE` | `allure_version_path` | `/app/version` | Path to a text file containing the Allure CLI version string (e.g., `2.25.0`). Used for report display |
+| `REPORT_GENERATION_TIMEOUT` | `report_generation_timeout` | `5m` | Maximum wall-clock time the background worker may spend on a single Allure report generation job (download results, run Allure CLI, upload report). Accepts a Go duration string (`5m`, `30m`, `1h`) or integer seconds. Raise for very large projects (>1 GiB of results, or many video attachments). |
 
 ### Example
 
