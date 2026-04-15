@@ -1,3 +1,10 @@
+## [0.22.6](https://github.com/mkutlak/alluredeck/compare/v0.22.5...v0.22.6) (2026-04-15)
+
+### Bug Fixes
+
+* **api:** raise HTTP server and Playwright upload timeouts ([c329f2f](https://github.com/mkutlak/alluredeck/commit/c329f2f3526ce428f4593a581273bb4d81b0c983))
+* **ui:** align Report #N breadcrumb with sibling ghost button ([82281a0](https://github.com/mkutlak/alluredeck/commit/82281a0de7c4c9ac90fb5baa707942e976e09371)), closes [#N](https://github.com/mkutlak/alluredeck/issues/N)
+
 ## [0.22.5](https://github.com/mkutlak/alluredeck/compare/v0.22.4...v0.22.5) (2026-04-14)
 
 ### Bug Fixes
