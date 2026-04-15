@@ -41,15 +41,16 @@ export function ReportViewerPage() {
           </Link>
         </Button>
         <span className="text-muted-foreground text-sm">/</span>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setIframeReloadKey((k) => k + 1)}
           title="Return to report home"
-          className="hover:text-primary cursor-pointer font-mono text-sm font-medium hover:underline"
+          className="font-mono"
           data-testid="report-home-link"
         >
           Report #{reportId}
-        </button>
+        </Button>
 
         <div className="flex-1" />
 
