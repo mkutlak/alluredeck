@@ -83,8 +83,8 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	// Extend HTTP deadlines — Playwright archives can contain hundreds of files,
 	// each requiring an S3 round-trip during extraction.
 	rc := http.NewResponseController(w)
-	_ = rc.SetReadDeadline(time.Now().Add(5 * time.Minute))
-	_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Minute))
+	_ = rc.SetReadDeadline(time.Now().Add(15 * time.Minute))
+	_ = rc.SetWriteDeadline(time.Now().Add(15 * time.Minute))
 
 	parentIDStr := r.URL.Query().Get("parent_id")
 

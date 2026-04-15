@@ -231,11 +231,12 @@ func main() {
 
 	addr := "0.0.0.0:" + cfg.Port
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  30 * time.Second,  // AUDIT 2.5
-		WriteTimeout: 60 * time.Second,  // AUDIT 2.5
-		IdleTimeout:  120 * time.Second, // AUDIT 2.5
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 30 * time.Second, // AUDIT 2.5: bounds header slowloris
+		ReadTimeout:       15 * time.Minute, // AUDIT 2.5: overall request ceiling; handlers may shorten via SetReadDeadline
+		WriteTimeout:      5 * time.Minute,  // AUDIT 2.5
+		IdleTimeout:       5 * time.Minute,  // AUDIT 2.5
 	}
 
 	// Graceful shutdown on SIGTERM / SIGINT
