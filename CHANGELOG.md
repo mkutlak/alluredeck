@@ -1,3 +1,9 @@
+## [0.23.0](https://github.com/mkutlak/alluredeck/compare/v0.22.6...v0.23.0) (2026-04-16)
+
+### Features
+
+* **api:** introduce storage_key to decouple child project storage from slug ([89037fe](https://github.com/mkutlak/alluredeck/commit/89037fe7d57a957614290cee5fb872a138f82d1a))
+
 ## [0.22.6](https://github.com/mkutlak/alluredeck/compare/v0.22.5...v0.22.6) (2026-04-15)
 
 ### Bug Fixes
