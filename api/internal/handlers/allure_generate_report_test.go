@@ -15,7 +15,7 @@ type mockReportGenerator struct {
 	err error
 }
 
-func (m *mockReportGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (m *mockReportGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	return m.out, m.err
 }
 
@@ -295,7 +295,7 @@ type blockingMockGenerator struct {
 	ch chan struct{}
 }
 
-func (b *blockingMockGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (b *blockingMockGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	<-b.ch
 	return "ok", nil
 }

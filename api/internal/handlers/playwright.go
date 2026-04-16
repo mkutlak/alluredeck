@@ -61,24 +61,24 @@ func NewPlaywrightHandler(st storage.Store, ps store.ProjectStorer, bs store.Bui
 // resolveProjectID tries to parse the path value as a numeric ID.
 // If it fails, treats it as a slug and looks up the project.
 // Uses GetProjectBySlugAny so nested child slugs (parent_id IS NOT NULL) resolve correctly.
-// Returns (id, slug, found).
-func (h *PlaywrightHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, bool) {
+// Returns (id, slug, storageKey, found).
+func (h *PlaywrightHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, string, bool) {
 	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
 		p, err := h.projectStore.GetProject(ctx, id)
 		if err == nil {
-			return p.ID, p.Slug, true
+			return p.ID, p.Slug, p.StorageKey, true
 		}
 	}
 	p, err := h.projectStore.GetProjectBySlugAny(ctx, pathValue)
 	if err == nil {
-		return p.ID, p.Slug, true
+		return p.ID, p.Slug, p.StorageKey, true
 	}
-	return 0, pathValue, false
+	return 0, pathValue, pathValue, false
 }
 
 func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request) {
 	pathValue := r.PathValue("project_id")
-	projectID, slug, found := h.resolveProjectID(r.Context(), pathValue)
+	projectID, slug, storageKey, found := h.resolveProjectID(r.Context(), pathValue)
 
 	// Extend HTTP deadlines — Playwright archives can contain hundreds of files,
 	// each requiring an S3 round-trip during extraction.
@@ -91,7 +91,8 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
 			slug = pathValue
-			if err := h.store.CreateProject(r.Context(), slug); err != nil {
+			storageKey = slug
+			if err := h.store.CreateProject(r.Context(), storageKey); err != nil {
 				h.logger.Error("auto-creating project failed", zap.String("slug", slug), zap.Error(err))
 				writeError(w, http.StatusInternalServerError, "failed to create project")
 				return
@@ -139,6 +140,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 				}
 				if project != nil {
 					projectID = project.ID
+					storageKey = project.StorageKey
 				}
 			} else {
 				project, dbErr := h.projectStore.CreateProject(r.Context(), slug)
@@ -149,11 +151,13 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 				}
 				if project != nil {
 					projectID = project.ID
+					storageKey = project.StorageKey
 				}
 			}
 			if projectID == 0 {
 				if p, err := h.projectStore.GetProjectBySlugAny(r.Context(), slug); err == nil {
 					projectID = p.ID
+					storageKey = p.StorageKey
 				}
 			}
 		} else {
@@ -205,7 +209,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 		targetDir = strconv.Itoa(buildNumber)
 	}
 
-	if err := h.extractPlaywrightArchive(r, slug, targetDir); err != nil {
+	if err := h.extractPlaywrightArchive(r, storageKey, targetDir); err != nil {
 		code := http.StatusBadRequest
 		msg := err.Error()
 		var maxBytesErr *http.MaxBytesError
@@ -236,7 +240,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
 
 	if h.jobManager != nil && (execName != "" || execFrom != "" || ciBranch != "" || ciCommitSHA != "") {
-		job := h.jobManager.SubmitPlaywright(projectID, slug, execName, execFrom, ciBranch, ciCommitSHA)
+		job := h.jobManager.SubmitPlaywright(projectID, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA)
 		writeSuccess(w, http.StatusAccepted, map[string]string{"job_id": job.ID}, "Playwright ingestion queued")
 		return
 	}
@@ -250,7 +254,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 // project's results directory, preserving subdirectory structure. Unlike the
 // Allure handler, nested paths (e.g. data/screenshot.png) are preserved.
 // It validates that index.html is present in the extracted contents.
-func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID, targetDir string) error {
+func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, storageKey, targetDir string) error {
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
 		return fmt.Errorf("invalid gzip stream: %w", err)
@@ -318,7 +322,7 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, projectID,
 
 		name := cleanName
 		g.Go(func() error {
-			return h.store.WritePlaywrightFile(ctx, projectID, targetDir+"/"+name, bytes.NewReader(data))
+			return h.store.WritePlaywrightFile(ctx, storageKey, targetDir+"/"+name, bytes.NewReader(data))
 		})
 	}
 

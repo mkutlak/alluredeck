@@ -18,6 +18,7 @@ var (
 	ErrProjectTooLong      = errors.New("project_id must not exceed 100 characters")
 	ErrProjectInvalidChars = errors.New("project_id contains invalid characters")
 	ErrProjectReserved     = errors.New("project_id is reserved")
+	ErrProjectNumericOnly  = errors.New("project_id must contain at least one letter")
 	ErrProjectInvalid      = errors.New("invalid project_id")
 )
 
@@ -88,6 +89,16 @@ func validateProjectID(projectsDir, projectID string) error {
 	}
 	if len(projectID) > 100 {
 		return ErrProjectTooLong
+	}
+	allDigits := true
+	for _, r := range projectID {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return ErrProjectNumericOnly
 	}
 	if strings.ContainsAny(projectID, "/\\") || strings.Contains(projectID, "..") {
 		return ErrProjectInvalidChars

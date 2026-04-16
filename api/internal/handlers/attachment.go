@@ -207,7 +207,7 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Look up slug for storage operations.
+	// Look up project for storage operations.
 	project, err := h.projectStore.GetProject(ctx, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
@@ -217,7 +217,7 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "error fetching project")
 		return
 	}
-	slug := project.Slug
+	storageKey := project.StorageKey
 
 	reportID, ok := extractReportID(w, r)
 	if !ok {
@@ -242,7 +242,7 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 
 	filePath := "data/attachments/" + source
 
-	reader, mimeType, err := h.dataStore.OpenReportFile(ctx, slug, strconv.Itoa(build.BuildNumber), filePath)
+	reader, mimeType, err := h.dataStore.OpenReportFile(ctx, storageKey, strconv.Itoa(build.BuildNumber), filePath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "attachment file not found")
 		return

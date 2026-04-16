@@ -7,51 +7,53 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // SyncMetadata syncs projects via the storage store and imports any projects and builds
 // not yet recorded in the PostgreSQL database.
-// TODO(test): Add TestSyncMetadata_DoesNotDuplicateChildProjects once a lightweight
-// DB-backed test harness is available for the pg package. The fix is covered at the
-// InsertOrIgnore level by TestInsertOrIgnore_ChildSlugExists in project_test.go.
 func SyncMetadata(ctx context.Context, st storage.Store, projectStore *ProjectStore, buildStore *BuildStore, logger *zap.Logger) error {
-	projects, err := st.ListProjects(ctx)
+	storageDirs, err := st.ListProjects(ctx)
 	if err != nil {
 		logger.Info("SyncMetadata: could not list projects (non-fatal)", zap.Error(err))
 		return nil
 	}
 
-	for _, slug := range projects {
-		if err := pgSyncProject(ctx, st, projectStore, buildStore, slug); err != nil {
-			logger.Error("SyncMetadata: skipping project", zap.String("project_slug", slug), zap.Error(err))
+	dbProjects, err := projectStore.ListProjects(ctx)
+	if err != nil {
+		logger.Error("SyncMetadata: could not list DB projects", zap.Error(err))
+		return nil
+	}
+
+	byStorageKey := make(map[string]*store.Project, len(dbProjects))
+	for i := range dbProjects {
+		byStorageKey[dbProjects[i].StorageKey] = &dbProjects[i]
+	}
+
+	for _, storageKey := range storageDirs {
+		proj, ok := byStorageKey[storageKey]
+		if !ok {
+			logger.Warn("SyncMetadata: orphaned storage directory, skipping", zap.String("storage_key", storageKey))
+			continue
+		}
+		if err := pgSyncProject(ctx, st, buildStore, proj); err != nil {
+			logger.Error("SyncMetadata: skipping project", zap.String("storage_key", storageKey), zap.Error(err))
 		}
 	}
 	return nil
 }
 
-// pgSyncProject inserts or updates a single project and all its builds in the PostgreSQL database.
-func pgSyncProject(ctx context.Context, st storage.Store, ps *ProjectStore, bs *BuildStore, slug string) error {
-	if err := ps.InsertOrIgnore(ctx, slug); err != nil {
-		return err
-	}
-
-	storageOrders, err := st.ListReportBuilds(ctx, slug)
+// pgSyncProject syncs all builds for a single project into the PostgreSQL database.
+func pgSyncProject(ctx context.Context, st storage.Store, bs *BuildStore, project *store.Project) error {
+	storageOrders, err := st.ListReportBuilds(ctx, project.StorageKey)
 	if err != nil {
-		return fmt.Errorf("list report builds for project %q: %w", slug, err)
+		return fmt.Errorf("list report builds for project %q: %w", project.StorageKey, err)
 	}
 	if len(storageOrders) == 0 {
 		return nil
 	}
 
-	// Look up the project's numeric ID for build operations.
-	// Use GetProjectBySlugAny so that child-only slugs (inserted by a previous
-	// upload before InsertOrIgnore ran) are found even when no top-level row exists.
-	proj, err := ps.GetProjectBySlugAny(ctx, slug)
-	if err != nil {
-		return fmt.Errorf("get project by slug %q: %w", slug, err)
-	}
-
-	existing, err := bs.ExistingBuildNumbers(ctx, proj.ID)
+	existing, err := bs.ExistingBuildNumbers(ctx, project.ID)
 	if err != nil {
 		return err
 	}
@@ -63,13 +65,13 @@ func pgSyncProject(ctx context.Context, st storage.Store, ps *ProjectStore, bs *
 		}
 	}
 
-	if err := bs.InsertMissingBuilds(ctx, proj.ID, missing); err != nil {
+	if err := bs.InsertMissingBuilds(ctx, project.ID, missing); err != nil {
 		return err
 	}
 
-	needStats, err := bs.BuildsWithMissingStats(ctx, proj.ID)
+	needStats, err := bs.BuildsWithMissingStats(ctx, project.ID)
 	if err != nil {
 		return err
 	}
-	return bs.BatchSyncStats(ctx, proj.ID, slug, needStats, st)
+	return bs.BatchSyncStats(ctx, project.ID, project.StorageKey, needStats, st)
 }

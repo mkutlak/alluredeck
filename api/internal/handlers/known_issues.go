@@ -264,13 +264,13 @@ func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Look up slug for storage calls.
+	// Look up project for storage calls.
 	project, err := h.projectStore.GetProject(ctx, projectID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
-	slug := project.Slug
+	storageKey := project.StorageKey
 
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
@@ -305,13 +305,13 @@ func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *htt
 		}
 
 		relBase := "reports/" + reportID + "/data/test-results"
-		entries, err := h.store.ReadDir(ctx, slug, relBase)
+		entries, err := h.store.ReadDir(ctx, storageKey, relBase)
 		if err == nil {
 			for _, entry := range entries {
 				if entry.IsDir {
 					continue
 				}
-				data, err := h.store.ReadFile(ctx, slug, relBase+"/"+entry.Name)
+				data, err := h.store.ReadFile(ctx, storageKey, relBase+"/"+entry.Name)
 				if err != nil {
 					continue
 				}

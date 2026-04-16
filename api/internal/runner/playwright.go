@@ -55,8 +55,8 @@ func NewPlaywrightRunner(deps PlaywrightRunnerDeps) *PlaywrightRunner {
 // IngestReport processes an already-uploaded Playwright HTML report for a project.
 // It reads the report from playwright-reports/latest/, parses it, copies files to
 // the numbered build directory, and stores test results and stats in the database.
-// projectID is the numeric surrogate key; slug is the filesystem identifier.
-func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, slug, execName, execFrom, ciBranch, ciCommitSHA string) (string, error) {
+// projectID is the numeric surrogate key; slug is the human-readable identifier; storageKey is used for storage operations.
+func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA string) (string, error) {
 	// 1. Acquire per-project lock to serialize concurrent report ingestion.
 	unlock, err := pr.lockManager.AcquireLock(ctx, slug)
 	if err != nil {
@@ -71,7 +71,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 	}
 
 	// 3. Read index.html from playwright-reports/latest/ in storage.
-	indexReader, _, err := pr.store.ReadPlaywrightFile(ctx, slug, "latest/index.html")
+	indexReader, _, err := pr.store.ReadPlaywrightFile(ctx, storageKey, "latest/index.html")
 	if err != nil {
 		return "", fmt.Errorf("read playwright index.html: %w", err)
 	}
@@ -89,7 +89,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 	}
 
 	// 5. Copy playwright-reports/latest/ to playwright-reports/{buildNumber}/.
-	if err := pr.store.CopyPlaywrightLatestToBuild(ctx, slug, buildNumber); err != nil {
+	if err := pr.store.CopyPlaywrightLatestToBuild(ctx, storageKey, buildNumber); err != nil {
 		return "", fmt.Errorf("copy playwright report to build: %w", err)
 	}
 
@@ -242,7 +242,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 		if err != nil {
 			pr.logger.Error("failed to prune builds",
 				zap.String("slug", slug), zap.Error(err))
-		} else if err := pr.store.PruneReportDirs(ctx, slug, removed); err != nil {
+		} else if err := pr.store.PruneReportDirs(ctx, storageKey, removed); err != nil {
 			pr.logger.Error("failed to prune report dirs",
 				zap.String("slug", slug), zap.Error(err))
 		}
@@ -251,13 +251,13 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 			cutoff := time.Now().AddDate(0, 0, -pr.cfg.KeepHistoryMaxAgeDays)
 			aged, err := pr.buildStore.PruneBuildsByAge(ctx, projectID, cutoff)
 			if err == nil {
-				_ = pr.store.PruneReportDirs(ctx, slug, aged)
+				_ = pr.store.PruneReportDirs(ctx, storageKey, aged)
 			}
 		}
 	}
 
 	// 13. Clean up the staging directory now that files have been copied to the build.
-	if err := pr.store.CleanPlaywrightLatest(ctx, slug); err != nil {
+	if err := pr.store.CleanPlaywrightLatest(ctx, storageKey); err != nil {
 		pr.logger.Warn("failed to clean playwright latest",
 			zap.String("slug", slug), zap.Error(err))
 	}

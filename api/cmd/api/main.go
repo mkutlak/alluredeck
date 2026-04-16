@@ -103,6 +103,10 @@ func main() {
 	s, sqlDB, locker, pgDB := mustInitStores(cfg, dataStore, encKey, logger)
 	defer func() { _ = pgDB.Close() }()
 
+	// Migrate child project storage paths from slug-based to numeric-ID-based names
+	// (idempotent, safe to re-run on every startup).
+	migrateChildStoragePaths(context.Background(), s.project, dataStore, logger)
+
 	allureCore := runner.NewAllure(runner.AllureDeps{
 		Config:          cfg,
 		Store:           dataStore,
@@ -530,6 +534,43 @@ func createDataStore(cfg *config.Config, logger *zap.Logger) (storage.Store, err
 	default:
 		return storage.NewLocalStore(cfg), nil
 	}
+}
+
+// migrateChildStoragePaths renames storage directories for child projects from
+// slug-based names to numeric-ID-based storage keys. It is idempotent and
+// non-fatal: errors are logged but do not block server startup.
+func migrateChildStoragePaths(ctx context.Context, projectStore store.ProjectStorer, dataStore storage.Store, logger *zap.Logger) {
+	projects, err := projectStore.ListProjects(ctx)
+	if err != nil {
+		logger.Error("storage migration: failed to list projects", zap.Error(err))
+		return
+	}
+
+	var entries []storage.MigrateEntry
+	for _, p := range projects {
+		if p.ParentID == nil {
+			continue
+		}
+		if p.Slug == p.StorageKey {
+			continue
+		}
+		entries = append(entries, storage.MigrateEntry{
+			OldKey: p.Slug,
+			NewKey: p.StorageKey,
+		})
+	}
+
+	if len(entries) == 0 {
+		logger.Debug("storage migration: no child projects require path migration")
+		return
+	}
+
+	logger.Info("storage migration: migrating child project storage paths", zap.Int("count", len(entries)))
+	if err := storage.MigrateChildPaths(ctx, dataStore, entries, logger); err != nil {
+		logger.Error("storage migration: completed with errors", zap.Error(err))
+		return
+	}
+	logger.Info("storage migration: child project storage paths migrated successfully", zap.Int("count", len(entries)))
 }
 
 // registerRoutes mounts all API routes under the given URL prefix.

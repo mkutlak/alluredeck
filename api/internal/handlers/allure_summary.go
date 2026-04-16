@@ -106,7 +106,7 @@ func (h *ReportHandler) GetReportSummary(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 
 	// Validate project_id.
-	projectID, _, ok := h.lookupProjectSlug(w, r)
+	projectID, _, _, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}

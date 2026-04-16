@@ -51,32 +51,32 @@ func NewResultUploadHandler(st storage.Store, ps store.ProjectStorer, jm runner.
 // @Router       /projects/{project_id}/results [delete]
 // resolveProjectID tries to parse the path value as a numeric ID.
 // If it fails, treats it as a slug and looks up the project.
-// Returns (id, slug, found).
-func (h *ResultUploadHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, bool) {
+// Returns (id, slug, storageKey, found).
+func (h *ResultUploadHandler) resolveProjectID(ctx context.Context, pathValue string) (int64, string, string, bool) {
 	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
 		p, err := h.projectStore.GetProject(ctx, id)
 		if err == nil {
-			return p.ID, p.Slug, true
+			return p.ID, p.Slug, p.StorageKey, true
 		}
 	}
 	// Treat as slug — look up by slug.
 	p, err := h.projectStore.GetProjectBySlugAny(ctx, pathValue)
 	if err == nil {
-		return p.ID, p.Slug, true
+		return p.ID, p.Slug, p.StorageKey, true
 	}
-	return 0, pathValue, false
+	return 0, pathValue, pathValue, false
 }
 
 func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Request) {
 	pathValue := r.PathValue("project_id")
-	projectID, slug, found := h.resolveProjectID(r.Context(), pathValue)
+	projectID, slug, storageKey, found := h.resolveProjectID(r.Context(), pathValue)
 	if !found {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("project '%s' not found", pathValue))
 		return
 	}
 	_ = projectID // DB operations would use this
 
-	if err := h.runner.CleanResults(r.Context(), slug); err != nil {
+	if err := h.runner.CleanResults(r.Context(), storageKey); err != nil {
 		h.logger.Error("cleaning results failed", zap.String("slug", slug), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error cleaning results")
 		return
@@ -105,7 +105,7 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 // @Router       /projects/{project_id}/results [post]
 func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 	pathValue := r.PathValue("project_id")
-	projectID, slug, found := h.resolveProjectID(r.Context(), pathValue)
+	projectID, slug, storageKey, found := h.resolveProjectID(r.Context(), pathValue)
 
 	parentIDStr := r.URL.Query().Get("parent_id")
 
@@ -118,8 +118,9 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
 			slug = pathValue // use path value as slug for new project
+			storageKey = slug
 			// Create filesystem project via runner.
-			if err := h.runner.CreateProject(r.Context(), slug); err != nil && !errors.Is(err, runner.ErrProjectExists) {
+			if err := h.runner.CreateProject(r.Context(), storageKey); err != nil && !errors.Is(err, runner.ErrProjectExists) {
 				h.logger.Error("auto-creating project failed", zap.String("slug", slug), zap.Error(err))
 				writeError(w, http.StatusInternalServerError, "failed to create project")
 				return
@@ -170,6 +171,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 				}
 				if project != nil {
 					projectID = project.ID
+					storageKey = project.StorageKey
 				}
 			} else {
 				// Register in database so downstream jobs (River) can reference the project.
@@ -181,12 +183,14 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 				}
 				if project != nil {
 					projectID = project.ID
+					storageKey = project.StorageKey
 				}
 			}
 			// If project already existed, look it up.
 			if projectID == 0 {
 				if p, err := h.projectStore.GetProjectBySlugAny(r.Context(), slug); err == nil {
 					projectID = p.ID
+					storageKey = p.StorageKey
 				}
 			}
 		} else {
@@ -200,7 +204,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
-	processedFiles, failedFiles, err := h.parseResultsBody(r, slug)
+	processedFiles, failedFiles, err := h.parseResultsBody(r, storageKey)
 	if errors.Is(err, errUnsupportedContentType) {
 		writeError(w, http.StatusBadRequest, "Content-Type must be application/json, multipart/form-data, or application/gzip")
 		return
@@ -225,6 +229,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 
 	// Auto-trigger report generation after successful upload.
 	job := h.jobManager.Submit(projectID, slug, runner.JobParams{
+		StorageKey:   storageKey,
 		ExecName:     execName,
 		ExecFrom:     execFrom,
 		ExecType:     execType,
@@ -240,7 +245,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	currentFileNames, _ := h.store.ListResultFiles(r.Context(), slug)
+	currentFileNames, _ := h.store.ListResultFiles(r.Context(), storageKey)
 
 	writeSuccess(w, http.StatusOK, map[string]any{
 		"job_id":                job.ID,
@@ -256,24 +261,24 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 
 // parseResultsBody routes the request to the appropriate parser based on Content-Type.
 // Returns errUnsupportedContentType when the Content-Type is not recognized.
-func (h *ResultUploadHandler) parseResultsBody(r *http.Request, projectID string) (processed []string, failed []map[string]string, err error) {
+func (h *ResultUploadHandler) parseResultsBody(r *http.Request, storageKey string) (processed []string, failed []map[string]string, err error) {
 	contentType := r.Header.Get("Content-Type")
 	switch {
 	case strings.HasPrefix(contentType, "application/json"):
-		return h.sendJSONResults(r, projectID)
+		return h.sendJSONResults(r, storageKey)
 	case strings.HasPrefix(contentType, "multipart/form-data"):
-		return h.sendMultipartResults(r, projectID)
+		return h.sendMultipartResults(r, storageKey)
 	case contentType == "application/gzip",
 		contentType == "application/x-gzip",
 		contentType == "application/x-tar+gzip":
-		return h.sendTarGzResults(r, projectID)
+		return h.sendTarGzResults(r, storageKey)
 	default:
 		return nil, nil, errUnsupportedContentType
 	}
 }
 
 // sendJSONResults processes JSON body: {"results":[{"file_name":"...","content_base64":"..."}]}
-func (h *ResultUploadHandler) sendJSONResults(r *http.Request, projectID string) (processed []string, failed []map[string]string, _ error) {
+func (h *ResultUploadHandler) sendJSONResults(r *http.Request, storageKey string) (processed []string, failed []map[string]string, _ error) {
 	var body struct {
 		Results []struct {
 			FileName      string `json:"file_name"`
@@ -316,7 +321,7 @@ func (h *ResultUploadHandler) sendJSONResults(r *http.Request, projectID string)
 		// allowing the GC to reclaim it while io.Copy runs.
 		body.Results[i].ContentBase64 = ""
 
-		if err := h.store.WriteResultFile(r.Context(), projectID, safeName, decoder); err != nil {
+		if err := h.store.WriteResultFile(r.Context(), storageKey, safeName, decoder); err != nil {
 			return nil, nil, fmt.Errorf("decode base64 for %q: %w", body.Results[i].FileName, err)
 		}
 
@@ -327,7 +332,7 @@ func (h *ResultUploadHandler) sendJSONResults(r *http.Request, projectID string)
 }
 
 // sendMultipartResults processes multipart/form-data with files[] field
-func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, projectID string) (processed []string, failed []map[string]string, _ error) {
+func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey string) (processed []string, failed []map[string]string, _ error) {
 	const maxMemory = 32 << 20 // 32 MB
 	if err := r.ParseMultipartForm(maxMemory); err != nil {
 		return nil, nil, fmt.Errorf("parse multipart form: %w", err)
@@ -346,7 +351,7 @@ func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, projectID st
 			continue
 		}
 
-		err = h.store.WriteResultFile(r.Context(), projectID, safeName, f)
+		err = h.store.WriteResultFile(r.Context(), storageKey, safeName, f)
 		_ = f.Close()
 		if err != nil {
 			failed = append(failed, map[string]string{"file_name": safeName, "message": err.Error()})
@@ -360,7 +365,7 @@ func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, projectID st
 
 // sendTarGzResults extracts a tar.gz archive to a temp directory, validates
 // all entries, then writes them to storage. Atomic: rejects all on any error.
-func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, projectID string) (processed []string, failed []map[string]string, _ error) {
+func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey string) (processed []string, failed []map[string]string, _ error) {
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid gzip stream: %w", err)
@@ -456,7 +461,7 @@ func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, projectID string
 		if err != nil {
 			return nil, nil, fmt.Errorf("reopen temp file %q: %w", name, err)
 		}
-		err = h.store.WriteResultFile(r.Context(), projectID, name, f)
+		err = h.store.WriteResultFile(r.Context(), storageKey, name, f)
 		_ = f.Close()
 		if err != nil {
 			return nil, nil, fmt.Errorf("write result file %q: %w", name, err)

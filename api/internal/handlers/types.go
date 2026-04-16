@@ -14,6 +14,7 @@ import (
 type ProjectEntry struct {
 	ProjectID   int64   `json:"project_id"`
 	Slug        string  `json:"slug"`
+	StorageKey  string  `json:"storage_key"`
 	DisplayName string  `json:"display_name"`
 	ReportType  string  `json:"report_type"`
 	CreatedAt   string  `json:"created_at"`

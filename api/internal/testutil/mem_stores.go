@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -158,7 +159,7 @@ func (m *MemProjectStore) CreateProject(ctx context.Context, slug string) (*stor
 	}
 	id := m.nextID
 	m.nextID++
-	p := &store.Project{ID: id, Slug: slug, DisplayName: slug, CreatedAt: time.Now()}
+	p := &store.Project{ID: id, Slug: slug, StorageKey: slug, DisplayName: slug, CreatedAt: time.Now()}
 	m.projects[id] = p
 	m.slugMap[slug] = id
 	cp := *p
@@ -177,7 +178,7 @@ func (m *MemProjectStore) CreateProjectWithParent(ctx context.Context, slug stri
 	id := m.nextID
 	m.nextID++
 	pid := parentID
-	p := &store.Project{ID: id, Slug: slug, ParentID: &pid, DisplayName: slug, CreatedAt: time.Now()}
+	p := &store.Project{ID: id, Slug: slug, StorageKey: strconv.FormatInt(id, 10), ParentID: &pid, DisplayName: slug, CreatedAt: time.Now()}
 	m.projects[id] = p
 	m.slugMap[slug] = id
 	cp := *p

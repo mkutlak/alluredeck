@@ -24,6 +24,7 @@ import (
 type GenerateReportArgs struct {
 	ProjectID    int64  `json:"project_id"`
 	Slug         string `json:"slug"`
+	StorageKey   string `json:"storage_key"`
 	ExecName     string `json:"exec_name"`
 	ExecFrom     string `json:"exec_from"`
 	ExecType     string `json:"exec_type"`
@@ -39,6 +40,7 @@ func (GenerateReportArgs) Kind() string { return "generate_report" }
 type PlaywrightIngestArgs struct {
 	ProjectID   int64  `json:"project_id"`
 	Slug        string `json:"slug"`
+	StorageKey  string `json:"storage_key"`
 	ExecName    string `json:"exec_name"`
 	ExecFrom    string `json:"exec_from"`
 	CIBranch    string `json:"ci_branch"`
@@ -64,7 +66,7 @@ type GenerateReportWorker struct {
 // Work implements river.Worker.
 func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[GenerateReportArgs]) error {
 	a := job.Args
-	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA)
+	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA)
 	if err != nil {
 		w.logger.Error("river: report generation failed",
 			zap.Int64("job_id", job.ID),
@@ -120,7 +122,7 @@ type PlaywrightIngestWorker struct {
 // Work implements river.Worker for Playwright report ingestion.
 func (w *PlaywrightIngestWorker) Work(ctx context.Context, job *river.Job[PlaywrightIngestArgs]) error {
 	a := job.Args
-	reportID, err := w.runner.IngestReport(ctx, a.ProjectID, a.Slug, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA)
+	reportID, err := w.runner.IngestReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA)
 	if err != nil {
 		w.logger.Error("river: playwright ingest failed",
 			zap.Int64("job_id", job.ID),
@@ -355,6 +357,7 @@ func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams
 	args := GenerateReportArgs{
 		ProjectID:    projectID,
 		Slug:         slug,
+		StorageKey:   params.StorageKey,
 		ExecName:     params.ExecName,
 		ExecFrom:     params.ExecFrom,
 		ExecType:     params.ExecType,
@@ -377,10 +380,11 @@ func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams
 }
 
 // SubmitPlaywright enqueues a new Playwright report ingestion job.
-func (jm *RiverJobManager) SubmitPlaywright(projectID int64, slug string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
+func (jm *RiverJobManager) SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
 	args := PlaywrightIngestArgs{
 		ProjectID:   projectID,
 		Slug:        slug,
+		StorageKey:  storageKey,
 		ExecName:    execName,
 		ExecFrom:    execFrom,
 		CIBranch:    ciBranch,
@@ -500,16 +504,18 @@ func riverRowToJob(r *rivertype.JobRow) *Job {
 		t := *r.FinalizedAt
 		j.CompletedAt = &t
 	}
-	// Try to decode project_id and slug from either job arg type.
+	// Try to decode project_id, slug, and storage_key from either job arg type.
 	var genArgs GenerateReportArgs
 	if err := json.Unmarshal(r.EncodedArgs, &genArgs); err == nil && genArgs.ProjectID != 0 {
 		j.ProjectID = genArgs.ProjectID
 		j.Slug = genArgs.Slug
+		j.StorageKey = genArgs.StorageKey
 	} else {
 		var pwArgs PlaywrightIngestArgs
 		if err := json.Unmarshal(r.EncodedArgs, &pwArgs); err == nil {
 			j.ProjectID = pwArgs.ProjectID
 			j.Slug = pwArgs.Slug
+			j.StorageKey = pwArgs.StorageKey
 		}
 	}
 	// Use the last attempt error message if present.

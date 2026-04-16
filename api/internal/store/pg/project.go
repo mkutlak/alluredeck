@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -29,9 +30,9 @@ func NewProjectStore(s *PGStore, logger *zap.Logger) *ProjectStore {
 func (ps *ProjectStore) CreateProject(ctx context.Context, slug string) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		`INSERT INTO projects(slug, display_name) VALUES($1, $1) RETURNING id, slug, parent_id, display_name, report_type, created_at`,
+		`INSERT INTO projects(slug, display_name, storage_key) VALUES($1, $1, $1) RETURNING id, slug, storage_key, parent_id, display_name, report_type, created_at`,
 		slug,
-	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+	).Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, fmt.Errorf("%w: %s", store.ErrProjectExists, slug)
@@ -46,15 +47,25 @@ func (ps *ProjectStore) CreateProject(ctx context.Context, slug string) (*store.
 func (ps *ProjectStore) CreateProjectWithParent(ctx context.Context, slug string, parentID int64) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		`INSERT INTO projects(slug, parent_id, display_name) VALUES($1, $2, $1) RETURNING id, slug, parent_id, display_name, report_type, created_at`,
+		`WITH ins AS (
+			INSERT INTO projects(slug, parent_id, display_name, storage_key)
+			VALUES($1, $2, $1, '0')
+			RETURNING id, slug, parent_id, display_name, report_type, created_at
+		)
+		SELECT ins.id, ins.slug, ins.id::TEXT, ins.parent_id, ins.display_name, ins.report_type, ins.created_at FROM ins`,
 		slug, parentID,
-	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+	).Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, fmt.Errorf("%w: %s", store.ErrProjectExists, slug)
 		}
 		return nil, fmt.Errorf("insert project: %w", err)
 	}
+	_, err = ps.pool.Exec(ctx, "UPDATE projects SET storage_key = $1::TEXT WHERE id = $1", p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("set storage_key for project: %w", err)
+	}
+	p.StorageKey = strconv.FormatInt(p.ID, 10)
 	return &p, nil
 }
 
@@ -62,8 +73,8 @@ func (ps *ProjectStore) CreateProjectWithParent(ctx context.Context, slug string
 func (ps *ProjectStore) GetProject(ctx context.Context, id int64) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE id = $1", id,
-	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects WHERE id = $1", id,
+	).Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %d", store.ErrProjectNotFound, id)
 	}
@@ -77,8 +88,8 @@ func (ps *ProjectStore) GetProject(ctx context.Context, id int64) (*store.Projec
 func (ps *ProjectStore) GetProjectBySlug(ctx context.Context, slug string) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE slug = $1 AND parent_id IS NULL", slug,
-	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects WHERE slug = $1 AND parent_id IS NULL", slug,
+	).Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, slug)
 	}
@@ -93,8 +104,8 @@ func (ps *ProjectStore) GetProjectBySlug(ctx context.Context, slug string) (*sto
 func (ps *ProjectStore) GetProjectBySlugAny(ctx context.Context, slug string) (*store.Project, error) {
 	var p store.Project
 	err := ps.pool.QueryRow(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE slug = $1 ORDER BY parent_id IS NOT NULL, id LIMIT 1", slug,
-	).Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects WHERE slug = $1 ORDER BY parent_id IS NOT NULL, id LIMIT 1", slug,
+	).Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", store.ErrProjectNotFound, slug)
 	}
@@ -107,7 +118,7 @@ func (ps *ProjectStore) GetProjectBySlugAny(ctx context.Context, slug string) (*
 // ListProjects returns all projects ordered by ID.
 func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects ORDER BY id")
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -116,7 +127,7 @@ func (ps *ProjectStore) ListProjects(ctx context.Context) ([]store.Project, erro
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -136,7 +147,7 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 
 	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects ORDER BY id LIMIT $1 OFFSET $2",
 		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list projects paginated: %w", err)
@@ -146,7 +157,7 @@ func (ps *ProjectStore) ListProjectsPaginated(ctx context.Context, page, perPage
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -168,7 +179,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 
 	offset := (page - 1) * perPage
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects WHERE parent_id IS NULL ORDER BY id LIMIT $1 OFFSET $2",
 		perPage, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list top-level projects paginated: %w", err)
@@ -178,7 +189,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -192,7 +203,7 @@ func (ps *ProjectStore) ListProjectsPaginatedTopLevel(ctx context.Context, page,
 // ListChildren returns all child projects for a given parent project ID, ordered by ID.
 func (ps *ProjectStore) ListChildren(ctx context.Context, parentID int64) ([]store.Project, error) {
 	rows, err := ps.pool.Query(ctx,
-		"SELECT id, slug, parent_id, display_name, report_type, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
+		"SELECT id, slug, storage_key, parent_id, display_name, report_type, created_at FROM projects WHERE parent_id = $1 ORDER BY id", parentID)
 	if err != nil {
 		return nil, fmt.Errorf("list children: %w", err)
 	}
@@ -201,7 +212,7 @@ func (ps *ProjectStore) ListChildren(ctx context.Context, parentID int64) ([]sto
 	var projects []store.Project
 	for rows.Next() {
 		var p store.Project
-		if err := rows.Scan(&p.ID, &p.Slug, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.StorageKey, &p.ParentID, &p.DisplayName, &p.ReportType, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -264,7 +275,7 @@ func (ps *ProjectStore) DeleteProject(ctx context.Context, id int64) error {
 
 // RenameProject updates a project's slug and display_name.
 func (ps *ProjectStore) RenameProject(ctx context.Context, id int64, newSlug string) error {
-	tag, err := ps.pool.Exec(ctx, "UPDATE projects SET slug = $1, display_name = $1 WHERE id = $2", newSlug, id)
+	tag, err := ps.pool.Exec(ctx, "UPDATE projects SET slug = $1, display_name = $1, storage_key = CASE WHEN parent_id IS NULL THEN $1 ELSE storage_key END WHERE id = $2", newSlug, id)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("%w: %s", store.ErrProjectExists, newSlug)
@@ -293,8 +304,8 @@ func (ps *ProjectStore) ProjectExists(ctx context.Context, id int64) (bool, erro
 // Used by SyncMetadata.
 func (ps *ProjectStore) InsertOrIgnore(ctx context.Context, slug string) error {
 	_, err := ps.pool.Exec(ctx, `
-		INSERT INTO projects(slug, display_name)
-		SELECT $1, $1
+		INSERT INTO projects(slug, display_name, storage_key)
+		SELECT $1, $1, $1
 		WHERE NOT EXISTS (SELECT 1 FROM projects WHERE slug = $1)
 	`, slug)
 	if err != nil {

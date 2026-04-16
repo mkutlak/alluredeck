@@ -34,6 +34,7 @@ type APIKey struct {
 type Project struct {
 	ID          int64
 	Slug        string
+	StorageKey  string
 	ParentID    *int64
 	DisplayName string
 	ReportType  string // "allure" or "playwright"

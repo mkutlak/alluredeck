@@ -39,7 +39,7 @@ func newBlockingGen() *blockingGen {
 	return &blockingGen{ch: make(chan struct{})}
 }
 
-func (g *blockingGen) GenerateReport(_ context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (g *blockingGen) GenerateReport(_ context.Context, _ int64, _, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	<-g.ch
 	return "ok", nil
 }
@@ -53,7 +53,7 @@ func newContextGen() *contextGen {
 	return &contextGen{ch: make(chan struct{})}
 }
 
-func (g *contextGen) GenerateReport(ctx context.Context, _ int64, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (g *contextGen) GenerateReport(ctx context.Context, _ int64, _, _, _, _, _ string, _ bool, _, _ string) (string, error) {
 	select {
 	case <-g.ch:
 		return "ok", nil

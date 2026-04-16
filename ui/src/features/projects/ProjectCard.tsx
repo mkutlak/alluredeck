@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { FolderInput, FolderOpen, Pencil, Trash2, MoreHorizontal } from 'lucide-react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -20,9 +21,10 @@ import { cn } from '@/lib/utils'
 
 interface ProjectCardProps {
   projectId: string
+  storageKey?: string
 }
 
-export function ProjectCard({ projectId }: ProjectCardProps) {
+export function ProjectCard({ projectId, storageKey }: ProjectCardProps) {
   const isAdmin = useAuthStore(selectIsAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
@@ -67,7 +69,17 @@ export function ProjectCard({ projectId }: ProjectCardProps) {
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
-              <FolderOpen size={16} className="text-muted-foreground shrink-0" />
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <FolderOpen size={16} className="text-muted-foreground shrink-0 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="font-mono text-xs">
+                    <p>ID: {storageKey ?? projectId}</p>
+                    <p>Storage: projects/{storageKey ?? projectId}/</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <CardTitle className="truncate text-sm font-medium">{projectId}</CardTitle>
             </div>
             {isAdmin && (

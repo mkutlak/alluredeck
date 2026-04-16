@@ -174,7 +174,7 @@ func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	if err := a.storeAndPruneBuild(context.Background(), projectID, "test-project", tmpDir, buildNumber, store.CIMetadata{}, nil); err != nil {
+	if err := a.storeAndPruneBuild(context.Background(), projectID, "test-project", "test-project", tmpDir, buildNumber, store.CIMetadata{}, nil); err != nil {
 		t.Fatalf("storeAndPruneBuild: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestStoreAndPruneBuild_InsertBatchFullFailure_NonFatal(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	err := a.storeAndPruneBuild(context.Background(), int64(2), "proj", tmpDir, 1, store.CIMetadata{}, nil)
+	err := a.storeAndPruneBuild(context.Background(), int64(2), "proj", "proj", tmpDir, 1, store.CIMetadata{}, nil)
 	if err != nil {
 		t.Fatalf("storeAndPruneBuild must not fail when InsertBatchFull errors, got: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestStoreAndPruneBuild_NoResultFiles_SkipsInsertBatchFull(t *testing.T) {
 		logger:          zap.NewNop(),
 	}
 
-	if err := a.storeAndPruneBuild(context.Background(), int64(3), "proj", tmpDir, 1, store.CIMetadata{}, nil); err != nil {
+	if err := a.storeAndPruneBuild(context.Background(), int64(3), "proj", "proj", tmpDir, 1, store.CIMetadata{}, nil); err != nil {
 		t.Fatalf("storeAndPruneBuild: %v", err)
 	}
 

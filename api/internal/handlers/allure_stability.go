@@ -50,7 +50,7 @@ type stabilityRawEntry struct {
 func (h *ReportHandler) GetReportStability(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	_, slug, ok := h.lookupProjectSlug(w, r)
+	_, _, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -65,7 +65,7 @@ func (h *ReportHandler) GetReportStability(w http.ResponseWriter, r *http.Reques
 	}
 
 	relBase := "reports/" + reportID + "/data/test-results"
-	entries, err := h.store.ReadDir(ctx, slug, relBase)
+	entries, err := h.store.ReadDir(ctx, storageKey, relBase)
 
 	var flakyTests []stabilityTestEntry
 	var newFailed []stabilityTestEntry
@@ -77,7 +77,7 @@ func (h *ReportHandler) GetReportStability(w http.ResponseWriter, r *http.Reques
 			if entry.IsDir || !strings.HasSuffix(entry.Name, ".json") {
 				continue
 			}
-			data, err := h.store.ReadFile(ctx, slug, relBase+"/"+entry.Name)
+			data, err := h.store.ReadFile(ctx, storageKey, relBase+"/"+entry.Name)
 			if err != nil {
 				continue
 			}

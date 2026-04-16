@@ -141,9 +141,9 @@ func writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType strin
 
 // parseStabilityEntries reads test-result JSON files from the generated report
 // and returns stability entries for processing.
-func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID string) ([]stabilityEntry, error) {
+func (a *Allure) parseStabilityEntries(ctx context.Context, storageKey, reportID string) ([]stabilityEntry, error) {
 	relBase := "reports/" + reportID + "/data/test-results"
-	entries, err := a.store.ReadDir(ctx, projectID, relBase)
+	entries, err := a.store.ReadDir(ctx, storageKey, relBase)
 	if err != nil {
 		return nil, fmt.Errorf("read test-results dir: %w", err)
 	}
@@ -153,7 +153,7 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID 
 		if entry.IsDir || !strings.HasSuffix(entry.Name, ".json") {
 			continue
 		}
-		data, err := a.store.ReadFile(ctx, projectID, relBase+"/"+entry.Name)
+		data, err := a.store.ReadFile(ctx, storageKey, relBase+"/"+entry.Name)
 		if err != nil {
 			a.logger.Warn("skipping test-result file for stability",
 				zap.String("file", entry.Name), zap.Error(err))
@@ -169,9 +169,10 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, projectID, reportID 
 }
 
 // storeAndPruneBuild stores a report snapshot and records it in the database.
-// slug is used for storage (filesystem/S3) operations; projectID (int64) is used for DB operations.
-func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, localProjectDir string, buildNumber int, ciMeta store.CIMetadata, branchID *int64) error {
-	if err := a.store.PublishReport(ctx, slug, buildNumber, localProjectDir); err != nil {
+// storageKey is used for storage (filesystem/S3) operations; projectID (int64) is used for DB operations.
+// slug is the human-readable identifier used for logging only.
+func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, storageKey, localProjectDir string, buildNumber int, ciMeta store.CIMetadata, branchID *int64) error {
+	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
 	if err := a.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
@@ -186,7 +187,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 				zap.Error(err))
 		}
 	}
-	if stats, err := a.store.ReadBuildStats(ctx, slug, buildNumber); err == nil {
+	if stats, err := a.store.ReadBuildStats(ctx, storageKey, buildNumber); err == nil {
 		storeStats := store.BuildStats{
 			Passed:     stats.Passed,
 			Failed:     stats.Failed,
@@ -198,7 +199,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 		}
 
 		// Parse stability data from generated report JSON files.
-		if stabilityEntries, err := a.parseStabilityEntries(ctx, slug, "latest"); err == nil {
+		if stabilityEntries, err := a.parseStabilityEntries(ctx, storageKey, "latest"); err == nil {
 			for i := range stabilityEntries {
 				se := &stabilityEntries[i]
 				if se.StatusDetails != nil && se.StatusDetails.Flaky {
@@ -313,7 +314,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 	}
 
 	// Copy any pending Playwright report from latest/ to the numbered build directory.
-	a.copyPlaywrightReport(ctx, projectID, slug, buildNumber)
+	a.copyPlaywrightReport(ctx, projectID, slug, storageKey, buildNumber)
 
 	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildNumber, branchID); err != nil {
 		a.logger.Error("failed to set latest build",
@@ -336,7 +337,7 @@ func (a *Allure) recordBuild(ctx context.Context, projectID int64, slug string, 
 }
 
 // GenerateReport implements generateAllureReport.sh
-func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
+func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, storageKey, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
 	if execName == "" {
 		execName = "Automatic Execution"
 	}
@@ -358,7 +359,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, exec
 	}
 
 	// 3. PrepareLocal returns the project dir (local) or a temp dir (S3).
-	localProjectDir, err := a.store.PrepareLocal(ctx, slug)
+	localProjectDir, err := a.store.PrepareLocal(ctx, storageKey)
 	if err != nil {
 		return "", fmt.Errorf("prepare local dir for %q: %w", slug, err)
 	}
@@ -389,7 +390,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, exec
 	latestReportDir := filepath.Join(localProjectDir, "reports", "latest")
 
 	// 6a–6c. Preserve history, clear stale output, run allure generate.
-	if err := a.runAllureGenerate(ctx, slug, latestReportDir, localProjectDir); err != nil {
+	if err := a.runAllureGenerate(ctx, slug, storageKey, latestReportDir, localProjectDir); err != nil {
 		return "", err
 	}
 
@@ -416,7 +417,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, exec
 				Branch:    ciBranch,
 				CommitSHA: ciCommitSHA,
 			}
-			if err := a.storeAndPruneBuild(ctx, projectID, slug, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
+			if err := a.storeAndPruneBuild(ctx, projectID, slug, storageKey, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
 				return "", err
 			}
 		} else {
@@ -427,7 +428,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, exec
 	}
 
 	// 8. Keep Latest History (Cleanup old reports)
-	if err := a.KeepLatestHistory(ctx, projectID, slug, resolvedBranchID); err != nil {
+	if err := a.KeepLatestHistory(ctx, projectID, slug, storageKey, resolvedBranchID); err != nil {
 		return "", err
 	}
 
@@ -435,9 +436,9 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, exec
 }
 
 // CleanHistory delegates to the store module and regenerates.
-// projectID is the numeric surrogate key; slug is the filesystem identifier.
-func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug string) error {
-	if err := a.store.CleanHistory(ctx, slug); err != nil {
+// projectID is the numeric surrogate key; slug is the human-readable identifier; storageKey is used for storage operations.
+func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug, storageKey string) error {
+	if err := a.store.CleanHistory(ctx, storageKey); err != nil {
 		return fmt.Errorf("clean history for %q: %w", slug, err)
 	}
 
@@ -453,11 +454,11 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug string)
 
 	checkSecs := strings.ToUpper(a.cfg.CheckResultsEverySeconds)
 	if checkSecs != "NONE" {
-		if err := a.store.KeepHistory(ctx, slug); err != nil {
+		if err := a.store.KeepHistory(ctx, storageKey); err != nil {
 			return fmt.Errorf("keep history for %q: %w", slug, err)
 		}
 
-		if _, err := a.GenerateReport(ctx, projectID, slug, "", "", "", false, "", ""); err != nil {
+		if _, err := a.GenerateReport(ctx, projectID, slug, storageKey, "", "", "", false, "", ""); err != nil {
 			return err
 		}
 	}
@@ -466,24 +467,24 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug string)
 }
 
 // KeepHistory delegates to the store module
-func (a *Allure) KeepHistory(ctx context.Context, projectID string) error {
-	if err := a.store.KeepHistory(ctx, projectID); err != nil {
-		return fmt.Errorf("keep history for %q: %w", projectID, err)
+func (a *Allure) KeepHistory(ctx context.Context, storageKey string) error {
+	if err := a.store.KeepHistory(ctx, storageKey); err != nil {
+		return fmt.Errorf("keep history for %q: %w", storageKey, err)
 	}
 	return nil
 }
 
 // DeleteProject removes the entire project (filesystem + S3).
-func (a *Allure) DeleteProject(ctx context.Context, projectID string) error {
-	if err := a.store.DeleteProject(ctx, projectID); err != nil {
-		return fmt.Errorf("delete project %q: %w", projectID, err)
+func (a *Allure) DeleteProject(ctx context.Context, storageKey string) error {
+	if err := a.store.DeleteProject(ctx, storageKey); err != nil {
+		return fmt.Errorf("delete project %q: %w", storageKey, err)
 	}
 	return nil
 }
 
 // DeleteReport removes a single numbered report directory for a project.
-func (a *Allure) DeleteReport(ctx context.Context, projectID int64, slug, reportID string) error {
-	if err := a.store.DeleteReport(ctx, slug, reportID); err != nil {
+func (a *Allure) DeleteReport(ctx context.Context, projectID int64, slug, storageKey, reportID string) error {
+	if err := a.store.DeleteReport(ctx, storageKey, reportID); err != nil {
 		return fmt.Errorf("delete report %q for %q: %w", reportID, slug, err)
 	}
 
@@ -507,23 +508,23 @@ func (a *Allure) DeleteReport(ctx context.Context, projectID int64, slug, report
 }
 
 // CleanResults delegates to the store module
-func (a *Allure) CleanResults(ctx context.Context, projectID string) error {
-	if err := a.store.CleanResults(ctx, projectID); err != nil {
-		return fmt.Errorf("clean results for %q: %w", projectID, err)
+func (a *Allure) CleanResults(ctx context.Context, storageKey string) error {
+	if err := a.store.CleanResults(ctx, storageKey); err != nil {
+		return fmt.Errorf("clean results for %q: %w", storageKey, err)
 	}
 	return nil
 }
 
 // CreateProject creates the necessary directories for a new project
-func (a *Allure) CreateProject(ctx context.Context, projectID string) error {
-	projectDir := filepath.Join(a.cfg.ProjectsPath, projectID)
+func (a *Allure) CreateProject(ctx context.Context, storageKey string) error {
+	projectDir := filepath.Join(a.cfg.ProjectsPath, storageKey)
 
 	if _, err := os.Stat(projectDir); err == nil {
-		return fmt.Errorf("%w: %s", ErrProjectExists, projectID)
+		return fmt.Errorf("%w: %s", ErrProjectExists, storageKey)
 	}
 
-	if err := a.store.CreateProject(ctx, projectID); err != nil {
-		return fmt.Errorf("create project %q: %w", projectID, err)
+	if err := a.store.CreateProject(ctx, storageKey); err != nil {
+		return fmt.Errorf("create project %q: %w", storageKey, err)
 	}
 	return nil
 }
@@ -531,9 +532,9 @@ func (a *Allure) CreateProject(ctx context.Context, projectID string) error {
 // StoreReport copies variable-content subdirs of the latest report to a numbered snapshot.
 // This thin wrapper exists for backward compatibility with tests; new code should call
 // store.PublishReport directly with the localProjectDir from PrepareLocal.
-func (a *Allure) StoreReport(ctx context.Context, projectID string, buildNumber int) error {
-	localProjectDir := filepath.Join(a.cfg.ProjectsPath, projectID)
-	if err := a.store.PublishReport(ctx, projectID, buildNumber, localProjectDir); err != nil {
+func (a *Allure) StoreReport(ctx context.Context, storageKey string, buildNumber int) error {
+	localProjectDir := filepath.Join(a.cfg.ProjectsPath, storageKey)
+	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
 	return nil
@@ -541,7 +542,7 @@ func (a *Allure) StoreReport(ctx context.Context, projectID string, buildNumber 
 
 // KeepLatestHistory removes the oldest historical report directories when count exceeds keepLatest.
 // Uses the database to determine which builds to prune, then removes their filesystem directories.
-func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug string, branchID *int64) error {
+func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug, storageKey string, branchID *int64) error {
 	if !a.cfg.KeepHistory {
 		return nil
 	}
@@ -550,7 +551,7 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug st
 		return fmt.Errorf("prune builds from db: %w", err)
 	}
 
-	if err := a.store.PruneReportDirs(ctx, slug, removed); err != nil {
+	if err := a.store.PruneReportDirs(ctx, storageKey, removed); err != nil {
 		return fmt.Errorf("prune report dirs: %w", err)
 	}
 
@@ -560,7 +561,7 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug st
 		if err != nil {
 			return fmt.Errorf("prune builds by age: %w", err)
 		}
-		if err := a.store.PruneReportDirs(ctx, slug, aged); err != nil {
+		if err := a.store.PruneReportDirs(ctx, storageKey, aged); err != nil {
 			return fmt.Errorf("prune aged report dirs: %w", err)
 		}
 	}
@@ -570,8 +571,8 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug st
 
 // runAllureGenerate preserves history trends, clears the stale latest report
 // directory, and runs `allure generate` to produce a fresh report.
-func (a *Allure) runAllureGenerate(ctx context.Context, slug, latestReportDir, localProjectDir string) error {
-	if err := a.store.KeepHistory(ctx, slug); err != nil {
+func (a *Allure) runAllureGenerate(ctx context.Context, slug, storageKey, latestReportDir, localProjectDir string) error {
+	if err := a.store.KeepHistory(ctx, storageKey); err != nil {
 		a.logger.Error("KeepHistory failed", zap.String("slug", slug), zap.Error(err))
 	}
 	if err := os.RemoveAll(latestReportDir); err != nil && !os.IsNotExist(err) {
@@ -603,15 +604,15 @@ func (a *Allure) runAllureCmd(ctx context.Context, args ...string) error {
 // is a no-op when latest/ is absent or empty. After copying, sets
 // has_playwright_report on the build, extracts attachment metadata from data/,
 // inserts it, then cleans the latest/ directory.
-func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID int64, slug string, buildNumber int) {
-	if err := a.store.CopyPlaywrightLatestToBuild(ctx, slug, buildNumber); err != nil {
+func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID int64, slug, storageKey string, buildNumber int) {
+	if err := a.store.CopyPlaywrightLatestToBuild(ctx, storageKey, buildNumber); err != nil {
 		a.logger.Warn("failed to copy playwright latest to build",
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 		return
 	}
 
 	// Check whether the copy produced a valid report directory.
-	exists, err := a.store.PlaywrightReportExists(ctx, slug, buildNumber)
+	exists, err := a.store.PlaywrightReportExists(ctx, storageKey, buildNumber)
 	if err != nil {
 		a.logger.Warn("failed to check playwright report existence",
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
@@ -628,7 +629,7 @@ func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID int64, slug
 
 	// Extract attachment metadata from data/ and insert into test_attachments.
 	if a.attachmentStore != nil && a.testResultStore != nil {
-		files, err := a.store.ListPlaywrightDataFiles(ctx, slug, buildNumber)
+		files, err := a.store.ListPlaywrightDataFiles(ctx, storageKey, buildNumber)
 		if err != nil {
 			a.logger.Warn("failed to list playwright data files",
 				zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
@@ -660,7 +661,7 @@ func (a *Allure) copyPlaywrightReport(ctx context.Context, projectID int64, slug
 		}
 	}
 
-	if err := a.store.CleanPlaywrightLatest(ctx, slug); err != nil {
+	if err := a.store.CleanPlaywrightLatest(ctx, storageKey); err != nil {
 		a.logger.Warn("failed to clean playwright latest",
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}

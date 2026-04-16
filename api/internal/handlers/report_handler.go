@@ -79,13 +79,13 @@ func NewReportHandler(deps ReportHandlerDeps) *ReportHandler {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports [post]
 // lookupProjectSlug resolves a project path value (numeric ID or slug) to its
-// int64 ID and slug for storage operations.
-// Returns (projectID, slug, ok). Writes an error response and returns false on failure.
-func (h *ReportHandler) lookupProjectSlug(w http.ResponseWriter, r *http.Request) (int64, string, bool) {
+// int64 ID, slug, and storageKey for storage operations.
+// Returns (projectID, slug, storageKey, ok). Writes an error response and returns false on failure.
+func (h *ReportHandler) lookupProjectSlug(w http.ResponseWriter, r *http.Request) (int64, string, string, bool) {
 	pathValue := r.PathValue("project_id")
 	if pathValue == "" {
 		writeError(w, http.StatusBadRequest, "project_id is required")
-		return 0, "", false
+		return 0, "", "", false
 	}
 
 	ctx := r.Context()
@@ -94,24 +94,24 @@ func (h *ReportHandler) lookupProjectSlug(w http.ResponseWriter, r *http.Request
 	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
 		project, err := h.projectStore.GetProject(ctx, id)
 		if err == nil {
-			return project.ID, project.Slug, true
+			return project.ID, project.Slug, project.StorageKey, true
 		}
 		if errors.Is(err, store.ErrProjectNotFound) {
 			writeError(w, http.StatusNotFound, "project not found")
-			return 0, "", false
+			return 0, "", "", false
 		}
 		writeError(w, http.StatusInternalServerError, "error fetching project")
-		return 0, "", false
+		return 0, "", "", false
 	}
 
 	// Validate slug before DB lookup (path traversal, reserved names, etc.).
 	if strings.ContainsAny(pathValue, "/\\") || strings.Contains(pathValue, "..") {
 		writeError(w, http.StatusBadRequest, ErrProjectInvalidChars.Error())
-		return 0, "", false
+		return 0, "", "", false
 	}
 	if reservedProjectNames[pathValue] {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("project_id %q: %s", pathValue, ErrProjectReserved.Error()))
-		return 0, "", false
+		return 0, "", "", false
 	}
 
 	// Fall back to slug lookup. Use GetProjectBySlugAny so nested child
@@ -119,18 +119,18 @@ func (h *ReportHandler) lookupProjectSlug(w http.ResponseWriter, r *http.Request
 	// with the child slug and must not 404.
 	project, err := h.projectStore.GetProjectBySlugAny(ctx, pathValue)
 	if err == nil {
-		return project.ID, project.Slug, true
+		return project.ID, project.Slug, project.StorageKey, true
 	}
 	if errors.Is(err, store.ErrProjectNotFound) {
 		writeError(w, http.StatusNotFound, "project not found")
-		return 0, "", false
+		return 0, "", "", false
 	}
 	writeError(w, http.StatusInternalServerError, "error fetching project")
-	return 0, "", false
+	return 0, "", "", false
 }
 
 func (h *ReportHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
-	projectID, slug, ok := h.lookupProjectSlug(w, r)
+	projectID, slug, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -150,6 +150,7 @@ func (h *ReportHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := runner.JobParams{
+		StorageKey:   storageKey,
 		ExecName:     execName,
 		ExecFrom:     execFrom,
 		ExecType:     execType,
@@ -173,7 +174,7 @@ func (h *ReportHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 // @Failure      404  {object}  map[string]any
 // @Router       /projects/{project_id}/jobs/{job_id} [get]
 func (h *ReportHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
-	projectID, _, ok := h.lookupProjectSlug(w, r)
+	projectID, _, _, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -199,12 +200,12 @@ func (h *ReportHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/history [delete]
 func (h *ReportHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
-	projectID, slug, ok := h.lookupProjectSlug(w, r)
+	projectID, slug, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
 
-	if err := h.runner.CleanHistory(r.Context(), projectID, slug); err != nil {
+	if err := h.runner.CleanHistory(r.Context(), projectID, slug, storageKey); err != nil {
 		h.logger.Error("cleaning history failed", zap.String("slug", slug), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error cleaning history")
 		return
@@ -229,7 +230,7 @@ func (h *ReportHandler) CleanHistory(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports [get]
 func (h *ReportHandler) GetReportHistory(w http.ResponseWriter, r *http.Request) {
-	projectID, slug, ok := h.lookupProjectSlug(w, r)
+	projectID, _, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -257,8 +258,8 @@ func (h *ReportHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 
 	// Check for "latest" dir via store — always regenerated, not tracked in DB.
 	// The "latest" entry is always prepended (not counted against pagination).
-	if exists, _ := h.store.LatestReportExists(r.Context(), slug); exists {
-		entry := h.buildReportEntry(r.Context(), slug, "latest")
+	if exists, _ := h.store.LatestReportExists(r.Context(), storageKey); exists {
+		entry := h.buildReportEntry(r.Context(), storageKey, "latest")
 		entry.IsLatest = true
 		reports = append(reports, entry)
 	}
@@ -302,7 +303,7 @@ func (h *ReportHandler) readJSONViaStore(ctx context.Context, projectID, relPath
 func (h *ReportHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	_, slug, ok := h.lookupProjectSlug(w, r)
+	_, _, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -314,7 +315,7 @@ func (h *ReportHandler) GetReportEnvironment(w http.ResponseWriter, r *http.Requ
 
 	relPath := "reports/" + reportID + "/widgets/environment.json"
 	entries := make([]EnvironmentEntry, 0)
-	if !h.readJSONViaStore(ctx, slug, relPath, &entries) {
+	if !h.readJSONViaStore(ctx, storageKey, relPath, &entries) {
 		writeSuccess(w, http.StatusOK, entries, "No environment data available")
 		return
 	}
@@ -411,7 +412,7 @@ func (h *ReportHandler) buildReportEntry(ctx context.Context, projectID, name st
 // @Router       /projects/{project_id}/reports/history/group [delete]
 func (h *ReportHandler) CleanGroupHistory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	projectID, slug, ok := h.lookupProjectSlug(w, r)
+	projectID, slug, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -421,7 +422,7 @@ func (h *ReportHandler) CleanGroupHistory(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// ListChildIDs returns slugs for storage operations.
+	// ListChildIDs returns slugs; we need to look up each child to get its StorageKey.
 	childSlugs, err := h.projectStore.ListChildIDs(ctx, projectID)
 	if err != nil {
 		h.logger.Error("clean group history: list child IDs failed", zap.Int64("project_id", projectID), zap.Error(err))
@@ -434,16 +435,21 @@ func (h *ReportHandler) CleanGroupHistory(w http.ResponseWriter, r *http.Request
 	}
 
 	cleaned := 0
-	// Clean each child project (runner uses slug for storage).
+	// Clean each child project using its StorageKey.
 	for _, childSlug := range childSlugs {
-		if err := h.runner.CleanHistory(ctx, 0, childSlug); err != nil {
+		childProject, lookupErr := h.projectStore.GetProjectBySlugAny(ctx, childSlug)
+		if lookupErr != nil {
+			h.logger.Warn("clean group history: child lookup failed", zap.String("child_slug", childSlug), zap.Error(lookupErr))
+			continue
+		}
+		if err := h.runner.CleanHistory(ctx, childProject.ID, childSlug, childProject.StorageKey); err != nil {
 			h.logger.Warn("clean group history: failed for child", zap.String("child_slug", childSlug), zap.Error(err))
 			continue
 		}
 		cleaned++
 	}
 	// Also clean the parent itself.
-	if err := h.runner.CleanHistory(ctx, projectID, slug); err != nil {
+	if err := h.runner.CleanHistory(ctx, projectID, slug, storageKey); err != nil {
 		h.logger.Warn("clean group history: failed for parent", zap.String("slug", slug), zap.Error(err))
 	} else {
 		cleaned++
@@ -466,7 +472,7 @@ func (h *ReportHandler) CleanGroupHistory(w http.ResponseWriter, r *http.Request
 func (h *ReportHandler) GetReportCategories(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	_, slug, ok := h.lookupProjectSlug(w, r)
+	_, _, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -478,7 +484,7 @@ func (h *ReportHandler) GetReportCategories(w http.ResponseWriter, r *http.Reque
 
 	relPath := "reports/" + reportID + "/widgets/categories.json"
 	entries := make([]CategoryEntry, 0)
-	if !h.readJSONViaStore(ctx, slug, relPath, &entries) {
+	if !h.readJSONViaStore(ctx, storageKey, relPath, &entries) {
 		writeSuccess(w, http.StatusOK, entries, "No categories data available")
 		return
 	}
@@ -499,7 +505,7 @@ func (h *ReportHandler) GetReportCategories(w http.ResponseWriter, r *http.Reque
 // @Failure      500  {object}  map[string]any
 // @Router       /projects/{project_id}/reports/{report_id} [delete]
 func (h *ReportHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
-	projectID, slug, ok := h.lookupProjectSlug(w, r)
+	projectID, slug, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -509,7 +515,7 @@ func (h *ReportHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.runner.DeleteReport(r.Context(), projectID, slug, reportID); err != nil {
+	if err := h.runner.DeleteReport(r.Context(), projectID, slug, storageKey, reportID); err != nil {
 		h.logger.Error("deleting report failed", zap.Int64("project_id", projectID), zap.String("report_id", reportID), zap.Error(err))
 		status := http.StatusInternalServerError
 		msg := "error deleting report"

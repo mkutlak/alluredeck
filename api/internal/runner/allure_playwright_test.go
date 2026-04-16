@@ -47,7 +47,7 @@ func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, slug, buildNumber)
 
 	if setHasCalled {
 		t.Error("SetHasPlaywrightReport should not be called when latest/ does not exist")
@@ -81,7 +81,7 @@ func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, slug, buildNumber)
 
 	if setHasCalled {
 		t.Error("SetHasPlaywrightReport should not be called when latest/ is empty")
@@ -120,7 +120,7 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, slug, buildNumber)
 
 	// Verify report was copied to numbered build directory.
 	buildIndex := filepath.Join(dir, slug, "playwright-reports", "3", "index.html")
@@ -189,7 +189,7 @@ func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, slug, buildNumber)
 
 	// Only trace.zip should be inserted; abc.dat should be skipped.
 	if len(capturedAttachments) != 1 {
@@ -227,7 +227,7 @@ func TestCopyPlaywrightReport_NoDataDir(t *testing.T) {
 	}
 
 	a := newTestAllureWithAttachments(t, dir, mocks)
-	a.copyPlaywrightReport(context.Background(), projectID, slug, buildNumber)
+	a.copyPlaywrightReport(context.Background(), projectID, slug, slug, buildNumber)
 
 	if !setHasCalled {
 		t.Error("SetHasPlaywrightReport should be called when index.html is present")

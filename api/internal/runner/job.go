@@ -26,6 +26,7 @@ const (
 
 // JobParams holds the parameters for a report generation job.
 type JobParams struct {
+	StorageKey   string
 	ExecName     string
 	ExecFrom     string
 	ExecType     string
@@ -39,6 +40,7 @@ type Job struct {
 	ID          string     `json:"job_id"`
 	ProjectID   int64      `json:"project_id"`
 	Slug        string     `json:"slug"`
+	StorageKey  string     `json:"storage_key"`
 	Status      JobStatus  `json:"status"`
 	ReportID    string     `json:"report_id,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
@@ -53,7 +55,7 @@ type Job struct {
 // Implemented by RiverJobManager (PostgreSQL-backed).
 type JobQueuer interface {
 	Submit(projectID int64, slug string, params JobParams) *Job
-	SubmitPlaywright(projectID int64, slug string, execName, execFrom, ciBranch, ciCommitSHA string) *Job
+	SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA string) *Job
 	ListJobs() []*Job
 	Cancel(jobID string) error
 	Delete(jobID string) error

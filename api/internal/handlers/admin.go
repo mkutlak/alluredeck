@@ -191,9 +191,7 @@ func (h *AdminHandler) CleanProjectResults(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	slug := project.Slug
-
-	if err := h.store.CleanResults(ctx, slug); err != nil {
+	if err := h.store.CleanResults(ctx, project.StorageKey); err != nil {
 		h.logger.Error("admin: clean results failed", zap.Int64("project_id", projectID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "failed to clean results")
 		return
@@ -248,16 +246,21 @@ func (h *AdminHandler) CleanGroupResults(w http.ResponseWriter, r *http.Request)
 	}
 
 	cleaned := 0
-	// Clean each child project (storage uses slug).
+	// Clean each child project using its StorageKey.
 	for _, childSlug := range childSlugs {
-		if err := h.store.CleanResults(ctx, childSlug); err != nil {
+		childProject, lookupErr := h.projectStore.GetProjectBySlugAny(ctx, childSlug)
+		if lookupErr != nil {
+			h.logger.Warn("admin: clean group results: child lookup failed", zap.String("child_slug", childSlug), zap.Error(lookupErr))
+			continue
+		}
+		if err := h.store.CleanResults(ctx, childProject.StorageKey); err != nil {
 			h.logger.Warn("admin: clean group results failed for child", zap.String("child_slug", childSlug), zap.Error(err))
 			continue
 		}
 		cleaned++
 	}
 	// Also clean the parent itself.
-	if err := h.store.CleanResults(ctx, project.Slug); err != nil {
+	if err := h.store.CleanResults(ctx, project.StorageKey); err != nil {
 		h.logger.Warn("admin: clean group results failed for parent", zap.String("slug", project.Slug), zap.Error(err))
 	} else {
 		cleaned++
@@ -301,7 +304,7 @@ func (h *AdminHandler) CleanBulkResults(w http.ResponseWriter, r *http.Request) 
 			h.logger.Warn("admin: bulk clean results: project not found", zap.Int64("project_id", id), zap.Error(err))
 			continue
 		}
-		if err := h.store.CleanResults(ctx, project.Slug); err != nil {
+		if err := h.store.CleanResults(ctx, project.StorageKey); err != nil {
 			h.logger.Warn("admin: bulk clean results failed", zap.Int64("project_id", id), zap.String("slug", project.Slug), zap.Error(err))
 			continue
 		}

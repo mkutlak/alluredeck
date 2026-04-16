@@ -104,6 +104,7 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 		e := ProjectEntry{
 			ProjectID:   p.ID,
 			Slug:        p.Slug,
+			StorageKey:  p.StorageKey,
 			DisplayName: displayName,
 			ReportType:  p.ReportType,
 			CreatedAt:   p.CreatedAt.UTC().Format(time.RFC3339),
@@ -213,9 +214,7 @@ func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error fetching project")
 		return
 	}
-	slug := project.Slug
-
-	if err := h.runner.DeleteProject(r.Context(), slug); err != nil {
+	if err := h.runner.DeleteProject(r.Context(), project.StorageKey); err != nil {
 		if errors.Is(err, storage.ErrProjectNotFound) {
 			// Filesystem missing — attempt DB cleanup for half-synced state.
 			if dbErr := h.projectStore.DeleteProject(r.Context(), projectID); dbErr == nil {
@@ -304,25 +303,39 @@ func (h *ProjectHandler) RenameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rename storage first (reversible) — storage uses slug strings.
-	if err := h.store.RenameProject(ctx, oldSlug, newSlug); err != nil {
-		h.logger.Error("storage rename failed", zap.String("old", oldSlug), zap.String("new", newSlug), zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "failed to rename project storage")
-		return
-	}
-
-	// Rename in DB.
-	if err := h.projectStore.RenameProject(ctx, projectID, newSlug); err != nil {
-		h.logger.Error("db rename failed, attempting storage rollback", zap.Error(err))
-		if rbErr := h.store.RenameProject(ctx, newSlug, oldSlug); rbErr != nil {
-			h.logger.Error("storage rollback failed", zap.Error(rbErr))
-		}
-		if errors.Is(err, store.ErrProjectExists) {
-			writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newSlug))
+	// For top-level projects, rename storage (storageKey == slug, so it changes on rename).
+	// For child projects, storageKey is the numeric ID and does not change on rename — skip storage rename.
+	if project.ParentID == nil {
+		oldStorageKey := project.StorageKey
+		if err := h.store.RenameProject(ctx, oldStorageKey, newSlug); err != nil {
+			h.logger.Error("storage rename failed", zap.String("old", oldStorageKey), zap.String("new", newSlug), zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "failed to rename project storage")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to rename project")
-		return
+
+		// Rename in DB.
+		if err := h.projectStore.RenameProject(ctx, projectID, newSlug); err != nil {
+			h.logger.Error("db rename failed, attempting storage rollback", zap.Error(err))
+			if rbErr := h.store.RenameProject(ctx, newSlug, oldStorageKey); rbErr != nil {
+				h.logger.Error("storage rollback failed", zap.Error(rbErr))
+			}
+			if errors.Is(err, store.ErrProjectExists) {
+				writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newSlug))
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to rename project")
+			return
+		}
+	} else {
+		// Child project: storageKey is numeric ID, doesn't change. Only rename in DB.
+		if err := h.projectStore.RenameProject(ctx, projectID, newSlug); err != nil {
+			if errors.Is(err, store.ErrProjectExists) {
+				writeError(w, http.StatusConflict, fmt.Sprintf("project %q already exists", newSlug))
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to rename project")
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

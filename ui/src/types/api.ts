@@ -36,6 +36,7 @@ export interface SessionData {
 export interface ProjectEntry {
   project_id: number
   slug: string
+  storage_key?: string
   display_name?: string
   created_at?: string
   parent_id?: number | null
