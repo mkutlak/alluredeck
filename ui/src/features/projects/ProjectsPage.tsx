@@ -21,7 +21,7 @@ export function ProjectsPage() {
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery(projectListOptions())
 
-  const projects = data?.data ?? []
+  const projects = useMemo(() => data?.data ?? [], [data?.data])
 
   const dndProjects: DndProject[] = useMemo(
     () =>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -17,31 +17,11 @@ import {
   canBeDropTarget,
   type DndProject,
 } from '../hooks/useProjectDnd'
+import { ProjectDndContext } from './DndProjectConstants'
 import { DragOverlayCard } from './DragOverlayCard'
 import { toast } from '@/components/ui/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 
-interface ProjectDndContextValue {
-  isDragging: boolean
-  activeSlug: string | null
-  overSlug: string | null
-  getProject: (slug: string) => DndProject | undefined
-  isProjectDraggable: (slug: string) => boolean
-  isProjectDropTarget: (slug: string) => boolean
-}
-
-const ProjectDndContext = createContext<ProjectDndContextValue>({
-  isDragging: false,
-  activeSlug: null,
-  overSlug: null,
-  getProject: () => undefined,
-  isProjectDraggable: () => false,
-  isProjectDropTarget: () => false,
-})
-
-export function useProjectDndContext() {
-  return useContext(ProjectDndContext)
-}
 
 interface DndProjectProviderProps {
   projects: DndProject[]

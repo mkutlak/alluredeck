@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info.componentStack)
-    // TODO: report to error tracking service (e.g., Sentry, Datadog)
+    // Error reporting is intentionally not wired up yet; revisit when we pick an observability vendor.
   }
 
   handleReset = () => {

@@ -30,3 +30,11 @@ Runs on port **7474** (`npm run dev` / `make ui-dev`).
 ## Coverage Thresholds
 Configured in `vitest.config.ts`:
 - Lines: 80%, Functions: 80%, Branches: 70%, Statements: 80%
+
+## URL Conventions
+- `/projects/:id` accepts either a numeric `project_id` or a slug string.
+- Use `useProjectFromParam(param)` from `@/lib/resolveProject` to resolve the route param to a `ProjectEntry`.
+- `resolveProjectFromParam(param, projects)` is the pure helper: `/^\d+$/` params match by `project_id`, others match by `slug`.
+- Do NOT do ad-hoc `projects.find(p => p.slug === params.id)` — it silently fails for numeric ids.
+- Import: `import { useProjectFromParam } from '@/lib/resolveProject'`
+- The hook returns `{ project, isLoading, error }` and internally calls `useQuery(projectListOptions())`.

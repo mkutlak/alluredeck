@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { setProjectParent, clearProjectParent } from '@/api/projects'
 import { queryKeys } from '@/lib/query-keys'
@@ -26,7 +26,7 @@ interface UndoState {
 export function useProjectDnd(projects: DndProject[]) {
   const qc = useQueryClient()
   const undoRef = useRef<UndoState | null>(null)
-  const lookup = new Map(projects.map((p) => [p.slug, p]))
+  const lookup = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects])
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: queryKeys.projects })

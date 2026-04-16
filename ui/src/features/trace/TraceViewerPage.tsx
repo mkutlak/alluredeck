@@ -27,10 +27,11 @@ export default function TraceViewerPage() {
   const navigate = useNavigate()
 
   const reportId = searchParams.get('reportId') ?? 'latest'
+  const pid = projectId ?? ''
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: queryKeys.attachments(projectId!, reportId),
-    queryFn: () => fetchAttachments(projectId!, reportId),
+    queryKey: queryKeys.attachments(pid, reportId),
+    queryFn: () => fetchAttachments(pid, reportId),
     enabled: !!projectId,
     staleTime: 10_000,
   })
@@ -50,12 +51,12 @@ export default function TraceViewerPage() {
     g.attachments.some((a) => a.source === decodeURIComponent(source)),
   )
 
-  const attachmentUrl = attachmentFileUrl(projectId, reportId, decodeURIComponent(source))
+  const attachmentUrl = attachmentFileUrl(pid, reportId, decodeURIComponent(source))
   const traceIndexUrl = `${apiBaseUrl()}/trace/index.html?trace=${encodeURIComponent(attachmentUrl)}`
 
   function navigateToTrace(att: AttachmentEntry) {
     void navigate(
-      `/projects/${encodeURIComponent(projectId!)}/trace/${encodeURIComponent(att.source)}?reportId=${encodeURIComponent(reportId)}`,
+      `/projects/${encodeURIComponent(pid)}/trace/${encodeURIComponent(att.source)}?reportId=${encodeURIComponent(reportId)}`,
     )
   }
 

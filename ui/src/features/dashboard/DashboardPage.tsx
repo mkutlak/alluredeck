@@ -1,69 +1,18 @@
 import { useState, useMemo } from 'react'
-import { NavLink, useSearchParams } from 'react-router'
-import { ArrowUpDown, ChevronRight, Folder, FolderInput, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { useSearchParams } from 'react-router'
+import { Plus } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { dashboardOptions } from '@/lib/queries'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
-import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
-import { RenameProjectDialog } from '@/features/projects/RenameProjectDialog'
-import { SetParentDialog } from '@/features/projects/SetParentDialog'
-import { CleanDialog } from '@/features/reports/CleanDialog'
-import { getPassRateBadgeClass } from '@/lib/status-colors'
-import { DndProjectProvider, useProjectDndContext } from '@/features/projects/components/DndProjectProvider'
-import { NoGroupDropZone } from '@/features/projects/components/NoGroupDropZone'
 import type { DndProject } from '@/features/projects/hooks/useProjectDnd'
-import { cn } from '@/lib/utils'
 import type { DashboardProjectEntry } from '@/types/api'
-
-/** Returns the human-friendly label for a project: display_name if available, otherwise slug. */
-function projectLabel(p: { slug: string; display_name?: string; project_id: number }) {
-  return p.display_name || p.slug || String(p.project_id)
-}
-
-type SortField = 'name' | 'type' | 'pass_rate'
-type SortDir = 'asc' | 'desc'
-type ViewMode = 'grouped' | 'all'
-
-function getProjectType(p: DashboardProjectEntry): string {
-  if (p.is_group) return 'Group'
-  if (p.report_type === 'playwright') return 'Playwright'
-  return 'Allure'
-}
-
-function getPassRate(p: DashboardProjectEntry): number | null {
-  if (p.is_group) return p.aggregate?.pass_rate ?? null
-  return p.latest_build?.pass_rate ?? null
-}
-
-function compareRows(a: DashboardProjectEntry, b: DashboardProjectEntry, field: SortField, dir: SortDir): number {
-  const cmp =
-    field === 'name'
-      ? a.slug.localeCompare(b.slug)
-      : field === 'type'
-        ? getProjectType(a).localeCompare(getProjectType(b))
-        : (getPassRate(a) ?? -1) - (getPassRate(b) ?? -1)
-  return dir === 'asc' ? cmp : -cmp
-}
+import { DashboardHeader } from './components/DashboardHeader'
+import { DashboardTable } from './components/DashboardTable'
+import { compareRows } from './components/sort'
+import type { SortDir, SortField, ViewMode } from './components/sort'
 
 export function DashboardPage() {
   const [createOpen, setCreateOpen] = useState(false)
@@ -229,302 +178,30 @@ export function DashboardPage() {
 
   return (
     <div className="p-6">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          {groupId != null && !isNaN(groupId) ? (
-            <>
-              <button
-                onClick={() => setSearchParams({})}
-                className="text-muted-foreground text-2xl font-bold hover:underline"
-              >
-                Projects
-              </button>
-              <ChevronRight className="text-muted-foreground h-5 w-5" />
-              <h1 className="text-2xl font-bold">
-                {data?.projects.find((p) => p.project_id === groupId)?.slug ?? String(groupId)}
-              </h1>
-            </>
-          ) : (
-            <h1 className="text-2xl font-bold">Projects</h1>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="text-muted-foreground absolute left-2.5 top-2.5 h-4 w-4" />
-            <Input
-              placeholder="Search..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-48 pl-8"
-            />
-          </div>
-          {(groupId == null || isNaN(groupId)) && (
-            <div className="flex rounded-md border">
-              <Button
-                size="sm"
-                variant="ghost"
-                className={`rounded-r-none border-r px-3 ${viewMode === 'grouped' ? 'bg-muted font-semibold' : ''}`}
-                onClick={() => setViewMode('grouped')}
-              >
-                Grouped
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={`rounded-l-none px-3 ${viewMode === 'all' ? 'bg-muted font-semibold' : ''}`}
-                onClick={() => setViewMode('all')}
-              >
-                All
-              </Button>
-            </div>
-          )}
-          <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh">
-            <RefreshCw className={isFetching ? 'animate-spin' : ''} />
-          </Button>
-          {isAdmin && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus />
-              New project
-            </Button>
-          )}
-        </div>
-      </div>
+      <DashboardHeader
+        projects={data.projects}
+        groupId={groupId}
+        onClearGroup={() => setSearchParams({})}
+        search={search}
+        onSearchChange={setSearch}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        isFetching={isFetching}
+        onRefetch={() => refetch()}
+        isAdmin={isAdmin}
+        onCreate={() => setCreateOpen(true)}
+      />
 
-      {/* Table */}
-      <DndProjectProvider projects={dndProjects}>
-        <NoGroupDropZone />
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>
-                <button className="flex items-center gap-1" onClick={() => handleSort('name')}>
-                  Name
-                  <ArrowUpDown className="h-3.5 w-3.5" />
-                </button>
-              </TableHead>
-              <TableHead>
-                <button className="flex items-center gap-1" onClick={() => handleSort('type')}>
-                  Type
-                  <ArrowUpDown className="h-3.5 w-3.5" />
-                </button>
-              </TableHead>
-              <TableHead>
-                <button className="flex items-center gap-1" onClick={() => handleSort('pass_rate')}>
-                  Pass Rate
-                  <ArrowUpDown className="h-3.5 w-3.5" />
-                </button>
-              </TableHead>
-              {isAdmin && <TableHead className="w-10" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={isAdmin ? 4 : 3} className="text-muted-foreground py-8 text-center">
-                  {search ? 'No projects match your search.' : 'No projects found.'}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((project) => (
-                <ProjectTableRow
-                  key={project.project_id}
-                  project={project}
-                  isAdmin={isAdmin}
-                  onDrillDown={
-                    project.is_group
-                      ? () => setSearchParams({ group: String(project.project_id) })
-                      : undefined
-                  }
-                />
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </DndProjectProvider>
+      <DashboardTable
+        rows={rows}
+        dndProjects={dndProjects}
+        isAdmin={isAdmin}
+        search={search}
+        onSort={handleSort}
+        onDrillDown={(projectId) => setSearchParams({ group: String(projectId) })}
+      />
 
       <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
-  )
-}
-
-function ProjectTableRow({
-  project,
-  isAdmin,
-  onDrillDown,
-}: {
-  project: DashboardProjectEntry
-  isAdmin: boolean
-  onDrillDown?: () => void
-}) {
-  const [cleanMode, setCleanMode] = useState<'results' | 'history' | null>(null)
-  const [renameOpen, setRenameOpen] = useState(false)
-  const [moveOpen, setMoveOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const rate = getPassRate(project)
-  const type = getProjectType(project)
-
-  const { isProjectDraggable, isProjectDropTarget } = useProjectDndContext()
-
-  const draggable = isProjectDraggable(project.slug)
-  const dropTarget = isProjectDropTarget(project.slug)
-
-  const {
-    attributes: { role: _role, tabIndex: _tabIndex, ...dragAttributes },
-    listeners,
-    setNodeRef: setDragRef,
-    isDragging,
-  } = useDraggable({
-    id: project.slug,
-    disabled: !draggable,
-  })
-
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: project.slug,
-    disabled: !dropTarget,
-  })
-
-  const setNodeRef = (el: HTMLTableRowElement | null) => {
-    setDragRef(el)
-    setDropRef(el)
-  }
-
-  return (
-    <>
-      <TableRow
-        ref={setNodeRef}
-        {...(draggable ? { ...listeners, ...dragAttributes } : {})}
-        className={cn(
-          onDrillDown ? 'cursor-pointer' : '',
-          isDragging && 'opacity-40',
-          isOver && dropTarget && 'ring-2 ring-blue-500 scale-[1.02]',
-          draggable && !onDrillDown && 'cursor-grab',
-        )}
-        onClick={onDrillDown}
-      >
-        <TableCell className="font-medium">
-          <div className="flex items-center gap-2">
-            {project.is_group && <Folder className="text-muted-foreground h-4 w-4 shrink-0" />}
-            {project.is_group ? (
-              <span>{project.slug}</span>
-            ) : (
-              <div className="flex flex-col">
-                <NavLink
-                  to={`/projects/${project.slug}`}
-                  className="hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {projectLabel(project)}
-                </NavLink>
-                {project.display_name && project.display_name !== project.slug && (
-                  <span className="text-muted-foreground text-xs">{project.slug.split('--')[0]}</span>
-                )}
-              </div>
-            )}
-          </div>
-        </TableCell>
-        <TableCell>
-          <span className="text-muted-foreground text-sm">{type}</span>
-        </TableCell>
-        <TableCell>
-          {rate != null ? (
-            <Badge
-              variant={rate >= 90 ? 'default' : rate >= 70 ? 'secondary' : 'destructive'}
-              className={getPassRateBadgeClass(rate)}
-            >
-              {rate.toFixed(0)}%
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground text-sm">&mdash;</span>
-          )}
-        </TableCell>
-        {isAdmin && (
-          <TableCell onClick={(e) => e.stopPropagation()}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  aria-label="Project actions"
-                >
-                  <MoreHorizontal size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {project.is_group ? (
-                  <>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setCleanMode('results')}
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      Clean all results
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setCleanMode('history')}
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      Clean all history
-                    </DropdownMenuItem>
-                  </>
-                ) : (
-                  <>
-                    <DropdownMenuItem onClick={() => setRenameOpen(true)}>
-                      <Pencil size={14} className="mr-2" />
-                      Rename project
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                      <FolderInput size={14} className="mr-2" />
-                      Move to group...
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setDeleteOpen(true)}
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      Delete project
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </TableCell>
-        )}
-      </TableRow>
-      {cleanMode && (
-        <CleanDialog
-          projectId={project.slug}
-          mode={cleanMode}
-          open={!!cleanMode}
-          onOpenChange={(o) => {
-            if (!o) setCleanMode(null)
-          }}
-          groupMode
-        />
-      )}
-      {renameOpen && (
-        <RenameProjectDialog
-          projectId={project.slug}
-          open={renameOpen}
-          onOpenChange={setRenameOpen}
-        />
-      )}
-      {moveOpen && (
-        <SetParentDialog
-          projectId={project.slug}
-          open={moveOpen}
-          onOpenChange={setMoveOpen}
-        />
-      )}
-      {deleteOpen && (
-        <DeleteProjectDialog
-          projectId={project.slug}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
-      )}
-    </>
   )
 }

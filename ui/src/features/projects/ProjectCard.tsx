@@ -16,7 +16,7 @@ import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { RenameProjectDialog } from './RenameProjectDialog'
 import { SetParentDialog } from './SetParentDialog'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
-import { useProjectDndContext } from './components/DndProjectProvider'
+import { useProjectDndContext } from './components/DndProjectConstants'
 import { cn } from '@/lib/utils'
 
 interface ProjectCardProps {

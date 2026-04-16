@@ -1,7 +1,7 @@
 import { useDroppable } from '@dnd-kit/core'
 import { FolderX } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useProjectDndContext } from './DndProjectProvider'
+import { useProjectDndContext } from './DndProjectConstants'
 
 export function NoGroupDropZone() {
   const { isDragging, activeSlug, getProject } = useProjectDndContext()

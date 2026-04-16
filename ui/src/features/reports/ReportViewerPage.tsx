@@ -1,17 +1,14 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
 import { env } from '@/lib/env'
 import { Button } from '@/components/ui/button'
-import { projectListOptions } from '@/lib/queries/projects'
+import { useProjectFromParam } from '@/lib/resolveProject'
 
 export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
-  const { data: projectsResp } = useQuery(projectListOptions())
-  const reportType =
-    projectsResp?.data?.find((p: { project_id: number; slug: string }) => p.slug === projectId)
-      ?.report_type ?? 'allure'
+  const { project } = useProjectFromParam(projectId)
+  const reportType = project?.report_type ?? 'allure'
 
   const defaultMode: 'playwright' | 'allure' = reportType === 'playwright' ? 'playwright' : 'allure'
   const [userOverride, setUserOverride] = useState<'playwright' | 'allure' | null>(null)
