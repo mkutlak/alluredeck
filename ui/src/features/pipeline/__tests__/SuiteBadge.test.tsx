@@ -27,7 +27,7 @@ describe('SuiteBadge', () => {
   it('links to the correct project URL', () => {
     renderWithProviders(<SuiteBadge suite={makeSuite({ project_id: 2, slug: 'ui-tests' })} />)
     const link = screen.getByRole('link')
-    expect(link).toHaveAttribute('href', '/projects/ui-tests')
+    expect(link).toHaveAttribute('href', '/projects/2')
   })
 
   it('shows failed count when present', () => {

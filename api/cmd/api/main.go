@@ -167,9 +167,9 @@ func main() {
 	// via a fallback overlay, achieving ~90% disk reduction per build.
 	var overlayFS http.Handler
 	if cfg.StorageType == "s3" {
-		overlayFS = newS3ReportHandler(dataStore)
+		overlayFS = newS3ReportHandler(dataStore, s.project)
 	} else {
-		overlayFS = newOverlayHandler(cfg.ProjectsPath)
+		overlayFS = newOverlayHandler(cfg.ProjectsPath, s.project)
 	}
 	// Allure report pages are third-party static content requiring inline scripts/styles.
 	// Override the strict API CSP with a permissive one for report routes.

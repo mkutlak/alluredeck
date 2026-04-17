@@ -99,6 +99,7 @@ type pipelineRunResp struct {
 
 type pipelineSuiteResp struct {
 	ProjectID   string  `json:"project_id"`
+	Slug        string  `json:"slug"`
 	BuildNumber int     `json:"build_number"`
 	PassRate    float64 `json:"pass_rate"`
 	Total       int     `json:"total"`
@@ -171,6 +172,7 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 
 		acc.resp.Suites = append(acc.resp.Suites, pipelineSuiteResp{
 			ProjectID:   strconv.FormatInt(r.ProjectID, 10),
+			Slug:        r.Slug,
 			BuildNumber: r.BuildNumber,
 			PassRate:    passRate,
 			Total:       total,

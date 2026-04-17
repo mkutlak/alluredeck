@@ -43,7 +43,7 @@ func TestOverlay_ServesFromBuildDir(t *testing.T) {
 		filepath.Join(dir, "myproject", "reports", "3", "data", "test.json"),
 		`{"ok":true}`)
 
-	h := newOverlayHandler(dir)
+	h := newOverlayHandler(dir, nil)
 	rr := getOverlay(t, h, "/myproject/reports/3/data/test.json")
 
 	if rr.Code != http.StatusOK {
@@ -66,7 +66,7 @@ func TestOverlay_FallsBackToLatest(t *testing.T) {
 		filepath.Join(dir, "myproject", "reports", "latest", "index.html"),
 		"<html>latest</html>")
 
-	h := newOverlayHandler(dir)
+	h := newOverlayHandler(dir, nil)
 	rr := getOverlay(t, h, "/myproject/reports/3/index.html")
 
 	if rr.Code != http.StatusOK {
@@ -85,7 +85,7 @@ func TestOverlay_LatestServedDirectly(t *testing.T) {
 		filepath.Join(dir, "myproject", "reports", "latest", "app.js"),
 		"js content")
 
-	h := newOverlayHandler(dir)
+	h := newOverlayHandler(dir, nil)
 	rr := getOverlay(t, h, "/myproject/reports/latest/app.js")
 
 	if rr.Code != http.StatusOK {
@@ -105,7 +105,7 @@ func TestOverlay_NonNumericDir_NoFallback(t *testing.T) {
 		filepath.Join(dir, "myproject", "reports", "latest", "index.html"),
 		"<html>latest</html>")
 
-	h := newOverlayHandler(dir)
+	h := newOverlayHandler(dir, nil)
 	// Path goes through "emailable-report-render", not reports/{N}.
 	rr := getOverlay(t, h, "/myproject/emailable-report-render/index.html")
 
@@ -118,7 +118,7 @@ func TestOverlay_NonNumericDir_NoFallback(t *testing.T) {
 // file is absent from both the build dir and latest/.
 func TestOverlay_404_WhenNeitherExists(t *testing.T) {
 	dir := t.TempDir()
-	h := newOverlayHandler(dir)
+	h := newOverlayHandler(dir, nil)
 	rr := getOverlay(t, h, "/myproject/reports/5/index.html")
 
 	if rr.Code != http.StatusNotFound {
@@ -275,6 +275,117 @@ func TestPlaywrightReportHandler_UnknownSlug_404(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Overlay handler slug resolution tests
+// ---------------------------------------------------------------------------
+
+// TestOverlay_SlugResolvesToStorageKey verifies that a slug-based URL path
+// is resolved to the project's storage_key when constructing disk paths.
+func TestOverlay_SlugResolvesToStorageKey(t *testing.T) {
+	const (
+		slug       = "api-happy"
+		storageKey = "180"
+	)
+
+	dir := t.TempDir()
+	writeTestFile(t,
+		filepath.Join(dir, storageKey, "reports", "1", "data", "test.json"),
+		`{"resolved":true}`)
+
+	ps := &stubProjectStorer{
+		getBySlug: func(_ context.Context, s string) (*store.Project, error) {
+			if s == slug {
+				return &store.Project{ID: 180, Slug: slug, StorageKey: storageKey}, nil
+			}
+			return nil, store.ErrProjectNotFound
+		},
+	}
+
+	h := newOverlayHandler(dir, ps)
+	rr := getOverlay(t, h, "/"+slug+"/reports/1/data/test.json")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if body := rr.Body.String(); body != `{"resolved":true}` {
+		t.Errorf("unexpected body: %q", body)
+	}
+}
+
+// TestOverlay_SlugFallbackToLatest verifies that slug resolution works
+// together with the latest/ fallback for missing build-dir files.
+func TestOverlay_SlugFallbackToLatest(t *testing.T) {
+	const (
+		slug       = "api-happy"
+		storageKey = "180"
+	)
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, storageKey, "reports", "2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t,
+		filepath.Join(dir, storageKey, "reports", "latest", "index.html"),
+		"<html>latest via slug</html>")
+
+	ps := &stubProjectStorer{
+		getBySlug: func(_ context.Context, s string) (*store.Project, error) {
+			if s == slug {
+				return &store.Project{ID: 180, Slug: slug, StorageKey: storageKey}, nil
+			}
+			return nil, store.ErrProjectNotFound
+		},
+	}
+
+	h := newOverlayHandler(dir, ps)
+	rr := getOverlay(t, h, "/"+slug+"/reports/2/index.html")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if body := rr.Body.String(); body != "<html>latest via slug</html>" {
+		t.Errorf("unexpected body: %q", body)
+	}
+}
+
+// TestS3ReportHandler_SlugResolvesToStorageKey verifies that a slug-based URL
+// is resolved to the project's storage_key when reading S3 report files.
+func TestS3ReportHandler_SlugResolvesToStorageKey(t *testing.T) {
+	const (
+		slug       = "api-happy"
+		storageKey = "180"
+		wantBody   = "<html>s3 report</html>"
+	)
+
+	ps := &stubProjectStorer{
+		getBySlug: func(_ context.Context, s string) (*store.Project, error) {
+			if s == slug {
+				return &store.Project{ID: 180, Slug: slug, StorageKey: storageKey}, nil
+			}
+			return nil, store.ErrProjectNotFound
+		},
+	}
+
+	ms := &storage.MockStore{
+		OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
+			if projectID != storageKey {
+				t.Errorf("expected projectID=%q, got %q", storageKey, projectID)
+			}
+			return io.NopCloser(strings.NewReader(wantBody)), "text/html", nil
+		},
+	}
+
+	h := newS3ReportHandler(ms, ps)
+	rr := getOverlay(t, h, "/"+slug+"/reports/1/index.html")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Body.String(); got != wantBody {
+		t.Errorf("unexpected body: %q", got)
 	}
 }
 

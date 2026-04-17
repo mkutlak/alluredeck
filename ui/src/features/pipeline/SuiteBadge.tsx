@@ -13,7 +13,7 @@ export function SuiteBadge({ suite }: SuiteBadgeProps) {
 
   return (
     <NavLink
-      to={`/projects/${encodeURIComponent(suite.slug)}`}
+      to={`/projects/${encodeURIComponent(suite.project_id)}`}
       className="hover:bg-accent block rounded-lg border p-3 transition-colors"
     >
       <div className="flex items-center justify-between gap-2">

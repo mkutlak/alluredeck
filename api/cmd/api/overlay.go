@@ -33,20 +33,25 @@ import (
 //  2. N is a numeric build ID and file is absent from build dir
 //     → fall back to {projectsDir}/{projectID}/reports/latest/{rest}.
 //  3. Neither location has the file → 404.
-func newOverlayHandler(projectsDir string) http.Handler {
+func newOverlayHandler(projectsDir string, ps store.ProjectStorer) http.Handler {
 	fs := http.FileServer(http.Dir(projectsDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Canonicalise the URL path to prevent traversal and double-slash issues.
 		cleanURL := path.Clean("/" + r.URL.Path)
+
+		// Resolve the project segment (slug or numeric ID) to the on-disk storage key.
+		trimmed := strings.TrimPrefix(cleanURL, "/")
+		parts := strings.SplitN(trimmed, "/", 4)
+		if len(parts) >= 1 && ps != nil {
+			if sk, ok := resolveStorageKey(r.Context(), ps, parts[0]); ok && sk != parts[0] {
+				parts[0] = sk
+				cleanURL = "/" + strings.Join(parts, "/")
+			}
+		}
+
 		diskPath := filepath.Join(projectsDir, filepath.FromSlash(cleanURL))
 
 		if _, err := os.Stat(diskPath); err == nil { //nolint:gosec // G703: path constructed from sanitized URL path segments
-			// File/dir exists — serve it directly via the FileServer so that
-			// conditional-GET, range requests, MIME types, and directory listings
-			// all work correctly.
-			// Strip a trailing /index.html component: http.FileServer issues a 301
-			// redirect for those paths; pre-stripping lets it serve the file from
-			// the parent directory without a round-trip.
 			r2 := r.Clone(r.Context())
 			r2.URL.Path = stripIndexHTML(cleanURL)
 			fs.ServeHTTP(w, r2)
@@ -54,9 +59,7 @@ func newOverlayHandler(projectsDir string) http.Handler {
 		}
 
 		// Try fallback: for numeric build dirs rewrite the path to latest/.
-		// Expected structure (after leading "/"): {projectID}/reports/{N}/{rest}
-		trimmed := strings.TrimPrefix(cleanURL, "/")
-		parts := strings.SplitN(trimmed, "/", 4)
+		// Expected structure (after leading "/"): {storageKey}/reports/{N}/{rest}
 		if len(parts) >= 3 && parts[1] == "reports" && middleware.IsNumericID(parts[2]) {
 			rest := ""
 			if len(parts) == 4 {
@@ -144,7 +147,7 @@ func newPlaywrightReportHandler(st storage.Store, ps store.ProjectStorer) http.H
 // newS3ReportHandler returns an HTTP handler that serves Allure report files from S3.
 // For numbered builds, it tries the build dir first, then falls back to latest/ for
 // static assets (same overlay pattern as the local filesystem handler).
-func newS3ReportHandler(st storage.Store) http.Handler {
+func newS3ReportHandler(st storage.Store, ps store.ProjectStorer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Expected path (after StripPrefix): {projectID}/reports/{reportID}/{rest}
 		cleanURL := path.Clean("/" + r.URL.Path)
@@ -155,6 +158,11 @@ func newS3ReportHandler(st storage.Store) http.Handler {
 			return
 		}
 		projectID := parts[0]
+		if ps != nil {
+			if sk, ok := resolveStorageKey(r.Context(), ps, projectID); ok {
+				projectID = sk
+			}
+		}
 		reportID := parts[2]
 		filePath := ""
 		if len(parts) == 4 {
