@@ -1,3 +1,9 @@
+## [0.23.3](https://github.com/mkutlak/alluredeck/compare/v0.23.2...v0.23.3) (2026-04-17)
+
+### Bug Fixes
+
+* **ui:** use numeric project_id for all project navigation links ([9e053b3](https://github.com/mkutlak/alluredeck/commit/9e053b33994e903ddfcba1958dbbefdfa7ab3d21))
+
 ## [0.23.2](https://github.com/mkutlak/alluredeck/compare/v0.23.1...v0.23.2) (2026-04-17)
 
 ### Bug Fixes
