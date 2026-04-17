@@ -81,7 +81,7 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown }: Dashboard
             ) : (
               <div className="flex flex-col">
                 <NavLink
-                  to={`/projects/${project.slug}`}
+                  to={`/projects/${project.project_id}`}
                   className="hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >

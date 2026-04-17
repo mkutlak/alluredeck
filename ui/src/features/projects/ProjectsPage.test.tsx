@@ -109,7 +109,7 @@ describe('ProjectsPage', () => {
     renderPage()
     await waitFor(() => {
       const link = screen.getByRole('link', { name: /view reports/i })
-      expect(link).toHaveAttribute('href', '/projects/my-project')
+      expect(link).toHaveAttribute('href', '/projects/1')
     })
   })
 

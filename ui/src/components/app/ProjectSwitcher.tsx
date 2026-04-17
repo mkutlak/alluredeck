@@ -55,7 +55,7 @@ export function ProjectSwitcher() {
                 <CommandItem
                   key={p.project_id}
                   value={p.slug}
-                  onSelect={() => handleSelect(p.slug)}
+                  onSelect={() => handleSelect(String(p.project_id))}
                 >
                   {p.slug}
                 </CommandItem>

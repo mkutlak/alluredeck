@@ -137,7 +137,7 @@ describe('ProjectSwitcher', () => {
       expect(screen.getByRole('option', { name: 'project-alpha' })).toBeInTheDocument()
     })
     await user.click(screen.getByRole('option', { name: 'project-alpha' }))
-    expect(mockNavigate).toHaveBeenCalledWith('/projects/project-alpha')
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/1')
     // Popover should close — search input no longer visible
     await waitFor(() => {
       expect(screen.queryByPlaceholderText(/search project/i)).not.toBeInTheDocument()
@@ -157,6 +157,6 @@ describe('ProjectSwitcher', () => {
       expect(screen.getByRole('option', { name: 'project-alpha' })).toBeInTheDocument()
     })
     await user.click(screen.getByRole('option', { name: 'project-alpha' }))
-    expect(mockSetLastProjectId).toHaveBeenCalledWith('project-alpha')
+    expect(mockSetLastProjectId).toHaveBeenCalledWith('1')
   })
 })

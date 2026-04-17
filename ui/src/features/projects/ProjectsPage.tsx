@@ -145,7 +145,7 @@ export function ProjectsPage() {
                 >
                   <span className="font-mono text-sm">{p.slug}</span>
                   <Button asChild size="sm" variant="ghost">
-                    <Link to={`/projects/${p.slug}`}>View reports →</Link>
+                    <Link to={`/projects/${p.project_id}`}>View reports →</Link>
                   </Button>
                 </div>
               ))}
