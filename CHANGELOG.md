@@ -1,3 +1,9 @@
+## [0.23.1](https://github.com/mkutlak/alluredeck/compare/v0.23.0...v0.23.1) (2026-04-17)
+
+### Bug Fixes
+
+* **api:** resolve storage_key for Playwright reports and pending results ([cf6e4f3](https://github.com/mkutlak/alluredeck/commit/cf6e4f352d74c4fe366f8fbab990eff5226cf1f6))
+
 ## [0.23.0](https://github.com/mkutlak/alluredeck/compare/v0.22.6...v0.23.0) (2026-04-16)
 
 ### Features
