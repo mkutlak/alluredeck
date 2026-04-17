@@ -1,3 +1,9 @@
+## [0.23.2](https://github.com/mkutlak/alluredeck/compare/v0.23.1...v0.23.2) (2026-04-17)
+
+### Bug Fixes
+
+* resolve storage_key for Allure report serving and add missing slug to pipeline response ([404f3ee](https://github.com/mkutlak/alluredeck/commit/404f3ee00d8b08add16e22e710993394c3554661))
+
 ## [0.23.1](https://github.com/mkutlak/alluredeck/compare/v0.23.0...v0.23.1) (2026-04-17)
 
 ### Bug Fixes
