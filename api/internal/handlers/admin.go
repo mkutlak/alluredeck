@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -45,6 +46,7 @@ func NewAdminHandlerWithProjects(jm runner.JobQueuer, store storage.Store, proje
 type pendingResultsEntry struct {
 	ProjectID    int64     `json:"project_id"`
 	Slug         string    `json:"slug"`
+	StorageKey   string    `json:"storage_key"`
 	FileCount    int       `json:"file_count"`
 	TotalSize    int64     `json:"total_size"`
 	LastModified time.Time `json:"last_modified"`
@@ -109,19 +111,39 @@ func (h *AdminHandler) ListPendingResults(w http.ResponseWriter, r *http.Request
 			continue
 		}
 
-		var numericID int64
+		var p *store.Project
 		if h.projectStore != nil {
-			if p, err := h.projectStore.GetProjectBySlugAny(ctx, projectID); err == nil {
-				numericID = p.ID
+			if id, err := strconv.ParseInt(projectID, 10, 64); err == nil {
+				if got, err := h.projectStore.GetProject(ctx, id); err == nil && got.StorageKey == projectID {
+					p = got
+				}
+			}
+			if p == nil {
+				if got, err := h.projectStore.GetProjectBySlugAny(ctx, projectID); err == nil {
+					p = got
+				}
+			}
+			if p == nil {
+				// Orphaned storage directory with no DB row — skip and log once at debug.
+				h.logger.Debug("admin: pending-results orphan storage dir", zap.String("storage_key", projectID))
+				continue
 			}
 		}
-		entries = append(entries, pendingResultsEntry{
-			ProjectID:    numericID,
-			Slug:         projectID,
+		entry := pendingResultsEntry{
 			FileCount:    fileCount,
 			TotalSize:    totalSize,
 			LastModified: time.Unix(0, lastMod),
-		})
+		}
+		if p != nil {
+			entry.ProjectID = p.ID
+			entry.Slug = p.Slug
+			entry.StorageKey = p.StorageKey
+		} else {
+			// projectStore not wired — best-effort: use storage key as slug.
+			entry.Slug = projectID
+			entry.StorageKey = projectID
+		}
+		entries = append(entries, entry)
 	}
 
 	writeSuccess(w, http.StatusOK, entries, fmt.Sprintf("%d project(s) with pending results", len(entries)))

@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // newOverlayHandler returns an HTTP handler that serves Allure report files
@@ -84,6 +87,21 @@ func stripIndexHTML(urlPath string) string {
 	return urlPath
 }
 
+// resolveStorageKey resolves a raw URL path value (numeric id or slug) to the
+// project's StorageKey. Returns the key and true on success, empty string and
+// false when no matching project is found.
+func resolveStorageKey(ctx context.Context, ps store.ProjectStorer, pathValue string) (string, bool) {
+	if id, err := strconv.ParseInt(pathValue, 10, 64); err == nil {
+		if p, err := ps.GetProject(ctx, id); err == nil {
+			return p.StorageKey, true
+		}
+	}
+	if p, err := ps.GetProjectBySlugAny(ctx, pathValue); err == nil {
+		return p.StorageKey, true
+	}
+	return "", false
+}
+
 // newPlaywrightReportHandler returns an HTTP handler that serves Playwright HTML report
 // files. Unlike the Allure overlay, no fallback is needed — each numbered build directory
 // is a complete self-contained report (index.html, data/, etc.).
@@ -91,11 +109,17 @@ func stripIndexHTML(urlPath string) string {
 // The handler reads path parameters directly from the request context (set by Go 1.22+
 // pattern matching): {projectID} and {reportID}. The wildcard segment {rest...} provides
 // the remaining file path within the report directory.
-func newPlaywrightReportHandler(st storage.Store) http.Handler {
+func newPlaywrightReportHandler(st storage.Store, ps store.ProjectStorer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		projectID := r.PathValue("projectID")
 		reportID := r.PathValue("reportID")
 		rest := r.PathValue("rest")
+
+		storageKey, ok := resolveStorageKey(r.Context(), ps, projectID)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
 
 		// Serve index.html when no sub-path is requested.
 		if rest == "" || rest == "/" {
@@ -105,7 +129,7 @@ func newPlaywrightReportHandler(st storage.Store) http.Handler {
 		// Build the subPath as "{reportID}/{rest}" — matches ReadPlaywrightFile's convention.
 		subPath := reportID + "/" + strings.TrimPrefix(rest, "/")
 
-		rc, contentType, err := st.ReadPlaywrightFile(r.Context(), projectID, subPath)
+		rc, contentType, err := st.ReadPlaywrightFile(r.Context(), storageKey, subPath)
 		if err != nil {
 			http.NotFound(w, r)
 			return

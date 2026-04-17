@@ -201,7 +201,7 @@ func main() {
 	pwReportHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", reportCSP)
 		w.Header().Del("X-Frame-Options")
-		newPlaywrightReportHandler(dataStore).ServeHTTP(w, r)
+		newPlaywrightReportHandler(dataStore, s.project).ServeHTTP(w, r)
 	})
 	mux.Handle("GET /api/v1/projects/{projectID}/playwright-reports/{reportID}/{rest...}", pwReportHandler)
 

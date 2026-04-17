@@ -461,3 +461,179 @@ func TestAdminDeleteJob_Success(t *testing.T) {
 		t.Errorf("expected job to be deleted, but Get returned %+v", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ListPendingResults — storage_key resolution tests
+// ---------------------------------------------------------------------------
+
+// TestAdminListPendingResults_TopLevelProject verifies that a top-level project
+// whose storage dir matches its slug is resolved correctly (project_id != 0, slug populated).
+func TestAdminListPendingResults_TopLevelProject(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	modTime := time.Now().UnixNano()
+	ms := &storage.MockStore{
+		ListProjectsFn: func(_ context.Context) ([]string, error) {
+			return []string{"my-top"}, nil
+		},
+		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
+			return []storage.DirEntry{
+				{Name: "result-001.json", Size: 512, ModTime: modTime},
+			}, nil
+		},
+	}
+	jm := newAdminTestJobManager(t, gen, 2)
+	projStore := &testutil.MockProjectStore{
+		GetProjectFn: func(_ context.Context, _ int64) (*store.Project, error) {
+			// "my-top" is not numeric — GetProject won't be called for it.
+			return nil, store.ErrProjectNotFound
+		},
+		GetProjectBySlugFn: func(_ context.Context, slug string) (*store.Project, error) {
+			if slug == "my-top" {
+				return &store.Project{ID: 5, Slug: "my-top", StorageKey: "my-top"}, nil
+			}
+			return nil, store.ErrProjectNotFound
+		},
+	}
+	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
+	rr := httptest.NewRecorder()
+	h.ListPendingResults(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, ok := resp["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected 1 entry, got %v", resp["data"])
+	}
+	entry, ok := data[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected entry to be object")
+	}
+	if entry["project_id"].(float64) != 5 {
+		t.Errorf("want project_id=5, got %v", entry["project_id"])
+	}
+	if entry["slug"] != "my-top" {
+		t.Errorf("want slug=%q, got %v", "my-top", entry["slug"])
+	}
+	if entry["storage_key"] != "my-top" {
+		t.Errorf("want storage_key=%q, got %v", "my-top", entry["storage_key"])
+	}
+}
+
+// TestAdminListPendingResults_ChildProject verifies that a child project whose
+// storage dir is its numeric storage_key (e.g. "82") is resolved to the correct
+// project row (project_id=82, slug="ui-permissions").
+func TestAdminListPendingResults_ChildProject(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	modTime := time.Now().UnixNano()
+	ms := &storage.MockStore{
+		ListProjectsFn: func(_ context.Context) ([]string, error) {
+			return []string{"82"}, nil
+		},
+		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
+			return []storage.DirEntry{
+				{Name: "result-001.json", Size: 256, ModTime: modTime},
+			}, nil
+		},
+	}
+	jm := newAdminTestJobManager(t, gen, 2)
+	projStore := &testutil.MockProjectStore{
+		GetProjectFn: func(_ context.Context, id int64) (*store.Project, error) {
+			if id == 82 {
+				return &store.Project{ID: 82, Slug: "ui-permissions", StorageKey: "82"}, nil
+			}
+			return nil, store.ErrProjectNotFound
+		},
+	}
+	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
+	rr := httptest.NewRecorder()
+	h.ListPendingResults(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, ok := resp["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected 1 entry, got %v", resp["data"])
+	}
+	entry, ok := data[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected entry to be object")
+	}
+	if entry["project_id"].(float64) != 82 {
+		t.Errorf("want project_id=82, got %v", entry["project_id"])
+	}
+	if entry["slug"] != "ui-permissions" {
+		t.Errorf("want slug=%q, got %v", "ui-permissions", entry["slug"])
+	}
+	if entry["storage_key"] != "82" {
+		t.Errorf("want storage_key=%q, got %v", "82", entry["storage_key"])
+	}
+}
+
+// TestAdminListPendingResults_OrphanSkipped verifies that a storage dir with no
+// matching DB row is silently skipped (not included in the response).
+func TestAdminListPendingResults_OrphanSkipped(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	modTime := time.Now().UnixNano()
+	ms := &storage.MockStore{
+		ListProjectsFn: func(_ context.Context) ([]string, error) {
+			return []string{"99"}, nil
+		},
+		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
+			return []storage.DirEntry{
+				{Name: "result-001.json", Size: 128, ModTime: modTime},
+			}, nil
+		},
+	}
+	jm := newAdminTestJobManager(t, gen, 2)
+	projStore := &testutil.MockProjectStore{
+		GetProjectFn: func(_ context.Context, _ int64) (*store.Project, error) {
+			return nil, store.ErrProjectNotFound
+		},
+		GetProjectBySlugFn: func(_ context.Context, _ string) (*store.Project, error) {
+			return nil, store.ErrProjectNotFound
+		},
+	}
+	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
+	rr := httptest.NewRecorder()
+	h.ListPendingResults(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, ok := resp["data"].([]any)
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp["data"])
+	}
+	if len(data) != 0 {
+		t.Errorf("expected orphan entry to be skipped, got %d entries", len(data))
+	}
+}

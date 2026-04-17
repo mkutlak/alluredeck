@@ -417,6 +417,7 @@ export interface AdminJobEntry {
 export interface AdminResultsEntry {
   project_id: number
   slug: string
+  storage_key: string
   file_count: number
   total_size: number
   last_modified: string

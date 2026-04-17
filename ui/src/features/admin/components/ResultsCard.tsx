@@ -123,7 +123,7 @@ export function ResultsCard() {
                       to={`/projects/${entry.project_id}`}
                       className="font-medium hover:underline"
                     >
-                      {entry.slug || String(entry.project_id)}
+                      {entry.slug}
                     </Link>
                   </TableCell>
                   <TableCell>{entry.file_count}</TableCell>

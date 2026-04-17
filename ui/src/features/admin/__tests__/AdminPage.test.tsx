@@ -54,6 +54,7 @@ function makeResult(overrides: Partial<AdminResultsEntry> = {}): AdminResultsEnt
   return {
     project_id: 1,
     slug: 'my-project',
+    storage_key: 'my-project',
     file_count: 5,
     total_size: 1048576, // 1 MB
     last_modified: '2026-03-07T09:00:00Z',
