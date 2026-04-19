@@ -113,6 +113,24 @@ export class AllureDeckClient {
     execSync(`cd "${dirPath}" && find . -maxdepth 1 -type f \\( ${nameArgs} \\) -print0 | tar czf "${outputPath}" --null -T -`, { stdio: 'pipe' })
   }
 
+  async createProject(slug: string, parentId?: number): Promise<{ project_id: number; slug: string; parent_id?: number }> {
+    const res = await fetch(`${API_URL}/projects`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(parentId != null ? { id: slug, parent_id: parentId } : { id: slug }),
+    })
+    if (!res.ok) throw new Error(`Create project "${slug}" failed: ${res.status} ${await res.text()}`)
+    const body = (await res.json()) as { data: { project_id: number; slug: string; parent_id?: number } }
+    return body.data
+  }
+
+  async listProjects(): Promise<Array<{ project_id: number; slug: string; parent_id?: number | null }>> {
+    const res = await fetch(`${API_URL}/projects?per_page=200`, { headers: this.authHeaders() })
+    if (!res.ok) throw new Error(`List projects failed: ${res.status} ${await res.text()}`)
+    const body = (await res.json()) as { data: Array<{ project_id: number; slug: string; parent_id?: number | null }> }
+    return body.data
+  }
+
   async deleteProject(projectId: string): Promise<void> {
     const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
       method: 'DELETE',

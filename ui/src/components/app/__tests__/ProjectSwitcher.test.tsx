@@ -93,9 +93,11 @@ describe('ProjectSwitcher', () => {
     expect(screen.getByRole('button', { name: /select a project/i })).toBeInTheDocument()
   })
 
-  it('renders the current project name when on a project page', () => {
+  it('renders the current project name when on a project page', async () => {
     renderSwitcher('/projects/my-project')
-    expect(screen.getByRole('button', { name: /my-project/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /my-project/i })).toBeInTheDocument()
+    })
   })
 
   it('opens a dropdown when clicked', async () => {
@@ -144,9 +146,11 @@ describe('ProjectSwitcher', () => {
     })
   })
 
-  it('shows stored project name when not on project page', () => {
-    renderSwitcher('/', 'stored-project')
-    expect(screen.getByRole('button', { name: /stored-project/i })).toBeInTheDocument()
+  it('shows stored project name when not on project page', async () => {
+    renderSwitcher('/', 'my-project')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /my-project/i })).toBeInTheDocument()
+    })
   })
 
   it('selecting a project updates lastProjectId in store', async () => {

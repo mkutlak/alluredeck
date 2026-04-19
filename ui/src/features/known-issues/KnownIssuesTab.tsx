@@ -243,6 +243,7 @@ export function KnownIssuesTab() {
           />
           {editIssue && (
             <EditKnownIssueDialog
+              key={editIssue.id}
               projectId={projectId}
               issue={editIssue}
               open={!!editIssue}

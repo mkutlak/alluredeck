@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateKnownIssue } from '@/api/known-issues'
 import { extractErrorMessage } from '@/api/client'
@@ -29,12 +29,6 @@ export function EditKnownIssueDialog({ projectId, issue, open, onOpenChange }: P
   const [ticketUrl, setTicketUrl] = useState(issue.ticket_url)
   const [description, setDescription] = useState(issue.description)
   const [isActive, setIsActive] = useState(issue.is_active)
-
-  useEffect(() => {
-    setTicketUrl(issue.ticket_url)
-    setDescription(issue.description)
-    setIsActive(issue.is_active)
-  }, [issue])
 
   const mutation = useMutation({
     mutationFn: () =>

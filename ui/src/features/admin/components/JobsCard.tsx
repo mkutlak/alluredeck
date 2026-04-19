@@ -129,7 +129,7 @@ export function JobsCard() {
                       to={`/projects/${job.project_id}`}
                       className="font-medium hover:underline"
                     >
-                      {job.slug || String(job.project_id)}
+                      {job.slug || '(unknown)'}
                     </Link>
                   </TableCell>
                   <TableCell>

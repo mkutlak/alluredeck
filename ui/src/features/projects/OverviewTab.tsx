@@ -31,6 +31,7 @@ import { ActionBar } from '@/components/app/ActionBar'
 import { PipelineRunsTab } from '@/features/pipeline'
 import { Badge } from '@/components/ui/badge'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
+import { formatProjectLabel } from '@/lib/projectLabel'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
 
@@ -156,17 +157,17 @@ export function OverviewTab() {
       {/* Page title + action buttons */}
       <div>
         <div className="flex items-center justify-between gap-4">
-          <h1 className="font-mono text-2xl font-semibold">{currentProject?.display_name || currentProject?.slug || projectId}</h1>
+          <h1 className="font-mono text-2xl font-semibold">{formatProjectLabel(currentProject, allProjects)}</h1>
           <ActionBar />
         </div>
         {parentProject ? (
           <p className="text-muted-foreground flex items-center gap-1 text-sm">
             Part of:{' '}
             <NavLink
-              to={`/projects/${encodeURIComponent(parentProject.project_id)}`}
+              to={`/projects/${parentProject.project_id}`}
               className="text-primary hover:underline"
             >
-              {parentProject.project_id}
+              {parentProject.slug}
             </NavLink>
           </p>
         ) : (
@@ -322,7 +323,7 @@ export function OverviewTab() {
             <AlertDialogDescription>
               This will permanently delete report{' '}
               <span className="font-mono font-medium">#{deleteReportId}</span> for project{' '}
-              <span className="font-mono font-medium">{currentProject?.display_name || currentProject?.slug || projectId}</span>. This cannot be undone.
+              <span className="font-mono font-medium">{formatProjectLabel(currentProject, allProjects)}</span>. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -4,6 +4,7 @@ import { AuthGuard } from '@/features/auth/AuthGuard'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { Layout } from '@/components/app/Layout'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
+import { ProjectGuard } from '@/components/app/ProjectGuard'
 
 const DashboardPage = lazy(() =>
   import('@/features/dashboard').then((m) => ({ default: m.DashboardPage })),
@@ -88,94 +89,96 @@ export function AppRoutes() {
               </Suspense>
             }
           />
-          <Route
-            path="projects/:id"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <OverviewTab />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/analytics"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <AnalyticsTab />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/known-issues"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <KnownIssuesTab />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/defects"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <ProjectDefectsView />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/builds/:buildId/defects"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <BuildDefectsView />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/timeline"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <TimelineTab />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/attachments"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <AttachmentsTab />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/compare"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <ComparePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/tests"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <TestHistoryPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/reports/:reportId"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <ReportViewerPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="projects/:id/trace/:source"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <TraceViewerPage />
-              </Suspense>
-            }
-          />
+          <Route path="projects/:id" element={<ProjectGuard />}>
+            <Route
+              index
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <OverviewTab />
+                </Suspense>
+              }
+            />
+            <Route
+              path="analytics"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <AnalyticsTab />
+                </Suspense>
+              }
+            />
+            <Route
+              path="known-issues"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <KnownIssuesTab />
+                </Suspense>
+              }
+            />
+            <Route
+              path="defects"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <ProjectDefectsView />
+                </Suspense>
+              }
+            />
+            <Route
+              path="builds/:buildId/defects"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <BuildDefectsView />
+                </Suspense>
+              }
+            />
+            <Route
+              path="timeline"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <TimelineTab />
+                </Suspense>
+              }
+            />
+            <Route
+              path="attachments"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <AttachmentsTab />
+                </Suspense>
+              }
+            />
+            <Route
+              path="compare"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <ComparePage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="tests"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <TestHistoryPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="reports/:reportId"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <ReportViewerPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="trace/:source"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <TraceViewerPage />
+                </Suspense>
+              }
+            />
+          </Route>
           <Route
             path="admin"
             element={

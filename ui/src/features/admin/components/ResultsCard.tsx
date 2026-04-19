@@ -137,7 +137,7 @@ export function ResultsCard() {
                     <DeleteResultDialog
                       open={deletingSlug === entry.slug}
                       onOpenChange={(open) => setDeletingSlug(open ? entry.slug : null)}
-                      label={entry.slug || String(entry.project_id)}
+                      label={entry.slug}
                       onConfirm={() => handleSingleConfirm(entry.slug)}
                     />
                   </TableCell>
