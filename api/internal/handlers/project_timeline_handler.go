@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -230,8 +231,8 @@ func (h *ProjectTimelineHandler) GetProjectTimeline(w http.ResponseWriter, r *ht
 
 		// Build response in build-order (use buildIDs order which is descending from DB,
 		// but we want ascending for the response).
-		for i := len(buildIDs) - 1; i >= 0; i-- {
-			bid := buildIDs[i]
+		for _, v := range slices.Backward(buildIDs) {
+			bid := v
 			bucket := buckets[bid]
 			cases := bucket.cases
 			if cases == nil {
