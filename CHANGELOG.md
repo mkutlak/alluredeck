@@ -1,3 +1,9 @@
+## [0.23.4](https://github.com/mkutlak/alluredeck/compare/v0.23.3...v0.23.4) (2026-04-19)
+
+### Bug Fixes
+
+* **ui:** show slugs not project_ids; redirect on missing project ([51a4576](https://github.com/mkutlak/alluredeck/commit/51a4576ef90f4a0bd0b698320330e75b8ec08373))
+
 ## [0.23.3](https://github.com/mkutlak/alluredeck/compare/v0.23.2...v0.23.3) (2026-04-17)
 
 ### Bug Fixes
