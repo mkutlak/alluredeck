@@ -1,3 +1,9 @@
+## [0.23.5](https://github.com/mkutlak/alluredeck/compare/v0.23.4...v0.23.5) (2026-04-20)
+
+### Bug Fixes
+
+* resolve projects by slug/ID beyond first page, show parent/child labels ([22c61cb](https://github.com/mkutlak/alluredeck/commit/22c61cb9c102f068c8d94f764791374a10dffd6a))
+
 ## [0.23.4](https://github.com/mkutlak/alluredeck/compare/v0.23.3...v0.23.4) (2026-04-19)
 
 ### Bug Fixes
