@@ -107,12 +107,12 @@ api:
   replicaCount: 1
   revisionHistoryLimit: 3
 
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      memory: 1Gi
+  resources: {}
+    # requests:
+    #   cpu: 100m
+    #   memory: 256Mi
+    # limits:
+    #   memory: 1Gi
 
   podSecurityContext:
     runAsUser: 1000
@@ -213,12 +213,12 @@ ui:
   replicaCount: 1
   revisionHistoryLimit: 3
 
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      memory: 128Mi
+  resources: {}
+    # requests:
+    #   cpu: 50m
+    #   memory: 64Mi
+    # limits:
+    #   memory: 128Mi
 
   podSecurityContext:
     runAsUser: 101
