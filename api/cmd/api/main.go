@@ -619,6 +619,7 @@ func registerRoutes(d routeDeps) {
 	// Viewer+ endpoints (public when MakeViewerEndpointsPublic=true) — mutable cache.
 	mux.HandleFunc("GET "+prefix+"/search", viewerUp(noStore(d.h.search.Search)))
 	mux.HandleFunc("GET "+prefix+"/projects", viewerUp(noStore(d.h.project.GetProjects)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}", viewerUp(noStore(d.h.project.GetProject)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports", viewerUp(mutableCache(d.h.report.GetReportHistory)))
 
 	// Admin write endpoints — no-store.

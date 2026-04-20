@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { projectListOptions } from '@/lib/queries/projects'
+import { formatProjectLabel } from '@/lib/projectLabel'
 import { queryKeys } from '@/lib/query-keys'
 import { formatDate } from '@/lib/utils'
 import { deleteJob } from '@/api/admin'
@@ -27,6 +29,8 @@ export function JobsCard() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   const { data: jobs = [], isLoading, doCancel } = useAdminJobs()
+  const { data: projectsData } = useQuery(projectListOptions())
+  const projects = projectsData?.data
 
   const { mutate: doDeleteSelected } = useMutation({
     mutationFn: async (jobIds: string[]) => {
@@ -129,7 +133,10 @@ export function JobsCard() {
                       to={`/projects/${job.project_id}`}
                       className="font-medium hover:underline"
                     >
-                      {job.slug || '(unknown)'}
+                      {(() => {
+                        const matched = projects?.find((p) => p.project_id === job.project_id)
+                        return matched ? formatProjectLabel(matched, projects) : (job.slug || '(unknown)')
+                      })()}
                     </Link>
                   </TableCell>
                   <TableCell>

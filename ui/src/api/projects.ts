@@ -4,8 +4,18 @@ import type {
   CreateProjectData,
   CreateProjectRequest,
   PaginatedResponse,
+  ProjectEntry,
   ProjectsData,
 } from '@/types/api'
+
+export async function getProject(
+  idOrSlug: string,
+): Promise<ApiResponse<ProjectEntry>> {
+  const res = await apiClient.get<ApiResponse<ProjectEntry>>(
+    `/projects/${encodeURIComponent(idOrSlug)}`,
+  )
+  return res.data
+}
 
 export async function getProjects(
   page?: number,

@@ -110,6 +110,19 @@ export function DashboardPage() {
     ]
   }, [data, groupId, viewMode, search, sortField, sortDir])
 
+  const parentSlugMap = useMemo(() => {
+    const map = new Map<number, string>()
+    if (!data) return map
+    for (const p of data.projects) {
+      if (p.is_group && p.children) {
+        for (const c of p.children) {
+          map.set(c.project_id, p.slug)
+        }
+      }
+    }
+    return map
+  }, [data])
+
   const dndProjects: DndProject[] = useMemo(() => {
     if (!data) return []
     const items: DndProject[] = []
@@ -199,6 +212,7 @@ export function DashboardPage() {
         search={search}
         onSort={handleSort}
         onDrillDown={(projectId) => setSearchParams({ group: String(projectId) })}
+        parentSlugMap={viewMode === 'all' ? parentSlugMap : undefined}
       />
 
       <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />

@@ -187,6 +187,60 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusCreated, entry, "Project successfully created")
 }
 
+// GetProject godoc
+// @Summary      Get a project
+// @Description  Returns a single project by numeric ID or slug.
+// @Tags         projects
+// @Produce      json
+// @Param        project_id  path  string  true  "Project ID (numeric) or slug"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Router       /projects/{project_id} [get]
+func (h *ProjectHandler) GetProject(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
+	if !ok {
+		return
+	}
+
+	project, err := h.projectStore.GetProject(r.Context(), projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "error fetching project")
+		return
+	}
+
+	displayName := project.DisplayName
+	if displayName == "" {
+		displayName = project.Slug
+	}
+	entry := ProjectEntry{
+		ProjectID:   project.ID,
+		Slug:        project.Slug,
+		StorageKey:  project.StorageKey,
+		DisplayName: displayName,
+		ReportType:  project.ReportType,
+		CreatedAt:   project.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if project.ParentID != nil {
+		entry.ParentID = project.ParentID
+	}
+
+	children, childErr := h.projectStore.ListChildren(r.Context(), project.ID)
+	if childErr == nil && len(children) > 0 {
+		ids := make([]int64, len(children))
+		for i, c := range children {
+			ids[i] = c.ID
+		}
+		entry.Children = ids
+	}
+
+	writeSuccess(w, http.StatusOK, entry, "Project successfully obtained")
+}
+
 // DeleteProject godoc
 // @Summary      Delete a project
 // @Description  Removes an entire project and all its reports.

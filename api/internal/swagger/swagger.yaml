@@ -575,6 +575,35 @@ paths:
       summary: Delete a project
       tags:
       - projects
+    get:
+      description: Returns a single project by numeric ID or slug.
+      parameters:
+      - description: Project ID (numeric) or slug
+        in: path
+        name: project_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get a project
+      tags:
+      - projects
   /projects/{project_id}/analytics/low-performing:
     get:
       description: Returns tests ranked by average duration or failure rate across

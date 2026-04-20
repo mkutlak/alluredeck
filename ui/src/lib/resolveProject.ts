@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { getProject } from '@/api/projects'
 import { projectListOptions } from '@/lib/queries/projects'
 import type { ProjectEntry } from '@/types/api'
 
@@ -17,11 +18,29 @@ export function resolveProjectFromParam(
 
 export function useProjectFromParam(param: string | undefined): {
   project: ProjectEntry | undefined
+  projects: readonly ProjectEntry[] | undefined
   isLoading: boolean
   error: unknown
 } {
-  const { data, isLoading, error } = useQuery(projectListOptions())
+  const { data, isLoading: listLoading, error: listError } = useQuery(projectListOptions())
   const projects = data?.data
-  const project = resolveProjectFromParam(param, projects)
-  return { project, isLoading, error }
+  const projectFromList = resolveProjectFromParam(param, projects)
+
+  const shouldFetchSingle = !listLoading && !projectFromList && !!param
+  const {
+    data: singleData,
+    isPending: singlePending,
+    error: singleError,
+  } = useQuery({
+    queryKey: ['project', param],
+    queryFn: () => getProject(param!),
+    enabled: shouldFetchSingle,
+    staleTime: 5_000,
+  })
+
+  const project = projectFromList ?? singleData?.data
+  const isLoading = listLoading || (shouldFetchSingle && singlePending)
+  const error = projectFromList ? null : (singleError ?? listError)
+
+  return { project, projects, isLoading, error }
 }

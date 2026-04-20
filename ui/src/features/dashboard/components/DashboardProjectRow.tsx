@@ -25,9 +25,10 @@ interface DashboardProjectRowProps {
   project: DashboardProjectEntry
   isAdmin: boolean
   onDrillDown?: () => void
+  parentSlug?: string
 }
 
-export function DashboardProjectRow({ project, isAdmin, onDrillDown }: DashboardProjectRowProps) {
+export function DashboardProjectRow({ project, isAdmin, onDrillDown, parentSlug }: DashboardProjectRowProps) {
   const [cleanMode, setCleanMode] = useState<'results' | 'history' | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
@@ -81,11 +82,11 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown }: Dashboard
             ) : (
               <div className="flex flex-col">
                 <NavLink
-                  to={`/projects/${project.project_id}`}
+                  to={`/projects/${project.slug}`}
                   className="hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {projectLabel(project)}
+                  {parentSlug ? `${parentSlug}/${projectLabel(project)}` : projectLabel(project)}
                 </NavLink>
                 {project.display_name && project.display_name !== project.slug && (
                   <span className="text-muted-foreground text-xs">{project.slug.split('--')[0]}</span>

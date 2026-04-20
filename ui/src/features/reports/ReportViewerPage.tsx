@@ -4,10 +4,11 @@ import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { env } from '@/lib/env'
 import { Button } from '@/components/ui/button'
 import { useProjectFromParam } from '@/lib/resolveProject'
+import { formatProjectLabel } from '@/lib/projectLabel'
 
 export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
-  const { project } = useProjectFromParam(projectId)
+  const { project, projects } = useProjectFromParam(projectId)
   const reportType = project?.report_type ?? 'allure'
 
   const defaultMode: 'playwright' | 'allure' = reportType === 'playwright' ? 'playwright' : 'allure'
@@ -34,7 +35,7 @@ export function ReportViewerPage() {
         <Button asChild variant="ghost" size="sm">
           <Link to={`/projects/${projectId}`}>
             <ChevronLeft size={14} />
-            {projectId}
+            {project ? formatProjectLabel(project, projects) : projectId}
           </Link>
         </Button>
         <span className="text-muted-foreground text-sm">/</span>
