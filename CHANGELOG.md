@@ -1,3 +1,9 @@
+## [0.24.0](https://github.com/mkutlak/alluredeck/compare/v0.23.6...v0.24.0) (2026-04-21)
+
+### Features
+
+* add /projects/index endpoint and group System Monitor by parent ([1775880](https://github.com/mkutlak/alluredeck/commit/177588021845054cd6f1e0df1b9deaa719525b2a))
+
 ## [0.23.6](https://github.com/mkutlak/alluredeck/compare/v0.23.5...v0.23.6) (2026-04-21)
 
 ### Bug Fixes
