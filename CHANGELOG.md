@@ -1,3 +1,9 @@
+## [0.23.6](https://github.com/mkutlak/alluredeck/compare/v0.23.5...v0.23.6) (2026-04-21)
+
+### Bug Fixes
+
+* prefer display_name in project labels and expose parent_id in dashboard API ([eb5aeb6](https://github.com/mkutlak/alluredeck/commit/eb5aeb630e9cd1955d2fc5f55bd9b51d651716f9))
+
 ## [0.23.5](https://github.com/mkutlak/alluredeck/compare/v0.23.4...v0.23.5) (2026-04-20)
 
 ### Bug Fixes
