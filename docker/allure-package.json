@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "dependencies": {
+    "allure": "3"
+  },
+  "overrides": {
+    "axios": "^1.15.0",
+    "underscore": "^1.13.8",
+    "picomatch": "^4.0.4",
+    "dompurify": "^3.4.0",
+    "follow-redirects": "^1.16.0",
+    "brace-expansion": "^5.0.5"
+  }
+}

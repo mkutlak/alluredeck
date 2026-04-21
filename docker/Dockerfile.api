@@ -1,6 +1,4 @@
 # syntax=docker/dockerfile:1
-ARG UID=1000
-ARG GID=1000
 
 ###### Playwright Trace Viewer Fetch Stage
 FROM node:25-alpine AS trace_fetcher
@@ -32,66 +30,52 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 ###### Allure Install Stage
 FROM node:25-alpine AS allure_stage
-ARG ALLURE_RELEASE=3
+WORKDIR /allure-install
+COPY docker/allure-package.json package.json
 RUN --mount=type=cache,target=/root/.npm \
-    npm install -g allure@${ALLURE_RELEASE}
+    npm install
 
 ###### Final Image
-# Use TARGETPLATFORM so cross-compilation builds the correct architecture image
-FROM --platform=$TARGETPLATFORM node:25-alpine
+FROM alpine:3.23
 ARG UID=1000
 ARG GID=1000
 
-RUN apk update && \
-    apk add --no-cache \
+RUN apk add --no-cache \
+    nodejs \
     ca-certificates \
     tini \
-    tzdata && \
-    mkdir -p /app
+    tzdata
 
 # Copy pre-installed allure CLI from build stage (avoids ~110MB npm cache bloat)
-COPY --from=allure_stage /usr/local/lib/node_modules/allure /usr/local/lib/node_modules/allure
-RUN ln -s /usr/local/lib/node_modules/allure/cli.js /usr/local/bin/allure \
-    && chmod +x /usr/local/bin/allure
+COPY --from=allure_stage /allure-install/node_modules /opt/allure/node_modules
+RUN ln -s /opt/allure/node_modules/allure/cli.js /usr/local/bin/allure \
+    && chmod +x /usr/local/bin/allure \
+    && adduser -D -u ${UID} -h /home/allure allure \
+    && chown -R ${UID}:${GID} /home/allure
 
-RUN deluser --remove-home node || true && \
-    adduser -D -u ${UID} -h /home/allure allure && \
-    chown -R ${UID}:${GID} /home/allure
-
-# Build-time layout variables (not exposed at runtime).
-ARG ROOT=/app
-ARG RESULTS_DIRECTORY=${ROOT}/allure-results
-ARG REPORT_DIRECTORY=${ROOT}/allure-report
-ARG STATIC_CONTENT=${ROOT}/alluredeck/static
-ARG PROJECTS_PATH=${STATIC_CONTENT}/projects
-ARG DEFAULT_PROJECT=default
-ARG DEFAULT_PROJECT_ROOT=${PROJECTS_PATH}/${DEFAULT_PROJECT}
-ARG DEFAULT_PROJECT_RESULTS=${DEFAULT_PROJECT_ROOT}/results
-ARG DEFAULT_PROJECT_REPORTS=${DEFAULT_PROJECT_ROOT}/reports
-
-# Runtime environment variables consumed by the Go application or Allure CLI.
-ENV ALLURE_VERSION_FILE=${ROOT}/version
+ENV ALLURE_VERSION_FILE=/app/version
 ENV ALLURE_NO_ANALYTICS=1
-ENV CI=true
 
-# Directory structure, symlinks, and allure version file (consolidated layer)
-RUN echo -n $(allure --version) > ${ALLURE_VERSION_FILE} && \
-    echo "ALLURE_VERSION: "$(cat ${ALLURE_VERSION_FILE}) && \
-    ln -s ${PROJECTS_PATH} ${ROOT}/projects && \
-    ln -s ${DEFAULT_PROJECT_REPORTS} ${ROOT}/default-reports && \
-    mkdir ${RESULTS_DIRECTORY} && \
-    mkdir -p ${DEFAULT_PROJECT_REPORTS}/latest && \
-    ln -sf ${RESULTS_DIRECTORY} ${DEFAULT_PROJECT_RESULTS} && \
-    ln -sf ${DEFAULT_PROJECT_REPORTS}/latest ${REPORT_DIRECTORY}
+WORKDIR /app
 
-WORKDIR ${ROOT}
+# Directory layout:
+#   /app/allure-results              -> upload target (VOLUME)
+#   /app/allure-report               -> symlink to latest default report
+#   /app/alluredeck/static/projects/  -> per-project results & reports
+#   /app/projects                    -> convenience symlink to projects dir
+#   /data                            -> auxiliary data directory
+RUN echo -n $(allure --version) > /app/version && \
+    echo "ALLURE_VERSION: $(cat /app/version)" && \
+    mkdir -p /app/alluredeck/static/projects/default/reports/latest \
+             /app/allure-results /data && \
+    ln -s /app/alluredeck/static/projects /app/projects && \
+    ln -s /app/alluredeck/static/projects/default/reports /app/default-reports && \
+    ln -sf /app/allure-results /app/alluredeck/static/projects/default/results && \
+    ln -sf /app/alluredeck/static/projects/default/reports/latest /app/allure-report && \
+    chown -R ${UID}:${GID} /app /data
 
 # Copy the compiled Go binary from the build stage
-COPY --from=build_stage --chown=${UID}:${GID} /build/alluredeck-api ${ROOT}/alluredeck-api
-
-RUN mkdir -p /data && \
-    chown -R ${UID}:${GID} ${ROOT} && \
-    chown ${UID}:${GID} /data
+COPY --from=build_stage --chown=${UID}:${GID} /build/alluredeck-api /app/alluredeck-api
 
 # Volatile build metadata — placed last to avoid busting layer cache
 ARG BUILD_DATE
