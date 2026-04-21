@@ -32,6 +32,7 @@ import { PipelineRunsTab } from '@/features/pipeline'
 import { Badge } from '@/components/ui/badge'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { formatProjectLabel } from '@/lib/projectLabel'
+import { resolveProjectFromParam } from '@/lib/resolveProject'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
 
@@ -64,7 +65,7 @@ export function OverviewTab() {
   // Hierarchy detection: fetch the project list to find parent/child relationships
   const { data: projectsResp } = useQuery({ ...projectListOptions(), enabled: !!projectId })
   const allProjects = projectsResp?.data ?? []
-  const currentProject = allProjects.find((p) => p.project_id === Number(projectId))
+  const currentProject = resolveProjectFromParam(projectId, allProjects)
   const isParentProject = (currentProject?.children?.length ?? 0) > 0
   const parentProject = currentProject?.parent_id
     ? allProjects.find((p) => p.project_id === currentProject.parent_id)

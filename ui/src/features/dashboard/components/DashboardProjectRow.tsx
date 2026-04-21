@@ -19,16 +19,17 @@ import { useProjectDndContext } from '@/features/projects/components/DndProjectC
 import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { cn } from '@/lib/utils'
 import type { DashboardProjectEntry } from '@/types/api'
-import { getPassRate, getProjectType, projectLabel } from './sort'
+import { formatProjectLabel } from '@/lib/projectLabel'
+import { getPassRate, getProjectType } from './sort'
 
 interface DashboardProjectRowProps {
   project: DashboardProjectEntry
   isAdmin: boolean
   onDrillDown?: () => void
-  parentSlug?: string
+  allProjects?: readonly DashboardProjectEntry[]
 }
 
-export function DashboardProjectRow({ project, isAdmin, onDrillDown, parentSlug }: DashboardProjectRowProps) {
+export function DashboardProjectRow({ project, isAdmin, onDrillDown, allProjects }: DashboardProjectRowProps) {
   const [cleanMode, setCleanMode] = useState<'results' | 'history' | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
@@ -82,11 +83,11 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown, parentSlug 
             ) : (
               <div className="flex flex-col">
                 <NavLink
-                  to={`/projects/${project.slug}`}
+                  to={`/projects/${project.project_id}`}
                   className="hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {parentSlug ? `${parentSlug}/${projectLabel(project)}` : projectLabel(project)}
+                  {formatProjectLabel(project, allProjects)}
                 </NavLink>
                 {project.display_name && project.display_name !== project.slug && (
                   <span className="text-muted-foreground text-xs">{project.slug.split('--')[0]}</span>

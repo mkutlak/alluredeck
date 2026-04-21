@@ -449,6 +449,7 @@ export interface DashboardProjectEntry {
   display_name?: string
   report_type?: 'allure' | 'playwright'
   created_at: string
+  parent_id?: number | null
   latest_build: DashboardLatestBuild | null
   sparkline: DashboardSparklinePoint[]
   is_group?: boolean

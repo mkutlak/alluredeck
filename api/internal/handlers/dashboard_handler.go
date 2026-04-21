@@ -53,6 +53,7 @@ type dashboardProjectResp struct {
 	ProjectID   int64                  `json:"project_id"`
 	Slug        string                 `json:"slug"`
 	DisplayName string                 `json:"display_name"`
+	ParentID    *int64                 `json:"parent_id,omitempty"`
 	ReportType  string                 `json:"report_type"`
 	CreatedAt   string                 `json:"created_at"`
 	LatestBuild *latestBuildResp       `json:"latest_build"`
@@ -202,6 +203,7 @@ func buildProjectResp(dp store.DashboardProject) dashboardProjectResp {
 	pr := dashboardProjectResp{
 		ProjectID:   dp.ProjectID,
 		Slug:        dp.Slug,
+		ParentID:    dp.ParentID,
 		DisplayName: displayName,
 		ReportType:  reportType,
 		CreatedAt:   dp.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),

@@ -4,11 +4,6 @@ export type SortField = 'name' | 'type' | 'pass_rate'
 export type SortDir = 'asc' | 'desc'
 export type ViewMode = 'grouped' | 'all'
 
-/** Returns the human-friendly label for a project: display_name if available, otherwise slug. */
-export function projectLabel(p: { slug: string; display_name?: string; project_id: number }) {
-  return p.display_name || p.slug || String(p.project_id)
-}
-
 export function getProjectType(p: DashboardProjectEntry): string {
   if (p.is_group) return 'Group'
   if (p.report_type === 'playwright') return 'Playwright'

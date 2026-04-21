@@ -21,7 +21,7 @@ interface DashboardTableProps {
   search: string
   onSort: (field: SortField) => void
   onDrillDown: (projectId: number) => void
-  parentSlugMap?: Map<number, string>
+  allProjects?: readonly DashboardProjectEntry[]
 }
 
 export function DashboardTable({
@@ -31,7 +31,7 @@ export function DashboardTable({
   search,
   onSort,
   onDrillDown,
-  parentSlugMap,
+  allProjects,
 }: DashboardTableProps) {
   return (
     <DndProjectProvider projects={dndProjects}>
@@ -59,7 +59,7 @@ export function DashboardTable({
                 project={project}
                 isAdmin={isAdmin}
                 onDrillDown={project.is_group ? () => onDrillDown(project.project_id) : undefined}
-                parentSlug={parentSlugMap?.get(project.project_id)}
+                allProjects={allProjects}
               />
             ))
           )}

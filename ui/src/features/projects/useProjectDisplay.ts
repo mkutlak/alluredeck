@@ -11,5 +11,6 @@ export function useProjectDisplay(projectId: string | undefined): string {
   // - slug-style params are safe to render verbatim (they are slugs, not IDs)
   // - numeric params are project_ids; never leak them into the UI
   if (projectId && !/^\d+$/.test(projectId)) return projectId
+  if (projectId) return '…'
   return ''
 }

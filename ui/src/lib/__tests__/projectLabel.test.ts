@@ -36,4 +36,32 @@ describe('formatProjectLabel', () => {
     expect(formatProjectLabel(STANDALONE, undefined)).toBe('standalone')
     expect(formatProjectLabel(CHILD_A_OF_PARENT_A, undefined)).toBe('child-a')
   })
+
+  it('prefers display_name over slug for top-level project', () => {
+    const p: ProjectEntry = { project_id: 30, slug: 'proj-30', display_name: 'My Project' }
+    expect(formatProjectLabel(p, [p])).toBe('My Project')
+  })
+
+  it('prefers display_name over slug for child project', () => {
+    const parent: ProjectEntry = { project_id: 1, slug: 'parent-a', display_name: 'Parent A' }
+    const child: ProjectEntry = { project_id: 10, slug: 'child-a', display_name: 'Child A', parent_id: 1 }
+    expect(formatProjectLabel(child, [parent, child])).toBe('Parent A/Child A')
+  })
+
+  it('uses display_name for child only when parent has no display_name', () => {
+    const parent: ProjectEntry = { project_id: 1, slug: 'parent-a' }
+    const child: ProjectEntry = { project_id: 10, slug: 'child-a', display_name: 'Child A', parent_id: 1 }
+    expect(formatProjectLabel(child, [parent, child])).toBe('parent-a/Child A')
+  })
+
+  it('uses display_name for parent only when child has no display_name', () => {
+    const parent: ProjectEntry = { project_id: 1, slug: 'parent-a', display_name: 'Parent A' }
+    const child: ProjectEntry = { project_id: 10, slug: 'child-a', parent_id: 1 }
+    expect(formatProjectLabel(child, [parent, child])).toBe('Parent A/child-a')
+  })
+
+  it('falls back to slug when display_name is empty string', () => {
+    const p: ProjectEntry = { project_id: 30, slug: 'proj-30', display_name: '' }
+    expect(formatProjectLabel(p, [p])).toBe('proj-30')
+  })
 })

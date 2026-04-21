@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { projectListOptions } from '@/lib/queries'
+import { resolveProjectFromParam } from '@/lib/resolveProject'
 import {
   Sidebar,
   SidebarContent,
@@ -67,8 +68,7 @@ export function AppSidebar() {
             <SidebarGroupLabel>Project</SidebarGroupLabel>
             <SidebarMenu>
               {(() => {
-                const numericId = Number(projectId)
-                const currentProject = allProjects.find((p) => p.project_id === numericId)
+                const currentProject = resolveProjectFromParam(projectId ?? undefined, allProjects)
                 const isParent = (currentProject?.children?.length ?? 0) > 0
                 const parentHiddenTabs = ['Timeline', 'Known Issues', 'Attachments']
                 const visibleNavItems = isParent
