@@ -17,6 +17,11 @@ export async function getProject(
   return res.data
 }
 
+export async function getProjectIndex(): Promise<ApiResponse<ProjectsData>> {
+  const res = await apiClient.get<ApiResponse<ProjectsData>>('/projects/index')
+  return res.data
+}
+
 export async function getProjects(
   page?: number,
   perPage?: number,

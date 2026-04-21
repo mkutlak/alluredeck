@@ -1,7 +1,17 @@
 import { queryOptions } from '@tanstack/react-query'
-import { getProjects } from '@/api/projects'
+import { getProjectIndex, getProjects } from '@/api/projects'
 
-/** All projects — sidebar, switcher, projects page, overview tab */
+/** All projects (unpaginated) — sidebar, switcher, admin cards, lookups */
+export function projectIndexOptions() {
+  return queryOptions({
+    queryKey: ['projects', 'index'] as const,
+    queryFn: () => getProjectIndex(),
+    staleTime: 10_000,
+    refetchOnWindowFocus: 'always' as const,
+  })
+}
+
+/** Paginated projects — projects page list/grid */
 export function projectListOptions() {
   return queryOptions({
     queryKey: ['projects'] as const,

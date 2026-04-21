@@ -6,7 +6,7 @@ import { fetchReportHistory, deleteReport } from '@/api/reports'
 import { fetchBranches } from '@/api/branches'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
-import { projectListOptions } from '@/lib/queries'
+import { projectIndexOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { formatDuration } from '@/lib/utils'
@@ -63,7 +63,7 @@ export function OverviewTab() {
       : undefined
 
   // Hierarchy detection: fetch the project list to find parent/child relationships
-  const { data: projectsResp } = useQuery({ ...projectListOptions(), enabled: !!projectId })
+  const { data: projectsResp } = useQuery({ ...projectIndexOptions(), enabled: !!projectId })
   const allProjects = projectsResp?.data ?? []
   const currentProject = resolveProjectFromParam(projectId, allProjects)
   const isParentProject = (currentProject?.children?.length ?? 0) > 0

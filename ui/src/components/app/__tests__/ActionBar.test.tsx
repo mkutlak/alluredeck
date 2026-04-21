@@ -15,8 +15,8 @@ vi.mock('@/store/auth', () => ({
 }))
 
 vi.mock('@/lib/queries/projects', () => ({
-  projectListOptions: () => ({
-    queryKey: ['projects'],
+  projectIndexOptions: () => ({
+    queryKey: ['projects', 'index'],
     queryFn: () => Promise.resolve([{ project_id: 'my-project', report_type: 'allure' }]),
   }),
 }))

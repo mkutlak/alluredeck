@@ -2146,6 +2146,25 @@ paths:
       summary: Trigger a test delivery for a webhook
       tags:
       - webhooks
+  /projects/index:
+    get:
+      description: Returns all projects with minimal fields for lookups (no pagination).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Project index
+      tags:
+      - projects
   /ready:
     get:
       description: Returns 200 when the database is reachable, 503 otherwise.

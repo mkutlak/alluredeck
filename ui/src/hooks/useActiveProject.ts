@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useUIStore } from '@/store/ui'
-import { projectListOptions } from '@/lib/queries'
+import { projectIndexOptions } from '@/lib/queries'
 
 interface ActiveProjectResult {
   projectId: string | null
@@ -15,7 +15,7 @@ export function useActiveProject(): ActiveProjectResult {
   const lastProjectId = useUIStore((s) => s.lastProjectId)
   const setLastProjectId = useUIStore((s) => s.setLastProjectId)
 
-  const { data, isLoading } = useQuery({ ...projectListOptions(), enabled: !urlProjectId })
+  const { data, isLoading } = useQuery({ ...projectIndexOptions(), enabled: !urlProjectId })
 
   useEffect(() => {
     if (urlProjectId) {

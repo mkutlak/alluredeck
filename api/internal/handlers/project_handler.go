@@ -121,6 +121,55 @@ func (h *ProjectHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 	writePagedSuccess(w, entries, "Projects successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
 
+// GetProjectIndex godoc
+// @Summary      Project index
+// @Description  Returns all projects with minimal fields for lookups (no pagination).
+// @Tags         projects
+// @Produce      json
+// @Success      200  {object}  map[string]any
+// @Failure      500  {object}  map[string]any
+// @Router       /projects/index [get]
+func (h *ProjectHandler) GetProjectIndex(w http.ResponseWriter, r *http.Request) {
+	dbProjects, err := h.projectStore.ListProjects(r.Context())
+	if err != nil {
+		h.logger.Error("listing projects for index failed", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error listing projects")
+		return
+	}
+
+	childrenOf := make(map[int64][]int64)
+	for _, p := range dbProjects {
+		if p.ParentID != nil {
+			childrenOf[*p.ParentID] = append(childrenOf[*p.ParentID], p.ID)
+		}
+	}
+
+	entries := make([]ProjectEntry, 0, len(dbProjects))
+	for _, p := range dbProjects {
+		displayName := p.DisplayName
+		if displayName == "" {
+			displayName = p.Slug
+		}
+		e := ProjectEntry{
+			ProjectID:   p.ID,
+			Slug:        p.Slug,
+			StorageKey:  p.StorageKey,
+			DisplayName: displayName,
+			ReportType:  p.ReportType,
+			CreatedAt:   p.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		if p.ParentID != nil {
+			e.ParentID = p.ParentID
+		}
+		if kids, ok := childrenOf[p.ID]; ok {
+			e.Children = kids
+		}
+		entries = append(entries, e)
+	}
+
+	writeSuccess(w, http.StatusOK, entries, "Project index successfully obtained")
+}
+
 // CreateProject godoc
 // @Summary      Create a project
 // @Description  Creates a new project directory and registers it in the database.

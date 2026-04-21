@@ -688,6 +688,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/index": {
+            "get": {
+                "description": "Returns all projects with minimal fields for lookups (no pagination).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Project index",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}": {
             "get": {
                 "description": "Returns a single project by numeric ID or slug.",

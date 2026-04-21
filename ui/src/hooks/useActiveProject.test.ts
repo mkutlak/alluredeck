@@ -17,6 +17,7 @@ const mockSetLastProjectId = vi.fn()
 
 vi.mock('@/api/projects', () => ({
   getProjects: vi.fn(),
+  getProjectIndex: vi.fn(),
 }))
 
 vi.mock('@/store/ui', () => ({
@@ -39,9 +40,10 @@ vi.mock('@/store/ui', () => ({
   ),
 }))
 
-import { getProjects } from '@/api/projects'
+import { getProjectIndex, getProjects } from '@/api/projects'
 import { useUIStore } from '@/store/ui'
 
+const mockGetProjectIndex = vi.mocked(getProjectIndex)
 const mockGetProjects = vi.mocked(getProjects)
 const mockUseUIStore = vi.mocked(useUIStore)
 
@@ -102,6 +104,10 @@ function renderHookNoUrl(onResult: (r: ActiveProjectResult) => void, queryClient
 describe('useActiveProject', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetProjectIndex.mockResolvedValue({
+      data: [{ project_id: 1, slug: 'first-project' }, { project_id: 2, slug: 'second-project' }],
+      metadata: { message: 'ok' },
+    })
     mockGetProjects.mockResolvedValue({
       data: [{ project_id: 1, slug: 'first-project' }, { project_id: 2, slug: 'second-project' }],
       metadata: { message: 'ok' },
@@ -192,6 +198,10 @@ describe('useActiveProject', () => {
   })
 
   it('returns null when no URL param, no stored project, and empty project list', async () => {
+    mockGetProjectIndex.mockResolvedValue({
+      data: [],
+      metadata: { message: 'ok' },
+    })
     mockGetProjects.mockResolvedValue({
       data: [],
       metadata: { message: 'ok' },

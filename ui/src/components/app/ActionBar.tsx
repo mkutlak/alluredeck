@@ -7,13 +7,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
-import { projectListOptions } from '@/lib/queries/projects'
+import { projectIndexOptions } from '@/lib/queries/projects'
 
 export function ActionBar() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore(selectIsAdmin)
   const isEditor = useAuthStore(selectIsEditor)
-  const { data: projectsResp } = useQuery(projectListOptions())
+  const { data: projectsResp } = useQuery(projectIndexOptions())
   const reportType =
     projectsResp?.data?.find((p: { project_id: number }) => p.project_id === Number(projectId))
       ?.report_type ?? 'allure'

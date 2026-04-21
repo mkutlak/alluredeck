@@ -10,6 +10,10 @@ import type { UIState } from '@/store/ui'
 import { ProjectSwitcher } from '../ProjectSwitcher'
 
 vi.mock('@/api/projects', () => ({
+  getProjectIndex: vi.fn().mockResolvedValue({
+    data: [{ project_id: 1, slug: 'project-alpha' }, { project_id: 2, slug: 'my-project' }],
+    metadata: { message: 'ok' },
+  }),
   getProjects: vi.fn().mockResolvedValue({
     data: [{ project_id: 1, slug: 'project-alpha' }, { project_id: 2, slug: 'my-project' }],
     metadata: { message: 'ok' },

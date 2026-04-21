@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getProject } from '@/api/projects'
-import { projectListOptions } from '@/lib/queries/projects'
+import { projectIndexOptions } from '@/lib/queries/projects'
 import type { ProjectEntry } from '@/types/api'
 
 export function resolveProjectFromParam(
@@ -22,7 +22,7 @@ export function useProjectFromParam(param: string | undefined): {
   isLoading: boolean
   error: unknown
 } {
-  const { data, isLoading: listLoading, error: listError } = useQuery(projectListOptions())
+  const { data, isLoading: listLoading, error: listError } = useQuery(projectIndexOptions())
   const projects = data?.data
   const projectFromList = resolveProjectFromParam(param, projects)
 

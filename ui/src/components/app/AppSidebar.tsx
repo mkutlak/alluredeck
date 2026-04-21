@@ -14,7 +14,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
-import { projectListOptions } from '@/lib/queries'
+import { projectIndexOptions } from '@/lib/queries'
 import { resolveProjectFromParam } from '@/lib/resolveProject'
 import {
   Sidebar,
@@ -41,7 +41,7 @@ export function AppSidebar() {
   const { projectId } = useActiveProject()
   const isAdmin = useAuthStore(selectIsAdmin)
 
-  const { data: projectsResp } = useQuery(projectListOptions())
+  const { data: projectsResp } = useQuery(projectIndexOptions())
   const allProjects = projectsResp?.data ?? []
 
   return (

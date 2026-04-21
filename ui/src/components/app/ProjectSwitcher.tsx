@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronsUpDown } from 'lucide-react'
-import { projectListOptions } from '@/lib/queries'
+import { projectIndexOptions } from '@/lib/queries'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { formatProjectLabel } from '@/lib/projectLabel'
@@ -24,7 +24,7 @@ export function ProjectSwitcher() {
   const setLastProjectId = useUIStore((s) => s.setLastProjectId)
   const [open, setOpen] = useState(false)
 
-  const { data } = useQuery(projectListOptions())
+  const { data } = useQuery(projectIndexOptions())
   const projects = data?.data ?? []
   const display = useProjectDisplay(projectId ?? undefined)
   const label = display || (projectId ? '' : 'Select a project...')

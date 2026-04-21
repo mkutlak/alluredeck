@@ -65,9 +65,10 @@ describe('resolveProjectFromParam', () => {
 
 vi.mock('@/api/projects', () => ({
   getProjects: vi.fn(),
+  getProjectIndex: vi.fn(),
 }))
 
-import { getProjects } from '@/api/projects'
+import { getProjectIndex, getProjects } from '@/api/projects'
 
 const mockProject: ProjectEntry = { project_id: 7, slug: 'myproject' }
 
@@ -81,6 +82,10 @@ function makeWrapper() {
 
 describe('useProjectFromParam', () => {
   beforeEach(() => {
+    vi.mocked(getProjectIndex).mockResolvedValue({
+      data: [mockProject],
+      metadata: { message: 'ok' },
+    })
     vi.mocked(getProjects).mockResolvedValue({
       data: [mockProject],
       metadata: { message: 'ok' },

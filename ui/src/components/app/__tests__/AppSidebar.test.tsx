@@ -9,10 +9,14 @@ import { useAuthStore } from '@/store/auth'
 import type { AuthState, Role } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import type { UIState } from '@/store/ui'
-import { getProjects } from '@/api/projects'
+import { getProjectIndex, getProjects } from '@/api/projects'
 import { AppSidebar } from '../AppSidebar'
 
 vi.mock('@/api/projects', () => ({
+  getProjectIndex: vi.fn().mockResolvedValue({
+    data: [{ project_id: 'project-alpha' }, { project_id: 'my-project' }],
+    metadata: { message: 'ok' },
+  }),
   getProjects: vi.fn().mockResolvedValue({
     data: [{ project_id: 'project-alpha' }, { project_id: 'my-project' }],
     metadata: { message: 'ok' },
@@ -133,6 +137,10 @@ describe('AppSidebar', () => {
   })
 
   it('hides project sub-nav when no project is in URL', async () => {
+    vi.mocked(getProjectIndex).mockResolvedValueOnce({
+      data: [],
+      metadata: { message: 'ok' },
+    })
     vi.mocked(getProjects).mockResolvedValueOnce({
       data: [],
       metadata: { message: 'ok' },
@@ -212,6 +220,10 @@ describe('AppSidebar', () => {
   })
 
   it('auto-selects first project when no stored project', async () => {
+    vi.mocked(getProjectIndex).mockResolvedValueOnce({
+      data: [{ project_id: 1, slug: 'first-project' }],
+      metadata: { message: 'ok' },
+    })
     vi.mocked(getProjects).mockResolvedValueOnce({
       data: [{ project_id: 1, slug: 'first-project' }],
       metadata: { message: 'ok' },
