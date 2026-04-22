@@ -2422,6 +2422,18 @@ const docTemplate = `{
                         "description": "CI commit SHA",
                         "name": "ci_commit_sha",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "CI pipeline ID",
+                        "name": "ci_pipeline_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "CI pipeline URL",
+                        "name": "ci_pipeline_url",
+                        "in": "query"
                     }
                 ],
                 "responses": {

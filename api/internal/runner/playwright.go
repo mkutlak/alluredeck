@@ -56,7 +56,7 @@ func NewPlaywrightRunner(deps PlaywrightRunnerDeps) *PlaywrightRunner {
 // It reads the report from playwright-reports/latest/, parses it, copies files to
 // the numbered build directory, and stores test results and stats in the database.
 // projectID is the numeric surrogate key; slug is the human-readable identifier; storageKey is used for storage operations.
-func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA string) (string, error) {
+func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) (string, error) {
 	// 1. Acquire per-project lock to serialize concurrent report ingestion.
 	unlock, err := pr.lockManager.AcquireLock(ctx, slug)
 	if err != nil {
@@ -120,10 +120,12 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 
 	// 9. Store CI metadata — fall back to report metadata if CI params not provided.
 	ciMeta := store.CIMetadata{
-		Provider:  execName,
-		BuildURL:  execFrom,
-		Branch:    ciBranch,
-		CommitSHA: ciCommitSHA,
+		Provider:    execName,
+		BuildURL:    execFrom,
+		Branch:      ciBranch,
+		CommitSHA:   ciCommitSHA,
+		PipelineID:  ciPipelineID,
+		PipelineURL: ciPipelineURL,
 	}
 	if ciMeta.Branch == "" {
 		ciMeta.Branch = meta.Branch
@@ -134,7 +136,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 	if ciMeta.BuildURL == "" {
 		ciMeta.BuildURL = meta.BuildURL
 	}
-	if ciMeta.Provider != "" || ciMeta.BuildURL != "" || ciMeta.Branch != "" || ciMeta.CommitSHA != "" {
+	if ciMeta.Provider != "" || ciMeta.BuildURL != "" || ciMeta.Branch != "" || ciMeta.CommitSHA != "" || ciMeta.PipelineID != "" {
 		if err := pr.buildStore.UpdateBuildCIMetadata(ctx, projectID, buildNumber, ciMeta); err != nil {
 			pr.logger.Warn("failed to store CI metadata",
 				zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))

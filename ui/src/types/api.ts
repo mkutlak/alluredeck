@@ -751,6 +751,8 @@ export interface PipelineAggregate {
 }
 
 export interface PipelineRun {
+  pipeline_id?: string
+  pipeline_url?: string
   commit_sha: string
   branch: string
   ci_build_url?: string

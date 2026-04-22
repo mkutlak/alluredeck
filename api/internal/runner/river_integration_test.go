@@ -19,7 +19,7 @@ type riverMockGen struct {
 	out string
 }
 
-func (m *riverMockGen) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _ string) (string, error) {
+func (m *riverMockGen) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {
 	return m.out, nil
 }
 

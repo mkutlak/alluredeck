@@ -1752,6 +1752,14 @@ paths:
         in: query
         name: ci_commit_sha
         type: string
+      - description: CI pipeline ID
+        in: query
+        name: ci_pipeline_id
+        type: string
+      - description: CI pipeline URL
+        in: query
+        name: ci_pipeline_url
+        type: string
       produces:
       - application/json
       responses:

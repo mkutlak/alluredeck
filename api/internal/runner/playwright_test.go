@@ -228,7 +228,7 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 		Logger:          zap.NewNop(),
 	})
 
-	msg, err := pr.IngestReport(context.Background(), projectID, slug, slug, "CI Runner", "https://ci.example.com", "", "")
+	msg, err := pr.IngestReport(context.Background(), projectID, slug, slug, "CI Runner", "https://ci.example.com", "", "", "", "")
 	if err != nil {
 		t.Fatalf("IngestReport: %v", err)
 	}

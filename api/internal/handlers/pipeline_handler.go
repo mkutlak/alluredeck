@@ -89,12 +89,14 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 // Response types — private to this handler.
 
 type pipelineRunResp struct {
-	CommitSHA  string              `json:"commit_sha"`
-	Branch     string              `json:"branch"`
-	CIBuildURL string              `json:"ci_build_url,omitempty"`
-	Timestamp  string              `json:"timestamp"`
-	Suites     []pipelineSuiteResp `json:"suites"`
-	Aggregate  pipelineAggResp     `json:"aggregate"`
+	PipelineID  string              `json:"pipeline_id,omitempty"`
+	PipelineURL string              `json:"pipeline_url,omitempty"`
+	CommitSHA   string              `json:"commit_sha"`
+	Branch      string              `json:"branch"`
+	CIBuildURL  string              `json:"ci_build_url,omitempty"`
+	Timestamp   string              `json:"timestamp"`
+	Suites      []pipelineSuiteResp `json:"suites"`
+	Aggregate   pipelineAggResp     `json:"aggregate"`
 }
 
 type pipelineSuiteResp struct {
@@ -117,7 +119,7 @@ type pipelineAggResp struct {
 	TotalDurationMs int64   `json:"total_duration_ms"`
 }
 
-// groupPipelineRuns groups flat store rows by commit SHA and computes aggregates.
+// groupPipelineRuns groups flat store rows by pipeline ID (if set) or commit SHA and computes aggregates.
 func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 	if len(rows) == 0 {
 		return nil
@@ -129,21 +131,29 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 	}
 
 	order := []string{}
-	bysha := map[string]*runAccum{}
+	byKey := map[string]*runAccum{}
 
 	for i := range rows {
 		r := &rows[i]
-		acc, exists := bysha[r.CommitSHA]
+
+		groupKey := r.CommitSHA
+		if r.PipelineID != "" {
+			groupKey = r.PipelineID
+		}
+
+		acc, exists := byKey[groupKey]
 		if !exists {
 			acc = &runAccum{
 				resp: pipelineRunResp{
-					CommitSHA:  r.CommitSHA,
-					Branch:     r.Branch,
-					CIBuildURL: r.CIBuildURL,
+					PipelineID:  r.PipelineID,
+					PipelineURL: r.PipelineURL,
+					CommitSHA:   r.CommitSHA,
+					Branch:      r.Branch,
+					CIBuildURL:  r.CIBuildURL,
 				},
 			}
-			bysha[r.CommitSHA] = acc
-			order = append(order, r.CommitSHA)
+			byKey[groupKey] = acc
+			order = append(order, groupKey)
 		}
 
 		if r.CreatedAt.After(acc.maxTS) {
@@ -183,11 +193,10 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 	}
 
 	result := make([]pipelineRunResp, 0, len(order))
-	for _, sha := range order {
-		acc := bysha[sha]
+	for _, key := range order {
+		acc := byKey[key]
 		acc.resp.Timestamp = acc.maxTS.UTC().Format(time.RFC3339)
 
-		// Compute aggregate.
 		var agg pipelineAggResp
 		agg.SuitesTotal = len(acc.resp.Suites)
 		for _, s := range acc.resp.Suites {

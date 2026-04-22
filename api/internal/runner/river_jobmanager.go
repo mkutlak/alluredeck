@@ -22,16 +22,18 @@ import (
 
 // GenerateReportArgs holds the River job arguments for async report generation.
 type GenerateReportArgs struct {
-	ProjectID    int64  `json:"project_id"`
-	Slug         string `json:"slug"`
-	StorageKey   string `json:"storage_key"`
-	BatchID      string `json:"batch_id"`
-	ExecName     string `json:"exec_name"`
-	ExecFrom     string `json:"exec_from"`
-	ExecType     string `json:"exec_type"`
-	StoreResults bool   `json:"store_results"`
-	CIBranch     string `json:"ci_branch"`
-	CICommitSHA  string `json:"ci_commit_sha"`
+	ProjectID     int64  `json:"project_id"`
+	Slug          string `json:"slug"`
+	StorageKey    string `json:"storage_key"`
+	BatchID       string `json:"batch_id"`
+	ExecName      string `json:"exec_name"`
+	ExecFrom      string `json:"exec_from"`
+	ExecType      string `json:"exec_type"`
+	StoreResults  bool   `json:"store_results"`
+	CIBranch      string `json:"ci_branch"`
+	CICommitSHA   string `json:"ci_commit_sha"`
+	CIPipelineID  string `json:"ci_pipeline_id"`
+	CIPipelineURL string `json:"ci_pipeline_url"`
 }
 
 // Kind returns the River job kind identifier.
@@ -39,13 +41,15 @@ func (GenerateReportArgs) Kind() string { return "generate_report" }
 
 // PlaywrightIngestArgs holds the River job arguments for async Playwright report ingestion.
 type PlaywrightIngestArgs struct {
-	ProjectID   int64  `json:"project_id"`
-	Slug        string `json:"slug"`
-	StorageKey  string `json:"storage_key"`
-	ExecName    string `json:"exec_name"`
-	ExecFrom    string `json:"exec_from"`
-	CIBranch    string `json:"ci_branch"`
-	CICommitSHA string `json:"ci_commit_sha"`
+	ProjectID     int64  `json:"project_id"`
+	Slug          string `json:"slug"`
+	StorageKey    string `json:"storage_key"`
+	ExecName      string `json:"exec_name"`
+	ExecFrom      string `json:"exec_from"`
+	CIBranch      string `json:"ci_branch"`
+	CICommitSHA   string `json:"ci_commit_sha"`
+	CIPipelineID  string `json:"ci_pipeline_id"`
+	CIPipelineURL string `json:"ci_pipeline_url"`
 }
 
 // Kind returns the River job kind identifier.
@@ -67,7 +71,7 @@ type GenerateReportWorker struct {
 // Work implements river.Worker.
 func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[GenerateReportArgs]) error {
 	a := job.Args
-	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA)
+	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL)
 	if err != nil {
 		w.logger.Error("river: report generation failed",
 			zap.Int64("job_id", job.ID),
@@ -123,7 +127,7 @@ type PlaywrightIngestWorker struct {
 // Work implements river.Worker for Playwright report ingestion.
 func (w *PlaywrightIngestWorker) Work(ctx context.Context, job *river.Job[PlaywrightIngestArgs]) error {
 	a := job.Args
-	reportID, err := w.runner.IngestReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA)
+	reportID, err := w.runner.IngestReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.ExecName, a.ExecFrom, a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL)
 	if err != nil {
 		w.logger.Error("river: playwright ingest failed",
 			zap.Int64("job_id", job.ID),
@@ -356,16 +360,18 @@ func (jm *RiverJobManager) Shutdown() {
 // Submit enqueues a new report generation job via River and returns its initial state.
 func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams) *Job {
 	args := GenerateReportArgs{
-		ProjectID:    projectID,
-		Slug:         slug,
-		StorageKey:   params.StorageKey,
-		BatchID:      params.BatchID,
-		ExecName:     params.ExecName,
-		ExecFrom:     params.ExecFrom,
-		ExecType:     params.ExecType,
-		StoreResults: params.StoreResults,
-		CIBranch:     params.CIBranch,
-		CICommitSHA:  params.CICommitSHA,
+		ProjectID:     projectID,
+		Slug:          slug,
+		StorageKey:    params.StorageKey,
+		BatchID:       params.BatchID,
+		ExecName:      params.ExecName,
+		ExecFrom:      params.ExecFrom,
+		ExecType:      params.ExecType,
+		StoreResults:  params.StoreResults,
+		CIBranch:      params.CIBranch,
+		CICommitSHA:   params.CICommitSHA,
+		CIPipelineID:  params.CIPipelineID,
+		CIPipelineURL: params.CIPipelineURL,
 	}
 	res, err := jm.client.Insert(jm.ctx, args, nil)
 	if err != nil {
@@ -382,15 +388,17 @@ func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams
 }
 
 // SubmitPlaywright enqueues a new Playwright report ingestion job.
-func (jm *RiverJobManager) SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA string) *Job {
+func (jm *RiverJobManager) SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job {
 	args := PlaywrightIngestArgs{
-		ProjectID:   projectID,
-		Slug:        slug,
-		StorageKey:  storageKey,
-		ExecName:    execName,
-		ExecFrom:    execFrom,
-		CIBranch:    ciBranch,
-		CICommitSHA: ciCommitSHA,
+		ProjectID:     projectID,
+		Slug:          slug,
+		StorageKey:    storageKey,
+		ExecName:      execName,
+		ExecFrom:      execFrom,
+		CIBranch:      ciBranch,
+		CICommitSHA:   ciCommitSHA,
+		CIPipelineID:  ciPipelineID,
+		CIPipelineURL: ciPipelineURL,
 	}
 	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{MaxAttempts: 3})
 	if err != nil {

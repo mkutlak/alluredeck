@@ -21,7 +21,9 @@ func NewPipelineStore(s *PGStore) *PipelineStore {
 
 const pipelineRunsQuery = `
 WITH child_builds AS (
-    SELECT b.ci_commit_sha,
+    SELECT COALESCE(b.ci_pipeline_id, '') AS ci_pipeline_id,
+           COALESCE(b.ci_pipeline_url, '') AS ci_pipeline_url,
+           COALESCE(b.ci_commit_sha, '') AS ci_commit_sha,
            COALESCE(b.ci_branch, '') AS ci_branch,
            COALESCE(b.ci_build_url, '') AS ci_build_url,
            b.created_at,
@@ -29,34 +31,36 @@ WITH child_builds AS (
            p.slug AS project_slug,
            b.build_order,
            b.stat_passed, b.stat_failed, b.stat_broken, b.stat_total,
-           b.duration_ms
+           b.duration_ms,
+           COALESCE(b.ci_pipeline_id, b.ci_commit_sha) AS group_key
     FROM builds b
     JOIN projects p ON p.id = b.project_id
     WHERE p.parent_id = $1
-      AND b.ci_commit_sha IS NOT NULL
+      AND (b.ci_pipeline_id IS NOT NULL OR b.ci_commit_sha IS NOT NULL)
       AND ($2::text = '' OR b.ci_branch = $2)
 ),
-distinct_shas AS (
-    SELECT ci_commit_sha,
+distinct_groups AS (
+    SELECT group_key,
            MAX(created_at) AS max_ts
     FROM child_builds
-    GROUP BY ci_commit_sha
+    GROUP BY group_key
     ORDER BY max_ts DESC
 ),
 total_count AS (
-    SELECT COUNT(*) AS cnt FROM distinct_shas
+    SELECT COUNT(*) AS cnt FROM distinct_groups
 ),
-paginated_shas AS (
-    SELECT ci_commit_sha FROM distinct_shas
+paginated_groups AS (
+    SELECT group_key FROM distinct_groups
     LIMIT $3 OFFSET $4
 )
-SELECT cb.ci_commit_sha, cb.ci_branch, cb.ci_build_url, cb.created_at,
+SELECT cb.ci_pipeline_id, cb.ci_pipeline_url,
+       cb.ci_commit_sha, cb.ci_branch, cb.ci_build_url, cb.created_at,
        cb.project_id, cb.project_slug, cb.build_order,
        cb.stat_passed, cb.stat_failed, cb.stat_broken, cb.stat_total,
        cb.duration_ms,
        tc.cnt
 FROM child_builds cb
-JOIN paginated_shas ps ON ps.ci_commit_sha = cb.ci_commit_sha
+JOIN paginated_groups pg ON cb.group_key = pg.group_key
 CROSS JOIN total_count tc
 ORDER BY cb.created_at DESC, cb.project_id ASC`
 
@@ -78,6 +82,7 @@ func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, br
 	for rows.Next() {
 		var r store.PipelineRunRow
 		if err := rows.Scan(
+			&r.PipelineID, &r.PipelineURL,
 			&r.CommitSHA, &r.Branch, &r.CIBuildURL, &r.CreatedAt,
 			&r.ProjectID, &r.Slug, &r.BuildNumber,
 			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatTotal,

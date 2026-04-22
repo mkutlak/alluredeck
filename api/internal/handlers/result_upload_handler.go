@@ -98,6 +98,8 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 // @Param        execution_type          query  string  false  "Execution type"
 // @Param        ci_branch               query  string  false  "CI branch name"
 // @Param        ci_commit_sha           query  string  false  "CI commit SHA"
+// @Param        ci_pipeline_id          query  string  false  "CI pipeline ID"
+// @Param        ci_pipeline_url         query  string  false  "CI pipeline URL"
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
@@ -116,6 +118,8 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	execType := r.URL.Query().Get("execution_type")
 	ciBranch := r.URL.Query().Get("ci_branch")
 	ciCommitSHA := r.URL.Query().Get("ci_commit_sha")
+	ciPipelineID := r.URL.Query().Get("ci_pipeline_id")
+	ciPipelineURL := r.URL.Query().Get("ci_pipeline_url")
 
 	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
@@ -231,14 +235,16 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 
 	// Auto-trigger report generation after successful upload.
 	job := h.jobManager.Submit(projectID, slug, runner.JobParams{
-		StorageKey:   storageKey,
-		BatchID:      batchID,
-		ExecName:     execName,
-		ExecFrom:     execFrom,
-		ExecType:     execType,
-		StoreResults: true,
-		CIBranch:     ciBranch,
-		CICommitSHA:  ciCommitSHA,
+		StorageKey:    storageKey,
+		BatchID:       batchID,
+		ExecName:      execName,
+		ExecFrom:      execFrom,
+		ExecType:      execType,
+		StoreResults:  true,
+		CIBranch:      ciBranch,
+		CICommitSHA:   ciCommitSHA,
+		CIPipelineID:  ciPipelineID,
+		CIPipelineURL: ciPipelineURL,
 	})
 
 	if h.cfg.APIResponseLessVerbose {

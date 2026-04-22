@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommitHorizontal } from 'lucide-react'
 
 import { formatDate, formatDuration } from '@/lib/utils'
 import { getPassRateColorClass } from '@/lib/status-colors'
@@ -15,7 +15,8 @@ interface PipelineRunCardProps {
 export function PipelineRunCard({ run }: PipelineRunCardProps) {
   const [expanded, setExpanded] = useState(false)
   const { aggregate } = run
-  const shortSHA = run.commit_sha.slice(0, 7)
+  const shortSHA = run.commit_sha?.slice(0, 7)
+  const hasPipeline = !!run.pipeline_id
 
   return (
     <Card>
@@ -27,22 +28,49 @@ export function PipelineRunCard({ run }: PipelineRunCardProps) {
         >
           {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
 
-          <code className="text-sm font-semibold">
-            {run.ci_build_url ? (
-              <a
-                href={run.ci_build_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {shortSHA}
-                <ExternalLink size={12} />
-              </a>
-            ) : (
-              shortSHA
-            )}
-          </code>
+          {hasPipeline ? (
+            <div className="flex items-center gap-2">
+              <code className="text-sm font-semibold">
+                {run.pipeline_url ? (
+                  <a
+                    href={run.pipeline_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Pipeline {run.pipeline_id}
+                    <ExternalLink size={12} />
+                  </a>
+                ) : (
+                  <>Pipeline {run.pipeline_id}</>
+                )}
+              </code>
+              {shortSHA && (
+                <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                  <GitCommitHorizontal size={12} />
+                  {shortSHA}
+                </span>
+              )}
+            </div>
+          ) : (
+            <code className="text-sm font-semibold">
+              {run.ci_build_url ? (
+                <a
+                  href={run.ci_build_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {shortSHA}
+                  <ExternalLink size={12} />
+                </a>
+              ) : (
+                shortSHA
+              )}
+            </code>
+          )}
 
           {run.branch && (
             <Badge variant="outline" className="gap-1 text-xs font-normal">

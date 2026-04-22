@@ -58,10 +58,12 @@ type BuildStats struct {
 
 // CIMetadata holds CI/CD context associated with a build.
 type CIMetadata struct {
-	Provider  string
-	BuildURL  string
-	Branch    string
-	CommitSHA string
+	Provider    string
+	BuildURL    string
+	Branch      string
+	CommitSHA   string
+	PipelineID  string
+	PipelineURL string
 }
 
 // Build represents a single report generation run for a project.
@@ -86,6 +88,8 @@ type Build struct {
 	CIBuildURL          *string
 	CIBranch            *string
 	CICommitSHA         *string
+	CIPipelineID        *string
+	CIPipelineURL       *string
 	HasPlaywrightReport bool
 }
 
@@ -109,8 +113,10 @@ type DashboardProject struct {
 }
 
 // PipelineRunRow is a flat row from the pipeline-runs query.
-// The handler groups these by CommitSHA and computes aggregates.
+// The handler groups these by PipelineID (if set) or CommitSHA and computes aggregates.
 type PipelineRunRow struct {
+	PipelineID  string
+	PipelineURL string
 	CommitSHA   string
 	Branch      string
 	CIBuildURL  string

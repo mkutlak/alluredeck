@@ -348,7 +348,7 @@ func (a *Allure) recordBuild(ctx context.Context, projectID int64, slug string, 
 }
 
 // GenerateReport implements generateAllureReport.sh
-func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, storageKey, batchID, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
+func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, storageKey, batchID, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) (string, error) {
 	if execName == "" {
 		execName = "Automatic Execution"
 	}
@@ -423,10 +423,12 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	if a.cfg.KeepHistory {
 		if storeResults {
 			ciMeta := store.CIMetadata{
-				Provider:  execName,
-				BuildURL:  execFrom,
-				Branch:    ciBranch,
-				CommitSHA: ciCommitSHA,
+				Provider:    execName,
+				BuildURL:    execFrom,
+				Branch:      ciBranch,
+				CommitSHA:   ciCommitSHA,
+				PipelineID:  ciPipelineID,
+				PipelineURL: ciPipelineURL,
 			}
 			if err := a.storeAndPruneBuild(ctx, projectID, slug, storageKey, batchID, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
 				return "", err
@@ -480,7 +482,7 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug, storag
 			return fmt.Errorf("keep history for %q: %w", slug, err)
 		}
 
-		if _, err := a.GenerateReport(ctx, projectID, slug, storageKey, "", "", "", "", false, "", ""); err != nil {
+		if _, err := a.GenerateReport(ctx, projectID, slug, storageKey, "", "", "", "", false, "", "", "", ""); err != nil {
 			return err
 		}
 	}

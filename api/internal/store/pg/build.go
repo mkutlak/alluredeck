@@ -85,10 +85,12 @@ func (bs *BuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID int64
 	}
 	tag, err := bs.pool.Exec(ctx, `
 		UPDATE builds
-		SET ci_provider=$1, ci_build_url=$2, ci_branch=$3, ci_commit_sha=$4
-		WHERE project_id=$5 AND build_order=$6`,
+		SET ci_provider=$1, ci_build_url=$2, ci_branch=$3, ci_commit_sha=$4,
+		    ci_pipeline_id=$5, ci_pipeline_url=$6
+		WHERE project_id=$7 AND build_order=$8`,
 		nullStr(ciMeta.Provider), nullStr(ciMeta.BuildURL),
 		nullStr(ciMeta.Branch), nullStr(ciMeta.CommitSHA),
+		nullStr(ciMeta.PipelineID), nullStr(ciMeta.PipelineURL),
 		projectID, buildNumber)
 	if err != nil {
 		return fmt.Errorf("update build ci metadata: %w", err)
@@ -105,6 +107,7 @@ const buildSelectCols = `
 	       duration_ms, is_latest,
 	       flaky_count, retried_count, new_failed_count, new_passed_count,
 	       ci_provider, ci_build_url, ci_branch, ci_commit_sha,
+	       ci_pipeline_id, ci_pipeline_url,
 	       has_playwright_report
 	FROM builds`
 
@@ -120,6 +123,7 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 	var durationMs *int64
 	var flakyCount, retriedCount, newFailedCount, newPassedCount int
 	var ciProvider, ciBuildURL, ciBranch, ciCommitSHA *string
+	var ciPipelineID, ciPipelineURL *string
 
 	if err := row.Scan(
 		&b.ID, &b.ProjectID, &b.BuildNumber, &b.CreatedAt,
@@ -127,13 +131,14 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 		&durationMs, &b.IsLatest,
 		&flakyCount, &retriedCount, &newFailedCount, &newPassedCount,
 		&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
+		&ciPipelineID, &ciPipelineURL,
 		&b.HasPlaywrightReport,
 	); err != nil {
 		return store.Build{}, err
 	}
 	assignBuildStats(&b, statPassed, statFailed, statBroken, statSkipped, statUnknown, statTotal, durationMs,
 		flakyCount, retriedCount, newFailedCount, newPassedCount,
-		ciProvider, ciBuildURL, ciBranch, ciCommitSHA)
+		ciProvider, ciBuildURL, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL)
 	return b, nil
 }
 
@@ -148,6 +153,7 @@ func assignBuildStats(b *store.Build,
 	durationMs *int64,
 	flakyCount, retriedCount, newFailedCount, newPassedCount int,
 	ciProvider, ciBuildURL, ciBranch, ciCommitSHA *string,
+	ciPipelineID, ciPipelineURL *string,
 ) {
 	if passed != nil {
 		v := int(*passed)
@@ -182,6 +188,8 @@ func assignBuildStats(b *store.Build,
 	b.CIBuildURL = ciBuildURL
 	b.CIBranch = ciBranch
 	b.CICommitSHA = ciCommitSHA
+	b.CIPipelineID = ciPipelineID
+	b.CIPipelineURL = ciPipelineURL
 }
 
 // GetBuildByNumber returns a single build for project_id + build_order.
@@ -370,7 +378,7 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 				npc = int(*newPassedCount)
 			}
 			assignBuildStats(b, statPassed, statFailed, statBroken, statSkipped, statUnknown, statTotal, durationMs,
-				fc, rc, nfc, npc, ciProvider, ciBuildURL, ciBranch, ciCommitSHA)
+				fc, rc, nfc, npc, ciProvider, ciBuildURL, ciBranch, ciCommitSHA, nil, nil)
 			dp.Latest = b
 		}
 

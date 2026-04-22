@@ -128,7 +128,7 @@ func (w *Watcher) checkProject(ctx context.Context, slug, previousHash string, f
 		}
 		// Process first batch; remaining batches will be picked up on the next poll cycle.
 		batchID := batches[0]
-		if _, err := w.allureCore.GenerateReport(ctx, proj.ID, slug, proj.StorageKey, batchID, "", "", "", true, "", ""); err != nil {
+		if _, err := w.allureCore.GenerateReport(ctx, proj.ID, slug, proj.StorageKey, batchID, "", "", "", true, "", "", "", ""); err != nil {
 			w.logger.Error("watcher failed to generate report",
 				zap.String("slug", slug), zap.String("batch_id", batchID), zap.Error(err))
 		}

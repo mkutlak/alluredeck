@@ -5,7 +5,7 @@ import "context"
 // ReportGenerator is the interface satisfied by *Allure.
 type ReportGenerator interface {
 	GenerateReport(ctx context.Context, projectID int64, slug, storageKey, batchID, execName, execFrom, execType string,
-		storeResults bool, ciBranch, ciCommitSHA string) (string, error)
+		storeResults bool, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) (string, error)
 }
 
 // compile-time check
