@@ -1,6 +1,7 @@
 import { ImageIcon, FileText, File, Layers, Film, Eye, Download } from 'lucide-react'
 import { formatBytes } from '@/lib/utils'
 import { isPlaywrightTrace } from '@/features/trace/utils'
+import { isLogMime } from './utils'
 import type { AttachmentEntry } from '@/types/api'
 
 interface AttachmentRowProps {
@@ -14,11 +15,7 @@ function getMimeBadge(mimeType: string, name: string): { label: string; classNam
       label: 'IMAGE',
       className: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300',
     }
-  if (
-    mimeType.startsWith('text/') ||
-    mimeType === 'application/json' ||
-    mimeType === 'application/xml'
-  )
+  if (isLogMime(mimeType))
     return {
       label: 'LOG',
       className: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
@@ -42,10 +39,7 @@ function getMimeBadge(mimeType: string, name: string): { label: string; classNam
 export function AttachmentRow({ attachment, onView }: AttachmentRowProps) {
   const { mime_type, name, size_bytes, url } = attachment
   const isImage = mime_type.startsWith('image/')
-  const isText =
-    mime_type.startsWith('text/') ||
-    mime_type === 'application/json' ||
-    mime_type === 'application/xml'
+  const isText = isLogMime(mime_type)
   const isTrace = isPlaywrightTrace(name, mime_type)
   const isVideo = mime_type.startsWith('video/')
 

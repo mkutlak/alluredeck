@@ -175,4 +175,86 @@ describe('AttachmentsTab', () => {
     // Should have report selector
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
+
+  it('filters by Images shows only image attachments', async () => {
+    vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+    renderTab()
+    await screen.findByText('screenshot.png')
+
+    await userEvent.click(screen.getByRole('button', { name: /images/i }))
+
+    expect(screen.getByText('screenshot.png')).toBeInTheDocument()
+    expect(screen.queryByText('stdout.txt')).not.toBeInTheDocument()
+    expect(screen.queryByText('log.txt')).not.toBeInTheDocument()
+  })
+
+  it('filters by Logs shows text and JSON attachments', async () => {
+    const mockDataWithJson: AttachmentsData = {
+      groups: [
+        {
+          test_name: 'testWithVariousTypes',
+          test_status: 'passed',
+          attachments: [
+            { id: 10, name: 'screenshot.png', source: 's1.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/s1.png' },
+            { id: 11, name: 'response.json', source: 'r1.json', mime_type: 'application/json', size_bytes: 512, url: '/mock/r1.json' },
+            { id: 12, name: 'output.txt', source: 'o1.txt', mime_type: 'text/plain', size_bytes: 256, url: '/mock/o1.txt' },
+            { id: 13, name: 'data.bin', source: 'd1.bin', mime_type: 'application/octet-stream', size_bytes: 4096, url: '/mock/d1.bin' },
+          ],
+        },
+      ],
+      total: 4,
+      limit: 100,
+      offset: 0,
+    }
+    vi.mocked(fetchAttachments).mockResolvedValue(mockDataWithJson)
+    renderTab()
+    await screen.findByText('response.json')
+
+    await userEvent.click(screen.getByRole('button', { name: /logs/i }))
+
+    expect(screen.getByText('response.json')).toBeInTheDocument()
+    expect(screen.getByText('output.txt')).toBeInTheDocument()
+    expect(screen.queryByText('screenshot.png')).not.toBeInTheDocument()
+    expect(screen.queryByText('data.bin')).not.toBeInTheDocument()
+  })
+
+  it('updates subtitle count when filter is active', async () => {
+    vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+    renderTab()
+    await screen.findByText('screenshot.png')
+
+    await userEvent.click(screen.getByRole('button', { name: /images/i }))
+
+    expect(screen.getByText(/1 of 3/)).toBeInTheDocument()
+  })
+
+  it('Other filter excludes images, logs, and traces', async () => {
+    const mockDataWithBin: AttachmentsData = {
+      groups: [
+        {
+          test_name: 'testWithVariousTypes',
+          test_status: 'passed',
+          attachments: [
+            { id: 10, name: 'screenshot.png', source: 's1.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/s1.png' },
+            { id: 11, name: 'response.json', source: 'r1.json', mime_type: 'application/json', size_bytes: 512, url: '/mock/r1.json' },
+            { id: 12, name: 'output.txt', source: 'o1.txt', mime_type: 'text/plain', size_bytes: 256, url: '/mock/o1.txt' },
+            { id: 13, name: 'data.bin', source: 'd1.bin', mime_type: 'application/octet-stream', size_bytes: 4096, url: '/mock/d1.bin' },
+          ],
+        },
+      ],
+      total: 4,
+      limit: 100,
+      offset: 0,
+    }
+    vi.mocked(fetchAttachments).mockResolvedValue(mockDataWithBin)
+    renderTab()
+    await screen.findByText('data.bin')
+
+    await userEvent.click(screen.getByRole('button', { name: /other/i }))
+
+    expect(screen.getByText('data.bin')).toBeInTheDocument()
+    expect(screen.queryByText('screenshot.png')).not.toBeInTheDocument()
+    expect(screen.queryByText('response.json')).not.toBeInTheDocument()
+    expect(screen.queryByText('output.txt')).not.toBeInTheDocument()
+  })
 })

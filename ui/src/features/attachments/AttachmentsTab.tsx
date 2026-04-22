@@ -17,6 +17,7 @@ import {
 import { AttachmentRow } from './AttachmentRow'
 import { AttachmentLightbox } from './AttachmentLightbox'
 import { isPlaywrightTrace } from '@/features/trace/utils'
+import { isLogMime } from './utils'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
 
@@ -44,14 +45,14 @@ function filterAttachments(
 ): AttachmentEntry[] {
   if (mimeFilter === '') return attachments
   if (mimeFilter === 'image') return attachments.filter((a) => a.mime_type.startsWith('image/'))
-  if (mimeFilter === 'text') return attachments.filter((a) => a.mime_type.startsWith('text/'))
+  if (mimeFilter === 'text') return attachments.filter((a) => isLogMime(a.mime_type))
   if (mimeFilter === 'trace')
     return attachments.filter((a) => isPlaywrightTrace(a.name, a.mime_type))
   if (mimeFilter === 'other')
     return attachments.filter(
       (a) =>
         !a.mime_type.startsWith('image/') &&
-        !a.mime_type.startsWith('text/') &&
+        !isLogMime(a.mime_type) &&
         !isPlaywrightTrace(a.name, a.mime_type),
     )
   return attachments
@@ -129,42 +130,45 @@ export function AttachmentsTab() {
     }))
     .filter((group) => group.attachments.length > 0)
 
+  const filteredTotal = filteredGroups.reduce((sum, g) => sum + g.attachments.length, 0)
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">
-          Attachments · Report {reportLabel} · {total} total
+          Attachments · Report {reportLabel} · {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {MIME_FILTERS.map(({ label, value }) => (
-          <Button
-            key={value}
-            variant={mimeFilter === value ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setMimeFilter(value)}
-          >
-            {label}
-          </Button>
-        ))}
-        <div className="ml-auto">
-          <Select value={selectedReport} onValueChange={setSelectedReport}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Select report" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="latest">Latest</SelectItem>
-              {reports.map((r) => (
-                <SelectItem key={r.report_id} value={r.report_id}>
-                  #{r.report_id}
-                  {r.is_latest ? ' (latest)' : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="bg-muted/50 flex flex-wrap items-center gap-1 rounded-lg border p-1">
+          {MIME_FILTERS.map(({ label, value }) => (
+            <Button
+              key={value}
+              variant={mimeFilter === value ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setMimeFilter(value)}
+              className="h-7 text-xs"
+            >
+              {label}
+            </Button>
+          ))}
         </div>
+        <Select value={selectedReport} onValueChange={setSelectedReport}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Select report" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="latest">Latest</SelectItem>
+            {reports.map((r) => (
+              <SelectItem key={r.report_id} value={r.report_id}>
+                #{r.report_id}
+                {r.is_latest ? ' (latest)' : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {filteredGroups.length === 0 ? (
@@ -182,10 +186,10 @@ export function AttachmentsTab() {
           {filteredGroups.map((group) => {
             const isCollapsed = collapsedGroups.has(group.test_name)
             return (
-              <div key={group.test_name} className="rounded-lg border">
+              <div key={group.test_name} className="rounded-lg border bg-card shadow-sm">
                 <button
                   type="button"
-                  className="hover:bg-accent/50 flex w-full items-center gap-2 px-4 py-3 text-left transition-colors"
+                  className="hover:bg-accent/40 rounded-t-lg flex w-full items-center gap-2 px-4 py-3 text-left transition-colors"
                   onClick={() => toggleGroup(group.test_name)}
                 >
                   {isCollapsed ? (
@@ -204,7 +208,7 @@ export function AttachmentsTab() {
                   </span>
                 </button>
                 {!isCollapsed && (
-                  <div className="border-t px-4 py-3">
+                  <div className="bg-card/50 border-t px-4 py-2">
                     <div className="grid grid-cols-[1.25rem_1fr_auto_auto_auto] items-center gap-x-3 gap-y-1">
                       {group.attachments.map((attachment) => (
                         <AttachmentRow
