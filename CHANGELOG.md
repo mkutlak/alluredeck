@@ -1,3 +1,9 @@
+## [0.26.0](https://github.com/mkutlak/alluredeck/compare/v0.25.0...v0.26.0) (2026-04-22)
+
+### Features
+
+* group parent project pipeline runs by CI pipeline ID ([a7a8ea6](https://github.com/mkutlak/alluredeck/commit/a7a8ea667a4bae2ef40de764a9413961c742cdf7))
+
 ## [0.25.0](https://github.com/mkutlak/alluredeck/compare/v0.24.1...v0.25.0) (2026-04-22)
 
 ### Features
