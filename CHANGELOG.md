@@ -1,3 +1,9 @@
+## [0.26.1](https://github.com/mkutlak/alluredeck/compare/v0.26.0...v0.26.1) (2026-04-22)
+
+### Bug Fixes
+
+* **ui:** fix attachment filters and improve styling ([2897f1e](https://github.com/mkutlak/alluredeck/commit/2897f1e3af013cf7140efc1f1cc59c32cec91e88))
+
 ## [0.26.0](https://github.com/mkutlak/alluredeck/compare/v0.25.0...v0.26.0) (2026-04-22)
 
 ### Features
