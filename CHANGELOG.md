@@ -1,3 +1,9 @@
+## [0.25.0](https://github.com/mkutlak/alluredeck/compare/v0.24.1...v0.25.0) (2026-04-22)
+
+### Features
+
+* **api:** make archive file count limit configurable via MAX_ARCHIVE_FILE_COUNT ([bfd1331](https://github.com/mkutlak/alluredeck/commit/bfd1331c821f6475142a85a3473ec22cdad8ec7d))
+
 ## [0.24.1](https://github.com/mkutlak/alluredeck/compare/v0.24.0...v0.24.1) (2026-04-22)
 
 ### Bug Fixes
