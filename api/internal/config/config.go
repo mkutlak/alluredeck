@@ -117,17 +117,18 @@ type Config struct {
 	// PostgreSQL connection URL
 	DatabaseURL string `yaml:"database_url" envconfig:"DATABASE_URL"`
 	// PostgreSQL connection pool settings
-	DBMaxOpenConns    int           `yaml:"db_max_open_conns" envconfig:"DB_MAX_OPEN_CONNS"`
-	DBMaxIdleConns    int           `yaml:"db_max_idle_conns" envconfig:"DB_MAX_IDLE_CONNS"`
-	DBConnMaxLifetime time.Duration `yaml:"db_conn_max_lifetime" envconfig:"DB_CONN_MAX_LIFETIME"`
-	StorageType       string        `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
-	S3                S3Config      `yaml:"s3"`
-	OIDC              OIDCConfig    `yaml:"oidc"`
-	LogLevel          string        `yaml:"log_level" envconfig:"LOG_LEVEL"`
-	MaxUploadSizeMB   int           `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
-	ExternalURL       string        `yaml:"external_url" envconfig:"EXTERNAL_URL"`
-	SecurityPassHash  []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
-	ViewerPassHash    []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
+	DBMaxOpenConns      int           `yaml:"db_max_open_conns" envconfig:"DB_MAX_OPEN_CONNS"`
+	DBMaxIdleConns      int           `yaml:"db_max_idle_conns" envconfig:"DB_MAX_IDLE_CONNS"`
+	DBConnMaxLifetime   time.Duration `yaml:"db_conn_max_lifetime" envconfig:"DB_CONN_MAX_LIFETIME"`
+	StorageType         string        `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
+	S3                  S3Config      `yaml:"s3"`
+	OIDC                OIDCConfig    `yaml:"oidc"`
+	LogLevel            string        `yaml:"log_level" envconfig:"LOG_LEVEL"`
+	MaxUploadSizeMB     int           `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
+	MaxArchiveFileCount int           `yaml:"max_archive_file_count" envconfig:"MAX_ARCHIVE_FILE_COUNT"`
+	ExternalURL         string        `yaml:"external_url" envconfig:"EXTERNAL_URL"`
+	SecurityPassHash    []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
+	ViewerPassHash      []byte        `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 }
 
 const defaultJWTSecret = "super-secret-key-for-dev"
@@ -156,6 +157,7 @@ func LoadConfig() (*Config, error) {
 		StorageType:              "local",
 		LogLevel:                 "info",
 		MaxUploadSizeMB:          100,
+		MaxArchiveFileCount:      5000,
 		S3: S3Config{
 			Region:      "us-east-1",
 			Concurrency: 10,

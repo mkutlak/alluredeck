@@ -45,6 +45,7 @@ export JWT_SECRET_KEY="<generated-via-openssl>"
 | `SWAGGER_ENABLED` | `swagger_enabled` | `false` | Enable Swagger UI at `/swagger/index.html` |
 | `SWAGGER_HOST` | `swagger_host` | `""` | Override the host shown in Swagger UI (auto-detected if empty) |
 | `MAX_UPLOAD_SIZE_MB` | `max_upload_size_mb` | `100` | Maximum upload size in MB for test result archives |
+| `MAX_ARCHIVE_FILE_COUNT` | `max_archive_file_count` | `5000` | Maximum number of files allowed in a tar.gz archive upload |
 | `GOMEMLIMIT` | *(n/a)* | *(not set)* | Go runtime memory limit (e.g., `1GiB`). Set to ~80% of your container memory limit to prevent OOM kills |
 
 ### Example
@@ -287,6 +288,7 @@ allure_version_path: "/app/version"
 # --- UI / API behaviour ---
 api_response_less_verbose: false
 max_upload_size_mb: 100
+max_archive_file_count: 5000
 swagger_enabled: false
 # swagger_host: ""
 
@@ -352,6 +354,7 @@ allure_version_path: "/app/version"
 # --- UI / API behaviour ---
 api_response_less_verbose: true
 max_upload_size_mb: 100
+max_archive_file_count: 5000
 swagger_enabled: false
 cors_allowed_origins:
   - "https://alluredeck.example.com"

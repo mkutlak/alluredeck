@@ -263,7 +263,10 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, storageKey
 
 	tr := tar.NewReader(gz)
 
-	const maxFiles = 10000
+	maxFiles := 10000
+	if h.cfg.MaxArchiveFileCount > 0 {
+		maxFiles = h.cfg.MaxArchiveFileCount
+	}
 	fileCount := 0
 	foundIndex := false
 

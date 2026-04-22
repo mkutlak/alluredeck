@@ -32,6 +32,7 @@ api:
     makeViewerEndpointsPublic: "false"
     corsAllowedOrigins: []  # auto-computed from ui.ingress if empty; list of allowed origins
     maxUploadSizeMb: "100"  # Maximum upload size in MB for test results
+    maxArchiveFileCount: "5000"  # Maximum files allowed in a tar.gz archive upload
     goMemLimit: "768MiB"  # Set to ~80% of resources.limits.memory to let GC reclaim before OOM kill
     # Maximum wall-clock time the background worker may spend on a single Allure
     # report generation job: download Allure results from storage, run the Allure

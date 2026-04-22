@@ -427,8 +427,12 @@ func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey, batc
 
 		// Enforce file count limit.
 		fileCount++
-		if fileCount > maxArchiveFileCount {
-			return nil, nil, fmt.Errorf("archive has more than %d files: %w", maxArchiveFileCount, ErrArchiveTooManyFiles)
+		limit := maxArchiveFileCount
+		if h.cfg.MaxArchiveFileCount > 0 {
+			limit = h.cfg.MaxArchiveFileCount
+		}
+		if fileCount > limit {
+			return nil, nil, fmt.Errorf("archive has more than %d files: %w", limit, ErrArchiveTooManyFiles)
 		}
 
 		// Write to temp dir.
