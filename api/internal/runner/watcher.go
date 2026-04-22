@@ -115,16 +115,22 @@ func (w *Watcher) checkProject(ctx context.Context, slug, previousHash string, f
 			return currentHash, false
 		}
 
-		// Bug 1 fix: call KeepHistory (preserves history) instead of CleanHistory (deletes all history).
-		if err := w.allureCore.KeepHistory(ctx, proj.StorageKey); err != nil {
-			w.logger.Error("watcher failed to keep history",
-				zap.String("slug", slug), zap.Error(err))
+		// List pending batch directories and process the first one.
+		// Remaining batches will be picked up on the next poll cycle.
+		batches, batchErr := w.store.ListResultBatches(ctx, proj.StorageKey)
+		if batchErr != nil {
+			w.logger.Error("watcher failed to list result batches",
+				zap.String("slug", slug), zap.Error(batchErr))
+			return currentHash, false
 		}
-
-		// Bug 4 fix: storeResults=true so numbered history dirs (reports/1/, reports/2/, …) are created.
-		if _, err := w.allureCore.GenerateReport(ctx, proj.ID, slug, proj.StorageKey, "", "", "", true, "", ""); err != nil {
+		if len(batches) == 0 {
+			return currentHash, false
+		}
+		// Process first batch; remaining batches will be picked up on the next poll cycle.
+		batchID := batches[0]
+		if _, err := w.allureCore.GenerateReport(ctx, proj.ID, slug, proj.StorageKey, batchID, "", "", "", true, "", ""); err != nil {
 			w.logger.Error("watcher failed to generate report",
-				zap.String("slug", slug), zap.Error(err))
+				zap.String("slug", slug), zap.String("batch_id", batchID), zap.Error(err))
 		}
 
 	}

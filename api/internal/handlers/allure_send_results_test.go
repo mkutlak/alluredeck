@@ -64,7 +64,7 @@ func TestSendJSONResults_WritesFileCorrectly(t *testing.T) {
 	})
 
 	h, _ := newTestResultUploadHandler(t, projectsDir)
-	processed, failed, err := h.sendJSONResults(req, projectID)
+	processed, failed, err := h.sendJSONResults(req, projectID, "testbatch")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestSendJSONResults_WritesFileCorrectly(t *testing.T) {
 		t.Fatalf("expected processed=[test-result.xml], got %v", processed)
 	}
 
-	got, err := os.ReadFile(filepath.Join(resultsDir, "test-result.xml"))
+	got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", "test-result.xml"))
 	if err != nil {
 		t.Fatalf("result file not written to disk: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestSendJSONResults_MultipleFiles(t *testing.T) {
 	}
 
 	h, _ := newTestResultUploadHandler(t, projectsDir)
-	processed, failed, err := h.sendJSONResults(makeJSONSendResultsReq(t, projectID, results), projectID)
+	processed, failed, err := h.sendJSONResults(makeJSONSendResultsReq(t, projectID, results), projectID, "testbatch")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSendJSONResults_MultipleFiles(t *testing.T) {
 	}
 
 	for _, f := range files {
-		got, err := os.ReadFile(filepath.Join(resultsDir, f.name))
+		got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", f.name))
 		if err != nil {
 			t.Fatalf("file %s not written: %v", f.name, err)
 		}
@@ -149,7 +149,7 @@ func TestSendJSONResults_InvalidBase64(t *testing.T) {
 	})
 
 	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID)
+	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
 	if err == nil {
 		t.Fatal("expected error for invalid base64, got nil")
 	}
@@ -172,7 +172,7 @@ func TestSendJSONResults_DuplicateFileNames(t *testing.T) {
 	})
 
 	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID)
+	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
 	if err == nil {
 		t.Fatal("expected error for duplicate file names, got nil")
 	}
@@ -193,7 +193,7 @@ func TestSendJSONResults_MissingContentBase64(t *testing.T) {
 	})
 
 	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID)
+	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
 	if err == nil {
 		t.Fatal("expected error for missing content_base64, got nil")
 	}
@@ -211,7 +211,7 @@ func TestSendJSONResults_EmptyResults(t *testing.T) {
 	req := makeJSONSendResultsReq(t, projectID, []map[string]string{})
 
 	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID)
+	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
 	if err == nil {
 		t.Fatal("expected error for empty results array, got nil")
 	}
@@ -322,7 +322,7 @@ func TestSendTarGzResults_SingleFile(t *testing.T) {
 	})
 	req := makeTarGzRequest(t, projectID, archive)
 
-	processed, failed, err := h.sendTarGzResults(req, projectID)
+	processed, failed, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestSendTarGzResults_SingleFile(t *testing.T) {
 		t.Fatalf("expected processed=[test-result.xml], got %v", processed)
 	}
 
-	got, err := os.ReadFile(filepath.Join(resultsDir, "test-result.xml"))
+	got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", "test-result.xml"))
 	if err != nil {
 		t.Fatalf("result file not written to disk: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestSendTarGzResults_MultipleFiles(t *testing.T) {
 	archive := makeTarGz(t, files)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	processed, failed, err := h.sendTarGzResults(req, projectID)
+	processed, failed, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestSendTarGzResults_MultipleFiles(t *testing.T) {
 	}
 
 	for name, want := range files {
-		got, err := os.ReadFile(filepath.Join(resultsDir, name))
+		got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", name))
 		if err != nil {
 			t.Fatalf("file %s not written: %v", name, err)
 		}
@@ -392,7 +392,7 @@ func TestSendTarGzResults_ContentTypeVariants(t *testing.T) {
 			req := makeTarGzRequest(t, projectID, archive)
 			req.Header.Set("Content-Type", ct)
 
-			processed, _, err := h.sendTarGzResults(req, projectID)
+			processed, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 			if err != nil {
 				t.Fatalf("Content-Type %q rejected: %v", ct, err)
 			}
@@ -413,7 +413,7 @@ func TestSendTarGzResults_EmptyArchive(t *testing.T) {
 	archive := makeTarGz(t, map[string][]byte{})
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveEmpty) {
 		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
 	}
@@ -429,7 +429,7 @@ func TestSendTarGzResults_DuplicateFileNames(t *testing.T) {
 	archive := makeTarGzWithOpts(t, entries)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveDuplicateFile) {
 		t.Fatalf("expected ErrArchiveDuplicateFile, got %v", err)
 	}
@@ -440,7 +440,7 @@ func TestSendTarGzResults_InvalidGzip(t *testing.T) {
 	h, projectID, _ := setupTarGzTest(t)
 	req := makeTarGzRequest(t, projectID, []byte("this is not gzip"))
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if err == nil {
 		t.Fatal("expected error for invalid gzip, got nil")
 	}
@@ -459,7 +459,7 @@ func TestSendTarGzResults_NestedDirectory(t *testing.T) {
 	archive := makeTarGzWithOpts(t, entries)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveNestedPath) {
 		t.Fatalf("expected ErrArchiveNestedPath, got %v", err)
 	}
@@ -474,7 +474,7 @@ func TestSendTarGzResults_PathTraversal(t *testing.T) {
 	archive := makeTarGzWithOpts(t, entries)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveNestedPath) {
 		t.Fatalf("expected ErrArchiveNestedPath, got %v", err)
 	}
@@ -489,7 +489,7 @@ func TestSendTarGzResults_Symlink(t *testing.T) {
 	archive := makeTarGzWithOpts(t, entries)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveEmpty) {
 		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
 	}
@@ -504,7 +504,7 @@ func TestSendTarGzResults_HardLink(t *testing.T) {
 	archive := makeTarGzWithOpts(t, entries)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveEmpty) {
 		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
 	}
@@ -519,7 +519,7 @@ func TestSendTarGzResults_Directory(t *testing.T) {
 	archive := makeTarGzWithOpts(t, entries)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveEmpty) {
 		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
 	}
@@ -543,7 +543,7 @@ func TestSendTarGzResults_DecompressionBomb(t *testing.T) {
 	})
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveDecompBomb) {
 		t.Fatalf("expected ErrArchiveDecompBomb, got %v", err)
 	}
@@ -566,7 +566,7 @@ func TestSendTarGzResults_FileCountExceeded(t *testing.T) {
 	archive := makeTarGz(t, files)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	_, _, err := h.sendTarGzResults(req, projectID)
+	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if !errors.Is(err, ErrArchiveTooManyFiles) {
 		t.Fatalf("expected ErrArchiveTooManyFiles, got %v", err)
 	}
@@ -587,7 +587,7 @@ func TestSendTarGzResults_SpecialCharsInFilename(t *testing.T) {
 	})
 	req := makeTarGzRequest(t, projectID, archive)
 
-	processed, _, err := h.sendTarGzResults(req, projectID)
+	processed, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestSendTarGzResults_SpecialCharsInFilename(t *testing.T) {
 		t.Fatalf("expected processed=[%s], got %v", wantName, processed)
 	}
 
-	got, err := os.ReadFile(filepath.Join(resultsDir, wantName))
+	got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", wantName))
 	if err != nil {
 		t.Fatalf("file not written: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestSendTarGzResults_ProcessedFilesAreSorted(t *testing.T) {
 	archive := makeTarGz(t, files)
 	req := makeTarGzRequest(t, projectID, archive)
 
-	processed, _, err := h.sendTarGzResults(req, projectID)
+	processed, _, err := h.sendTarGzResults(req, projectID, "testbatch")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -759,7 +759,7 @@ func TestParseResultsBody_TarGzRouting(t *testing.T) {
 			req := makeTarGzRequest(t, projectID, archive)
 			req.Header.Set("Content-Type", ct)
 
-			processed, _, err := h.parseResultsBody(req, projectID)
+			processed, _, err := h.parseResultsBody(req, projectID, "testbatch")
 			if err != nil {
 				t.Fatalf("parseResultsBody rejected Content-Type %q: %v", ct, err)
 			}

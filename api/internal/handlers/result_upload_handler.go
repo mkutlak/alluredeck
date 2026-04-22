@@ -107,6 +107,8 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	pathValue := r.PathValue("project_id")
 	projectID, slug, storageKey, found := h.resolveProjectID(r.Context(), pathValue)
 
+	batchID := runner.GenerateBatchID()
+
 	parentIDStr := r.URL.Query().Get("parent_id")
 
 	execName := r.URL.Query().Get("execution_name")
@@ -204,7 +206,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
-	processedFiles, failedFiles, err := h.parseResultsBody(r, storageKey)
+	processedFiles, failedFiles, err := h.parseResultsBody(r, storageKey, batchID)
 	if errors.Is(err, errUnsupportedContentType) {
 		writeError(w, http.StatusBadRequest, "Content-Type must be application/json, multipart/form-data, or application/gzip")
 		return
@@ -230,6 +232,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	// Auto-trigger report generation after successful upload.
 	job := h.jobManager.Submit(projectID, slug, runner.JobParams{
 		StorageKey:   storageKey,
+		BatchID:      batchID,
 		ExecName:     execName,
 		ExecFrom:     execFrom,
 		ExecType:     execType,
@@ -245,10 +248,11 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	currentFileNames, _ := h.store.ListResultFiles(r.Context(), storageKey)
+	currentFileNames, _ := h.store.ListResultFiles(r.Context(), storageKey, batchID)
 
 	writeSuccess(w, http.StatusOK, map[string]any{
 		"job_id":                job.ID,
+		"batch_id":              batchID,
 		"current_files":         currentFileNames,
 		"current_files_count":   len(currentFileNames),
 		"failed_files":          failedFiles,
@@ -261,24 +265,24 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 
 // parseResultsBody routes the request to the appropriate parser based on Content-Type.
 // Returns errUnsupportedContentType when the Content-Type is not recognized.
-func (h *ResultUploadHandler) parseResultsBody(r *http.Request, storageKey string) (processed []string, failed []map[string]string, err error) {
+func (h *ResultUploadHandler) parseResultsBody(r *http.Request, storageKey, batchID string) (processed []string, failed []map[string]string, err error) {
 	contentType := r.Header.Get("Content-Type")
 	switch {
 	case strings.HasPrefix(contentType, "application/json"):
-		return h.sendJSONResults(r, storageKey)
+		return h.sendJSONResults(r, storageKey, batchID)
 	case strings.HasPrefix(contentType, "multipart/form-data"):
-		return h.sendMultipartResults(r, storageKey)
+		return h.sendMultipartResults(r, storageKey, batchID)
 	case contentType == "application/gzip",
 		contentType == "application/x-gzip",
 		contentType == "application/x-tar+gzip":
-		return h.sendTarGzResults(r, storageKey)
+		return h.sendTarGzResults(r, storageKey, batchID)
 	default:
 		return nil, nil, errUnsupportedContentType
 	}
 }
 
 // sendJSONResults processes JSON body: {"results":[{"file_name":"...","content_base64":"..."}]}
-func (h *ResultUploadHandler) sendJSONResults(r *http.Request, storageKey string) (processed []string, failed []map[string]string, _ error) {
+func (h *ResultUploadHandler) sendJSONResults(r *http.Request, storageKey, batchID string) (processed []string, failed []map[string]string, _ error) {
 	var body struct {
 		Results []struct {
 			FileName      string `json:"file_name"`
@@ -321,7 +325,7 @@ func (h *ResultUploadHandler) sendJSONResults(r *http.Request, storageKey string
 		// allowing the GC to reclaim it while io.Copy runs.
 		body.Results[i].ContentBase64 = ""
 
-		if err := h.store.WriteResultFile(r.Context(), storageKey, safeName, decoder); err != nil {
+		if err := h.store.WriteResultFile(r.Context(), storageKey, batchID, safeName, decoder); err != nil {
 			return nil, nil, fmt.Errorf("decode base64 for %q: %w", body.Results[i].FileName, err)
 		}
 
@@ -332,7 +336,7 @@ func (h *ResultUploadHandler) sendJSONResults(r *http.Request, storageKey string
 }
 
 // sendMultipartResults processes multipart/form-data with files[] field
-func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey string) (processed []string, failed []map[string]string, _ error) {
+func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey, batchID string) (processed []string, failed []map[string]string, _ error) {
 	const maxMemory = 32 << 20 // 32 MB
 	if err := r.ParseMultipartForm(maxMemory); err != nil {
 		return nil, nil, fmt.Errorf("parse multipart form: %w", err)
@@ -351,7 +355,7 @@ func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey s
 			continue
 		}
 
-		err = h.store.WriteResultFile(r.Context(), storageKey, safeName, f)
+		err = h.store.WriteResultFile(r.Context(), storageKey, batchID, safeName, f)
 		_ = f.Close()
 		if err != nil {
 			failed = append(failed, map[string]string{"file_name": safeName, "message": err.Error()})
@@ -365,7 +369,7 @@ func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey s
 
 // sendTarGzResults extracts a tar.gz archive to a temp directory, validates
 // all entries, then writes them to storage. Atomic: rejects all on any error.
-func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey string) (processed []string, failed []map[string]string, _ error) {
+func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey, batchID string) (processed []string, failed []map[string]string, _ error) {
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid gzip stream: %w", err)
@@ -461,7 +465,7 @@ func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey strin
 		if err != nil {
 			return nil, nil, fmt.Errorf("reopen temp file %q: %w", name, err)
 		}
-		err = h.store.WriteResultFile(r.Context(), storageKey, name, f)
+		err = h.store.WriteResultFile(r.Context(), storageKey, batchID, name, f)
 		_ = f.Close()
 		if err != nil {
 			return nil, nil, fmt.Errorf("write result file %q: %w", name, err)

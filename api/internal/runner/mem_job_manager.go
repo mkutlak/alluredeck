@@ -183,7 +183,7 @@ func (m *MemJobManager) runJob(parentCtx context.Context, j *Job) {
 
 	p := j.Params
 	output, err := m.gen.GenerateReport(jobCtx,
-		j.ProjectID, j.Slug, j.StorageKey, p.ExecName, p.ExecFrom, p.ExecType, p.StoreResults, p.CIBranch, p.CICommitSHA)
+		j.ProjectID, j.Slug, j.StorageKey, p.BatchID, p.ExecName, p.ExecFrom, p.ExecType, p.StoreResults, p.CIBranch, p.CICommitSHA)
 
 	completed := time.Now()
 	m.mu.Lock()

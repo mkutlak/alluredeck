@@ -176,8 +176,8 @@ func (s *S3Store) ListProjects(ctx context.Context) ([]string, error) {
 // transfermanager.Client automatically uses multipart upload for large files
 // and falls back to a single PutObject for small ones, eliminating the need to
 // buffer the entire body in memory.
-func (s *S3Store) WriteResultFile(ctx context.Context, projectID, filename string, r io.Reader) error {
-	key := s.s3Key("projects", projectID, "results", filename)
+func (s *S3Store) WriteResultFile(ctx context.Context, projectID, batchID, filename string, r io.Reader) error {
+	key := s.s3Key("projects", projectID, "results", batchID, filename)
 	_, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -189,9 +189,9 @@ func (s *S3Store) WriteResultFile(ctx context.Context, projectID, filename strin
 	return nil
 }
 
-// ListResultFiles lists all result file names for a project.
-func (s *S3Store) ListResultFiles(ctx context.Context, projectID string) ([]string, error) {
-	prefix := s.s3Key("projects", projectID, "results") + "/"
+// ListResultFiles lists all result file names for a project batch.
+func (s *S3Store) ListResultFiles(ctx context.Context, projectID, batchID string) ([]string, error) {
+	prefix := s.s3Key("projects", projectID, "results", batchID) + "/"
 	var names []string
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
@@ -213,6 +213,45 @@ func (s *S3Store) ListResultFiles(ctx context.Context, projectID string) ([]stri
 		}
 	}
 	return names, nil
+}
+
+// CleanBatch deletes all result files for a specific batch.
+// batchID must be non-empty to prevent accidental deletion of the entire results prefix.
+func (s *S3Store) CleanBatch(ctx context.Context, projectID, batchID string) error {
+	if batchID == "" {
+		return fmt.Errorf("batch ID must not be empty")
+	}
+	prefix := s.s3Key("projects", projectID, "results", batchID) + "/"
+	return deletePrefix(ctx, s.client, s.bucket, prefix)
+}
+
+// ListResultBatches returns the names of batch subdirectories under results/ for a project.
+func (s *S3Store) ListResultBatches(ctx context.Context, projectID string) ([]string, error) {
+	prefix := s.s3Key("projects", projectID, "results") + "/"
+	var batches []string
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket:    aws.String(s.bucket),
+		Prefix:    aws.String(prefix),
+		Delimiter: aws.String("/"),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list result batches: %w", err)
+		}
+		for _, cp := range page.CommonPrefixes {
+			if cp.Prefix == nil {
+				continue
+			}
+			// "projects/{projectID}/results/{batchID}/" → "{batchID}"
+			trimmed := strings.TrimPrefix(*cp.Prefix, prefix)
+			trimmed = strings.TrimSuffix(trimmed, "/")
+			if trimmed != "" {
+				batches = append(batches, trimmed)
+			}
+		}
+	}
+	return batches, nil
 }
 
 // CleanResults deletes all result files for a project.
@@ -338,18 +377,24 @@ func (s *S3Store) PruneReportDirs(ctx context.Context, projectID string, buildNu
 	return nil
 }
 
-// KeepHistory copies history from reports/latest/history/ to results/history/ in S3.
+// KeepHistory copies history from reports/latest/history/ to results/{batchID}/history/ in S3.
+// When batchID is empty, falls back to the legacy flat path results/history/ for backward compatibility.
 // This is used before report generation to preserve trend history.
-func (s *S3Store) KeepHistory(ctx context.Context, projectID string) error {
+func (s *S3Store) KeepHistory(ctx context.Context, projectID, batchID string) error {
+	historySubPath := "history"
+	if batchID != "" {
+		historySubPath = batchID + "/history"
+	}
+
 	if !s.cfg.KeepHistory {
-		// Delete results/history/ prefix when history disabled
-		histPrefix := s.s3Key("projects", projectID, "results", "history") + "/"
+		// Delete target history prefix when history disabled
+		histPrefix := s.s3Key("projects", projectID, "results", historySubPath) + "/"
 		return deletePrefix(ctx, s.client, s.bucket, histPrefix)
 	}
 
-	// Copy from reports/latest/history/ to results/history/
+	// Copy from reports/latest/history/ to results/{batchID}/history/
 	srcPrefix := s.s3Key("projects", projectID, "reports", "latest", "history") + "/"
-	dstPrefix := s.s3Key("projects", projectID, "results", "history") + "/"
+	dstPrefix := s.s3Key("projects", projectID, "results", historySubPath) + "/"
 
 	// List source objects
 	var srcKeys []string

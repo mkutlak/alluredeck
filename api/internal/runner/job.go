@@ -27,6 +27,7 @@ const (
 // JobParams holds the parameters for a report generation job.
 type JobParams struct {
 	StorageKey   string
+	BatchID      string
 	ExecName     string
 	ExecFrom     string
 	ExecType     string

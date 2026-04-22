@@ -144,13 +144,17 @@ func (m *mockDataStore) ProjectExists(_ context.Context, _ string) (bool, error)
 	panic("not implemented")
 }
 func (m *mockDataStore) ListProjects(_ context.Context) ([]string, error) { panic("not implemented") }
-func (m *mockDataStore) WriteResultFile(_ context.Context, _, _ string, _ io.Reader) error {
+func (m *mockDataStore) WriteResultFile(_ context.Context, _, _, _ string, _ io.Reader) error {
 	panic("not implemented")
 }
-func (m *mockDataStore) ListResultFiles(_ context.Context, _ string) ([]string, error) {
+func (m *mockDataStore) ListResultFiles(_ context.Context, _, _ string) ([]string, error) {
 	panic("not implemented")
 }
-func (m *mockDataStore) CleanResults(_ context.Context, _ string) error { panic("not implemented") }
+func (m *mockDataStore) CleanBatch(_ context.Context, _, _ string) error { panic("not implemented") }
+func (m *mockDataStore) CleanResults(_ context.Context, _ string) error  { panic("not implemented") }
+func (m *mockDataStore) ListResultBatches(_ context.Context, _ string) ([]string, error) {
+	panic("not implemented")
+}
 func (m *mockDataStore) PrepareLocal(_ context.Context, _ string) (string, error) {
 	panic("not implemented")
 }
@@ -162,8 +166,8 @@ func (m *mockDataStore) DeleteReport(_ context.Context, _, _ string) error { pan
 func (m *mockDataStore) PruneReportDirs(_ context.Context, _ string, _ []int) error {
 	panic("not implemented")
 }
-func (m *mockDataStore) KeepHistory(_ context.Context, _ string) error  { panic("not implemented") }
-func (m *mockDataStore) CleanHistory(_ context.Context, _ string) error { panic("not implemented") }
+func (m *mockDataStore) KeepHistory(_ context.Context, _, _ string) error { panic("not implemented") }
+func (m *mockDataStore) CleanHistory(_ context.Context, _ string) error   { panic("not implemented") }
 func (m *mockDataStore) ReadBuildStats(_ context.Context, _ string, _ int) (storage.BuildStats, error) {
 	panic("not implemented")
 }

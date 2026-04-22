@@ -180,11 +180,11 @@ func TestS3Store_WriteResultFile(t *testing.T) {
 		},
 	}
 	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, uploader, zap.NewNop())
-	err := store.WriteResultFile(context.Background(), "myproject", "result.xml", strings.NewReader("data"))
+	err := store.WriteResultFile(context.Background(), "myproject", "batch1", "result.xml", strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("WriteResultFile returned error: %v", err)
 	}
-	expected := "projects/myproject/results/result.xml"
+	expected := "projects/myproject/results/batch1/result.xml"
 	if capturedKey != expected {
 		t.Errorf("expected key %q, got %q", expected, capturedKey)
 	}
@@ -198,7 +198,7 @@ func TestS3Store_WriteResultFile_UploaderError(t *testing.T) {
 		},
 	}
 	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, uploader, zap.NewNop())
-	err := store.WriteResultFile(context.Background(), "myproject", "result.xml", strings.NewReader("data"))
+	err := store.WriteResultFile(context.Background(), "myproject", "batch1", "result.xml", strings.NewReader("data"))
 	if err == nil {
 		t.Fatal("expected error when uploader fails, got nil")
 	}
@@ -425,7 +425,7 @@ func TestS3Store_KeepHistory_UsesCopyObject(t *testing.T) {
 	cfg.KeepHistory = true
 	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
 
-	if err := store.KeepHistory(context.Background(), "myproject"); err != nil {
+	if err := store.KeepHistory(context.Background(), "myproject", ""); err != nil {
 		t.Fatalf("KeepHistory returned error: %v", err)
 	}
 
@@ -487,7 +487,7 @@ func TestS3Store_KeepHistory_CopyObjectError(t *testing.T) {
 	cfg.KeepHistory = true
 	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
 
-	err := store.KeepHistory(context.Background(), "myproject")
+	err := store.KeepHistory(context.Background(), "myproject", "")
 	if err == nil {
 		t.Fatal("expected error when CopyObject fails, got nil")
 	}
@@ -513,7 +513,7 @@ func TestS3Store_KeepHistory_NoHistory(t *testing.T) {
 	cfg.KeepHistory = true
 	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
 
-	if err := store.KeepHistory(context.Background(), "myproject"); err != nil {
+	if err := store.KeepHistory(context.Background(), "myproject", ""); err != nil {
 		t.Fatalf("KeepHistory returned error: %v", err)
 	}
 	if copyObjectCalled {
@@ -537,7 +537,7 @@ func TestS3Store_KeepHistory_Disabled(t *testing.T) {
 	cfg.KeepHistory = false
 	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
 
-	if err := store.KeepHistory(context.Background(), "myproject"); err != nil {
+	if err := store.KeepHistory(context.Background(), "myproject", ""); err != nil {
 		t.Fatalf("KeepHistory returned error: %v", err)
 	}
 	wantPrefix := "projects/myproject/results/history/"

@@ -139,7 +139,7 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 		Logger:     zap.NewNop(),
 	})
 
-	err := a.storeAndPruneBuild(context.Background(), projectID, slug, slug, dir, 1, store.CIMetadata{}, nil)
+	err := a.storeAndPruneBuild(context.Background(), projectID, slug, slug, "", dir, 1, store.CIMetadata{}, nil)
 	if err == nil {
 		t.Fatal("expected error from storeAndPruneBuild when InsertBuild fails, got nil")
 	}

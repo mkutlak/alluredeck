@@ -25,6 +25,7 @@ type GenerateReportArgs struct {
 	ProjectID    int64  `json:"project_id"`
 	Slug         string `json:"slug"`
 	StorageKey   string `json:"storage_key"`
+	BatchID      string `json:"batch_id"`
 	ExecName     string `json:"exec_name"`
 	ExecFrom     string `json:"exec_from"`
 	ExecType     string `json:"exec_type"`
@@ -66,7 +67,7 @@ type GenerateReportWorker struct {
 // Work implements river.Worker.
 func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[GenerateReportArgs]) error {
 	a := job.Args
-	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA)
+	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA)
 	if err != nil {
 		w.logger.Error("river: report generation failed",
 			zap.Int64("job_id", job.ID),
@@ -358,6 +359,7 @@ func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams
 		ProjectID:    projectID,
 		Slug:         slug,
 		StorageKey:   params.StorageKey,
+		BatchID:      params.BatchID,
 		ExecName:     params.ExecName,
 		ExecFrom:     params.ExecFrom,
 		ExecType:     params.ExecType,

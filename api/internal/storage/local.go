@@ -119,11 +119,11 @@ func (ls *LocalStore) ListProjects(_ context.Context) ([]string, error) {
 	return projects, nil
 }
 
-// WriteResultFile writes r to projectID/results/filename.
+// WriteResultFile writes r to projectID/results/batchID/filename.
 // filename may contain subdirectories (e.g. "data/screenshot.png"); parent
 // directories are created automatically.
-func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, filename string, r io.Reader) error {
-	dest := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", filename)
+func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, batchID, filename string, r io.Reader) error {
+	dest := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", batchID, filename)
 	//nolint:gosec // G301: 0o755 required for allure web server to read results
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("create results dir: %w", err)
@@ -139,9 +139,9 @@ func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, filename str
 	return nil
 }
 
-// ListResultFiles returns the names of files (not dirs) in projectID/results/.
-func (ls *LocalStore) ListResultFiles(_ context.Context, projectID string) ([]string, error) {
-	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results")
+// ListResultFiles returns the names of files (not dirs) in projectID/results/batchID/.
+func (ls *LocalStore) ListResultFiles(_ context.Context, projectID, batchID string) ([]string, error) {
+	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", batchID)
 	entries, err := os.ReadDir(resultsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -156,6 +156,34 @@ func (ls *LocalStore) ListResultFiles(_ context.Context, projectID string) ([]st
 		}
 	}
 	return files, nil
+}
+
+// CleanBatch removes the batch subdirectory projectID/results/batchID/.
+// batchID must be non-empty to prevent accidental deletion of the entire results directory.
+func (ls *LocalStore) CleanBatch(_ context.Context, projectID, batchID string) error {
+	if batchID == "" {
+		return fmt.Errorf("batch ID must not be empty")
+	}
+	return os.RemoveAll(filepath.Join(ls.cfg.ProjectsPath, projectID, "results", batchID))
+}
+
+// ListResultBatches returns the names of batch subdirectories in projectID/results/.
+func (ls *LocalStore) ListResultBatches(_ context.Context, projectID string) ([]string, error) {
+	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results")
+	entries, err := os.ReadDir(resultsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read results dir: %w", err)
+	}
+	var batches []string
+	for _, e := range entries {
+		if e.IsDir() {
+			batches = append(batches, e.Name())
+		}
+	}
+	return batches, nil
 }
 
 // CleanResults removes all contents of projectID/results/.
@@ -265,11 +293,17 @@ func (ls *LocalStore) PruneReportDirs(_ context.Context, projectID string, build
 	return nil
 }
 
-// KeepHistory copies the latest report's history into results/history (when cfg.KeepHistory=true),
-// or removes results/history entirely (when cfg.KeepHistory=false).
-func (ls *LocalStore) KeepHistory(_ context.Context, projectID string) error {
+// KeepHistory copies the latest report's history into results/{batchID}/history (when cfg.KeepHistory=true),
+// or removes the target history dir entirely (when cfg.KeepHistory=false).
+// When batchID is empty, falls back to the legacy flat path results/history for backward compatibility.
+func (ls *LocalStore) KeepHistory(_ context.Context, projectID, batchID string) error {
+	historySubPath := "history"
+	if batchID != "" {
+		historySubPath = filepath.Join(batchID, "history")
+	}
+
 	if !ls.cfg.KeepHistory {
-		historyDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", "history")
+		historyDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", historySubPath)
 		if err := os.RemoveAll(historyDir); err != nil {
 			return fmt.Errorf("remove history dir %q: %w", historyDir, err)
 		}
@@ -277,7 +311,7 @@ func (ls *LocalStore) KeepHistory(_ context.Context, projectID string) error {
 	}
 
 	latestHistoryDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", "latest", "history")
-	resultsHistoryDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", "history")
+	resultsHistoryDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", historySubPath)
 
 	//nolint:gosec // G301: 0o755 required for allure web server to read history
 	if err := os.MkdirAll(resultsHistoryDir, 0o755); err != nil {
@@ -493,11 +527,20 @@ func (ls *LocalStore) ResultsDirHash(_ context.Context, projectID string) (strin
 	}
 	var files []fileEntry
 	for _, e := range entries {
-		if e.IsDir() || e.Name() == "executor.json" || e.Name() == "allurereport.config.json" {
+		if e.Name() == "executor.json" || e.Name() == "allurereport.config.json" {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
+			continue
+		}
+		if e.IsDir() {
+			// Include batch subdirectories so the watcher detects new batches.
+			files = append(files, fileEntry{
+				name:    e.Name(),
+				size:    0,
+				modTime: info.ModTime().UnixNano(),
+			})
 			continue
 		}
 		files = append(files, fileEntry{

@@ -3,6 +3,8 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +56,14 @@ type stabilityEntry struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"labels"`
+}
+
+// GenerateBatchID returns a random 32-character hex string for use as a
+// per-upload batch identifier under the results directory.
+func GenerateBatchID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Allure represents the core Allure report generation process
@@ -171,7 +181,8 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, storageKey, reportID
 // storeAndPruneBuild stores a report snapshot and records it in the database.
 // storageKey is used for storage (filesystem/S3) operations; projectID (int64) is used for DB operations.
 // slug is the human-readable identifier used for logging only.
-func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, storageKey, localProjectDir string, buildNumber int, ciMeta store.CIMetadata, branchID *int64) error {
+// batchID scopes the results directory to the upload batch subdirectory.
+func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, storageKey, batchID, localProjectDir string, buildNumber int, ciMeta store.CIMetadata, branchID *int64) error {
 	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
@@ -273,7 +284,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 							zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 					}
 					// Enrich with full parsed data (labels, parameters, steps, attachments).
-					resultsDir := filepath.Join(localProjectDir, "results")
+					resultsDir := filepath.Join(localProjectDir, "results", batchID)
 					if parsedResults, parseErr := parser.ParseDir(resultsDir); parseErr != nil {
 						a.logger.Warn("failed to parse raw results for enrichment",
 							zap.String("slug", slug), zap.Error(parseErr))
@@ -337,7 +348,7 @@ func (a *Allure) recordBuild(ctx context.Context, projectID int64, slug string, 
 }
 
 // GenerateReport implements generateAllureReport.sh
-func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, storageKey, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
+func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, storageKey, batchID, execName, execFrom, execType string, storeResults bool, ciBranch, ciCommitSHA string) (string, error) {
 	if execName == "" {
 		execName = "Automatic Execution"
 	}
@@ -365,7 +376,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 	defer func() { _ = a.store.CleanupLocal(localProjectDir) }()
 
-	resultsDir := filepath.Join(localProjectDir, "results")
+	resultsDir := filepath.Join(localProjectDir, "results", batchID)
 
 	// 4. Write executor.json directly — always local (temp dir in S3 mode)
 	if err := writeExecutorJSON(resultsDir, slug, execName, execFrom, execType, buildNumber, storeResults); err != nil {
@@ -390,7 +401,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	latestReportDir := filepath.Join(localProjectDir, "reports", "latest")
 
 	// 6a–6c. Preserve history, clear stale output, run allure generate.
-	if err := a.runAllureGenerate(ctx, slug, storageKey, latestReportDir, localProjectDir); err != nil {
+	if err := a.runAllureGenerate(ctx, slug, storageKey, batchID, latestReportDir, localProjectDir); err != nil {
 		return "", err
 	}
 
@@ -417,7 +428,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 				Branch:    ciBranch,
 				CommitSHA: ciCommitSHA,
 			}
-			if err := a.storeAndPruneBuild(ctx, projectID, slug, storageKey, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
+			if err := a.storeAndPruneBuild(ctx, projectID, slug, storageKey, batchID, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
 				return "", err
 			}
 		} else {
@@ -430,6 +441,17 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	// 8. Keep Latest History (Cleanup old reports)
 	if err := a.KeepLatestHistory(ctx, projectID, slug, storageKey, resolvedBranchID); err != nil {
 		return "", err
+	}
+
+	// 9. Clean up the batch directory now that the report has been generated.
+	if batchID != "" {
+		if err := a.store.CleanBatch(ctx, storageKey, batchID); err != nil {
+			a.logger.Warn("post-generation batch cleanup failed",
+				zap.String("slug", slug),
+				zap.String("storage_key", storageKey),
+				zap.String("batch_id", batchID),
+				zap.Error(err))
+		}
 	}
 
 	return strconv.Itoa(buildNumber), nil
@@ -454,11 +476,11 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug, storag
 
 	checkSecs := strings.ToUpper(a.cfg.CheckResultsEverySeconds)
 	if checkSecs != "NONE" {
-		if err := a.store.KeepHistory(ctx, storageKey); err != nil {
+		if err := a.store.KeepHistory(ctx, storageKey, ""); err != nil {
 			return fmt.Errorf("keep history for %q: %w", slug, err)
 		}
 
-		if _, err := a.GenerateReport(ctx, projectID, slug, storageKey, "", "", "", false, "", ""); err != nil {
+		if _, err := a.GenerateReport(ctx, projectID, slug, storageKey, "", "", "", "", false, "", ""); err != nil {
 			return err
 		}
 	}
@@ -466,9 +488,10 @@ func (a *Allure) CleanHistory(ctx context.Context, projectID int64, slug, storag
 	return nil
 }
 
-// KeepHistory delegates to the store module
-func (a *Allure) KeepHistory(ctx context.Context, storageKey string) error {
-	if err := a.store.KeepHistory(ctx, storageKey); err != nil {
+// KeepHistory delegates to the store module.
+// batchID determines the target subdirectory for the history copy.
+func (a *Allure) KeepHistory(ctx context.Context, storageKey, batchID string) error {
+	if err := a.store.KeepHistory(ctx, storageKey, batchID); err != nil {
 		return fmt.Errorf("keep history for %q: %w", storageKey, err)
 	}
 	return nil
@@ -571,14 +594,15 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug, s
 
 // runAllureGenerate preserves history trends, clears the stale latest report
 // directory, and runs `allure generate` to produce a fresh report.
-func (a *Allure) runAllureGenerate(ctx context.Context, slug, storageKey, latestReportDir, localProjectDir string) error {
-	if err := a.store.KeepHistory(ctx, storageKey); err != nil {
+// batchID scopes both the history copy and the allure input directory.
+func (a *Allure) runAllureGenerate(ctx context.Context, slug, storageKey, batchID, latestReportDir, localProjectDir string) error {
+	if err := a.store.KeepHistory(ctx, storageKey, batchID); err != nil {
 		a.logger.Error("KeepHistory failed", zap.String("slug", slug), zap.Error(err))
 	}
 	if err := os.RemoveAll(latestReportDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("clearing latest report dir: %w", err)
 	}
-	return a.runAllureCmd(ctx, "generate", "--output", latestReportDir, "--cwd", localProjectDir, "results")
+	return a.runAllureCmd(ctx, "generate", "--output", latestReportDir, "--cwd", localProjectDir, filepath.Join("results", batchID))
 }
 
 func (a *Allure) runAllureCmd(ctx context.Context, args ...string) error {

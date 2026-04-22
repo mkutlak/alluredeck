@@ -43,10 +43,12 @@ type Store interface {
 	ProjectExists(ctx context.Context, projectID string) (bool, error)
 	ListProjects(ctx context.Context) ([]string, error)
 
-	// Results management
-	WriteResultFile(ctx context.Context, projectID, filename string, r io.Reader) error
-	ListResultFiles(ctx context.Context, projectID string) ([]string, error)
+	// Results management — batchID scopes to a specific upload batch subdir.
+	WriteResultFile(ctx context.Context, projectID, batchID, filename string, r io.Reader) error
+	ListResultFiles(ctx context.Context, projectID, batchID string) ([]string, error)
+	CleanBatch(ctx context.Context, projectID, batchID string) error
 	CleanResults(ctx context.Context, projectID string) error
+	ListResultBatches(ctx context.Context, projectID string) ([]string, error)
 
 	// Report generation lifecycle (local working dir)
 	// PrepareLocal returns the local project directory to use for allure CLI operations.
@@ -61,8 +63,8 @@ type Store interface {
 	DeleteReport(ctx context.Context, projectID, reportID string) error
 	PruneReportDirs(ctx context.Context, projectID string, buildNumbers []int) error
 
-	// History
-	KeepHistory(ctx context.Context, projectID string) error
+	// History — batchID determines target for history copy.
+	KeepHistory(ctx context.Context, projectID, batchID string) error
 	CleanHistory(ctx context.Context, projectID string) error
 
 	// Report reading

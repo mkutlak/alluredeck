@@ -147,11 +147,11 @@ func TestLocalStore_WriteResultFile(t *testing.T) {
 	}
 
 	content := []byte("test-result-data")
-	if err := ls.WriteResultFile(ctx, "proj", "result.xml", bytes.NewReader(content)); err != nil {
+	if err := ls.WriteResultFile(ctx, "proj", "batch1", "result.xml", bytes.NewReader(content)); err != nil {
 		t.Fatalf("WriteResultFile: %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(root, "proj", "results", "result.xml"))
+	got, err := os.ReadFile(filepath.Join(root, "proj", "results", "batch1", "result.xml"))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestLocalStore_ListResultFiles(t *testing.T) {
 	}
 
 	// Initially empty
-	files, err := ls.ListResultFiles(ctx, "proj")
+	files, err := ls.ListResultFiles(ctx, "proj", "batch1")
 	if err != nil {
 		t.Fatalf("ListResultFiles empty: %v", err)
 	}
@@ -180,12 +180,13 @@ func TestLocalStore_ListResultFiles(t *testing.T) {
 		t.Fatalf("expected empty, got %v", files)
 	}
 
-	// Write two files
-	resultsDir := filepath.Join(root, "proj", "results")
-	writeFile(t, filepath.Join(resultsDir, "a.xml"), "a")
-	writeFile(t, filepath.Join(resultsDir, "b.json"), "b")
+	// Write two files into the batch subdir
+	batchDir := filepath.Join(root, "proj", "results", "batch1")
+	mkdirAll(t, batchDir)
+	writeFile(t, filepath.Join(batchDir, "a.xml"), "a")
+	writeFile(t, filepath.Join(batchDir, "b.json"), "b")
 
-	files, err = ls.ListResultFiles(ctx, "proj")
+	files, err = ls.ListResultFiles(ctx, "proj", "batch1")
 	if err != nil {
 		t.Fatalf("ListResultFiles: %v", err)
 	}
@@ -435,7 +436,7 @@ func TestLocalStore_KeepHistory_Enabled(t *testing.T) {
 	latestHistoryDir := filepath.Join(root, "proj", "reports", "latest", "history")
 	writeFile(t, filepath.Join(latestHistoryDir, "trend.json"), `{"x":1}`)
 
-	if err := ls.KeepHistory(ctx, "proj"); err != nil {
+	if err := ls.KeepHistory(ctx, "proj", ""); err != nil {
 		t.Fatalf("KeepHistory: %v", err)
 	}
 
@@ -461,7 +462,7 @@ func TestLocalStore_KeepHistory_Disabled(t *testing.T) {
 	mkdirAll(t, historyDir)
 	writeFile(t, filepath.Join(historyDir, "old.json"), `{}`)
 
-	if err := ls.KeepHistory(ctx, "proj"); err != nil {
+	if err := ls.KeepHistory(ctx, "proj", ""); err != nil {
 		t.Fatalf("KeepHistory disabled: %v", err)
 	}
 

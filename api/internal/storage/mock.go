@@ -13,15 +13,17 @@ type MockStore struct {
 	RenameProjectFn               func(ctx context.Context, oldID, newID string) error
 	ProjectExistsFn               func(ctx context.Context, projectID string) (bool, error)
 	ListProjectsFn                func(ctx context.Context) ([]string, error)
-	WriteResultFileFn             func(ctx context.Context, projectID, filename string, r io.Reader) error
-	ListResultFilesFn             func(ctx context.Context, projectID string) ([]string, error)
+	WriteResultFileFn             func(ctx context.Context, projectID, batchID, filename string, r io.Reader) error
+	ListResultFilesFn             func(ctx context.Context, projectID, batchID string) ([]string, error)
+	CleanBatchFn                  func(ctx context.Context, projectID, batchID string) error
 	CleanResultsFn                func(ctx context.Context, projectID string) error
+	ListResultBatchesFn           func(ctx context.Context, projectID string) ([]string, error)
 	PrepareLocalFn                func(ctx context.Context, projectID string) (string, error)
 	CleanupLocalFn                func(localProjectDir string) error
 	PublishReportFn               func(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error
 	DeleteReportFn                func(ctx context.Context, projectID, reportID string) error
 	PruneReportDirsFn             func(ctx context.Context, projectID string, buildNumbers []int) error
-	KeepHistoryFn                 func(ctx context.Context, projectID string) error
+	KeepHistoryFn                 func(ctx context.Context, projectID, batchID string) error
 	CleanHistoryFn                func(ctx context.Context, projectID string) error
 	ReadBuildStatsFn              func(ctx context.Context, projectID string, buildNumber int) (BuildStats, error)
 	ReadFileFn                    func(ctx context.Context, projectID, relPath string) ([]byte, error)
@@ -82,19 +84,27 @@ func (m *MockStore) ListProjects(ctx context.Context) ([]string, error) {
 }
 
 // WriteResultFile implements Store.
-func (m *MockStore) WriteResultFile(ctx context.Context, projectID, filename string, r io.Reader) error {
+func (m *MockStore) WriteResultFile(ctx context.Context, projectID, batchID, filename string, r io.Reader) error {
 	if m.WriteResultFileFn != nil {
-		return m.WriteResultFileFn(ctx, projectID, filename, r)
+		return m.WriteResultFileFn(ctx, projectID, batchID, filename, r)
 	}
 	return nil
 }
 
 // ListResultFiles implements Store.
-func (m *MockStore) ListResultFiles(ctx context.Context, projectID string) ([]string, error) {
+func (m *MockStore) ListResultFiles(ctx context.Context, projectID, batchID string) ([]string, error) {
 	if m.ListResultFilesFn != nil {
-		return m.ListResultFilesFn(ctx, projectID)
+		return m.ListResultFilesFn(ctx, projectID, batchID)
 	}
 	return nil, nil
+}
+
+// CleanBatch implements Store.
+func (m *MockStore) CleanBatch(ctx context.Context, projectID, batchID string) error {
+	if m.CleanBatchFn != nil {
+		return m.CleanBatchFn(ctx, projectID, batchID)
+	}
+	return nil
 }
 
 // CleanResults implements Store.
@@ -103,6 +113,14 @@ func (m *MockStore) CleanResults(ctx context.Context, projectID string) error {
 		return m.CleanResultsFn(ctx, projectID)
 	}
 	return nil
+}
+
+// ListResultBatches implements Store.
+func (m *MockStore) ListResultBatches(ctx context.Context, projectID string) ([]string, error) {
+	if m.ListResultBatchesFn != nil {
+		return m.ListResultBatchesFn(ctx, projectID)
+	}
+	return nil, nil
 }
 
 // PrepareLocal implements Store.
@@ -146,9 +164,9 @@ func (m *MockStore) PruneReportDirs(ctx context.Context, projectID string, build
 }
 
 // KeepHistory implements Store.
-func (m *MockStore) KeepHistory(ctx context.Context, projectID string) error {
+func (m *MockStore) KeepHistory(ctx context.Context, projectID, batchID string) error {
 	if m.KeepHistoryFn != nil {
-		return m.KeepHistoryFn(ctx, projectID)
+		return m.KeepHistoryFn(ctx, projectID, batchID)
 	}
 	return nil
 }
