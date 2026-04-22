@@ -1,3 +1,9 @@
+## [0.24.1](https://github.com/mkutlak/alluredeck/compare/v0.24.0...v0.24.1) (2026-04-22)
+
+### Bug Fixes
+
+* isolate test results per upload batch to prevent accumulation ([4443713](https://github.com/mkutlak/alluredeck/commit/4443713ac21bbb2efd9c7ffa49743671892d358a))
+
 ## [0.24.0](https://github.com/mkutlak/alluredeck/compare/v0.23.6...v0.24.0) (2026-04-21)
 
 ### Features
