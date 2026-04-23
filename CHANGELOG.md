@@ -1,3 +1,9 @@
+## [0.27.0](https://github.com/mkutlak/alluredeck/compare/v0.26.2...v0.27.0) (2026-04-23)
+
+### Features
+
+* **admin:** paginate jobs table in System Monitor ([1d8ebfc](https://github.com/mkutlak/alluredeck/commit/1d8ebfc6e73e56c1dad9c62a07aa9c1dd2dd8b9d))
+
 ## [0.26.2](https://github.com/mkutlak/alluredeck/compare/v0.26.1...v0.26.2) (2026-04-23)
 
 ### Bug Fixes
