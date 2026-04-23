@@ -90,6 +90,7 @@ function AdminActions({ project, showRemoveFromGroup }: AdminActionsProps) {
       {renameOpen && (
         <RenameProjectDialog
           projectId={project.slug}
+          numericId={project.project_id}
           open={renameOpen}
           onOpenChange={setRenameOpen}
         />
@@ -129,7 +130,7 @@ export function ProjectStatusCard({ project }: Props) {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-2">
             <NavLink
-              to={`/projects/${project.slug}`}
+              to={`/projects/${project.project_id}`}
               className="truncate font-semibold hover:underline"
               onClick={(e) => e.stopPropagation()}
             >

@@ -132,7 +132,7 @@ export function ProjectsPage() {
               data-testid="projects-grid"
             >
               {projects.map((p) => (
-                <ProjectCard key={p.project_id} projectId={p.slug} storageKey={p.storage_key} />
+                <ProjectCard key={p.project_id} projectId={p.slug} numericId={p.project_id} storageKey={p.storage_key} />
               ))}
             </div>
           )}

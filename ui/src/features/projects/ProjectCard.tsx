@@ -21,10 +21,11 @@ import { cn } from '@/lib/utils'
 
 interface ProjectCardProps {
   projectId: string
+  numericId: number
   storageKey?: string
 }
 
-export function ProjectCard({ projectId, storageKey }: ProjectCardProps) {
+export function ProjectCard({ projectId, numericId, storageKey }: ProjectCardProps) {
   const isAdmin = useAuthStore(selectIsAdmin)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
@@ -121,7 +122,7 @@ export function ProjectCard({ projectId, storageKey }: ProjectCardProps) {
           </Badge>
           <div className="mt-4">
             <Button asChild size="sm" variant="outline" className="w-full">
-              <Link to={`/projects/${projectId}`}>View reports</Link>
+              <Link to={`/projects/${numericId}`}>View reports</Link>
             </Button>
           </div>
           {isActiveDropTarget && (
@@ -134,6 +135,7 @@ export function ProjectCard({ projectId, storageKey }: ProjectCardProps) {
         <>
           <RenameProjectDialog
             projectId={projectId}
+            numericId={numericId}
             open={renameOpen}
             onOpenChange={setRenameOpen}
           />

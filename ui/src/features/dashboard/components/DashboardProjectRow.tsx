@@ -83,7 +83,7 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown, allProjects
             ) : (
               <div className="flex flex-col">
                 <NavLink
-                  to={`/projects/${project.slug}`}
+                  to={`/projects/${project.project_id}`}
                   className="hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -180,6 +180,7 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown, allProjects
       {renameOpen && (
         <RenameProjectDialog
           projectId={project.slug}
+          numericId={project.project_id}
           open={renameOpen}
           onOpenChange={setRenameOpen}
         />

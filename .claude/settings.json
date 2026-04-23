@@ -1,0 +1,6 @@
+{
+  "claudeMdExcludes": [
+    "**/node_modules/**/CLAUDE.md",
+    "**/node_modules/**/AGENTS.md"
+  ]
+}

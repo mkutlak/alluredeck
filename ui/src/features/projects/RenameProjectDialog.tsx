@@ -18,13 +18,14 @@ import { Label } from '@/components/ui/label'
 
 interface Props {
   projectId: string
+  numericId?: number
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]+$/
 
-export function RenameProjectDialog({ projectId, open, onOpenChange }: Props) {
+export function RenameProjectDialog({ projectId, numericId, open, onOpenChange }: Props) {
   const [newId, setNewId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -36,7 +37,7 @@ export function RenameProjectDialog({ projectId, open, onOpenChange }: Props) {
       void qc.invalidateQueries({ queryKey: queryKeys.projects })
       void qc.invalidateQueries({ queryKey: queryKeys.dashboard() })
       onOpenChange(false)
-      navigate(`/projects/${encodeURIComponent(newId.trim())}`)
+      navigate(numericId != null ? `/projects/${numericId}` : `/projects/${encodeURIComponent(newId.trim())}`)
     },
     onError: (e) => setError(extractErrorMessage(e)),
   })
