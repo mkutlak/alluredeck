@@ -57,11 +57,20 @@ type pendingResultsEntry struct {
 // @Description  Returns all known async report generation jobs (active and recent).
 // @Tags         admin
 // @Produce      json
+// @Param        page      query  int  false  "Page number (default 1)"
+// @Param        per_page  query  int  false  "Items per page (default 20, max 100)"
 // @Success      200  {object}  map[string]any
 // @Router       /admin/jobs [get]
 func (h *AdminHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
+	pp := parsePagination(r)
 	jobs := h.jobManager.ListJobs()
-	writeSuccess(w, http.StatusOK, jobs, fmt.Sprintf("%d job(s) found", len(jobs)))
+
+	total := len(jobs)
+	start := min((pp.Page-1)*pp.PerPage, total)
+	end := min(start+pp.PerPage, total)
+
+	meta := newPaginationMeta(pp.Page, pp.PerPage, total)
+	writePagedSuccess(w, jobs[start:end], fmt.Sprintf("%d job(s) found", total), meta)
 }
 
 // ListPendingResults godoc

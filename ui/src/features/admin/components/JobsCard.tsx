@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { ChevronRight } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { projectIndexOptions } from '@/lib/queries/projects'
 import { formatProjectLabel } from '@/lib/projectLabel'
@@ -20,18 +19,23 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ReportPagination } from '@/features/projects/ReportPagination'
 import { useAdminJobs } from '../hooks/useAdminJobs'
 import { isTerminalStatus, jobStatusVariant } from './jobStatus'
 import { DeleteJobsDialog } from './DeleteJobsDialog'
-import { groupByParent } from '../utils/groupByParent'
 
 export function JobsCard() {
   const queryClient = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set())
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(20)
 
-  const { data: jobs = [], isLoading, doCancel } = useAdminJobs()
+  const { data, isLoading, doCancel } = useAdminJobs(page, perPage)
+  const jobs = data?.data ?? []
+  const pagination = data?.pagination
+  const totalPages = Math.max(1, pagination?.total_pages ?? 1)
+
   const { data: projectsData } = useQuery(projectIndexOptions())
   const projects = projectsData?.data
 
@@ -45,7 +49,7 @@ export function JobsCard() {
     onSuccess: () => {
       setSelectedIds(new Set())
       setConfirmDeleteOpen(false)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.adminJobs })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminJobs() })
     },
   })
 
@@ -74,28 +78,7 @@ export function JobsCard() {
     })
   }
 
-  const toggleGroup = (parentId: number) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(parentId)) {
-        next.delete(parentId)
-      } else {
-        next.add(parentId)
-      }
-      return next
-    })
-  }
-
-  const groups = groupByParent(jobs, projects)
-
-  if (expandedGroups.size === 0 && groups.some((g) => g.parentId != null)) {
-    const parentIds = groups.filter((g) => g.parentId != null).map((g) => g.parentId!)
-    if (parentIds.length > 0) {
-      setExpandedGroups(new Set(parentIds))
-    }
-  }
-
-  const renderJobRow = (job: (typeof jobs)[number], indent: boolean) => (
+  const renderJobRow = (job: (typeof jobs)[number]) => (
     <TableRow key={job.job_id}>
       <TableCell>
         {isTerminalStatus(job.status) ? (
@@ -106,7 +89,7 @@ export function JobsCard() {
           />
         ) : null}
       </TableCell>
-      <TableCell className={indent ? 'pl-10' : ''}>
+      <TableCell>
         <Link
           to={`/projects/${job.project_id}`}
           className="font-medium hover:underline"
@@ -114,9 +97,7 @@ export function JobsCard() {
           {(() => {
             const matched = projects?.find((p) => p.project_id === job.project_id)
             if (!matched) return job.slug || '(unknown)'
-            return indent
-              ? (matched.display_name || matched.slug)
-              : formatProjectLabel(matched, projects)
+            return formatProjectLabel(matched, projects)
           })()}
         </Link>
       </TableCell>
@@ -190,97 +171,23 @@ export function JobsCard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groups.map((group) => {
-                if (group.parentId == null) {
-                  return renderJobRow(group.items[0], false)
-                }
-
-                const isExpanded = expandedGroups.has(group.parentId)
-                return [
-                  <TableRow
-                    key={`group-${group.parentId}`}
-                    className="bg-muted/30 cursor-pointer"
-                    onClick={() => toggleGroup(group.parentId!)}
-                  >
-                    <TableCell />
-                    <TableCell colSpan={5}>
-                      <div className="flex items-center gap-2">
-                        <ChevronRight
-                          className={`h-4 w-4 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                        />
-                        <span className="font-semibold">{group.parentLabel}</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {group.items.length}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                  </TableRow>,
-                  ...group.items.map((job) => (
-                    <TableRow
-                      key={job.job_id}
-                      className={isExpanded ? '' : 'hidden'}
-                    >
-                      <TableCell>
-                        {isTerminalStatus(job.status) ? (
-                          <Checkbox
-                            checked={selectedIds.has(job.job_id)}
-                            onCheckedChange={() => toggleJob(job.job_id)}
-                            aria-label={`Select job ${job.job_id}`}
-                          />
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="pl-10">
-                        <Link
-                          to={`/projects/${job.project_id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {(() => {
-                            const matched = projects?.find(
-                              (p) => p.project_id === job.project_id,
-                            )
-                            return matched
-                              ? (matched.display_name || matched.slug)
-                              : (job.slug || '(unknown)')
-                          })()}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={jobStatusVariant(job.status)}>{job.status}</Badge>
-                        {job.error &&
-                          (job.status === 'retrying' || job.status === 'failed') && (
-                            <p
-                              className="text-destructive mt-1 max-w-xs truncate text-xs"
-                              title={job.error}
-                            >
-                              {job.error}
-                            </p>
-                          )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {formatDate(job.created_at)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {job.started_at ? formatDate(job.started_at) : '—'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {(job.status === 'pending' ||
-                          job.status === 'running' ||
-                          job.status === 'retrying') && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => doCancel(job.job_id)}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )),
-                ]
-              })}
+              {jobs.map((job) => renderJobRow(job))}
             </TableBody>
           </Table>
+        )}
+        {pagination && pagination.total_pages > 1 && (
+          <div className="mt-4">
+            <ReportPagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={(updater) => setPage(updater)}
+              perPage={perPage}
+              onPerPageChange={(v) => {
+                setPerPage(v)
+                setPage(1)
+              }}
+            />
+          </div>
         )}
       </CardContent>
     </Card>

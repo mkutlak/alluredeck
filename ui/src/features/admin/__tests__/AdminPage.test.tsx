@@ -7,7 +7,7 @@ import { MemoryRouter, Routes, Route } from 'react-router'
 import { AdminPage } from '../AdminPage'
 import * as adminApi from '@/api/admin'
 import { useAuthStore } from '@/store/auth'
-import type { AdminJobEntry, AdminResultsEntry } from '@/types/api'
+import type { AdminJobEntry, AdminResultsEntry, PaginatedResponse } from '@/types/api'
 
 import { mockApiClient } from '@/test/mocks/api-client'
 
@@ -62,6 +62,14 @@ function makeResult(overrides: Partial<AdminResultsEntry> = {}): AdminResultsEnt
   }
 }
 
+function makePaginatedJobs(jobs: AdminJobEntry[]): PaginatedResponse<AdminJobEntry[]> {
+  return {
+    data: jobs,
+    metadata: { message: 'OK' },
+    pagination: { page: 1, per_page: 20, total: jobs.length, total_pages: 1 },
+  }
+}
+
 describe('AdminPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -74,7 +82,7 @@ describe('AdminPage', () => {
     vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
       (selector as AuthSelector)({ roles: [] }),
     )
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(makePaginatedJobs([]))
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -84,7 +92,7 @@ describe('AdminPage', () => {
   })
 
   it('renders page title for admin', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(makePaginatedJobs([]))
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -93,7 +101,7 @@ describe('AdminPage', () => {
   })
 
   it('shows empty state when no jobs', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(makePaginatedJobs([]))
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -104,7 +112,7 @@ describe('AdminPage', () => {
   })
 
   it('shows empty state when no pending results', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(makePaginatedJobs([]))
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -115,9 +123,9 @@ describe('AdminPage', () => {
   })
 
   it('renders jobs table with job data', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ project_id: 2, slug: 'proj-alpha', status: 'running' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([makeJob({ project_id: 2, slug: 'proj-alpha', status: 'running' })]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -129,7 +137,7 @@ describe('AdminPage', () => {
   })
 
   it('renders results table with file count and size', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(makePaginatedJobs([]))
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([
       makeResult({ project_id: 2, slug: 'proj-beta', file_count: 3, total_size: 2048 }),
     ])
@@ -144,9 +152,9 @@ describe('AdminPage', () => {
   })
 
   it('cancel button calls cancelJob API for active jobs', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ job_id: 'job-abc', status: 'running' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([makeJob({ job_id: 'job-abc', status: 'running' })]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
     vi.mocked(adminApi.cancelJob).mockResolvedValue()
 
@@ -162,9 +170,9 @@ describe('AdminPage', () => {
   })
 
   it('does not show cancel button for completed jobs', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([makeJob({ status: 'completed', completed_at: '2026-03-07T10:01:00Z' })]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -177,11 +185,13 @@ describe('AdminPage', () => {
   })
 
   it('shows checkboxes only for terminal jobs', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ job_id: 'job-running', status: 'running' }),
-      makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
-      makeJob({ job_id: 'job-failed', status: 'failed', completed_at: '2026-03-07T10:01:00Z' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([
+        makeJob({ job_id: 'job-running', status: 'running' }),
+        makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+        makeJob({ job_id: 'job-failed', status: 'failed', completed_at: '2026-03-07T10:01:00Z' }),
+      ]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -196,9 +206,11 @@ describe('AdminPage', () => {
   })
 
   it('shows delete selected button when a terminal job is selected', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([
+        makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+      ]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -218,11 +230,13 @@ describe('AdminPage', () => {
   })
 
   it('select all checkbox selects all terminal jobs', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ job_id: 'job-running', status: 'running' }),
-      makeJob({ job_id: 'job-done-1', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
-      makeJob({ job_id: 'job-done-2', status: 'failed', completed_at: '2026-03-07T10:01:00Z' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([
+        makeJob({ job_id: 'job-running', status: 'running' }),
+        makeJob({ job_id: 'job-done-1', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+        makeJob({ job_id: 'job-done-2', status: 'failed', completed_at: '2026-03-07T10:01:00Z' }),
+      ]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
 
     renderPage()
@@ -241,9 +255,11 @@ describe('AdminPage', () => {
   })
 
   it('delete selected calls deleteJob for selected jobs after confirmation', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([
-      makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
-    ])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(
+      makePaginatedJobs([
+        makeJob({ job_id: 'job-done', status: 'completed', completed_at: '2026-03-07T10:01:00Z' }),
+      ]),
+    )
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([])
     vi.mocked(adminApi.deleteJob).mockResolvedValue()
 
@@ -271,7 +287,7 @@ describe('AdminPage', () => {
   })
 
   it('delete button triggers confirmation dialog and calls API on confirm', async () => {
-    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue([])
+    vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue(makePaginatedJobs([]))
     vi.mocked(adminApi.fetchAdminResults).mockResolvedValue([
       makeResult({ project_id: 3, slug: 'proj-del' }),
     ])

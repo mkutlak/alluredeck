@@ -1,9 +1,14 @@
 import { apiClient } from '@/api/client'
-import type { AdminJobEntry, AdminResultsEntry, ApiResponse } from '@/types/api'
+import type { AdminJobEntry, AdminResultsEntry, ApiResponse, PaginatedResponse } from '@/types/api'
 
-export async function fetchAdminJobs(): Promise<AdminJobEntry[]> {
-  const res = await apiClient.get<ApiResponse<AdminJobEntry[]>>('/admin/jobs')
-  return res.data.data
+export async function fetchAdminJobs(
+  page = 1,
+  perPage = 20,
+): Promise<PaginatedResponse<AdminJobEntry[]>> {
+  const res = await apiClient.get<PaginatedResponse<AdminJobEntry[]>>('/admin/jobs', {
+    params: { page, per_page: perPage },
+  })
+  return res.data
 }
 
 export async function fetchAdminResults(): Promise<AdminResultsEntry[]> {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -66,6 +67,46 @@ func (g *contextGen) GenerateReport(ctx context.Context, _ int64, _, _, _, _, _,
 // ListJobs
 // ---------------------------------------------------------------------------
 
+// requirePagination extracts the "pagination" object from a decoded response
+// and asserts it exists. Returns the pagination map for further assertions.
+func requirePagination(t *testing.T, resp map[string]any) map[string]any {
+	t.Helper()
+	raw, ok := resp["pagination"]
+	if !ok {
+		t.Fatal("response missing \"pagination\" key")
+	}
+	pg, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected pagination to be object, got %T", raw)
+	}
+	return pg
+}
+
+// assertPaginationValues checks that the pagination map contains the expected
+// page, per_page, total, and total_pages values.
+func assertPaginationValues(t *testing.T, pg map[string]any, page, perPage, total, totalPages int) {
+	t.Helper()
+	checks := []struct {
+		key  string
+		want int
+	}{
+		{"page", page},
+		{"per_page", perPage},
+		{"total", total},
+		{"total_pages", totalPages},
+	}
+	for _, c := range checks {
+		got, ok := pg[c.key].(float64)
+		if !ok {
+			t.Errorf("pagination[%q]: expected number, got %T", c.key, pg[c.key])
+			continue
+		}
+		if int(got) != c.want {
+			t.Errorf("pagination[%q] = %d, want %d", c.key, int(got), c.want)
+		}
+	}
+}
+
 func TestAdminListJobs_Empty(t *testing.T) {
 	gen := newBlockingGen()
 	defer close(gen.ch)
@@ -93,6 +134,9 @@ func TestAdminListJobs_Empty(t *testing.T) {
 	if len(data) != 0 {
 		t.Errorf("expected empty data array, got %d items", len(data))
 	}
+
+	pg := requirePagination(t, resp)
+	assertPaginationValues(t, pg, 1, 20, 0, 0)
 }
 
 func TestAdminListJobs_ReturnsJobs(t *testing.T) {
@@ -125,6 +169,114 @@ func TestAdminListJobs_ReturnsJobs(t *testing.T) {
 	if len(data) != 2 {
 		t.Errorf("expected 2 jobs, got %d", len(data))
 	}
+
+	pg := requirePagination(t, resp)
+	assertPaginationValues(t, pg, 1, 20, 2, 1)
+}
+
+func TestAdminListJobs_Pagination(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	jm := newAdminTestJobManager(t, gen, 8)
+	for i := 1; i <= 5; i++ {
+		jm.Submit(int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
+	}
+
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs?page=1&per_page=2", nil)
+	rr := httptest.NewRecorder()
+	h.ListJobs(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	data, ok := resp["data"].([]any)
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp["data"])
+	}
+	if len(data) != 2 {
+		t.Errorf("expected 2 jobs on page 1, got %d", len(data))
+	}
+
+	pg := requirePagination(t, resp)
+	assertPaginationValues(t, pg, 1, 2, 5, 3)
+}
+
+func TestAdminListJobs_PaginationPage2(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	jm := newAdminTestJobManager(t, gen, 8)
+	for i := 1; i <= 5; i++ {
+		jm.Submit(int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
+	}
+
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs?page=2&per_page=2", nil)
+	rr := httptest.NewRecorder()
+	h.ListJobs(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	data, ok := resp["data"].([]any)
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp["data"])
+	}
+	if len(data) != 2 {
+		t.Errorf("expected 2 jobs on page 2, got %d", len(data))
+	}
+}
+
+func TestAdminListJobs_PaginationBeyondLast(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	jm := newAdminTestJobManager(t, gen, 8)
+	for i := 1; i <= 5; i++ {
+		jm.Submit(int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
+	}
+
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs?page=100&per_page=2", nil)
+	rr := httptest.NewRecorder()
+	h.ListJobs(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	data, ok := resp["data"].([]any)
+	if !ok {
+		t.Fatalf("expected data array, got %T", resp["data"])
+	}
+	if len(data) != 0 {
+		t.Errorf("expected empty data beyond last page, got %d items", len(data))
+	}
+
+	pg := requirePagination(t, resp)
+	assertPaginationValues(t, pg, 100, 2, 5, 3)
 }
 
 // ---------------------------------------------------------------------------

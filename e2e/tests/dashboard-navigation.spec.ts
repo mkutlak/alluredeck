@@ -22,7 +22,7 @@ test.describe('Dashboard & Navigation', () => {
     ).toBeVisible({ timeout: 10_000 })
 
     await page.getByRole('main').getByRole('link', { name: freshProject.projectSlug }).click()
-    await page.waitForURL(new RegExp(`/projects/${freshProject.projectSlug}`), { timeout: 10_000 })
+    await expect(page).toHaveURL(/\/projects\/\d+/, { timeout: 10_000 })
 
     await expect(page.getByTestId('sidebar-nav-overview')).toBeVisible()
   })

@@ -27,7 +27,8 @@ export const queryKeys = {
     ['known-issues', pid, showResolved ?? undefined] as const,
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
   buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
-  adminJobs: ['admin-jobs'] as const,
+  adminJobs: (page?: number, perPage?: number) =>
+    ['admin-jobs', page ?? undefined, perPage ?? undefined] as const,
   adminResults: ['admin-results'] as const,
   apiKeys: ['api-keys'] as const,
   branches: {
