@@ -1,3 +1,9 @@
+## [0.26.2](https://github.com/mkutlak/alluredeck/compare/v0.26.1...v0.26.2) (2026-04-23)
+
+### Bug Fixes
+
+* **api:** Update dependencies ([593311c](https://github.com/mkutlak/alluredeck/commit/593311c7176218ace8e97ac01d0ee8a64979b8a9))
+
 ## [0.26.1](https://github.com/mkutlak/alluredeck/compare/v0.26.0...v0.26.1) (2026-04-22)
 
 ### Bug Fixes
