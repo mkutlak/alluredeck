@@ -395,6 +395,7 @@ type MockTestResultStore struct {
 	ListLeastReliableFn        func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
 	ListTimelineFn             func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error)
 	ListFailedByBuildFn        func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error)
+	ListStabilityByBuildFn     func(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error)
 	GetTestHistoryFn           func(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
 	DeleteByBuildFn            func(ctx context.Context, buildID int64) error
 	DeleteByProjectFn          func(ctx context.Context, projectID int64) error
@@ -482,6 +483,13 @@ func (m *MockTestResultStore) CompareBuildsByHistoryID(ctx context.Context, proj
 func (m *MockTestResultStore) ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error) {
 	if m.ListTimelineMultiFn != nil {
 		return m.ListTimelineMultiFn(ctx, projectID, buildIDs, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockTestResultStore) ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error) {
+	if m.ListStabilityByBuildFn != nil {
+		return m.ListStabilityByBuildFn(ctx, projectID, buildID)
 	}
 	return nil, nil
 }

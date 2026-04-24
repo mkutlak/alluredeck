@@ -385,6 +385,40 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int6
 	return results, nil
 }
 
+// ListStabilityByBuild returns tests with stability signals (flaky, retried, new-failed, new-passed) for a build.
+func (ts *TestResultStore) ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error) {
+	rows, err := ts.pool.Query(ctx, `
+		SELECT build_id, project_id, test_name, full_name, status, duration_ms,
+		       history_id, flaky, retries, new_failed, new_passed
+		FROM test_results
+		WHERE build_id=$1 AND project_id=$2
+		  AND (flaky = true OR retries > 0 OR new_failed = true OR new_passed = true)
+		ORDER BY test_name`, buildID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list stability by build: %w", err)
+	}
+	defer rows.Close()
+
+	var results []store.TestResult
+	for rows.Next() {
+		var r store.TestResult
+		if err := rows.Scan(
+			&r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status, &r.DurationMs,
+			&r.HistoryID, &r.Flaky, &r.Retries, &r.NewFailed, &r.NewPassed,
+		); err != nil {
+			return nil, fmt.Errorf("scan stability result: %w", err)
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stability results: %w", err)
+	}
+	if results == nil {
+		results = []store.TestResult{}
+	}
+	return results, nil
+}
+
 // GetTestHistory returns the run history for a test identified by historyID.
 func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error) {
 	var rows pgx.Rows

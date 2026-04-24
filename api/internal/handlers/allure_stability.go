@@ -2,8 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // stabilityTestEntry represents one test in the stability response.
@@ -50,7 +54,7 @@ type stabilityRawEntry struct {
 func (h *ReportHandler) GetReportStability(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	_, _, storageKey, ok := h.lookupProjectSlug(w, r)
+	projectID, _, storageKey, ok := h.lookupProjectSlug(w, r)
 	if !ok {
 		return
 	}
@@ -61,6 +65,95 @@ func (h *ReportHandler) GetReportStability(w http.ResponseWriter, r *http.Reques
 	}
 	if err := validateReportID(reportID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if h.testResultStore != nil {
+		var err error
+		var build store.Build
+
+		if reportID == "latest" {
+			build, err = h.buildStore.GetLatestBuild(ctx, projectID)
+		} else {
+			buildNumber, parseErr := strconv.Atoi(reportID)
+			if parseErr != nil {
+				writeError(w, http.StatusBadRequest, "report_id must be a number or 'latest'")
+				return
+			}
+			build, err = h.buildStore.GetBuildByNumber(ctx, projectID, buildNumber)
+		}
+
+		if err != nil {
+			if errors.Is(err, store.ErrBuildNotFound) {
+				writeError(w, http.StatusNotFound, "build not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+
+		results, err := h.testResultStore.ListStabilityByBuild(ctx, projectID, build.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+
+		summary := stabilitySummary{
+			FlakyCount:     derefInt(build.FlakyCount),
+			RetriedCount:   derefInt(build.RetriedCount),
+			NewFailedCount: derefInt(build.NewFailedCount),
+			NewPassedCount: derefInt(build.NewPassedCount),
+			Total:          derefInt(build.StatTotal),
+		}
+
+		var flakyTests []stabilityTestEntry
+		var newFailed []stabilityTestEntry
+		var newPassed []stabilityTestEntry
+
+		for i := range results {
+			if results[i].Flaky {
+				flakyTests = append(flakyTests, stabilityTestEntry{
+					Name:         results[i].TestName,
+					FullName:     results[i].FullName,
+					Status:       results[i].Status,
+					RetriesCount: results[i].Retries,
+				})
+			}
+			if results[i].NewFailed {
+				newFailed = append(newFailed, stabilityTestEntry{
+					Name:     results[i].TestName,
+					FullName: results[i].FullName,
+					Status:   results[i].Status,
+				})
+			}
+			if results[i].NewPassed {
+				newPassed = append(newPassed, stabilityTestEntry{
+					Name:     results[i].TestName,
+					FullName: results[i].FullName,
+					Status:   results[i].Status,
+				})
+			}
+		}
+
+		if flakyTests == nil {
+			flakyTests = []stabilityTestEntry{}
+		}
+		if newFailed == nil {
+			newFailed = []stabilityTestEntry{}
+		}
+		if newPassed == nil {
+			newPassed = []stabilityTestEntry{}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data": map[string]any{
+				"flaky_tests": flakyTests,
+				"new_failed":  newFailed,
+				"new_passed":  newPassed,
+				"summary":     summary,
+			},
+			"metadata": map[string]string{"message": "Stability data successfully obtained"},
+		})
 		return
 	}
 

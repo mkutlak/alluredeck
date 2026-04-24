@@ -89,6 +89,7 @@ type TestResultStorer interface {
 	CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]DiffEntry, error)
 	ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]MultiTimelineRow, error)
 	ListFailedForFingerprinting(ctx context.Context, projectID int64, buildID int64) ([]FailedTestResult, error)
+	ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]TestResult, error)
 }
 
 // KnownIssueStorer is the interface for known issue operations.
