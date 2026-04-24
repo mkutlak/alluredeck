@@ -1,3 +1,9 @@
+## [0.29.0](https://github.com/mkutlak/alluredeck/compare/v0.28.0...v0.29.0) (2026-04-24)
+
+### Features
+
+* **ui:** add project picker to webhooks page and gate sidebar link to editor+ ([71f37fe](https://github.com/mkutlak/alluredeck/commit/71f37fec78afb90f754444209b7f633fafc07fdb))
+
 ## [0.28.0](https://github.com/mkutlak/alluredeck/compare/v0.27.1...v0.28.0) (2026-04-24)
 
 ### Features
