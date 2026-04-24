@@ -1,3 +1,9 @@
+## [0.27.1](https://github.com/mkutlak/alluredeck/compare/v0.27.0...v0.27.1) (2026-04-24)
+
+### Bug Fixes
+
+* **api:** query DB for stability data instead of reading files from disk ([be72e81](https://github.com/mkutlak/alluredeck/commit/be72e8108fa960bd1810770abc238add5a8b0041))
+
 ## [0.27.0](https://github.com/mkutlak/alluredeck/compare/v0.26.2...v0.27.0) (2026-04-23)
 
 ### Features
