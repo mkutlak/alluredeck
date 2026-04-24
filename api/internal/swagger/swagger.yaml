@@ -80,6 +80,15 @@ paths:
   /admin/jobs:
     get:
       description: Returns all known async report generation jobs (active and recent).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20, max 100)
+        in: query
+        name: per_page
+        type: integer
       produces:
       - application/json
       responses:

@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
@@ -154,11 +153,9 @@ func main() {
 	swaggerDocs.SwaggerInfo.Host = cfg.SwaggerHost
 	swaggerDocs.SwaggerInfo.Schemes = []string{}
 
-	// Swagger UI
+	// API reference (Scalar)
 	if cfg.SwaggerEnabled {
-		mux.HandleFunc("GET /swagger/", httpSwagger.Handler(
-			httpSwagger.URL("/swagger/doc.json"),
-		))
+		mux.Handle("/swagger/", newScalarHandler())
 	}
 
 	// Overlay file server — serves generated Allure HTML reports.
@@ -393,7 +390,7 @@ func wireHandlers(
 		dashboard:       handlers.NewDashboardHandler(s.build, logger),
 		lowPerf:         handlers.NewLowPerformingHandler(s.testResult, s.branch, s.project, logger),
 		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, s.project),
-		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, dataStore, logger),
+		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
 		apiKey:          handlers.NewAPIKeyHandler(s.apiKey),
 		parent:          handlers.NewProjectParentHandler(s.project, logger),

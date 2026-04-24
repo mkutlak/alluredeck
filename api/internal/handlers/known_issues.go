@@ -16,15 +16,19 @@ import (
 type KnownIssueHandler struct {
 	knownIssueStore store.KnownIssueStorer
 	projectStore    store.ProjectStorer
+	testResultStore store.TestResultStorer
+	buildStore      store.BuildStorer
 	store           storage.Store
 	logger          *zap.Logger
 }
 
 // NewKnownIssueHandler creates and returns a new KnownIssueHandler.
-func NewKnownIssueHandler(kis store.KnownIssueStorer, ps store.ProjectStorer, st storage.Store, logger *zap.Logger) *KnownIssueHandler {
+func NewKnownIssueHandler(kis store.KnownIssueStorer, ps store.ProjectStorer, trs store.TestResultStorer, bs store.BuildStorer, st storage.Store, logger *zap.Logger) *KnownIssueHandler {
 	return &KnownIssueHandler{
 		knownIssueStore: kis,
 		projectStore:    ps,
+		testResultStore: trs,
+		buildStore:      bs,
 		store:           st,
 		logger:          logger,
 	}
@@ -264,14 +268,6 @@ func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Look up project for storage calls.
-	project, err := h.projectStore.GetProject(ctx, projectID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-	storageKey := project.StorageKey
-
 	reportID := r.PathValue("report_id")
 	if reportID == "" {
 		reportID = "latest"
@@ -304,32 +300,78 @@ func (h *KnownIssueHandler) GetReportKnownFailures(w http.ResponseWriter, r *htt
 			knownMap[knownIssues[i].TestName] = true
 		}
 
-		relBase := "reports/" + reportID + "/data/test-results"
-		entries, err := h.store.ReadDir(ctx, storageKey, relBase)
-		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir {
-					continue
+		if h.testResultStore != nil && h.buildStore != nil {
+			// DB fast path: resolve build then query test_results table.
+			var build store.Build
+			if reportID == "latest" {
+				build, err = h.buildStore.GetLatestBuild(ctx, projectID)
+			} else {
+				buildNumber, parseErr := strconv.Atoi(reportID)
+				if parseErr != nil {
+					writeError(w, http.StatusBadRequest, "report_id must be a number or 'latest'")
+					return
 				}
-				data, err := h.store.ReadFile(ctx, storageKey, relBase+"/"+entry.Name)
-				if err != nil {
-					continue
+				build, err = h.buildStore.GetBuildByNumber(ctx, projectID, buildNumber)
+			}
+			if err != nil {
+				if errors.Is(err, store.ErrBuildNotFound) {
+					writeError(w, http.StatusNotFound, "build not found")
+					return
 				}
-				var tc struct {
-					Name   string `json:"name"`
-					Status string `json:"status"`
-				}
-				if json.Unmarshal(data, &tc) != nil {
-					continue
-				}
-				if tc.Status != "failed" && tc.Status != "broken" {
-					continue
-				}
-				f := failure{TestName: tc.Name, Status: tc.Status}
-				if knownMap[tc.Name] {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+
+			failedResults, err := h.testResultStore.ListFailedByBuild(ctx, projectID, build.ID, 10000)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+
+			for i := range failedResults {
+				f := failure{TestName: failedResults[i].TestName, Status: failedResults[i].Status}
+				if knownMap[failedResults[i].TestName] {
 					knownFailures = append(knownFailures, f)
 				} else {
 					newFailures = append(newFailures, f)
+				}
+			}
+		} else {
+			// File fallback: read test-result JSON files from storage.
+			project, err := h.projectStore.GetProject(ctx, projectID)
+			if err != nil {
+				writeError(w, http.StatusNotFound, "project not found")
+				return
+			}
+			storageKey := project.StorageKey
+
+			relBase := "reports/" + reportID + "/data/test-results"
+			entries, err := h.store.ReadDir(ctx, storageKey, relBase)
+			if err == nil {
+				for _, entry := range entries {
+					if entry.IsDir {
+						continue
+					}
+					data, err := h.store.ReadFile(ctx, storageKey, relBase+"/"+entry.Name)
+					if err != nil {
+						continue
+					}
+					var tc struct {
+						Name   string `json:"name"`
+						Status string `json:"status"`
+					}
+					if json.Unmarshal(data, &tc) != nil {
+						continue
+					}
+					if tc.Status != "failed" && tc.Status != "broken" {
+						continue
+					}
+					f := failure{TestName: tc.Name, Status: tc.Status}
+					if knownMap[tc.Name] {
+						knownFailures = append(knownFailures, f)
+					} else {
+						newFailures = append(newFailures, f)
+					}
 				}
 			}
 		}

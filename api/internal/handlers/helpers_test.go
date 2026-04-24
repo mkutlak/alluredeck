@@ -242,7 +242,7 @@ func newTestKnownIssueHandler(t *testing.T, projectsDir string) (*KnownIssueHand
 	st := storage.NewLocalStore(cfg)
 	logger := zap.NewNop()
 	mocks := testutil.New()
-	h := NewKnownIssueHandler(mocks.KnownIssues, mocks.Projects, st, logger)
+	h := NewKnownIssueHandler(mocks.KnownIssues, mocks.Projects, mocks.TestResults, mocks.MemBuilds, st, logger)
 	return h, mocks
 }
 

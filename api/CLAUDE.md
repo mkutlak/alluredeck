@@ -27,6 +27,6 @@
 ## Lint
 golangci-lint v2 — config at `api/.golangci.yml`. Run via `make api-lint`.
 
-## Swagger
-Docs generated with `make api-swagger` (runs `swag init -g cmd/api/main.go`).
-Output written to `internal/swagger/`. Served at `/swagger/index.html` when `SWAGGER_ENABLED=true`.
+## API Docs
+OpenAPI spec generated with `make api-swagger` (runs `swag init -g cmd/api/main.go`).
+Output written to `internal/swagger/`. Served via Scalar at `/swagger/` when `SWAGGER_ENABLED=true`.

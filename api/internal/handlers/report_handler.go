@@ -259,7 +259,7 @@ func (h *ReportHandler) GetReportHistory(w http.ResponseWriter, r *http.Request)
 	// Check for "latest" dir via store — always regenerated, not tracked in DB.
 	// The "latest" entry is always prepended (not counted against pagination).
 	if exists, _ := h.store.LatestReportExists(r.Context(), storageKey); exists {
-		entry := h.buildReportEntry(r.Context(), storageKey, "latest")
+		entry := h.buildReportEntry(r.Context(), projectID, storageKey, "latest")
 		entry.IsLatest = true
 		reports = append(reports, entry)
 	}
@@ -382,22 +382,37 @@ func (h *ReportHandler) applyTimingFromTestResults(ctx context.Context, projectI
 
 // buildReportEntry reads report metadata from widget files via the store.
 // Tries widgets/summary.json first (Allure 2), then widgets/statistic.json (Allure 3).
-func (h *ReportHandler) buildReportEntry(ctx context.Context, projectID, name string) ReportHistoryEntry {
+// numericProjectID is the int64 DB project ID used for DB lookups; storageKey is the
+// filesystem/store identifier used for file reads.
+func (h *ReportHandler) buildReportEntry(ctx context.Context, numericProjectID int64, storageKey, name string) ReportHistoryEntry {
 	entry := ReportHistoryEntry{ReportID: name}
 	widgetsRelPath := "reports/" + name + "/widgets"
 
 	// Allure 2: widgets/summary.json contains statistic + time nested under keys.
-	if h.applySummaryFile(ctx, projectID, &entry, widgetsRelPath) {
+	if h.applySummaryFile(ctx, storageKey, &entry, widgetsRelPath) {
 		return entry
 	}
 
 	// Allure 3: widgets/statistic.json has statistic fields at root level.
 	var stat AllureStatistic
-	if h.readJSONViaStore(ctx, projectID, widgetsRelPath+"/statistic.json", &stat) && stat.Total > 0 {
+	if h.readJSONViaStore(ctx, storageKey, widgetsRelPath+"/statistic.json", &stat) && stat.Total > 0 {
 		entry.Statistic = &stat
 	}
-	// Allure 3 has no timing in statistic.json; derive from test result files.
-	h.applyTimingFromTestResults(ctx, projectID, &entry, "reports/"+name+"/data/test-results")
+
+	// Allure 3 has no timing in statistic.json.
+	// For the "latest" report, prefer the DB (builds table has duration_ms and created_at)
+	// to avoid scanning all test-result JSON files from disk.
+	if name == "latest" && h.buildStore != nil {
+		if latestBuild, err := h.buildStore.GetLatestBuild(ctx, numericProjectID); err == nil && latestBuild.DurationMs != nil {
+			entry.DurationMs = latestBuild.DurationMs
+			t := latestBuild.CreatedAt.UTC().Format(time.RFC3339)
+			entry.GeneratedAt = &t
+			return entry
+		}
+	}
+
+	// File fallback: used for non-latest reports or when the DB has no record yet.
+	h.applyTimingFromTestResults(ctx, storageKey, &entry, "reports/"+name+"/data/test-results")
 	return entry
 }
 

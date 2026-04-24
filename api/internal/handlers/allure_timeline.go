@@ -67,7 +67,8 @@ func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 	// Database fast path: for numeric report_id, serve from database instead of N+1 S3 reads.
 	if buildNumber, err := strconv.Atoi(reportID); err == nil && h.testResultStore != nil {
 		if buildID, err := h.testResultStore.GetBuildID(ctx, projectID, buildNumber); err == nil {
-			if rows, err := h.testResultStore.ListTimeline(ctx, projectID, buildID, timelineMaxItems+1); err == nil && len(rows) > 0 {
+			rows, err := h.testResultStore.ListTimeline(ctx, projectID, buildID, timelineMaxItems+1)
+			if err == nil {
 				total := len(rows)
 				truncated := false
 				if total > timelineMaxItems {
@@ -77,23 +78,23 @@ func (h *ReportHandler) GetReportTimeline(w http.ResponseWriter, r *http.Request
 
 				testCases := make([]timelineTestCase, len(rows))
 				var minStart, maxStop, totalDuration int64
-				for i, row := range rows {
-					dur := row.StopMs - row.StartMs
+				for i := range rows {
+					dur := rows[i].StopMs - rows[i].StartMs
 					testCases[i] = timelineTestCase{
-						Name:     row.TestName,
-						FullName: row.FullName,
-						Status:   row.Status,
-						Start:    row.StartMs,
-						Stop:     row.StopMs,
+						Name:     rows[i].TestName,
+						FullName: rows[i].FullName,
+						Status:   rows[i].Status,
+						Start:    rows[i].StartMs,
+						Stop:     rows[i].StopMs,
 						Duration: dur,
-						Thread:   row.Thread,
-						Host:     row.Host,
+						Thread:   rows[i].Thread,
+						Host:     rows[i].Host,
 					}
-					if i == 0 || row.StartMs < minStart {
-						minStart = row.StartMs
+					if i == 0 || rows[i].StartMs < minStart {
+						minStart = rows[i].StartMs
 					}
-					if row.StopMs > maxStop {
-						maxStop = row.StopMs
+					if rows[i].StopMs > maxStop {
+						maxStop = rows[i].StopMs
 					}
 					totalDuration += dur
 				}
