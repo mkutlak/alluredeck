@@ -1,3 +1,9 @@
+## [0.28.0](https://github.com/mkutlak/alluredeck/compare/v0.27.1...v0.28.0) (2026-04-24)
+
+### Features
+
+* **api:** replace Swagger UI with Scalar API reference ([4ea7c63](https://github.com/mkutlak/alluredeck/commit/4ea7c63c9d8d328be3e853c0659a735adae1f2b6))
+
 ## [0.27.1](https://github.com/mkutlak/alluredeck/compare/v0.27.0...v0.27.1) (2026-04-24)
 
 ### Bug Fixes
