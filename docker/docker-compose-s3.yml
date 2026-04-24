@@ -61,6 +61,7 @@ services:
       S3_PATH_STYLE: "true"
       CHECK_RESULTS_EVERY_SECONDS: "NONE"
       CORS_ALLOWED_ORIGINS: "http://localhost:7474"
+      SWAGGER_ENABLED: "1"
       SECURITY_ENABLED: "1"
       ADMIN_USER: "admin"
       ADMIN_PASS: "admin"

@@ -20,6 +20,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.api
     environment:
+      SWAGGER_ENABLED: "1"
       SECURITY_ENABLED: "1"
       ADMIN_USER: "${ADMIN_USER:-admin}"
       ADMIN_PASS: "${ADMIN_PASS:-admin}"

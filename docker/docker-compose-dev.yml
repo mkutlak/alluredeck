@@ -37,6 +37,7 @@ services:
       ADMIN_PASS: "my_password"
       VIEWER_USER: "view_user"
       VIEWER_PASS: "view_pass"
+      SWAGGER_ENABLED: "1"
       SECURITY_ENABLED: 0
       MAKE_VIEWER_ENDPOINTS_PUBLIC: 0
       API_RESPONSE_LESS_VERBOSE: 0
