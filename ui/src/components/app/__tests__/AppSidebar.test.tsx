@@ -30,6 +30,10 @@ mockApiClient()
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
   selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
+  selectIsEditor: (s: { roles?: string[] }) => {
+    const r = s.roles ?? []
+    return r.includes('admin') || r.includes('editor')
+  },
 }))
 
 vi.mock('@/store/ui', () => ({
@@ -71,11 +75,11 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
   }
 }
 
-function renderSidebar(path: string, isAdmin = false, uiStateOverrides: Partial<UIState> = {}) {
+function renderSidebar(path: string, roles: Role[] = [], uiStateOverrides: Partial<UIState> = {}) {
   vi.mocked(useAuthStore).mockImplementation((selector: (state: AuthState) => unknown) =>
     selector({
       isAuthenticated: false,
-      roles: isAdmin ? (['admin'] as Role[]) : [],
+      roles,
       username: null,
       expiresAt: null,
       provider: null,
@@ -146,7 +150,7 @@ describe('AppSidebar', () => {
       metadata: { message: 'ok' },
       pagination: { total: 0, page: 1, per_page: 20, total_pages: 0 },
     })
-    renderSidebar('/', false, { lastProjectId: null })
+    renderSidebar('/', [], { lastProjectId: null })
     await waitFor(() => {
       expect(screen.queryByText('Overview')).not.toBeInTheDocument()
       expect(screen.queryByText('Known Issues')).not.toBeInTheDocument()
@@ -176,16 +180,21 @@ describe('AppSidebar', () => {
   })
 
   it('shows "Administration" section and "System Monitor" link for admin users', () => {
-    renderSidebar('/', true)
+    renderSidebar('/', ['admin'])
     expect(screen.getByText('Administration')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /system monitor/i })).toBeInTheDocument()
   })
 
   it('hides "System Monitor" link for non-admin users', () => {
-    renderSidebar('/', false)
+    renderSidebar('/')
     expect(screen.getByText('Administration')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /system monitor/i })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /api keys/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /webhooks/i })).not.toBeInTheDocument()
+  })
+
+  it('shows "Webhooks" link for editor users', () => {
+    renderSidebar('/', ['editor'])
     expect(screen.getByRole('link', { name: /webhooks/i })).toBeInTheDocument()
   })
 
@@ -196,7 +205,7 @@ describe('AppSidebar', () => {
   })
 
   it('shows project sub-nav using stored lastProjectId when not on project page', () => {
-    renderSidebar('/', false, { lastProjectId: 'stored-project' })
+    renderSidebar('/', [], { lastProjectId: 'stored-project' })
     expect(screen.getByText('Overview')).toBeInTheDocument()
     expect(screen.getByText('Known Issues')).toBeInTheDocument()
     expect(screen.getByText('Timeline')).toBeInTheDocument()
@@ -229,7 +238,7 @@ describe('AppSidebar', () => {
       metadata: { message: 'ok' },
       pagination: { total: 1, page: 1, per_page: 20, total_pages: 1 },
     })
-    renderSidebar('/', false, { lastProjectId: null })
+    renderSidebar('/', [], { lastProjectId: null })
     await waitFor(() => {
       expect(screen.getByText('Overview')).toBeInTheDocument()
       expect(screen.getByText('Known Issues')).toBeInTheDocument()

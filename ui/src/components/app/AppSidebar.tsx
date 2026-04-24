@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@/hooks/useActiveProject'
-import { useAuthStore, selectIsAdmin } from '@/store/auth'
+import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { projectIndexOptions } from '@/lib/queries'
 import { resolveProjectFromParam } from '@/lib/resolveProject'
 import {
@@ -40,6 +40,7 @@ const navItems = [
 export function AppSidebar() {
   const { projectId } = useActiveProject()
   const isAdmin = useAuthStore(selectIsAdmin)
+  const isEditor = useAuthStore(selectIsEditor)
 
   const { data: projectsResp } = useQuery(projectIndexOptions())
   const allProjects = projectsResp?.data ?? []
@@ -116,14 +117,16 @@ export function AppSidebar() {
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Webhooks">
-                <NavLink to="/settings/webhooks">
-                  <Bell />
-                  <span>Webhooks</span>
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+            {isEditor && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Webhooks">
+                  <NavLink to="/settings/webhooks">
+                    <Bell />
+                    <span>Webhooks</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>

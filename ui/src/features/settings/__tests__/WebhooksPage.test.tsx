@@ -6,13 +6,15 @@ import { MemoryRouter } from 'react-router'
 import { createTestQueryClient } from '@/test/render'
 import { WebhooksPage } from '../WebhooksPage'
 import * as webhooksApi from '@/api/webhooks'
+import * as projectsApi from '@/api/projects'
 import { mockApiClient } from '@/test/mocks/api-client'
 import type { Webhook } from '@/types/api'
 
 vi.mock('@/api/webhooks')
+vi.mock('@/api/projects')
 mockApiClient()
 
-function renderPage(search = '?project=my-project') {
+function renderPage(search = '?project=1') {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter initialEntries={[`/settings/webhooks${search}`]}>
@@ -42,6 +44,13 @@ function makeWebhook(overrides: Partial<Webhook> = {}): Webhook {
 describe('WebhooksPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(projectsApi.getProjectIndex).mockResolvedValue({
+      data: [
+        { project_id: 1, slug: 'my-project', display_name: 'My Project', parent_id: null },
+        { project_id: 2, slug: 'other-project', display_name: 'Other Project', parent_id: null },
+      ],
+      metadata: { message: 'ok' },
+    })
   })
 
   it('renders empty state when no webhooks configured', async () => {
@@ -72,9 +81,18 @@ describe('WebhooksPage', () => {
     renderPage('')
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/select a project from the url to manage its webhooks/i),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/select a project to manage its webhooks/i)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /select a project\.\.\./i })).toBeInTheDocument()
+  })
+
+  it('renders project picker button with selected project display name', async () => {
+    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([])
+
+    renderPage('?project=1')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'My Project' })).toBeInTheDocument()
     })
   })
 
@@ -115,7 +133,7 @@ describe('WebhooksPage', () => {
 
     await waitFor(() => {
       expect(webhooksApi.createWebhook).toHaveBeenCalledWith(
-        'my-project',
+        '1',
         expect.objectContaining({
           name: 'New Hook',
           url: 'https://x.co/h',
@@ -144,7 +162,7 @@ describe('WebhooksPage', () => {
     await userEvent.click(confirmBtn)
 
     await waitFor(() => {
-      expect(webhooksApi.deleteWebhook).toHaveBeenCalledWith('my-project', 'wh-42')
+      expect(webhooksApi.deleteWebhook).toHaveBeenCalledWith('1', 'wh-42')
     })
   })
 })
