@@ -66,6 +66,7 @@ type handlerSet struct {
 	knownIssue      *handlers.KnownIssueHandler
 	attachment      *handlers.AttachmentHandler
 	apiKey          *handlers.APIKeyHandler
+	user            *handlers.UserHandler
 	parent          *handlers.ProjectParentHandler
 	defect          *handlers.DefectHandler
 	webhook         *handlers.WebhookHandler
@@ -365,7 +366,7 @@ func wireHandlers(
 
 	return handlerSet{
 		system: handlers.NewSystemHandler(cfg, sqlDB),
-		auth:   handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily),
+		auth:   handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily).WithUserStore(s.user),
 		report: handlers.NewReportHandler(handlers.ReportHandlerDeps{
 			JobManager:      jobManager,
 			Runner:          allureCore,
@@ -393,6 +394,7 @@ func wireHandlers(
 		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
 		apiKey:          handlers.NewAPIKeyHandler(s.apiKey),
+		user:            handlers.NewUserHandler(s.user, logger),
 		parent:          handlers.NewProjectParentHandler(s.project, logger),
 		defect:          handlers.NewDefectHandler(s.defect, s.project, logger),
 		webhook:         handlers.NewWebhookHandler(s.webhook, s.project, logger),
@@ -703,6 +705,28 @@ func registerRoutes(d routeDeps) {
 		mux.HandleFunc("GET "+prefix+"/api-keys", auth(noStore(d.h.apiKey.List)))
 		mux.HandleFunc("POST "+prefix+"/api-keys", auth(noStore(d.h.apiKey.Create)))
 		mux.HandleFunc("DELETE "+prefix+"/api-keys/{id}", auth(noStore(d.h.apiKey.Delete)))
+	}
+
+	// User management.
+	//   /users/me         — any authenticated user (self-service).
+	//   /users*           — admin-only.
+	// Creation is rate-limited (5/min burst 5) to mitigate automated account
+	// provisioning by a compromised admin token.
+	if d.h.user != nil {
+		userCreateLimiter := middleware.NewIPRateLimiter(5.0/60.0, 5, 15*time.Minute, d.cfg.TrustForwardedFor)
+		userCreateRateLimit := middleware.RateLimitMiddleware(userCreateLimiter)
+		mux.HandleFunc("GET "+prefix+"/users/me", auth(noStore(d.h.user.Me)))
+		mux.HandleFunc("PATCH "+prefix+"/users/me", auth(noStore(d.h.user.UpdateMe)))
+		// Password endpoints are rate-limited via the shared login limiter (5/s,
+		// burst 10) to bound brute-force + reset-flood attempts without dedicating
+		// another limiter. CSRF is applied globally by the mutation middleware.
+		mux.HandleFunc("POST "+prefix+"/users/me/password", auth(rateLimit(noStore(d.h.user.ChangeMyPassword))))
+		mux.HandleFunc("GET "+prefix+"/users", adminOnly(noStore(d.h.user.List)))
+		mux.HandleFunc("GET "+prefix+"/users/{id}", adminOnly(noStore(d.h.user.Get)))
+		mux.HandleFunc("POST "+prefix+"/users", adminOnly(userCreateRateLimit(noStore(d.h.user.Create))))
+		mux.HandleFunc("PATCH "+prefix+"/users/{id}", adminOnly(noStore(d.h.user.Update)))
+		mux.HandleFunc("DELETE "+prefix+"/users/{id}", adminOnly(noStore(d.h.user.Delete)))
+		mux.HandleFunc("POST "+prefix+"/users/{id}/password", adminOnly(userCreateRateLimit(noStore(d.h.user.ResetUserPassword))))
 	}
 
 	// Session endpoint (auth-required).

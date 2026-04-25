@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -818,13 +819,55 @@ func (m *MemUserStore) GetByEmail(ctx context.Context, email string) (*store.Use
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	// Prefer active matches first, then any match.
+	var fallback *store.User
 	for _, u := range m.users {
-		if u.Email == email {
-			cp := *u
-			return &cp, nil
+		if strings.EqualFold(u.Email, email) {
+			if u.IsActive {
+				cp := *u
+				return &cp, nil
+			}
+			if fallback == nil {
+				cp := *u
+				fallback = &cp
+			}
 		}
 	}
+	if fallback != nil {
+		return fallback, nil
+	}
 	return nil, store.ErrUserNotFound
+}
+
+// CreateLocal inserts a new local user. Returns store.ErrDuplicateEntry when
+// an active row already holds the same email (case-insensitive).
+func (m *MemUserStore) CreateLocal(ctx context.Context, email, name, passwordHash, role string) (*store.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if strings.EqualFold(u.Email, email) && u.IsActive {
+			return nil, store.ErrDuplicateEntry
+		}
+	}
+	now := time.Now()
+	u := &store.User{
+		ID:           m.nextID,
+		Email:        email,
+		Name:         name,
+		Provider:     "local",
+		PasswordHash: passwordHash,
+		Role:         role,
+		IsActive:     true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	m.nextID++
+	m.users = append(m.users, u)
+	cp := *u
+	return &cp, nil
 }
 
 func (m *MemUserStore) List(ctx context.Context) ([]store.User, error) {
@@ -840,6 +883,99 @@ func (m *MemUserStore) List(ctx context.Context) ([]store.User, error) {
 	return out, nil
 }
 
+// ListPaginated applies search + role + active filters, orders by email
+// ascending, and paginates via limit/offset.
+func (m *MemUserStore) ListPaginated(ctx context.Context, params store.ListUsersParams) ([]store.User, int, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	search := strings.ToLower(strings.TrimSpace(params.Search))
+	role := strings.TrimSpace(params.Role)
+
+	var filtered []store.User
+	for _, u := range m.users {
+		if search != "" &&
+			!strings.Contains(strings.ToLower(u.Email), search) &&
+			!strings.Contains(strings.ToLower(u.Name), search) {
+			continue
+		}
+		if role != "" && u.Role != role {
+			continue
+		}
+		if params.Active != nil && u.IsActive != *params.Active {
+			continue
+		}
+		filtered = append(filtered, *u)
+	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Email < filtered[j].Email })
+
+	total := len(filtered)
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	offset := max(params.Offset, 0)
+	if offset >= total {
+		return []store.User{}, total, nil
+	}
+	end := min(offset+limit, total)
+	return filtered[offset:end], total, nil
+}
+
+// UpdateRole changes the user's role.
+func (m *MemUserStore) UpdateRole(ctx context.Context, id int64, role string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.Role = role
+			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
+// UpdateActive toggles the user's is_active flag.
+func (m *MemUserStore) UpdateActive(ctx context.Context, id int64, active bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.IsActive = active
+			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
+// UpdateProfile updates the user's display name.
+func (m *MemUserStore) UpdateProfile(ctx context.Context, id int64, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.Name = name
+			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
 func (m *MemUserStore) Deactivate(ctx context.Context, id int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -850,6 +986,58 @@ func (m *MemUserStore) Deactivate(ctx context.Context, id int64) error {
 		if u.ID == id {
 			u.IsActive = false
 			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
+// UpdatePasswordHash replaces the user's password_hash and bumps updated_at.
+func (m *MemUserStore) UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.PasswordHash = passwordHash
+			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
+// UpdateLastLogin sets last_login and updated_at to the current time.
+func (m *MemUserStore) UpdateLastLogin(ctx context.Context, id int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			now := time.Now()
+			u.LastLogin = &now
+			u.UpdatedAt = now
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
+// ClearLastLogin zeroes out the user's LastLogin pointer. Test-only helper used
+// to set up fixtures for verifying Login-path last_login population.
+func (m *MemUserStore) ClearLastLogin(ctx context.Context, id int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			u.LastLogin = nil
 			return nil
 		}
 	}

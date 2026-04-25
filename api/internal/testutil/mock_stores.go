@@ -755,16 +755,30 @@ func (m *MockAPIKeyStore) CountByUsername(ctx context.Context, username string) 
 // MockUserStore is a test double for store.UserStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockUserStore struct {
-	UpsertByOIDCFn func(ctx context.Context, provider, sub, email, name, role string) (*store.User, error)
-	GetByIDFn      func(ctx context.Context, id int64) (*store.User, error)
-	GetByEmailFn   func(ctx context.Context, email string) (*store.User, error)
-	ListFn         func(ctx context.Context) ([]store.User, error)
-	DeactivateFn   func(ctx context.Context, id int64) error
+	UpsertByOIDCFn       func(ctx context.Context, provider, sub, email, name, role string) (*store.User, error)
+	CreateLocalFn        func(ctx context.Context, email, name, passwordHash, role string) (*store.User, error)
+	GetByIDFn            func(ctx context.Context, id int64) (*store.User, error)
+	GetByEmailFn         func(ctx context.Context, email string) (*store.User, error)
+	ListFn               func(ctx context.Context) ([]store.User, error)
+	ListPaginatedFn      func(ctx context.Context, params store.ListUsersParams) ([]store.User, int, error)
+	UpdateRoleFn         func(ctx context.Context, id int64, role string) error
+	UpdateActiveFn       func(ctx context.Context, id int64, active bool) error
+	UpdateProfileFn      func(ctx context.Context, id int64, name string) error
+	UpdatePasswordHashFn func(ctx context.Context, id int64, passwordHash string) error
+	UpdateLastLoginFn    func(ctx context.Context, id int64) error
+	DeactivateFn         func(ctx context.Context, id int64) error
 }
 
 func (m *MockUserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
 	if m.UpsertByOIDCFn != nil {
 		return m.UpsertByOIDCFn(ctx, provider, sub, email, name, role)
+	}
+	return nil, nil
+}
+
+func (m *MockUserStore) CreateLocal(ctx context.Context, email, name, passwordHash, role string) (*store.User, error) {
+	if m.CreateLocalFn != nil {
+		return m.CreateLocalFn(ctx, email, name, passwordHash, role)
 	}
 	return nil, nil
 }
@@ -788,6 +802,48 @@ func (m *MockUserStore) List(ctx context.Context) ([]store.User, error) {
 		return m.ListFn(ctx)
 	}
 	return nil, nil
+}
+
+func (m *MockUserStore) ListPaginated(ctx context.Context, params store.ListUsersParams) ([]store.User, int, error) {
+	if m.ListPaginatedFn != nil {
+		return m.ListPaginatedFn(ctx, params)
+	}
+	return nil, 0, nil
+}
+
+func (m *MockUserStore) UpdateRole(ctx context.Context, id int64, role string) error {
+	if m.UpdateRoleFn != nil {
+		return m.UpdateRoleFn(ctx, id, role)
+	}
+	return nil
+}
+
+func (m *MockUserStore) UpdateActive(ctx context.Context, id int64, active bool) error {
+	if m.UpdateActiveFn != nil {
+		return m.UpdateActiveFn(ctx, id, active)
+	}
+	return nil
+}
+
+func (m *MockUserStore) UpdateProfile(ctx context.Context, id int64, name string) error {
+	if m.UpdateProfileFn != nil {
+		return m.UpdateProfileFn(ctx, id, name)
+	}
+	return nil
+}
+
+func (m *MockUserStore) UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error {
+	if m.UpdatePasswordHashFn != nil {
+		return m.UpdatePasswordHashFn(ctx, id, passwordHash)
+	}
+	return nil
+}
+
+func (m *MockUserStore) UpdateLastLogin(ctx context.Context, id int64) error {
+	if m.UpdateLastLoginFn != nil {
+		return m.UpdateLastLoginFn(ctx, id)
+	}
+	return nil
 }
 
 func (m *MockUserStore) Deactivate(ctx context.Context, id int64) error {

@@ -239,14 +239,45 @@ type Locker interface {
 	AcquireLock(ctx context.Context, key string) (func(), error)
 }
 
+// ListUsersParams holds filters and pagination for UserStorer.ListPaginated.
+type ListUsersParams struct {
+	Limit  int
+	Offset int
+	Search string
+	Role   string
+	Active *bool
+}
+
 // UserStorer manages user records for authentication and JIT provisioning.
 type UserStorer interface {
 	// UpsertByOIDC inserts or updates a user record using the OIDC subject claim as the key.
 	// On conflict (same provider + provider_sub), updates email, name, role, last_login, updated_at.
 	UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*User, error)
+	// CreateLocal inserts a new local (password-based) user. email is stored as
+	// received; callers should normalise (lowercase/trim) before invoking.
+	CreateLocal(ctx context.Context, email, name, passwordHash, role string) (*User, error)
 	GetByID(ctx context.Context, id int64) (*User, error)
 	GetByEmail(ctx context.Context, email string) (*User, error)
+	// List returns every user ordered by created_at DESC. Retained for
+	// back-compat; new code should prefer ListPaginated.
 	List(ctx context.Context) ([]User, error)
+	// ListPaginated returns a filtered page of users and the total row count
+	// matching the filters (ignoring Limit/Offset).
+	ListPaginated(ctx context.Context, params ListUsersParams) ([]User, int, error)
+	// UpdateRole changes the user's role. Returns ErrUserNotFound if no row exists.
+	UpdateRole(ctx context.Context, id int64, role string) error
+	// UpdateActive toggles the user's is_active flag. Returns ErrUserNotFound if no row exists.
+	UpdateActive(ctx context.Context, id int64, active bool) error
+	// UpdateProfile updates the user's display name. Returns ErrUserNotFound if no row exists.
+	UpdateProfile(ctx context.Context, id int64, name string) error
+	// UpdatePasswordHash replaces the user's password_hash (and bumps updated_at).
+	// Returns ErrUserNotFound if no row exists. Callers must already have
+	// generated the bcrypt hash — the store never sees the plaintext password.
+	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
+	// UpdateLastLogin refreshes the user's last_login (and updated_at) columns to
+	// the current time. Returns ErrUserNotFound if no row exists. Callers should
+	// treat failures as best-effort and not fail the surrounding request.
+	UpdateLastLogin(ctx context.Context, id int64) error
 	Deactivate(ctx context.Context, id int64) error
 }
 

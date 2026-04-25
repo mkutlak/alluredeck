@@ -36,6 +36,12 @@ const WebhooksPage = lazy(() =>
     default: m.WebhooksPage,
   })),
 )
+const UsersPage = lazy(() =>
+  import('@/features/settings/users/UsersPage').then((m) => ({ default: m.UsersPage })),
+)
+const ProfilePage = lazy(() =>
+  import('@/features/settings/users/ProfilePage').then((m) => ({ default: m.ProfilePage })),
+)
 const TestHistoryPage = lazy(() =>
   import('@/features/tests/TestHistoryPage').then((m) => ({ default: m.TestHistoryPage })),
 )
@@ -200,6 +206,22 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <WebhooksPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings/users"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <UsersPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings/profile"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ProfilePage />
               </Suspense>
             }
           />

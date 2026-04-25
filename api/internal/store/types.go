@@ -5,16 +5,17 @@ import "time"
 // User represents an authenticated user in the system.
 // Provider is 'local' for password-based users and 'oidc' for SSO users.
 type User struct {
-	ID          int64      `json:"id"`
-	Email       string     `json:"email"`
-	Name        string     `json:"name"`
-	Provider    string     `json:"provider"`
-	ProviderSub string     `json:"-"`
-	Role        string     `json:"role"`
-	IsActive    bool       `json:"is_active"`
-	LastLogin   *time.Time `json:"last_login"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID           int64      `json:"id"`
+	Email        string     `json:"email"`
+	Name         string     `json:"name"`
+	Provider     string     `json:"provider"`
+	ProviderSub  string     `json:"-"`
+	PasswordHash string     `json:"-"`
+	Role         string     `json:"role"`
+	IsActive     bool       `json:"is_active"`
+	LastLogin    *time.Time `json:"last_login"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // APIKey represents an API key for programmatic access.

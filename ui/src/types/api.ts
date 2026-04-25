@@ -727,6 +727,56 @@ export interface UpdateWebhookRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+export type UserRole = 'admin' | 'editor' | 'viewer'
+
+export interface User {
+  id: number
+  email: string
+  name: string
+  provider: 'local' | 'oidc'
+  role: UserRole
+  is_active: boolean
+  last_login: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UserListResponse {
+  users: User[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface CreateUserRequest {
+  email: string
+  name: string
+  role: UserRole
+}
+
+export interface UpdateUserRequest {
+  role?: UserRole
+  active?: boolean
+  name?: string
+}
+
+export interface CreateUserResponse {
+  user: User
+  temp_password: string
+}
+
+export interface ChangePasswordRequest {
+  current_password: string
+  new_password: string
+}
+
+export interface ResetPasswordResponse {
+  temp_password: string
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline Runs
 // ---------------------------------------------------------------------------
 

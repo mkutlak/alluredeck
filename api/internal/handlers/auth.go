@@ -3,7 +3,9 @@ package handlers
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,7 @@ type AuthHandler struct {
 	cfg         *config.Config
 	jwtManager  *security.JWTManager
 	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
+	userStore   store.UserStorer               // optional; nil disables DB-backed local login fallback
 }
 
 // NewAuthHandler creates and returns a new AuthHandler. The familyStore parameter
@@ -34,6 +37,14 @@ func NewAuthHandler(cfg *config.Config, jwtManager *security.JWTManager, familyS
 		jwtManager:  jwtManager,
 		familyStore: familyStore,
 	}
+}
+
+// WithUserStore wires a UserStorer so Login can fall back to DB-backed local
+// password authentication when the submitted username is not one of the
+// env-configured admin/viewer users.
+func (h *AuthHandler) WithUserStore(s store.UserStorer) *AuthHandler {
+	h.userStore = s
+	return h
 }
 
 // LoginRequest structure
@@ -72,6 +83,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Use bcrypt for password verification (C3 fix: no more plaintext passwords).
 	var roles []string
 	valid := false
+	// tokenSub is what we stamp into the JWT "sub" claim. For env-configured
+	// admin/viewer it is the username (backward-compat). For DB-backed local
+	// users it is the numeric user ID as string so the rest of the system can
+	// look the user row up consistently.
+	tokenSub := username
 
 	adminUserMatch := subtle.ConstantTimeCompare([]byte(username), []byte(h.cfg.AdminUser)) == 1
 	adminPassMatch := len(h.cfg.SecurityPassHash) > 0 &&
@@ -91,9 +107,40 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fallback: DB-backed local users. The same error message is returned for
+	// unknown-user, inactive, non-local-provider, and wrong-password so we do
+	// not leak which of those conditions caused the rejection.
+	// dbUserID is non-zero only when the DB-local branch validated the password;
+	// it drives the best-effort UpdateLastLogin call below.
+	var dbUserID int64
+	if !valid && h.userStore != nil {
+		u, lookupErr := h.userStore.GetByEmail(r.Context(), username)
+		if lookupErr == nil && u != nil && u.Provider == "local" && u.IsActive && len(u.PasswordHash) > 0 {
+			if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil {
+				roles = []string{u.Role}
+				tokenSub = strconv.FormatInt(u.ID, 10)
+				dbUserID = u.ID
+				valid = true
+			}
+		} else if lookupErr != nil && !errors.Is(lookupErr, store.ErrUserNotFound) {
+			logging.FromContext(r.Context()).Error("auth: user lookup failed", zap.Error(lookupErr))
+		}
+	}
+
 	if !valid {
 		writeError(w, http.StatusUnauthorized, "Invalid username/password")
 		return
+	}
+
+	// Best-effort: refresh last_login for DB-backed local users. Env admin/viewer
+	// don't have a users row (dbUserID == 0) and OIDC users are handled via
+	// UpsertByOIDC. A failure here must not fail the login — the credential
+	// check already succeeded.
+	if dbUserID != 0 && h.userStore != nil {
+		if err := h.userStore.UpdateLastLogin(r.Context(), dbUserID); err != nil {
+			logging.FromContext(r.Context()).Warn("auth: failed to update last_login",
+				zap.Int64("user_id", dbUserID), zap.Error(err))
+		}
 	}
 
 	familyID, err := security.NewFamilyID()
@@ -101,7 +148,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to generate session ID")
 		return
 	}
-	accessToken, refreshToken, _, refreshJTI, err := h.jwtManager.GenerateTokensForFamily(username, roles[0], "local", familyID)
+	accessToken, refreshToken, _, refreshJTI, err := h.jwtManager.GenerateTokensForFamily(tokenSub, roles[0], "local", familyID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to generate tokens")
 		return
@@ -114,7 +161,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if h.familyStore != nil {
 		if err := h.familyStore.Create(r.Context(), store.RefreshTokenFamily{
 			FamilyID:   familyID,
-			UserID:     username,
+			UserID:     tokenSub,
 			Role:       roles[0],
 			Provider:   "local",
 			CurrentJTI: refreshJTI,
@@ -383,11 +430,25 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username, _ := claims["sub"].(string)
+	sub, _ := claims["sub"].(string)
 	role, _ := claims["role"].(string)
 	provider, _ := claims["provider"].(string)
 	if provider == "" {
 		provider = "local"
+	}
+
+	// Prefer a human-readable username for the UI. For DB-backed users (sub is
+	// a numeric id) resolve the email so the header doesn't display "1". For
+	// env admin/viewer (sub == "admin"/"viewer") and OIDC (sub == email) echo
+	// the subject verbatim.
+	username := sub
+	if id, err := strconv.ParseInt(sub, 10, 64); err == nil && h.userStore != nil {
+		if u, lookupErr := h.userStore.GetByID(r.Context(), id); lookupErr == nil && u != nil {
+			username = u.Email
+		} else if lookupErr != nil && !errors.Is(lookupErr, store.ErrUserNotFound) {
+			logging.FromContext(r.Context()).Warn("auth: session user lookup failed",
+				zap.Int64("user_id", id), zap.Error(lookupErr))
+		}
 	}
 
 	var roles []string

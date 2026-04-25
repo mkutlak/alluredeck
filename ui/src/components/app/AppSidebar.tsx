@@ -10,6 +10,8 @@ import {
   LayoutDashboard,
   Paperclip,
   Shield,
+  UserCircle,
+  UsersRound,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@/hooks/useActiveProject'
@@ -127,6 +129,24 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
+            {isAdmin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Users">
+                  <NavLink to="/settings/users">
+                    <UsersRound />
+                    <span>Users</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild tooltip="Profile">
+                <NavLink to="/settings/profile">
+                  <UserCircle />
+                  <span>Profile</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
