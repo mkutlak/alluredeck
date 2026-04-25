@@ -1,3 +1,9 @@
+## [0.30.0](https://github.com/mkutlak/alluredeck/compare/v0.29.0...v0.30.0) (2026-04-25)
+
+### Features
+
+* **users:** admin user management + self-service profile ([4bcf1e4](https://github.com/mkutlak/alluredeck/commit/4bcf1e48f309e5ef826ea21cf39d1598f3dec177))
+
 ## [0.29.0](https://github.com/mkutlak/alluredeck/compare/v0.28.0...v0.29.0) (2026-04-24)
 
 ### Features
