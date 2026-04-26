@@ -296,6 +296,75 @@ func TestAPIKeyHandler_Delete_WrongUsername_IDOR(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// F-1: audit emission
+// ---------------------------------------------------------------------------
+
+func TestAPIKeyHandler_Create_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys).WithAuditLogger(mocks.Audit)
+
+	body := map[string]any{"name": "ci-key"}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req = injectClaims(req, "alice", "admin")
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionAPIKeyCreate)
+	if len(events) != 1 {
+		t.Fatalf("api_keys.create events = %d, want 1", len(events))
+	}
+	if events[0].ActorLabel != "alice" {
+		t.Errorf("actor_label = %q, want alice", events[0].ActorLabel)
+	}
+}
+
+func TestAPIKeyHandler_Delete_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys).WithAuditLogger(mocks.Audit)
+
+	ctx := context.Background()
+	k := makeAPIKey("my-key", "alice", "admin")
+	created, err := mocks.APIKeys.Create(ctx, &k)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("/api/v1/api-keys/%d", created.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("id", fmt.Sprintf("%d", created.ID))
+	req = injectClaims(req, "alice", "admin")
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionAPIKeyDelete)
+	if len(events) != 1 {
+		t.Fatalf("api_keys.delete events = %d, want 1", len(events))
+	}
+	if events[0].TargetID != fmt.Sprintf("%d", created.ID) {
+		t.Errorf("target_id = %q, want %d", events[0].TargetID, created.ID)
+	}
+}
+
 func TestAPIKeyHandler_Delete_NonExistent(t *testing.T) {
 	t.Parallel()
 	h := newTestAPIKeyHandler(t)

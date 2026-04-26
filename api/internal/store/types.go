@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // User represents an authenticated user in the system.
 // Provider is 'local' for password-based users and 'oidc' for SSO users.
@@ -327,6 +330,72 @@ type RefreshTokenFamily struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	ExpiresAt   time.Time
+}
+
+// Audit action constants enumerate every security-sensitive operation that the
+// API records to the audit_log table. Handlers reference these by name (not by
+// string literal) so the linter catches typos at compile time.
+const (
+	AuditActionLoginSuccess      = "auth.login.success"
+	AuditActionLoginFailure      = "auth.login.failure"
+	AuditActionLogout            = "auth.logout"
+	AuditActionRefreshSuccess    = "auth.refresh.success"
+	AuditActionRefreshCompromise = "auth.refresh.compromise"
+	AuditActionUserCreate        = "users.create"
+	AuditActionUserUpdateRole    = "users.update.role"
+	AuditActionUserUpdateActive  = "users.update.active"
+	AuditActionUserDelete        = "users.delete"
+	AuditActionPasswordChange    = "users.password_change"
+	AuditActionPasswordReset     = "users.password_reset"
+	AuditActionAPIKeyCreate      = "api_keys.create"
+	AuditActionAPIKeyDelete      = "api_keys.delete"
+)
+
+// Audit outcome constants are the only values accepted by the audit_log
+// outcome CHECK constraint.
+const (
+	AuditOutcomeSuccess = "success"
+	AuditOutcomeFailure = "failure"
+)
+
+// Audit target_type constants categorise the entity an action operated on.
+// Keep these short, lowercase, and stable — they are written into the database
+// and consumed by future incident-response tooling.
+const (
+	AuditTargetUser    = "user"
+	AuditTargetAPIKey  = "api_key"
+	AuditTargetSession = "session"
+)
+
+// AuditEvent represents a single row in the audit_log table.
+//
+// Identity:
+//   - ActorID is nil for unauthenticated events (e.g. a failed login that
+//     never resolved a users row). When set, it points at users.id.
+//   - ActorLabel is a denormalised email/username so the row stays readable
+//     after the actor is deleted or renamed.
+//
+// Provenance:
+//   - IP / UserAgent / RequestID are populated from the HTTP request the event
+//     originated from. They are best-effort: empty strings are acceptable when
+//     the event is recorded outside a request context.
+//
+// Metadata is optional JSON for action-specific details (e.g. {"old_role":
+// "viewer", "new_role": "editor"} on role changes). Callers serialise their
+// own JSON; the store treats it as opaque bytes.
+type AuditEvent struct {
+	ID         int64
+	OccurredAt time.Time
+	ActorID    *int64
+	ActorLabel string
+	TargetType string
+	TargetID   string
+	Action     string
+	Outcome    string
+	IP         string
+	UserAgent  string
+	RequestID  string
+	Metadata   json.RawMessage
 }
 
 // WebhookDelivery records one delivery attempt for audit/debugging.

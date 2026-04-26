@@ -26,6 +26,7 @@ type AuthHandler struct {
 	jwtManager  *security.JWTManager
 	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
 	userStore   store.UserStorer               // optional; nil disables DB-backed local login fallback
+	audit       store.AuditLogger              // optional; nil disables persistent audit emission
 }
 
 // NewAuthHandler creates and returns a new AuthHandler. The familyStore parameter
@@ -44,6 +45,15 @@ func NewAuthHandler(cfg *config.Config, jwtManager *security.JWTManager, familyS
 // env-configured admin/viewer users.
 func (h *AuthHandler) WithUserStore(s store.UserStorer) *AuthHandler {
 	h.userStore = s
+	return h
+}
+
+// WithAuditLogger wires the persistent audit logger so login/logout/refresh
+// events are recorded to the audit_log table. Nil is acceptable — audit emit
+// becomes a no-op, matching the F-1 contract that audit must never fail the
+// request it is auditing.
+func (h *AuthHandler) WithAuditLogger(a store.AuditLogger) *AuthHandler {
+	h.audit = a
 	return h
 }
 
@@ -128,6 +138,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
+		// Audit the failure BEFORE returning so a 401 response always corresponds
+		// to a row in audit_log. ActorID stays nil because the credential
+		// rejection happens before any user lookup succeeds.
+		failureEvt := auditFromRequest(r)
+		failureEvt.Action = store.AuditActionLoginFailure
+		failureEvt.Outcome = store.AuditOutcomeFailure
+		failureEvt.ActorLabel = username
+		failureEvt.TargetType = store.AuditTargetUser
+		auditRecord(r.Context(), h.audit, failureEvt)
+
 		writeError(w, http.StatusUnauthorized, "Invalid username/password")
 		return
 	}
@@ -194,6 +214,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// jwt + refresh_jwt are HttpOnly. SameSite: Lax prevents CSRF while allowing
 	// top-level navigation (AUDIT 1.1).
 	setAuthCookies(w, h.cfg, accessToken, refreshToken, csrfToken)
+
+	// Audit the successful login. Emit AFTER tokens are set so a successful
+	// audit row genuinely corresponds to a session that was handed out.
+	successEvt := auditFromRequest(r)
+	successEvt.Action = store.AuditActionLoginSuccess
+	successEvt.Outcome = store.AuditOutcomeSuccess
+	successEvt.ActorLabel = username
+	successEvt.TargetType = store.AuditTargetUser
+	successEvt.TargetID = tokenSub
+	if dbUserID != 0 {
+		id := dbUserID
+		successEvt.ActorID = &id
+	}
+	successEvt.Metadata = auditMetadata(map[string]any{
+		"family_id": familyID,
+		"role":      roles[0],
+	})
+	auditRecord(r.Context(), h.audit, successEvt)
 
 	writeJSON(w, http.StatusOK, response)
 }
@@ -267,6 +305,24 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
+
+	// Audit the logout. ActorID is populated when the access token's sub is a
+	// numeric users.id; for env-admin / env-viewer it stays nil and the
+	// subject lives in actor_label.
+	logoutEvt := auditFromRequest(r)
+	logoutEvt.Action = store.AuditActionLogout
+	logoutEvt.Outcome = store.AuditOutcomeSuccess
+	logoutEvt.TargetType = store.AuditTargetSession
+	if claims, ok := middleware.ClaimsFromContext(r.Context()); ok {
+		if sub, _ := claims["sub"].(string); sub != "" {
+			logoutEvt.ActorLabel = sub
+			logoutEvt.TargetID = sub
+			if id, parseErr := strconv.ParseInt(sub, 10, 64); parseErr == nil {
+				logoutEvt.ActorID = &id
+			}
+		}
+	}
+	auditRecord(r.Context(), h.audit, logoutEvt)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metadata": map[string]string{"message": "Successfully logged out"},
@@ -342,6 +398,23 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		logging.FromContext(r.Context()).Warn("auth: refresh token reuse detected, family compromised",
 			zap.String("user", family.UserID),
 			zap.String("family", famID))
+
+		// Audit token-theft detection. This is THE single most important event in
+		// the audit log — incident responders filter on this action first.
+		compromiseEvt := auditFromRequest(r)
+		compromiseEvt.Action = store.AuditActionRefreshCompromise
+		compromiseEvt.Outcome = store.AuditOutcomeFailure
+		compromiseEvt.ActorLabel = family.UserID
+		compromiseEvt.TargetType = store.AuditTargetSession
+		compromiseEvt.TargetID = famID
+		if id, parseErr := strconv.ParseInt(family.UserID, 10, 64); parseErr == nil {
+			compromiseEvt.ActorID = &id
+		}
+		compromiseEvt.Metadata = auditMetadata(map[string]any{
+			"presented_jti": presentedJTI,
+		})
+		auditRecord(r.Context(), h.audit, compromiseEvt)
+
 		writeError(w, http.StatusUnauthorized, "Session compromised")
 		return
 	}
@@ -373,6 +446,20 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setAuthCookies(w, h.cfg, accessToken, refreshToken, csrfToken)
+
+	// Audit the successful refresh. Volume here can be high (every UI tab
+	// refreshes its access token periodically) but it is essential to detect
+	// stolen-but-still-valid families.
+	refreshEvt := auditFromRequest(r)
+	refreshEvt.Action = store.AuditActionRefreshSuccess
+	refreshEvt.Outcome = store.AuditOutcomeSuccess
+	refreshEvt.ActorLabel = family.UserID
+	refreshEvt.TargetType = store.AuditTargetSession
+	refreshEvt.TargetID = famID
+	if id, parseErr := strconv.ParseInt(family.UserID, 10, 64); parseErr == nil {
+		refreshEvt.ActorID = &id
+	}
+	auditRecord(r.Context(), h.audit, refreshEvt)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{

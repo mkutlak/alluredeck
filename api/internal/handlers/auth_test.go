@@ -802,6 +802,202 @@ func TestAuthHandler_Login_AfterChangePassword(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// F-1: audit emission
+// ---------------------------------------------------------------------------
+
+// Successful login must emit one auth.login.success event with actor_label set
+// to the submitted username.
+func TestAuthHandler_Login_EmitsAudit_Success(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, nil).
+		WithUserStore(mocks.Users).
+		WithAuditLogger(mocks.Audit)
+
+	rr := postLogin(t, handler, "admin", "password")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want 200", rr.Code)
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionLoginSuccess)
+	if len(events) != 1 {
+		t.Fatalf("auth.login.success events = %d, want 1", len(events))
+	}
+	got := events[0]
+	if got.Outcome != store.AuditOutcomeSuccess {
+		t.Errorf("outcome = %q, want success", got.Outcome)
+	}
+	if got.ActorLabel != "admin" {
+		t.Errorf("actor_label = %q, want %q", got.ActorLabel, "admin")
+	}
+	if got.TargetType != store.AuditTargetUser {
+		t.Errorf("target_type = %q, want %q", got.TargetType, store.AuditTargetUser)
+	}
+	// Should not also have emitted a failure event for this request.
+	if n := len(mocks.Audit.EventsByAction(store.AuditActionLoginFailure)); n != 0 {
+		t.Errorf("unexpected login.failure events = %d", n)
+	}
+}
+
+// Failed login (wrong password) must emit one auth.login.failure event with
+// outcome=failure, ActorID nil (no user resolved), and actor_label = the
+// submitted username.
+func TestAuthHandler_Login_EmitsAudit_Failure(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, nil).
+		WithUserStore(mocks.Users).
+		WithAuditLogger(mocks.Audit)
+
+	rr := postLogin(t, handler, "admin", "wrong-password-here")
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("login status = %d, want 401", rr.Code)
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
+	if len(events) != 1 {
+		t.Fatalf("auth.login.failure events = %d, want 1", len(events))
+	}
+	got := events[0]
+	if got.Outcome != store.AuditOutcomeFailure {
+		t.Errorf("outcome = %q, want failure", got.Outcome)
+	}
+	if got.ActorID != nil {
+		t.Errorf("actor_id = %v, want nil for unauthenticated failure", got.ActorID)
+	}
+	if got.ActorLabel != "admin" {
+		t.Errorf("actor_label = %q, want %q", got.ActorLabel, "admin")
+	}
+	// Must not also have emitted a success.
+	if n := len(mocks.Audit.EventsByAction(store.AuditActionLoginSuccess)); n != 0 {
+		t.Errorf("unexpected login.success events = %d", n)
+	}
+}
+
+// Logout must emit one auth.logout event with the JWT subject in actor_label.
+func TestAuthHandler_Logout_EmitsAudit(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, nil).WithAuditLogger(mocks.Audit)
+
+	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
+	claims := jwt.MapClaims{"sub": "admin", "role": "admin"}
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsKey, claims))
+	rr := httptest.NewRecorder()
+	handler.Logout(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("logout status = %d, want 200", rr.Code)
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionLogout)
+	if len(events) != 1 {
+		t.Fatalf("auth.logout events = %d, want 1", len(events))
+	}
+	if events[0].ActorLabel != "admin" {
+		t.Errorf("actor_label = %q, want admin", events[0].ActorLabel)
+	}
+}
+
+// Successful refresh must emit auth.refresh.success.
+func TestAuthHandler_Refresh_EmitsAudit_Success(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	familyStore := testutil.NewMemRefreshTokenFamilyStore()
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, familyStore).WithAuditLogger(mocks.Audit)
+
+	familyID, err := security.NewFamilyID()
+	if err != nil {
+		t.Fatalf("NewFamilyID: %v", err)
+	}
+	_, refreshToken, _, refreshJTI, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+	if err := familyStore.Create(context.Background(), store.RefreshTokenFamily{
+		FamilyID:   familyID,
+		UserID:     "alice",
+		Role:       "admin",
+		Provider:   "local",
+		CurrentJTI: refreshJTI,
+		Status:     store.RefreshTokenFamilyStatusActive,
+		ExpiresAt:  time.Now().Add(cfg.RefreshTokenExpiry.Duration()),
+	}); err != nil {
+		t.Fatalf("Create family: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionRefreshSuccess)
+	if len(events) != 1 {
+		t.Fatalf("auth.refresh.success events = %d, want 1", len(events))
+	}
+	got := events[0]
+	if got.ActorLabel != "alice" {
+		t.Errorf("actor_label = %q, want alice", got.ActorLabel)
+	}
+	if got.TargetID != familyID {
+		t.Errorf("target_id = %q, want family id %q", got.TargetID, familyID)
+	}
+}
+
+// Reuse-detected refresh must emit auth.refresh.compromise with outcome=failure.
+func TestAuthHandler_Refresh_EmitsAudit_Compromise(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	familyStore := testutil.NewMemRefreshTokenFamilyStore()
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, familyStore).WithAuditLogger(mocks.Audit)
+
+	familyID, err := security.NewFamilyID()
+	if err != nil {
+		t.Fatalf("NewFamilyID: %v", err)
+	}
+	_, refreshToken, _, refreshJTI, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+	// Seed the family but rotate to a different JTI. Presenting the original
+	// token now is unambiguous reuse.
+	if err := familyStore.Create(context.Background(), store.RefreshTokenFamily{
+		FamilyID:   familyID,
+		UserID:     "alice",
+		Role:       "admin",
+		Provider:   "local",
+		CurrentJTI: "different-current-jti",
+		Status:     store.RefreshTokenFamilyStatusActive,
+		ExpiresAt:  time.Now().Add(cfg.RefreshTokenExpiry.Duration()),
+	}); err != nil {
+		t.Fatalf("Create family: %v", err)
+	}
+	_ = refreshJTI
+
+	rr := httptest.NewRecorder()
+	handler.Refresh(rr, newRefreshRequest(refreshToken))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh status = %d, want 401", rr.Code)
+	}
+
+	events := mocks.Audit.EventsByAction(store.AuditActionRefreshCompromise)
+	if len(events) != 1 {
+		t.Fatalf("auth.refresh.compromise events = %d, want 1", len(events))
+	}
+	if events[0].Outcome != store.AuditOutcomeFailure {
+		t.Errorf("outcome = %q, want failure", events[0].Outcome)
+	}
+	if events[0].TargetID != familyID {
+		t.Errorf("target_id = %q, want %q", events[0].TargetID, familyID)
+	}
+}
+
 // Env admin has a non-numeric sub — Session must echo the subject verbatim.
 func TestAuthHandler_Session_EnvUserReturnsSubjectVerbatim(t *testing.T) {
 	cfg := testAuthConfig()

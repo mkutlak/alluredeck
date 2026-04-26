@@ -922,6 +922,178 @@ func TestUserHandler_ResetUserPassword_InvalidID(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// F-1: audit emission
+// ---------------------------------------------------------------------------
+
+// newAuditingUserHandler returns a UserHandler wired to a fresh mock audit
+// logger plus the in-memory user store, mirroring what main.go does in prod.
+func newAuditingUserHandler(t *testing.T) (*UserHandler, *testutil.MemUserStore, *testutil.MockAuditLogger) {
+	t.Helper()
+	mocks := testutil.New()
+	h := NewUserHandler(mocks.Users, zap.NewNop()).WithAuditLogger(mocks.Audit)
+	return h, mocks.Users, mocks.Audit
+}
+
+func TestUserHandler_ChangeMyPassword_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	h, users, audit := newAuditingUserHandler(t)
+	const oldPwd = "old-password-12"
+	const newPwd = "new-password-34"
+	me := seedLocalUserWithBcryptPassword(t, users, mail("alice"), oldPwd, "viewer")
+
+	body, _ := json.Marshal(map[string]string{
+		"current_password": oldPwd,
+		"new_password":     newPwd,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/password", bytes.NewReader(body))
+	req = injectUserClaims(req, strconv.FormatInt(me.ID, 10), "viewer")
+	rr := httptest.NewRecorder()
+	h.ChangeMyPassword(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := audit.EventsByAction(store.AuditActionPasswordChange)
+	if len(events) != 1 {
+		t.Fatalf("password_change events = %d, want 1", len(events))
+	}
+	got := events[0]
+	if got.Outcome != store.AuditOutcomeSuccess {
+		t.Errorf("outcome = %q, want success", got.Outcome)
+	}
+	if got.ActorID == nil || *got.ActorID != me.ID {
+		t.Errorf("actor_id = %v, want %d", got.ActorID, me.ID)
+	}
+	if got.TargetID != strconv.FormatInt(me.ID, 10) {
+		t.Errorf("target_id = %q, want %q", got.TargetID, strconv.FormatInt(me.ID, 10))
+	}
+}
+
+func TestUserHandler_ResetUserPassword_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	h, users, audit := newAuditingUserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+	target := seedLocalUserWithBcryptPassword(t, users, mail("bob"), "old-password-12", "viewer")
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/users/%d/password", target.ID), nil)
+	req.SetPathValue("id", strconv.FormatInt(target.ID, 10))
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.ResetUserPassword(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := audit.EventsByAction(store.AuditActionPasswordReset)
+	if len(events) != 1 {
+		t.Fatalf("password_reset events = %d, want 1", len(events))
+	}
+	got := events[0]
+	if got.ActorID == nil || *got.ActorID != admin.ID {
+		t.Errorf("actor_id = %v, want admin %d", got.ActorID, admin.ID)
+	}
+	if got.TargetID != strconv.FormatInt(target.ID, 10) {
+		t.Errorf("target_id = %q, want target %d", got.TargetID, target.ID)
+	}
+}
+
+func TestUserHandler_Create_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	h, users, audit := newAuditingUserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+
+	newEmail := mail("newcomer")
+	body, _ := json.Marshal(map[string]string{
+		"email": newEmail,
+		"name":  "New User",
+		"role":  "viewer",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewReader(body))
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := audit.EventsByAction(store.AuditActionUserCreate)
+	if len(events) != 1 {
+		t.Fatalf("users.create events = %d, want 1", len(events))
+	}
+	if events[0].ActorID == nil || *events[0].ActorID != admin.ID {
+		t.Errorf("actor_id = %v, want admin %d", events[0].ActorID, admin.ID)
+	}
+}
+
+func TestUserHandler_Update_RoleEmitsAudit(t *testing.T) {
+	t.Parallel()
+	h, users, audit := newAuditingUserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+	target := seedUser(t, users, mail("bob"), "viewer", true)
+
+	body, _ := json.Marshal(map[string]string{"role": "editor"})
+	req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", target.ID), bytes.NewReader(body))
+	req.SetPathValue("id", strconv.FormatInt(target.ID, 10))
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := audit.EventsByAction(store.AuditActionUserUpdateRole)
+	if len(events) != 1 {
+		t.Fatalf("users.update.role events = %d, want 1", len(events))
+	}
+}
+
+func TestUserHandler_Update_ActiveEmitsAudit(t *testing.T) {
+	t.Parallel()
+	h, users, audit := newAuditingUserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+	target := seedUser(t, users, mail("bob"), "viewer", true)
+
+	body, _ := json.Marshal(map[string]any{"active": false})
+	req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/users/%d", target.ID), bytes.NewReader(body))
+	req.SetPathValue("id", strconv.FormatInt(target.ID, 10))
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := audit.EventsByAction(store.AuditActionUserUpdateActive)
+	if len(events) != 1 {
+		t.Fatalf("users.update.active events = %d, want 1", len(events))
+	}
+}
+
+func TestUserHandler_Delete_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	h, users, audit := newAuditingUserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+	target := seedUser(t, users, mail("bob"), "viewer", true)
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", target.ID), nil)
+	req.SetPathValue("id", strconv.FormatInt(target.ID, 10))
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	events := audit.EventsByAction(store.AuditActionUserDelete)
+	if len(events) != 1 {
+		t.Fatalf("users.delete events = %d, want 1", len(events))
+	}
+	if events[0].TargetID != strconv.FormatInt(target.ID, 10) {
+		t.Errorf("target_id = %q, want %d", events[0].TargetID, target.ID)
+	}
+}
+
 func TestUserHandler_ResetUserPassword_InactiveTargetAllowed(t *testing.T) {
 	t.Parallel()
 	h, users := newUserHandler(t)

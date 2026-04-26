@@ -15,11 +15,20 @@ import (
 // APIKeyHandler handles CRUD operations for API keys.
 type APIKeyHandler struct {
 	store store.APIKeyStorer
+	audit store.AuditLogger // optional; nil disables persistent audit emission
 }
 
 // NewAPIKeyHandler creates a new APIKeyHandler.
 func NewAPIKeyHandler(s store.APIKeyStorer) *APIKeyHandler {
 	return &APIKeyHandler{store: s}
+}
+
+// WithAuditLogger wires the persistent audit logger so api_keys.create and
+// api_keys.delete events are recorded to the audit_log table. Nil is
+// acceptable — audit becomes a no-op.
+func (h *APIKeyHandler) WithAuditLogger(a store.AuditLogger) *APIKeyHandler {
+	h.audit = a
+	return h
 }
 
 // apiKeyResponse is the JSON representation of an API key (without the hash).
@@ -170,6 +179,25 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit api-key creation. The actor is the JWT subject (the username); the
+	// target is the new key's id. We deliberately do not log the key plaintext
+	// or the prefix metadata in audit_log.metadata — those are handed back to
+	// the caller in the HTTP response only.
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionAPIKeyCreate
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.ActorLabel = username
+	evt.TargetType = store.AuditTargetAPIKey
+	evt.TargetID = strconv.FormatInt(created.ID, 10)
+	if id, parseErr := strconv.ParseInt(username, 10, 64); parseErr == nil {
+		evt.ActorID = &id
+	}
+	evt.Metadata = auditMetadata(map[string]any{
+		"name":   created.Name,
+		"prefix": created.Prefix,
+	})
+	auditRecord(ctx, h.audit, evt)
+
 	resp := apiKeyCreateResponse{
 		apiKeyResponse: keyToResponse(created),
 		Key:            fullKey,
@@ -212,6 +240,17 @@ func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error deleting API key")
 		return
 	}
+
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionAPIKeyDelete
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.ActorLabel = username
+	evt.TargetType = store.AuditTargetAPIKey
+	evt.TargetID = strconv.FormatInt(id, 10)
+	if uid, parseErr := strconv.ParseInt(username, 10, 64); parseErr == nil {
+		evt.ActorID = &uid
+	}
+	auditRecord(ctx, h.audit, evt)
 
 	writeSuccess(w, http.StatusOK, map[string]any{"id": id}, "API key deleted")
 }

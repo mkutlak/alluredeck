@@ -146,6 +146,25 @@ type RefreshTokenFamilyStorer interface {
 	DeleteExpired(ctx context.Context) (int, error)
 }
 
+// AuditLogger persists security-sensitive events for incident response and
+// compliance. Calls are best-effort from the caller's perspective:
+// implementations must NOT fail the request they are auditing — handlers log
+// the error and continue serving the response.
+//
+// Records are append-only. There is no Update or Delete method; retention is
+// applied externally (e.g. by a future scheduled job that drops rows older
+// than N days).
+type AuditLogger interface {
+	// Record inserts a single audit event. Implementations MUST populate
+	// occurred_at server-side when AuditEvent.OccurredAt is the zero value
+	// so callers do not need to provide a timestamp.
+	Record(ctx context.Context, evt AuditEvent) error
+	// ListRecent returns the most recent audit events, newest first, capped
+	// at limit. The returned slice may be shorter than limit. Used by the
+	// (future) admin audit-log page; OK to be slow.
+	ListRecent(ctx context.Context, limit int) ([]AuditEvent, error)
+}
+
 // BranchStorer is the interface for branch operations.
 type BranchStorer interface {
 	GetOrCreate(ctx context.Context, projectID int64, name string) (*Branch, bool, error)

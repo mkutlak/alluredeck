@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/parser"
@@ -22,6 +23,7 @@ var (
 	_ store.UserStorer       = (*MockUserStore)(nil)
 	_ store.AttachmentStorer = (*MockAttachmentStore)(nil)
 	_ store.PipelineStorer   = (*MockPipelineStore)(nil)
+	_ store.AuditLogger      = (*MockAuditLogger)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
@@ -41,6 +43,7 @@ type MockStores struct {
 	Defects     *MemDefectStore
 	Webhooks    *MemWebhookStore // stateful in-memory store for webhook handler tests
 	Pipeline    *MockPipelineStore
+	Audit       *MockAuditLogger // stateful in-memory audit recorder for handler tests
 }
 
 // New returns a MockStores with all fields initialised.
@@ -63,6 +66,7 @@ func New() *MockStores {
 		Defects:     NewMemDefectStore(),
 		Webhooks:    NewMemWebhookStore(),
 		Pipeline:    &MockPipelineStore{},
+		Audit:       NewMockAuditLogger(),
 	}
 }
 
@@ -884,6 +888,92 @@ func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildI
 		return m.InsertBuildAttachmentsFn(ctx, buildID, projectID, attachments)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// MockAuditLogger
+// ---------------------------------------------------------------------------
+
+// MockAuditLogger is a thread-safe in-memory store.AuditLogger for handler
+// tests. Tests inspect Events() to assert which audit events the handler
+// emitted.
+type MockAuditLogger struct {
+	mu     sync.Mutex
+	events []store.AuditEvent
+	// RecordErr, when non-nil, is returned by Record without storing the event.
+	// Tests use this to exercise the handler's "audit failed, log and continue"
+	// path.
+	RecordErr error
+}
+
+// NewMockAuditLogger returns a ready-to-use empty mock.
+func NewMockAuditLogger() *MockAuditLogger {
+	return &MockAuditLogger{}
+}
+
+// Record appends evt to the in-memory slice (with a server-side OccurredAt when
+// the caller passed the zero value, mirroring the PG implementation).
+func (m *MockAuditLogger) Record(_ context.Context, evt store.AuditEvent) error {
+	if m.RecordErr != nil {
+		return m.RecordErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if evt.OccurredAt.IsZero() {
+		evt.OccurredAt = time.Now().UTC()
+	}
+	evt.ID = int64(len(m.events) + 1)
+	m.events = append(m.events, evt)
+	return nil
+}
+
+// ListRecent returns up to limit most-recent events, newest first.
+func (m *MockAuditLogger) ListRecent(_ context.Context, limit int) ([]store.AuditEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := len(m.events)
+	if n == 0 {
+		return nil, nil
+	}
+	out := make([]store.AuditEvent, 0, min(limit, n))
+	// events are appended chronologically; reverse-iterate for newest-first.
+	for i := n - 1; i >= 0 && len(out) < limit; i-- {
+		out = append(out, m.events[i])
+	}
+	return out, nil
+}
+
+// Events returns a snapshot of every event recorded so far, in insertion
+// order. Tests should treat the slice as read-only.
+func (m *MockAuditLogger) Events() []store.AuditEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]store.AuditEvent, len(m.events))
+	copy(out, m.events)
+	return out
+}
+
+// EventsByAction filters Events() to those whose Action matches.
+func (m *MockAuditLogger) EventsByAction(action string) []store.AuditEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]store.AuditEvent, 0)
+	for i := range m.events {
+		if m.events[i].Action == action {
+			out = append(out, m.events[i])
+		}
+	}
+	return out
+}
+
+// Reset clears the in-memory slice. Useful between sub-tests sharing one mock.
+func (m *MockAuditLogger) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = nil
 }
 
 // ---------------------------------------------------------------------------

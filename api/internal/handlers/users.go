@@ -40,6 +40,7 @@ var validRoles = map[string]struct{}{
 type UserHandler struct {
 	store  store.UserStorer
 	logger *zap.Logger
+	audit  store.AuditLogger // optional; nil disables persistent audit emission
 }
 
 // NewUserHandler creates a new UserHandler.
@@ -48,6 +49,14 @@ func NewUserHandler(s store.UserStorer, logger *zap.Logger) *UserHandler {
 		logger = zap.NewNop()
 	}
 	return &UserHandler{store: s, logger: logger}
+}
+
+// WithAuditLogger wires the persistent audit logger so user-lifecycle events
+// (create, role/active updates, delete, password change/reset) are recorded
+// to the audit_log table. Nil is acceptable — audit becomes a no-op.
+func (h *UserHandler) WithAuditLogger(a store.AuditLogger) *UserHandler {
+	h.audit = a
+	return h
 }
 
 // userResponse mirrors the public JSON representation (PasswordHash excluded
@@ -454,6 +463,27 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error creating user")
 		return
 	}
+
+	// Audit user creation. Actor identity comes from the calling admin's JWT
+	// claims; the new user's id is the audit target.
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionUserCreate
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.TargetType = store.AuditTargetUser
+	evt.TargetID = strconv.FormatInt(u.ID, 10)
+	if actorID, ok := claimsUserID(r); ok {
+		id := actorID
+		evt.ActorID = &id
+	}
+	if actorSub, _, ok := claimsSubject(r); ok {
+		evt.ActorLabel = actorSub
+	}
+	evt.Metadata = auditMetadata(map[string]any{
+		"new_user_email": email,
+		"role":           role,
+	})
+	auditRecord(r.Context(), h.audit, evt)
+
 	writeSuccess(w, http.StatusCreated, createUserResponse{
 		User:         userToResponse(u),
 		TempPassword: tempPassword,
@@ -513,6 +543,22 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "error updating role")
 			return
 		}
+		// Emit role-change audit immediately after the storage write so a
+		// successful audit row genuinely reflects a persisted role change.
+		evt := auditFromRequest(r)
+		evt.Action = store.AuditActionUserUpdateRole
+		evt.Outcome = store.AuditOutcomeSuccess
+		evt.TargetType = store.AuditTargetUser
+		evt.TargetID = strconv.FormatInt(id, 10)
+		if actorID, ok := claimsUserID(r); ok {
+			a := actorID
+			evt.ActorID = &a
+		}
+		if actorSub, _, ok := claimsSubject(r); ok {
+			evt.ActorLabel = actorSub
+		}
+		evt.Metadata = auditMetadata(map[string]any{"new_role": *req.Role})
+		auditRecord(r.Context(), h.audit, evt)
 	}
 
 	if req.Active != nil {
@@ -532,6 +578,20 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "error updating active")
 			return
 		}
+		evt := auditFromRequest(r)
+		evt.Action = store.AuditActionUserUpdateActive
+		evt.Outcome = store.AuditOutcomeSuccess
+		evt.TargetType = store.AuditTargetUser
+		evt.TargetID = strconv.FormatInt(id, 10)
+		if actorID, ok := claimsUserID(r); ok {
+			a := actorID
+			evt.ActorID = &a
+		}
+		if actorSub, _, ok := claimsSubject(r); ok {
+			evt.ActorLabel = actorSub
+		}
+		evt.Metadata = auditMetadata(map[string]any{"active": *req.Active})
+		auditRecord(r.Context(), h.audit, evt)
 	}
 
 	u, err := h.store.GetByID(r.Context(), id)
@@ -637,6 +697,19 @@ func (h *UserHandler) ChangeMyPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.Info("users: password changed",
 		zap.Int64("user_id", id), zap.String("provider", u.Provider))
+
+	// Audit the self-service password change. Actor and target are the same
+	// user — this is a credential rotation initiated by its owner.
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionPasswordChange
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.TargetType = store.AuditTargetUser
+	evt.TargetID = strconv.FormatInt(id, 10)
+	actorID := id
+	evt.ActorID = &actorID
+	evt.ActorLabel = u.Email
+	auditRecord(r.Context(), h.audit, evt)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -708,6 +781,24 @@ func (h *UserHandler) ResetUserPassword(w http.ResponseWriter, r *http.Request) 
 		zap.Int64("actor_id", actorID),
 		zap.Int64("target_id", id),
 		zap.Bool("target_active", u.IsActive))
+
+	// Audit the admin-driven password reset. Actor is the admin invoking the
+	// endpoint; target is the user whose password was rotated.
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionPasswordReset
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.TargetType = store.AuditTargetUser
+	evt.TargetID = strconv.FormatInt(id, 10)
+	if actorID != 0 {
+		a := actorID
+		evt.ActorID = &a
+	}
+	if actorSub, _, ok := claimsSubject(r); ok {
+		evt.ActorLabel = actorSub
+	}
+	evt.Metadata = auditMetadata(map[string]any{"target_active": u.IsActive})
+	auditRecord(r.Context(), h.audit, evt)
+
 	writeSuccess(w, http.StatusOK, map[string]string{
 		"temp_password": tempPassword,
 	}, "password reset. Copy the temporary password — it won't be shown again.")
@@ -748,5 +839,23 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error deactivating user")
 		return
 	}
+
+	// Audit the (soft) delete. We use the deletes action even though the
+	// underlying operation is a deactivation — that is the user-facing intent
+	// and the audit log records intent, not implementation detail.
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionUserDelete
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.TargetType = store.AuditTargetUser
+	evt.TargetID = strconv.FormatInt(id, 10)
+	if actorID, ok := claimsUserID(r); ok {
+		a := actorID
+		evt.ActorID = &a
+	}
+	if actorSub, _, ok := claimsSubject(r); ok {
+		evt.ActorLabel = actorSub
+	}
+	auditRecord(r.Context(), h.audit, evt)
+
 	w.WriteHeader(http.StatusNoContent)
 }

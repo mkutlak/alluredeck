@@ -46,6 +46,7 @@ type stores struct {
 	pipeline      store.PipelineStorer
 	preference    store.PreferenceStorer
 	refreshFamily store.RefreshTokenFamilyStorer
+	audit         store.AuditLogger
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -352,6 +353,7 @@ func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, 
 		webhook:       pg.NewWebhookStore(pgDB, encKey, logger),
 		pipeline:      pg.NewPipelineStore(pgDB),
 		preference:    pg.NewPreferenceStore(pgDB),
+		audit:         pg.NewAuditStore(pgDB),
 	}
 
 	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
@@ -388,7 +390,9 @@ func wireHandlers(
 
 	return handlerSet{
 		system: handlers.NewSystemHandler(cfg, sqlDB),
-		auth:   handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily).WithUserStore(s.user),
+		auth: handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily).
+			WithUserStore(s.user).
+			WithAuditLogger(s.audit),
 		report: handlers.NewReportHandler(handlers.ReportHandlerDeps{
 			JobManager:      jobManager,
 			Runner:          allureCore,
@@ -415,8 +419,8 @@ func wireHandlers(
 		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, s.project),
 		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
-		apiKey:          handlers.NewAPIKeyHandler(s.apiKey),
-		user:            handlers.NewUserHandler(s.user, logger),
+		apiKey:          handlers.NewAPIKeyHandler(s.apiKey).WithAuditLogger(s.audit),
+		user:            handlers.NewUserHandler(s.user, logger).WithAuditLogger(s.audit),
 		parent:          handlers.NewProjectParentHandler(s.project, logger),
 		defect:          handlers.NewDefectHandler(s.defect, s.project, logger),
 		webhook:         handlers.NewWebhookHandler(s.webhook, s.project, logger),
