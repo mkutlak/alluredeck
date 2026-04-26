@@ -4,18 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
+	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -1119,5 +1122,311 @@ func TestUserHandler_ResetUserPassword_InactiveTargetAllowed(t *testing.T) {
 	}
 	if bcrypt.CompareHashAndPassword([]byte(reloaded.PasswordHash), []byte("old-password-12")) == nil {
 		t.Errorf("hash was not updated for inactive target")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F-2: revoke families + cascade-delete API keys on password change/reset/deactivate
+// ---------------------------------------------------------------------------
+
+// newF2UserHandler returns a UserHandler wired to fresh in-memory family,
+// API-key, audit, and user stores. The MockBlacklistStore is wrapped behind a
+// security.JWTManager so ChangeMyPassword's access-token blacklisting is
+// observable through the same mock.
+func newF2UserHandler(t *testing.T) (
+	*UserHandler,
+	*testutil.MemUserStore,
+	*testutil.MemRefreshTokenFamilyStore,
+	*testutil.MemAPIKeyStore,
+	*testutil.MockAuditLogger,
+	*testutil.MemBlacklist,
+) {
+	t.Helper()
+	cfg := testAuthConfig()
+	blacklist := testutil.NewMemBlacklist()
+	jwtMgr := security.NewJWTManager(cfg, blacklist, zap.NewNop())
+
+	mocks := testutil.New()
+	families := testutil.NewMemRefreshTokenFamilyStore()
+	h := NewUserHandler(mocks.Users, zap.NewNop()).
+		WithAuditLogger(mocks.Audit).
+		WithFamilyStore(families).
+		WithAPIKeyStore(mocks.APIKeys).
+		WithJWTManager(jwtMgr)
+	return h, mocks.Users, families, mocks.APIKeys, mocks.Audit, blacklist
+}
+
+// seedActiveFamily inserts an active refresh-token family for userID into the
+// in-memory store and returns the resulting family record.
+func seedActiveFamily(t *testing.T, families *testutil.MemRefreshTokenFamilyStore, userID string) store.RefreshTokenFamily {
+	t.Helper()
+	famID, err := security.NewFamilyID()
+	if err != nil {
+		t.Fatalf("NewFamilyID: %v", err)
+	}
+	fam := store.RefreshTokenFamily{
+		FamilyID:   famID,
+		UserID:     userID,
+		Role:       "viewer",
+		Provider:   "local",
+		CurrentJTI: "jti-" + famID,
+		Status:     store.RefreshTokenFamilyStatusActive,
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	}
+	if err := families.Create(context.Background(), fam); err != nil {
+		t.Fatalf("families.Create: %v", err)
+	}
+	return fam
+}
+
+// seedAPIKey inserts an API key owned by username into the in-memory store.
+func seedAPIKey(t *testing.T, keys *testutil.MemAPIKeyStore, username, name string) {
+	t.Helper()
+	if _, err := keys.Create(context.Background(), &store.APIKey{
+		Name:     name,
+		Prefix:   "ald_test",
+		KeyHash:  "hash-" + name + "-" + username,
+		Username: username,
+		Role:     "viewer",
+	}); err != nil {
+		t.Fatalf("apiKeys.Create: %v", err)
+	}
+}
+
+// mintAccessTokenForUser builds a real signed access token for sub via the
+// shared JWT secret used by testAuthConfig() so ChangeMyPassword's blacklist
+// path can validate it. Returns the signed token and its JTI.
+func mintAccessTokenForUser(t *testing.T, sub string) (string, string) {
+	t.Helper()
+	cfg := testAuthConfig()
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	access, _, accessJTI, _, err := jwtMgr.GenerateTokensForFamily(sub, "viewer", "local", "")
+	if err != nil {
+		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+	return access, accessJTI
+}
+
+// TestUserHandler_ChangeMyPassword_RevokesFamilies asserts that a successful
+// self-service password change revokes every active refresh-token family for
+// the actor and blacklists the access JTI presented in the request.
+func TestUserHandler_ChangeMyPassword_RevokesFamilies(t *testing.T) {
+	t.Parallel()
+	h, users, families, _, audit, blacklist := newF2UserHandler(t)
+	const oldPwd = "old-password-12"
+	const newPwd = "new-password-34"
+	me := seedLocalUserWithBcryptPassword(t, users, mail("alice"), oldPwd, "viewer")
+	sub := strconv.FormatInt(me.ID, 10)
+
+	// Two active families plus one for an unrelated user that must survive.
+	famA := seedActiveFamily(t, families, sub)
+	famB := seedActiveFamily(t, families, sub)
+	famOther := seedActiveFamily(t, families, "999")
+
+	// Real access token + JTI presented via Authorization header.
+	access, jti := mintAccessTokenForUser(t, sub)
+
+	body, _ := json.Marshal(map[string]string{
+		"current_password": oldPwd,
+		"new_password":     newPwd,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/password", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+access)
+	req = injectUserClaims(req, sub, "viewer")
+	rr := httptest.NewRecorder()
+	h.ChangeMyPassword(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Both of the actor's families are revoked.
+	for _, fam := range []store.RefreshTokenFamily{famA, famB} {
+		got, err := families.GetByID(context.Background(), fam.FamilyID)
+		if err != nil || got == nil {
+			t.Fatalf("GetByID %s: got=%v err=%v", fam.FamilyID, got, err)
+		}
+		if got.Status != store.RefreshTokenFamilyStatusRevoked {
+			t.Errorf("family %s status = %q, want revoked", fam.FamilyID, got.Status)
+		}
+	}
+	// Other user's family is untouched.
+	gotOther, _ := families.GetByID(context.Background(), famOther.FamilyID)
+	if gotOther == nil || gotOther.Status != store.RefreshTokenFamilyStatusActive {
+		t.Errorf("famOther status = %v, want active (other users untouched)", gotOther)
+	}
+
+	// The access JTI presented in this request is now blacklisted.
+	if blacklisted, _ := blacklist.IsBlacklisted(context.Background(), jti); !blacklisted {
+		t.Errorf("access JTI %q is not blacklisted after password change", jti)
+	}
+
+	// Audit emitted a session.revoke_all event with the right metadata.
+	revokeEvents := audit.EventsByAction(store.AuditActionSessionRevokeAll)
+	if len(revokeEvents) != 1 {
+		t.Fatalf("session.revoke_all events = %d, want 1", len(revokeEvents))
+	}
+	got := revokeEvents[0]
+	if got.TargetID != sub {
+		t.Errorf("revoke target_id = %q, want %q", got.TargetID, sub)
+	}
+}
+
+// TestUserHandler_ResetUserPassword_RevokesFamiliesAndDeletesKeys asserts the
+// admin-driven reset both revokes every active session for the target and
+// hard-deletes every API key the target owns.
+func TestUserHandler_ResetUserPassword_RevokesFamiliesAndDeletesKeys(t *testing.T) {
+	t.Parallel()
+	h, users, families, keys, audit, _ := newF2UserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+	target := seedLocalUserWithBcryptPassword(t, users, mail("bob"), "old-password-12", "viewer")
+	targetSub := strconv.FormatInt(target.ID, 10)
+
+	// Two active sessions and two API keys for the target; one of each for an
+	// unrelated user that must survive.
+	famT1 := seedActiveFamily(t, families, targetSub)
+	famT2 := seedActiveFamily(t, families, targetSub)
+	famOther := seedActiveFamily(t, families, "999")
+	seedAPIKey(t, keys, target.Email, "ci-1")
+	seedAPIKey(t, keys, target.Email, "ci-2")
+	seedAPIKey(t, keys, mail("carol"), "carol-key")
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/users/%d/password", target.ID), nil)
+	req.SetPathValue("id", targetSub)
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.ResetUserPassword(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	for _, fam := range []store.RefreshTokenFamily{famT1, famT2} {
+		got, _ := families.GetByID(context.Background(), fam.FamilyID)
+		if got == nil || got.Status != store.RefreshTokenFamilyStatusRevoked {
+			t.Errorf("family %s status = %v, want revoked", fam.FamilyID, got)
+		}
+	}
+	if got, _ := families.GetByID(context.Background(), famOther.FamilyID); got == nil || got.Status != store.RefreshTokenFamilyStatusActive {
+		t.Errorf("famOther status = %v, want active", got)
+	}
+
+	if count, _ := keys.CountByUsername(context.Background(), target.Email); count != 0 {
+		t.Errorf("target API key count = %d, want 0", count)
+	}
+	if count, _ := keys.CountByUsername(context.Background(), mail("carol")); count != 1 {
+		t.Errorf("carol API key count = %d, want 1 (other users untouched)", count)
+	}
+
+	revokeEvents := audit.EventsByAction(store.AuditActionSessionRevokeAll)
+	if len(revokeEvents) != 1 {
+		t.Fatalf("session.revoke_all events = %d, want 1", len(revokeEvents))
+	}
+	cascadeEvents := audit.EventsByAction(store.AuditActionAPIKeyCascadeDelete)
+	if len(cascadeEvents) != 1 {
+		t.Fatalf("api_keys.cascade_delete events = %d, want 1", len(cascadeEvents))
+	}
+}
+
+// TestUserHandler_Delete_RevokesFamiliesAndDeletesKeys asserts that admin
+// deactivation revokes every session and cascade-deletes every API key for
+// the target. This is the canonical "remove access on departure" workflow.
+func TestUserHandler_Delete_RevokesFamiliesAndDeletesKeys(t *testing.T) {
+	t.Parallel()
+	h, users, families, keys, audit, _ := newF2UserHandler(t)
+	admin := seedUser(t, users, mail("admin"), "admin", true)
+	target := seedUser(t, users, mail("bob"), "viewer", true)
+	targetSub := strconv.FormatInt(target.ID, 10)
+
+	famT := seedActiveFamily(t, families, targetSub)
+	famOther := seedActiveFamily(t, families, "999")
+	seedAPIKey(t, keys, target.Email, "ci-1")
+	seedAPIKey(t, keys, mail("carol"), "carol-key")
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", target.ID), nil)
+	req.SetPathValue("id", targetSub)
+	req = injectUserClaims(req, strconv.FormatInt(admin.ID, 10), "admin")
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if got, _ := families.GetByID(context.Background(), famT.FamilyID); got == nil || got.Status != store.RefreshTokenFamilyStatusRevoked {
+		t.Errorf("famT status = %v, want revoked", got)
+	}
+	if got, _ := families.GetByID(context.Background(), famOther.FamilyID); got == nil || got.Status != store.RefreshTokenFamilyStatusActive {
+		t.Errorf("famOther status = %v, want active", got)
+	}
+	if count, _ := keys.CountByUsername(context.Background(), target.Email); count != 0 {
+		t.Errorf("target API key count = %d, want 0", count)
+	}
+	if count, _ := keys.CountByUsername(context.Background(), mail("carol")); count != 1 {
+		t.Errorf("carol API key count = %d, want 1", count)
+	}
+	if events := audit.EventsByAction(store.AuditActionSessionRevokeAll); len(events) != 1 {
+		t.Errorf("session.revoke_all events = %d, want 1", len(events))
+	}
+	if events := audit.EventsByAction(store.AuditActionAPIKeyCascadeDelete); len(events) != 1 {
+		t.Errorf("api_keys.cascade_delete events = %d, want 1", len(events))
+	}
+}
+
+// errFamilyStore wraps the in-memory family store and returns a fixed error
+// from RevokeAllForUser so we can assert the handler tolerates store failures.
+type errFamilyStore struct {
+	*testutil.MemRefreshTokenFamilyStore
+	revokeErr error
+}
+
+func (e *errFamilyStore) RevokeAllForUser(_ context.Context, _ string) (int, error) {
+	return 0, e.revokeErr
+}
+
+// TestUserHandler_RevocationFailureDoesNotFailHandler asserts the handler
+// still returns success when the bulk-revoke store call errors. Best-effort
+// semantics are load-bearing: we never want to block a password change on a
+// revocation hiccup.
+func TestUserHandler_RevocationFailureDoesNotFailHandler(t *testing.T) {
+	t.Parallel()
+	cfg := testAuthConfig()
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+
+	mocks := testutil.New()
+	families := &errFamilyStore{
+		MemRefreshTokenFamilyStore: testutil.NewMemRefreshTokenFamilyStore(),
+		revokeErr:                  errors.New("synthetic revoke failure"),
+	}
+	h := NewUserHandler(mocks.Users, zap.NewNop()).
+		WithAuditLogger(mocks.Audit).
+		WithFamilyStore(families).
+		WithAPIKeyStore(mocks.APIKeys).
+		WithJWTManager(jwtMgr)
+
+	const oldPwd = "old-password-12"
+	const newPwd = "new-password-34"
+	me := seedLocalUserWithBcryptPassword(t, mocks.Users, mail("alice"), oldPwd, "viewer")
+
+	body, _ := json.Marshal(map[string]string{
+		"current_password": oldPwd,
+		"new_password":     newPwd,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/password", bytes.NewReader(body))
+	req = injectUserClaims(req, strconv.FormatInt(me.ID, 10), "viewer")
+	rr := httptest.NewRecorder()
+	h.ChangeMyPassword(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("want 204 even when revoke fails, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// The password was still rotated successfully.
+	reloaded, err := mocks.Users.GetByID(context.Background(), me.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(reloaded.PasswordHash), []byte(newPwd)) != nil {
+		t.Errorf("password not rotated despite handler succeeding")
+	}
+	// No revoke audit was emitted (the store call failed before audit).
+	if events := mocks.Audit.EventsByAction(store.AuditActionSessionRevokeAll); len(events) != 0 {
+		t.Errorf("session.revoke_all events = %d, want 0 when revoke errored", len(events))
 	}
 }

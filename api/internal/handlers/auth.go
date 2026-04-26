@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
@@ -255,7 +254,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		tokenStr = extractCookieToken(r, "jwt")
 	}
 	if tokenStr != "" {
-		h.blacklistToken(tokenStr, "access", h.cfg.AccessTokenExpiry.Duration())
+		blacklistAccessToken(h.jwtManager, tokenStr, "access", h.cfg.AccessTokenExpiry.Duration())
 	}
 
 	// Also blacklist the refresh token JTI so it cannot be used to mint new access
@@ -274,7 +273,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		h.blacklistToken(refreshTokenStr, "refresh", h.cfg.RefreshTokenExpiry.Duration())
+		blacklistAccessToken(h.jwtManager, refreshTokenStr, "refresh", h.cfg.RefreshTokenExpiry.Duration())
 	}
 
 	// Expire all auth cookies with SameSite: Lax (AUDIT 1.1, REVIEW #11).
@@ -583,22 +582,4 @@ func extractCookieToken(r *http.Request, name string) string {
 		return ""
 	}
 	return cookie.Value
-}
-
-// blacklistToken validates tokenStr as expectedType and adds its JTI to the blacklist.
-// defaultExpiry is used when the token's exp claim is missing.
-func (h *AuthHandler) blacklistToken(tokenStr, expectedType string, defaultExpiry time.Duration) {
-	_, claims, err := h.jwtManager.ValidateToken(tokenStr, expectedType)
-	if err != nil {
-		return
-	}
-	jti, ok := claims["jti"].(string)
-	if !ok || jti == "" {
-		return
-	}
-	expiry := time.Now().Add(defaultExpiry)
-	if exp, ok := claims["exp"].(*jwt.NumericDate); ok {
-		expiry = exp.Time
-	}
-	h.jwtManager.AddToBlacklist(jti, expiry)
 }

@@ -349,6 +349,14 @@ const (
 	AuditActionPasswordReset     = "users.password_reset"
 	AuditActionAPIKeyCreate      = "api_keys.create"
 	AuditActionAPIKeyDelete      = "api_keys.delete"
+	// AuditActionSessionRevokeAll captures bulk refresh-token-family revocations
+	// triggered by password change/reset or account deactivation. Metadata
+	// includes the trigger and the count of families revoked.
+	AuditActionSessionRevokeAll = "auth.session.revoke_all"
+	// AuditActionAPIKeyCascadeDelete captures bulk API-key deletions triggered
+	// by password reset or account deactivation. Metadata includes the trigger
+	// and the count of keys deleted.
+	AuditActionAPIKeyCascadeDelete = "api_keys.cascade_delete"
 )
 
 // Audit outcome constants are the only values accepted by the audit_log

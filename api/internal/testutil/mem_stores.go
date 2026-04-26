@@ -126,6 +126,30 @@ func (m *MemAPIKeyStore) CountByUsername(ctx context.Context, username string) (
 	return count, nil
 }
 
+// DeleteAllForUser removes every key owned by username and returns the count.
+func (m *MemAPIKeyStore) DeleteAllForUser(ctx context.Context, username string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.keys[:0]
+	deleted := 0
+	for _, k := range m.keys {
+		if k.Username == username {
+			deleted++
+			continue
+		}
+		kept = append(kept, k)
+	}
+	// Zero out the trailing slice positions so removed entries are GC-eligible.
+	for i := len(kept); i < len(m.keys); i++ {
+		m.keys[i] = nil
+	}
+	m.keys = kept
+	return deleted, nil
+}
+
 // ---------------------------------------------------------------------------
 // MemProjectStore
 // ---------------------------------------------------------------------------

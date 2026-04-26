@@ -420,13 +420,17 @@ func wireHandlers(
 		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
 		apiKey:          handlers.NewAPIKeyHandler(s.apiKey).WithAuditLogger(s.audit),
-		user:            handlers.NewUserHandler(s.user, logger).WithAuditLogger(s.audit),
-		parent:          handlers.NewProjectParentHandler(s.project, logger),
-		defect:          handlers.NewDefectHandler(s.defect, s.project, logger),
-		webhook:         handlers.NewWebhookHandler(s.webhook, s.project, logger),
-		pipeline:        handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
-		preferences:     handlers.NewPreferenceHandler(s.preference),
-		oidc:            oidcHandler,
+		user: handlers.NewUserHandler(s.user, logger).
+			WithAuditLogger(s.audit).
+			WithFamilyStore(s.refreshFamily).
+			WithAPIKeyStore(s.apiKey).
+			WithJWTManager(jwtManager),
+		parent:      handlers.NewProjectParentHandler(s.project, logger),
+		defect:      handlers.NewDefectHandler(s.defect, s.project, logger),
+		webhook:     handlers.NewWebhookHandler(s.webhook, s.project, logger),
+		pipeline:    handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
+		preferences: handlers.NewPreferenceHandler(s.preference),
+		oidc:        oidcHandler,
 	}
 }
 

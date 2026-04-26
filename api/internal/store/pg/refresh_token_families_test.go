@@ -269,6 +269,94 @@ func TestPGRefreshTokenFamilyStore_Revoke_NotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// RevokeAllForUser
+// ---------------------------------------------------------------------------
+
+// TestPGRefreshTokenFamilyStore_RevokeAllForUser verifies the bulk-revoke
+// invariants used by F-2: only families belonging to the user transition,
+// only currently-active rows are counted, and rows for other users survive.
+func TestPGRefreshTokenFamilyStore_RevokeAllForUser(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+
+	rs := pg.NewRefreshTokenFamilyStore(s)
+
+	userID := fmt.Sprintf("user-%d", time.Now().UnixNano())
+	otherID := fmt.Sprintf("other-%d", time.Now().UnixNano())
+
+	// Three families for userID: two active, one already revoked.
+	famActive1 := newTestFamily(t)
+	famActive1.UserID = userID
+	if err := rs.Create(ctx, famActive1); err != nil {
+		t.Fatalf("Create famActive1: %v", err)
+	}
+	famActive2 := newTestFamily(t)
+	famActive2.UserID = userID
+	if err := rs.Create(ctx, famActive2); err != nil {
+		t.Fatalf("Create famActive2: %v", err)
+	}
+	famAlreadyRevoked := newTestFamily(t)
+	famAlreadyRevoked.UserID = userID
+	if err := rs.Create(ctx, famAlreadyRevoked); err != nil {
+		t.Fatalf("Create famAlreadyRevoked: %v", err)
+	}
+	if err := rs.Revoke(ctx, famAlreadyRevoked.FamilyID); err != nil {
+		t.Fatalf("Revoke famAlreadyRevoked: %v", err)
+	}
+
+	// One active family for an unrelated user — must survive untouched.
+	famOther := newTestFamily(t)
+	famOther.UserID = otherID
+	if err := rs.Create(ctx, famOther); err != nil {
+		t.Fatalf("Create famOther: %v", err)
+	}
+
+	revoked, err := rs.RevokeAllForUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("RevokeAllForUser: %v", err)
+	}
+	if revoked != 2 {
+		t.Errorf("revoked = %d, want 2 (only active families count)", revoked)
+	}
+
+	for _, fam := range []store.RefreshTokenFamily{famActive1, famActive2} {
+		got, err := rs.GetByID(ctx, fam.FamilyID)
+		if err != nil || got == nil {
+			t.Fatalf("GetByID %s: got=%v err=%v", fam.FamilyID, got, err)
+		}
+		if got.Status != store.RefreshTokenFamilyStatusRevoked {
+			t.Errorf("family %s status = %q, want revoked", fam.FamilyID, got.Status)
+		}
+	}
+
+	// Family belonging to another user must not be revoked.
+	gotOther, err := rs.GetByID(ctx, famOther.FamilyID)
+	if err != nil || gotOther == nil {
+		t.Fatalf("GetByID famOther: got=%v err=%v", gotOther, err)
+	}
+	if gotOther.Status != store.RefreshTokenFamilyStatusActive {
+		t.Errorf("famOther.Status = %q, want active (other user's families must survive)", gotOther.Status)
+	}
+}
+
+// TestPGRefreshTokenFamilyStore_RevokeAllForUser_NoActive returns 0 and a nil
+// error when the user has no active families (e.g. they have never logged in
+// or every family is already revoked / compromised). Idempotent by design.
+func TestPGRefreshTokenFamilyStore_RevokeAllForUser_NoActive(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+
+	rs := pg.NewRefreshTokenFamilyStore(s)
+	revoked, err := rs.RevokeAllForUser(ctx, fmt.Sprintf("ghost-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatalf("RevokeAllForUser: %v", err)
+	}
+	if revoked != 0 {
+		t.Errorf("revoked = %d, want 0 for unknown user", revoked)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // DeleteExpired
 // ---------------------------------------------------------------------------
 

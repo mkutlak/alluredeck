@@ -191,3 +191,75 @@ func isAPIKeyNotFound(err error) bool {
 	}
 	return errors.Is(err, store.ErrAPIKeyNotFound)
 }
+
+// TestPGAPIKeyStore_DeleteAllForUser verifies the bulk-delete invariants used
+// by F-2: every key owned by the target user is removed, the count matches,
+// and keys owned by other users are untouched.
+func TestPGAPIKeyStore_DeleteAllForUser(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+
+	ks := pg.NewAPIKeyStore(s)
+	alice := fmt.Sprintf("alice-%d@x.test", time.Now().UnixNano())
+	bob := fmt.Sprintf("bob-%d@x.test", time.Now().UnixNano())
+
+	// Three keys for Alice.
+	for i := range 3 {
+		if _, err := ks.Create(ctx, &store.APIKey{
+			Name:     fmt.Sprintf("alice-key-%d", i),
+			Prefix:   "ald_aaaaaaaa",
+			KeyHash:  fmt.Sprintf("alice-hash-%d-%d", i, time.Now().UnixNano()),
+			Username: alice,
+			Role:     "viewer",
+		}); err != nil {
+			t.Fatalf("Create alice key %d: %v", i, err)
+		}
+	}
+	// One key for Bob — must survive.
+	if _, err := ks.Create(ctx, &store.APIKey{
+		Name:     "bob-key",
+		Prefix:   "ald_bbbbbbbb",
+		KeyHash:  fmt.Sprintf("bob-hash-%d", time.Now().UnixNano()),
+		Username: bob,
+		Role:     "viewer",
+	}); err != nil {
+		t.Fatalf("Create bob key: %v", err)
+	}
+
+	deleted, err := ks.DeleteAllForUser(ctx, alice)
+	if err != nil {
+		t.Fatalf("DeleteAllForUser: %v", err)
+	}
+	if deleted != 3 {
+		t.Errorf("deleted = %d, want 3", deleted)
+	}
+
+	// Alice has no keys left.
+	if count, err := ks.CountByUsername(ctx, alice); err != nil {
+		t.Fatalf("CountByUsername alice: %v", err)
+	} else if count != 0 {
+		t.Errorf("alice CountByUsername = %d, want 0", count)
+	}
+	// Bob's key is untouched.
+	if count, err := ks.CountByUsername(ctx, bob); err != nil {
+		t.Fatalf("CountByUsername bob: %v", err)
+	} else if count != 1 {
+		t.Errorf("bob CountByUsername = %d, want 1 (other users untouched)", count)
+	}
+}
+
+// TestPGAPIKeyStore_DeleteAllForUser_None returns (0, nil) when the user has
+// no API keys. Idempotent by design.
+func TestPGAPIKeyStore_DeleteAllForUser_None(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+
+	ks := pg.NewAPIKeyStore(s)
+	deleted, err := ks.DeleteAllForUser(ctx, fmt.Sprintf("ghost-%d@x.test", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatalf("DeleteAllForUser: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0 for unknown user", deleted)
+	}
+}

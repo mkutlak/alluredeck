@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
+	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
@@ -57,6 +59,35 @@ func clientIPForAudit(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// blacklistAccessToken validates tokenStr as expectedType and adds its JTI to
+// the JWTManager's persistent blacklist. Used by Logout (refresh+access) and
+// by ChangeMyPassword (access). Best-effort: silently returns when jwtMgr is
+// nil, the token cannot be parsed, or the claims lack a JTI — callers must
+// not depend on this for correctness, only for revocation latency reduction.
+//
+// defaultExpiry is used when the token's exp claim is missing or unparseable.
+// We must use claims.GetExpirationTime() (not a direct type assertion) because
+// jwt.Parse stores numeric claims as float64, not *jwt.NumericDate; the
+// helper normalises across both shapes.
+func blacklistAccessToken(jwtMgr *security.JWTManager, tokenStr, expectedType string, defaultExpiry time.Duration) {
+	if jwtMgr == nil || tokenStr == "" {
+		return
+	}
+	_, claims, err := jwtMgr.ValidateToken(tokenStr, expectedType)
+	if err != nil {
+		return
+	}
+	jti, ok := claims["jti"].(string)
+	if !ok || jti == "" {
+		return
+	}
+	expiry := time.Now().Add(defaultExpiry)
+	if expNum, err := claims.GetExpirationTime(); err == nil && expNum != nil {
+		expiry = expNum.Time
+	}
+	jwtMgr.AddToBlacklist(jti, expiry)
 }
 
 // auditMetadata is a tiny convenience that marshals a map to json.RawMessage

@@ -151,6 +151,25 @@ func (r *RefreshTokenFamilyStore) setStatus(ctx context.Context, familyID, statu
 	return nil
 }
 
+// RevokeAllForUser sets status='revoked' for every currently-active family
+// belonging to the given user_id in a single UPDATE statement. Returns the
+// number of families that transitioned. Used by password change/reset and
+// account deactivation to invalidate every live session for the user.
+func (r *RefreshTokenFamilyStore) RevokeAllForUser(ctx context.Context, userID string) (int, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE refresh_token_families
+		SET status = $2, updated_at = NOW()
+		WHERE user_id = $1 AND status = $3`,
+		userID,
+		store.RefreshTokenFamilyStatusRevoked,
+		store.RefreshTokenFamilyStatusActive,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("revoke all refresh token families for user: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // DeleteExpired removes every row whose expires_at is strictly before NOW().
 // It returns the number of rows deleted.
 func (r *RefreshTokenFamilyStore) DeleteExpired(ctx context.Context) (int, error) {

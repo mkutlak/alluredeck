@@ -702,12 +702,13 @@ func (m *MockLocker) AcquireLock(ctx context.Context, key string) (func(), error
 // MockAPIKeyStore is a test double for store.APIKeyStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockAPIKeyStore struct {
-	CreateFn          func(ctx context.Context, key *store.APIKey) (*store.APIKey, error)
-	ListByUsernameFn  func(ctx context.Context, username string) ([]store.APIKey, error)
-	GetByHashFn       func(ctx context.Context, keyHash string) (*store.APIKey, error)
-	UpdateLastUsedFn  func(ctx context.Context, id int64) error
-	DeleteFn          func(ctx context.Context, id int64, username string) error
-	CountByUsernameFn func(ctx context.Context, username string) (int, error)
+	CreateFn           func(ctx context.Context, key *store.APIKey) (*store.APIKey, error)
+	ListByUsernameFn   func(ctx context.Context, username string) ([]store.APIKey, error)
+	GetByHashFn        func(ctx context.Context, keyHash string) (*store.APIKey, error)
+	UpdateLastUsedFn   func(ctx context.Context, id int64) error
+	DeleteFn           func(ctx context.Context, id int64, username string) error
+	CountByUsernameFn  func(ctx context.Context, username string) (int, error)
+	DeleteAllForUserFn func(ctx context.Context, username string) (int, error)
 }
 
 func (m *MockAPIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.APIKey, error) {
@@ -748,6 +749,13 @@ func (m *MockAPIKeyStore) Delete(ctx context.Context, id int64, username string)
 func (m *MockAPIKeyStore) CountByUsername(ctx context.Context, username string) (int, error) {
 	if m.CountByUsernameFn != nil {
 		return m.CountByUsernameFn(ctx, username)
+	}
+	return 0, nil
+}
+
+func (m *MockAPIKeyStore) DeleteAllForUser(ctx context.Context, username string) (int, error) {
+	if m.DeleteAllForUserFn != nil {
+		return m.DeleteAllForUserFn(ctx, username)
 	}
 	return 0, nil
 }

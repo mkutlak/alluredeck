@@ -94,6 +94,26 @@ func (m *MemRefreshTokenFamilyStore) setStatus(familyID, status string) error {
 	return nil
 }
 
+// RevokeAllForUser sets status='revoked' for every active family belonging to
+// userID. Returns the number revoked. Mirrors the PG implementation.
+func (m *MemRefreshTokenFamilyStore) RevokeAllForUser(_ context.Context, userID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	revoked := 0
+	now := time.Now().UTC()
+	for id := range m.families {
+		f := m.families[id]
+		if f.UserID != userID || f.Status != store.RefreshTokenFamilyStatusActive {
+			continue
+		}
+		f.Status = store.RefreshTokenFamilyStatusRevoked
+		f.UpdatedAt = now
+		m.families[id] = f
+		revoked++
+	}
+	return revoked, nil
+}
+
 func (m *MemRefreshTokenFamilyStore) DeleteExpired(_ context.Context) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -141,6 +141,12 @@ type RefreshTokenFamilyStorer interface {
 	// ErrRefreshFamilyNotFound when the family does not exist.
 	Revoke(ctx context.Context, familyID string) error
 
+	// RevokeAllForUser sets status='revoked' for every active family belonging
+	// to the given user_id. Returns the number of families revoked. Used by
+	// password change/reset and account deactivation to invalidate every live
+	// session in one call. Missing-user is not an error: the count is simply 0.
+	RevokeAllForUser(ctx context.Context, userID string) (int, error)
+
 	// DeleteExpired removes every row whose expires_at is strictly before NOW().
 	// It returns the number of rows deleted.
 	DeleteExpired(ctx context.Context) (int, error)
@@ -250,6 +256,11 @@ type APIKeyStorer interface {
 	UpdateLastUsed(ctx context.Context, id int64) error
 	Delete(ctx context.Context, id int64, username string) error
 	CountByUsername(ctx context.Context, username string) (int, error)
+	// DeleteAllForUser hard-deletes every API key owned by username. Returns
+	// the number of rows deleted. Used by account deactivation and password
+	// reset to ensure no stale credentials remain after a user-lifecycle event.
+	// Missing-user is not an error: the count is simply 0.
+	DeleteAllForUser(ctx context.Context, username string) (int, error)
 }
 
 // Locker serialises per-project operations using PostgreSQL advisory locks

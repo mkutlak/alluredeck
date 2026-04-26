@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
+	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
@@ -38,9 +40,12 @@ var validRoles = map[string]struct{}{
 
 // UserHandler handles CRUD operations for user accounts.
 type UserHandler struct {
-	store  store.UserStorer
-	logger *zap.Logger
-	audit  store.AuditLogger // optional; nil disables persistent audit emission
+	store      store.UserStorer
+	logger     *zap.Logger
+	audit      store.AuditLogger              // optional; nil disables persistent audit emission
+	families   store.RefreshTokenFamilyStorer // optional; nil disables session revocation on password change/reset/deactivate
+	apiKeys    store.APIKeyStorer             // optional; nil disables API-key cascade-delete on password reset/deactivate
+	jwtManager *security.JWTManager           // optional; nil disables access-JTI blacklisting on self password change
 }
 
 // NewUserHandler creates a new UserHandler.
@@ -56,6 +61,32 @@ func NewUserHandler(s store.UserStorer, logger *zap.Logger) *UserHandler {
 // to the audit_log table. Nil is acceptable — audit becomes a no-op.
 func (h *UserHandler) WithAuditLogger(a store.AuditLogger) *UserHandler {
 	h.audit = a
+	return h
+}
+
+// WithFamilyStore wires the refresh-token family store so password change,
+// password reset, and account deactivation can revoke every live session for
+// the affected user (F-2). Nil is acceptable — bulk revocation becomes a
+// no-op and the handler logs that revocation was skipped.
+func (h *UserHandler) WithFamilyStore(f store.RefreshTokenFamilyStorer) *UserHandler {
+	h.families = f
+	return h
+}
+
+// WithAPIKeyStore wires the API-key store so password reset and account
+// deactivation can cascade-delete every API key owned by the affected user
+// (F-2). Nil is acceptable — cascade becomes a no-op.
+func (h *UserHandler) WithAPIKeyStore(k store.APIKeyStorer) *UserHandler {
+	h.apiKeys = k
+	return h
+}
+
+// WithJWTManager wires the JWT manager so ChangeMyPassword can blacklist the
+// actor's current access JTI on the same request that rotated their password
+// (F-2). Nil is acceptable — blacklisting becomes a no-op and the access
+// token continues to be honoured until natural expiry.
+func (h *UserHandler) WithJWTManager(m *security.JWTManager) *UserHandler {
+	h.jwtManager = m
 	return h
 }
 
@@ -607,6 +638,98 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, userToResponse(u), "user updated")
 }
 
+// revokeAllFamilies is a best-effort wrapper that revokes every active refresh
+// family for sub. The trigger and target (when distinct from the actor) are
+// included in the audit metadata so incident response can correlate the event
+// to the originating request. Failures are logged at warn level and never
+// propagated — the surrounding handler must complete its successful response.
+func (h *UserHandler) revokeAllFamilies(ctx context.Context, r *http.Request, sub, trigger string, targetID int64) {
+	if h.families == nil {
+		return
+	}
+	revoked, err := h.families.RevokeAllForUser(ctx, sub)
+	if err != nil {
+		h.logger.Warn("users: revoke refresh families failed",
+			zap.String("trigger", trigger), zap.String("sub", sub), zap.Error(err))
+		return
+	}
+	if h.audit == nil {
+		return
+	}
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionSessionRevokeAll
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.TargetType = store.AuditTargetSession
+	evt.TargetID = sub
+	if actorID, ok := claimsUserID(r); ok {
+		a := actorID
+		evt.ActorID = &a
+	}
+	if actorSub, _, ok := claimsSubject(r); ok {
+		evt.ActorLabel = actorSub
+	}
+	meta := map[string]any{
+		"trigger": trigger,
+		"revoked": revoked,
+	}
+	if targetID != 0 {
+		meta["target_id"] = targetID
+	}
+	evt.Metadata = auditMetadata(meta)
+	auditRecord(ctx, h.audit, evt)
+}
+
+// cascadeDeleteAPIKeys is a best-effort wrapper that hard-deletes every API
+// key owned by username. Failures are logged at warn level and never
+// propagated. Trigger is recorded in the audit metadata for forensics.
+func (h *UserHandler) cascadeDeleteAPIKeys(ctx context.Context, r *http.Request, username, trigger string, targetID int64) {
+	if h.apiKeys == nil || username == "" {
+		return
+	}
+	deleted, err := h.apiKeys.DeleteAllForUser(ctx, username)
+	if err != nil {
+		h.logger.Warn("users: cascade-delete api keys failed",
+			zap.String("trigger", trigger), zap.String("username", username), zap.Error(err))
+		return
+	}
+	if h.audit == nil {
+		return
+	}
+	evt := auditFromRequest(r)
+	evt.Action = store.AuditActionAPIKeyCascadeDelete
+	evt.Outcome = store.AuditOutcomeSuccess
+	evt.TargetType = store.AuditTargetAPIKey
+	evt.TargetID = strconv.FormatInt(targetID, 10)
+	if actorID, ok := claimsUserID(r); ok {
+		a := actorID
+		evt.ActorID = &a
+	}
+	if actorSub, _, ok := claimsSubject(r); ok {
+		evt.ActorLabel = actorSub
+	}
+	evt.Metadata = auditMetadata(map[string]any{
+		"trigger":  trigger,
+		"username": username,
+		"deleted":  deleted,
+	})
+	auditRecord(ctx, h.audit, evt)
+}
+
+// blacklistCurrentAccessToken extracts the access token from the current
+// request (Bearer header preferred, jwt cookie fallback) and adds its JTI to
+// the persistent blacklist. Best-effort: silently no-ops when the JWT manager
+// is unwired or the token cannot be parsed.
+func (h *UserHandler) blacklistCurrentAccessToken(r *http.Request) {
+	if h.jwtManager == nil {
+		return
+	}
+	tokenStr := extractBearerToken(r)
+	if tokenStr == "" {
+		tokenStr = extractCookieToken(r, "jwt")
+	}
+	blacklistAccessToken(h.jwtManager, tokenStr, "access", 0)
+}
+
 // ChangeMyPassword godoc
 // @Summary      Change the authenticated user's password
 // @Description  Self-service password rotation for local (password-based)
@@ -710,6 +833,14 @@ func (h *UserHandler) ChangeMyPassword(w http.ResponseWriter, r *http.Request) {
 	evt.ActorLabel = u.Email
 	auditRecord(r.Context(), h.audit, evt)
 
+	// F-2: revoke every other refresh-token family for this user and blacklist
+	// the access JTI presented in this request so the stolen-credential window
+	// closes immediately on rotation. Best-effort: failures are logged but do
+	// not fail the password change itself — the password is already rotated.
+	userSub := strconv.FormatInt(id, 10)
+	h.revokeAllFamilies(r.Context(), r, userSub, "password_change", 0)
+	h.blacklistCurrentAccessToken(r)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -799,6 +930,13 @@ func (h *UserHandler) ResetUserPassword(w http.ResponseWriter, r *http.Request) 
 	evt.Metadata = auditMetadata(map[string]any{"target_active": u.IsActive})
 	auditRecord(r.Context(), h.audit, evt)
 
+	// F-2: invalidate every active refresh-token family for the target and
+	// hard-delete every API key they own. The original session, wherever it
+	// was stolen to, must stop authenticating immediately. Best-effort.
+	sub := strconv.FormatInt(id, 10)
+	h.revokeAllFamilies(r.Context(), r, sub, "password_reset", id)
+	h.cascadeDeleteAPIKeys(r.Context(), r, u.Email, "password_reset", id)
+
 	writeSuccess(w, http.StatusOK, map[string]string{
 		"temp_password": tempPassword,
 	}, "password reset. Copy the temporary password — it won't be shown again.")
@@ -830,6 +968,19 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "cannot deactivate your own account")
 		return
 	}
+	// Load the target before deactivating so the post-deactivate cascade has
+	// the user's email (used as api_keys.username for DB-backed users). The
+	// loaded user is also useful for the audit row.
+	target, err := h.store.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		h.logger.Error("users: deactivate lookup failed", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error loading user")
+		return
+	}
 	if err := h.store.Deactivate(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrUserNotFound) {
 			writeError(w, http.StatusNotFound, "user not found")
@@ -856,6 +1007,14 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		evt.ActorLabel = actorSub
 	}
 	auditRecord(r.Context(), h.audit, evt)
+
+	// F-2: revoke every active session and delete every API key belonging to
+	// the deactivated user. Best-effort: failures here log but do not change
+	// the response — the account is already disabled and follow-up F-3 work
+	// (per-request is_active recheck) will close any residual access window.
+	sub := strconv.FormatInt(id, 10)
+	h.revokeAllFamilies(r.Context(), r, sub, "user_deactivate", id)
+	h.cascadeDeleteAPIKeys(r.Context(), r, target.Email, "user_deactivate", id)
 
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -110,6 +110,19 @@ func (s *APIKeyStore) Delete(ctx context.Context, id int64, username string) err
 	return nil
 }
 
+// DeleteAllForUser hard-deletes every API key owned by username and returns
+// the number of rows deleted. Used by account deactivation and password reset
+// so stale credentials cannot survive a user-lifecycle event. Missing-user
+// returns (0, nil); only DB errors are propagated.
+func (s *APIKeyStore) DeleteAllForUser(ctx context.Context, username string) (int, error) {
+	tag, err := s.pool.Exec(ctx,
+		"DELETE FROM api_keys WHERE username = $1", username)
+	if err != nil {
+		return 0, fmt.Errorf("delete all api keys for user: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // CountByUsername returns the number of API keys owned by the given username.
 func (s *APIKeyStore) CountByUsername(ctx context.Context, username string) (int, error) {
 	var count int
