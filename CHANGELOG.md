@@ -1,3 +1,9 @@
+## [0.31.0](https://github.com/mkutlak/alluredeck/compare/v0.30.0...v0.31.0) (2026-04-26)
+
+### Features
+
+* **observability:** add OpenTelemetry traces, metrics, and Helm scrape ([1967d1a](https://github.com/mkutlak/alluredeck/commit/1967d1a1f9e7e7ceafadcb386737e53c9f82440c))
+
 ## [0.30.0](https://github.com/mkutlak/alluredeck/compare/v0.29.0...v0.30.0) (2026-04-25)
 
 ### Features
