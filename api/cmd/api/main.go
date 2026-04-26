@@ -244,7 +244,7 @@ func main() {
 		middleware.RequestID(
 			middleware.OTel(otel.GetTracerProvider())(
 				middleware.LoggingMiddleware(logger)(
-					middleware.SecurityHeaders(
+					middleware.SecurityHeaders(cfg)(
 						middleware.CSRFMiddleware(cfg)(
 							middleware.CORSMiddleware(cfg, mux),
 						),
