@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -300,7 +299,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	river.AddWorker(workers, reportWorker)
 	river.AddWorker(workers, &SendWebhookWorker{
 		webhookStore: webhookStore,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		httpClient:   newOTelHTTPClient(10 * time.Second),
 		encKey:       encKey,
 		logger:       logger,
 	})
@@ -325,6 +324,9 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 			"webhooks":         {MaxWorkers: 5},
 		},
 		Workers: workers,
+		WorkerMiddleware: []rivertype.WorkerMiddleware{
+			NewOTelWorkerMiddleware(),
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create River client: %w", err)
@@ -358,7 +360,7 @@ func (jm *RiverJobManager) Shutdown() {
 }
 
 // Submit enqueues a new report generation job via River and returns its initial state.
-func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams) *Job {
+func (jm *RiverJobManager) Submit(ctx context.Context, projectID int64, slug string, params JobParams) *Job {
 	args := GenerateReportArgs{
 		ProjectID:     projectID,
 		Slug:          slug,
@@ -373,7 +375,7 @@ func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams
 		CIPipelineID:  params.CIPipelineID,
 		CIPipelineURL: params.CIPipelineURL,
 	}
-	res, err := jm.client.Insert(jm.ctx, args, nil)
+	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{Metadata: InjectTraceContextIntoMetadata(ctx)})
 	if err != nil {
 		jm.logger.Error("river insert failed", zap.Int64("project_id", projectID), zap.String("slug", slug), zap.Error(err))
 		return &Job{
@@ -388,7 +390,7 @@ func (jm *RiverJobManager) Submit(projectID int64, slug string, params JobParams
 }
 
 // SubmitPlaywright enqueues a new Playwright report ingestion job.
-func (jm *RiverJobManager) SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job {
+func (jm *RiverJobManager) SubmitPlaywright(ctx context.Context, projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job {
 	args := PlaywrightIngestArgs{
 		ProjectID:     projectID,
 		Slug:          slug,
@@ -400,7 +402,7 @@ func (jm *RiverJobManager) SubmitPlaywright(projectID int64, slug, storageKey st
 		CIPipelineID:  ciPipelineID,
 		CIPipelineURL: ciPipelineURL,
 	}
-	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{MaxAttempts: 3})
+	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{MaxAttempts: 3, Metadata: InjectTraceContextIntoMetadata(ctx)})
 	if err != nil {
 		jm.logger.Error("river insert failed", zap.Int64("project_id", projectID), zap.String("slug", slug), zap.Error(err))
 		return &Job{

@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
@@ -32,16 +34,27 @@ type OIDCExchanger interface {
 
 // OIDCProvider wraps the go-oidc provider, verifier, and oauth2 config.
 type OIDCProvider struct {
-	provider  *gooidc.Provider
-	verifier  *gooidc.IDTokenVerifier
-	oauth2Cfg oauth2.Config
-	logger    *zap.Logger
+	provider   *gooidc.Provider
+	verifier   *gooidc.IDTokenVerifier
+	oauth2Cfg  oauth2.Config
+	httpClient *http.Client // used for OIDC discovery + token exchange; wraps otelhttp transport
+	logger     *zap.Logger
 }
 
 // NewOIDCProvider discovers the OIDC provider from IssuerURL and returns an OIDCProvider.
 // Blocks until OIDC discovery completes. Returns an error if discovery fails.
+// Outbound OIDC/OAuth2 HTTP requests are instrumented with OpenTelemetry via
+// otelhttp.NewTransport so they appear as child spans of the originating request.
 func NewOIDCProvider(ctx context.Context, cfg *config.OIDCConfig, logger *zap.Logger) (*OIDCProvider, error) {
-	provider, err := gooidc.NewProvider(ctx, cfg.IssuerURL)
+	// Build an OTel-instrumented HTTP client for OIDC discovery and token exchange.
+	otelClient := &http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+
+	// Inject the client so go-oidc uses it for discovery.
+	discoverCtx := context.WithValue(ctx, oauth2.HTTPClient, otelClient)
+
+	provider, err := gooidc.NewProvider(discoverCtx, cfg.IssuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("OIDC discovery failed for issuer %q: %w", cfg.IssuerURL, err)
 	}
@@ -58,10 +71,11 @@ func NewOIDCProvider(ctx context.Context, cfg *config.OIDCConfig, logger *zap.Lo
 	}
 
 	return &OIDCProvider{
-		provider:  provider,
-		verifier:  verifier,
-		oauth2Cfg: oauth2Cfg,
-		logger:    logger,
+		provider:   provider,
+		verifier:   verifier,
+		oauth2Cfg:  oauth2Cfg,
+		httpClient: otelClient,
+		logger:     logger,
 	}, nil
 }
 
@@ -77,7 +91,12 @@ func (p *OIDCProvider) AuthCodeURL(state, nonce, codeChallenge string) string {
 
 // Exchange exchanges an authorization code for an ID token using PKCE,
 // validates the nonce to prevent replay attacks, and returns the extracted user info.
+// The OTel-instrumented http.Client is injected via context so the token exchange
+// request appears as a child span.
 func (p *OIDCProvider) Exchange(ctx context.Context, code, codeVerifier, nonce string) (*OIDCUserInfo, error) {
+	if p.httpClient != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
+	}
 	token, err := p.oauth2Cfg.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", codeVerifier))
 	if err != nil {
 		return nil, fmt.Errorf("token exchange failed: %w", err)

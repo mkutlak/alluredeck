@@ -1,0 +1,20 @@
+{{- if and .Values.observability.enabled .Values.observability.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}-metrics
+  labels:
+    {{- include "alluredeck.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "alluredeck.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.observability.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "alluredeck.api.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -144,8 +144,8 @@ func TestAdminListJobs_ReturnsJobs(t *testing.T) {
 	defer close(gen.ch)
 
 	jm := newAdminTestJobManager(t, gen, 4)
-	jm.Submit(1, "proj-admin-1", runner.JobParams{})
-	jm.Submit(2, "proj-admin-2", runner.JobParams{})
+	jm.Submit(context.Background(), 1, "proj-admin-1", runner.JobParams{})
+	jm.Submit(context.Background(), 2, "proj-admin-2", runner.JobParams{})
 
 	h := newTestAdminHandler(t, jm, &storage.MockStore{})
 
@@ -180,7 +180,7 @@ func TestAdminListJobs_Pagination(t *testing.T) {
 
 	jm := newAdminTestJobManager(t, gen, 8)
 	for i := 1; i <= 5; i++ {
-		jm.Submit(int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
+		jm.Submit(context.Background(), int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
 	}
 
 	h := newTestAdminHandler(t, jm, &storage.MockStore{})
@@ -216,7 +216,7 @@ func TestAdminListJobs_PaginationPage2(t *testing.T) {
 
 	jm := newAdminTestJobManager(t, gen, 8)
 	for i := 1; i <= 5; i++ {
-		jm.Submit(int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
+		jm.Submit(context.Background(), int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
 	}
 
 	h := newTestAdminHandler(t, jm, &storage.MockStore{})
@@ -249,7 +249,7 @@ func TestAdminListJobs_PaginationBeyondLast(t *testing.T) {
 
 	jm := newAdminTestJobManager(t, gen, 8)
 	for i := 1; i <= 5; i++ {
-		jm.Submit(int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
+		jm.Submit(context.Background(), int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
 	}
 
 	h := newTestAdminHandler(t, jm, &storage.MockStore{})
@@ -403,7 +403,7 @@ func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
 	gen := newBlockingGen()
 
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(1, "proj-terminal", runner.JobParams{})
+	j := jm.Submit(context.Background(), 1, "proj-terminal", runner.JobParams{})
 	close(gen.ch)
 
 	// Wait for completion.
@@ -430,7 +430,7 @@ func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
 func TestAdminCancelJob_Success(t *testing.T) {
 	gen := newContextGen()
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(1, "proj-cancel-handler", runner.JobParams{})
+	j := jm.Submit(context.Background(), 1, "proj-cancel-handler", runner.JobParams{})
 
 	// Wait for running.
 	deadline := time.Now().Add(2 * time.Second)
@@ -558,7 +558,7 @@ func TestAdminDeleteJob_NotFound(t *testing.T) {
 func TestAdminDeleteJob_NonTerminal(t *testing.T) {
 	gen := newContextGen()
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(1, "proj-delete-running", runner.JobParams{})
+	j := jm.Submit(context.Background(), 1, "proj-delete-running", runner.JobParams{})
 
 	// Wait for the job to reach running state.
 	deadline := time.Now().Add(2 * time.Second)
@@ -585,7 +585,7 @@ func TestAdminDeleteJob_NonTerminal(t *testing.T) {
 func TestAdminDeleteJob_Success(t *testing.T) {
 	gen := newBlockingGen()
 	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(1, "proj-delete-success", runner.JobParams{})
+	j := jm.Submit(context.Background(), 1, "proj-delete-success", runner.JobParams{})
 	close(gen.ch) // let the job complete
 
 	// Wait for completion.

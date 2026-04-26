@@ -158,7 +158,7 @@ func (h *ReportHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		CIBranch:     ciBranch,
 		CICommitSHA:  ciCommitSHA,
 	}
-	job := h.jobManager.Submit(projectID, slug, params)
+	job := h.jobManager.Submit(r.Context(), projectID, slug, params)
 	writeSuccess(w, http.StatusAccepted, map[string]string{"job_id": job.ID}, "Report generation queued")
 }
 

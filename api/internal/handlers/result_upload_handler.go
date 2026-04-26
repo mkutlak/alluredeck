@@ -234,7 +234,7 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	}
 
 	// Auto-trigger report generation after successful upload.
-	job := h.jobManager.Submit(projectID, slug, runner.JobParams{
+	job := h.jobManager.Submit(r.Context(), projectID, slug, runner.JobParams{
 		StorageKey:    storageKey,
 		BatchID:       batchID,
 		ExecName:      execName,

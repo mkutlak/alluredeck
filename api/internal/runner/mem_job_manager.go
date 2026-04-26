@@ -35,7 +35,7 @@ func NewMemJobManager(gen ReportGenerator, poolSize int, _ any) *MemJobManager {
 
 // Start launches poolSize worker goroutines.
 func (m *MemJobManager) Start(ctx context.Context) {
-	for i := 0; i < m.poolSize; i++ {
+	for range m.poolSize {
 		m.wg.Add(1)
 		go m.runWorker(ctx)
 	}
@@ -48,7 +48,7 @@ func (m *MemJobManager) Shutdown() {
 }
 
 // Submit enqueues a new job and returns it immediately with Pending status.
-func (m *MemJobManager) Submit(projectID int64, slug string, params JobParams) *Job {
+func (m *MemJobManager) Submit(_ context.Context, projectID int64, slug string, params JobParams) *Job {
 	j := &Job{
 		ID:         newMemJobID(),
 		ProjectID:  projectID,
@@ -69,7 +69,7 @@ func (m *MemJobManager) Submit(projectID int64, slug string, params JobParams) *
 
 // SubmitPlaywright enqueues a new Playwright ingestion job.
 // MemJobManager does not execute Playwright ingestion; it records the job as completed immediately.
-func (m *MemJobManager) SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job {
+func (m *MemJobManager) SubmitPlaywright(_ context.Context, projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job {
 	now := time.Now()
 	j := &Job{
 		ID:          newMemJobID(),

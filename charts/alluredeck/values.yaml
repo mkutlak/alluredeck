@@ -335,6 +335,64 @@ networkPolicy:
     namespaceSelector: {}
 
 # ---------------------------------------------------------------------------
+# Observability (OpenTelemetry traces + Prometheus metrics)
+# ---------------------------------------------------------------------------
+# Master switch. When false (default), no OTEL_* env vars are injected and the
+# metrics Service / ServiceMonitor are not created. Safe to leave disabled for
+# users who do not run an OTLP collector or Prometheus Operator.
+observability:
+  enabled: false
+
+  # Resource attribute: service.name sent with every span and metric.
+  serviceName: "alluredeck-api"
+
+  # Resource attribute: deployment.environment (e.g. "production", "staging").
+  # Leave empty to omit the attribute.
+  environment: ""
+
+  # OTLP trace export settings.
+  traces:
+    # OTLP endpoint for the collector (HTTP). Example:
+    #   "http://otel-collector.observability.svc:4318"
+    endpoint: ""
+    # Transport protocol: "http/protobuf" (default) or "grpc".
+    protocol: "http/protobuf"
+    # Ratio of traces to sample: 1.0 = 100 %, 0.1 = 10 %, 0.0 = off.
+    sampleRatio: 1.0
+    # Set true to disable TLS for local / in-cluster collectors.
+    insecure: false
+
+  # Prometheus metrics endpoint served on a dedicated port (separate from the
+  # main API port so that CSRF/auth middleware does not intercept scrapes).
+  metrics:
+    # When true, the API exposes /metrics on the port below and a separate
+    # ClusterIP Service (service-metrics.yaml) is created for Prometheus to scrape.
+    enabled: true
+    # Container port (and Service targetPort) for the metrics HTTP server.
+    port: 9464
+    # Path that Prometheus scrapes.
+    path: "/metrics"
+
+  # Prometheus Operator ServiceMonitor resource (requires metrics.enabled=true).
+  serviceMonitor:
+    # When true, a ServiceMonitor resource is created so Prometheus Operator
+    # automatically discovers and scrapes the metrics endpoint.
+    enabled: false
+    # How often Prometheus scrapes the metrics endpoint.
+    interval: "30s"
+    # Maximum time Prometheus waits for a scrape response.
+    scrapeTimeout: "10s"
+    # Extra labels added to the ServiceMonitor metadata. Use these to match
+    # your Prometheus Operator's serviceMonitorSelector, e.g.:
+    #   labels:
+    #     prometheus: kube-prometheus
+    labels: {}
+    # RelabelConfigs applied to scrape targets before ingestion.
+    relabelings: []
+    # MetricRelabelConfigs applied to scraped metrics before storage.
+    metricRelabelings: []
+
+# ---------------------------------------------------------------------------
 # Extra Resources
 # ---------------------------------------------------------------------------
 # Deploy arbitrary Kubernetes resources alongside the chart.

@@ -45,6 +45,9 @@ func Open(ctx context.Context, cfg *config.Config) (*PGStore, error) {
 	}
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 
+	// Wire OTel pgx tracer so every SQL query emits a trace span.
+	applyOTelTracer(poolCfg)
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create connection pool: %w", err)

@@ -57,8 +57,8 @@ type Job struct {
 // JobQueuer is the interface for async report generation job queues.
 // Implemented by RiverJobManager (PostgreSQL-backed).
 type JobQueuer interface {
-	Submit(projectID int64, slug string, params JobParams) *Job
-	SubmitPlaywright(projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job
+	Submit(ctx context.Context, projectID int64, slug string, params JobParams) *Job
+	SubmitPlaywright(ctx context.Context, projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job
 	ListJobs() []*Job
 	Cancel(jobID string) error
 	Delete(jobID string) error

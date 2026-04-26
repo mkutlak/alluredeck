@@ -242,7 +242,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	ciPipelineURL := r.URL.Query().Get("ci_pipeline_url")
 
 	if h.jobManager != nil && (execName != "" || execFrom != "" || ciBranch != "" || ciCommitSHA != "" || ciPipelineID != "") {
-		job := h.jobManager.SubmitPlaywright(projectID, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL)
+		job := h.jobManager.SubmitPlaywright(r.Context(), projectID, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL)
 		writeSuccess(w, http.StatusAccepted, map[string]string{"job_id": job.ID}, "Playwright ingestion queued")
 		return
 	}

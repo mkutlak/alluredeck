@@ -12,12 +12,14 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/handlers"
 	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
+	"github.com/mkutlak/alluredeck/api/internal/observability"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
@@ -94,6 +96,22 @@ type routeDeps struct {
 func main() {
 	cfg, encKey, logger := mustLoadConfig()
 	defer func() { _ = logger.Sync() }()
+
+	// Initialise observability (OTel SDK) right after config and logger are
+	// ready. When cfg.Observability.Enabled is false this is a fast no-op.
+	// The shutdown is deferred LAST so it runs AFTER the HTTP server drains
+	// and the DB pool closes, giving in-flight spans time to flush.
+	obsShutdown, err := observability.Init(context.Background(), cfg.Observability, logger)
+	if err != nil {
+		logger.Fatal("failed to initialise observability", zap.Error(err))
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := obsShutdown(shutCtx); err != nil {
+			logger.Error("observability shutdown error", zap.Error(err))
+		}
+	}()
 
 	dataStore, err := createDataStore(cfg, logger)
 	if err != nil {
@@ -218,13 +236,17 @@ func main() {
 		h:            h,
 	})
 
-	// Chain middleware: Recovery → RequestID → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
+	// Chain middleware: Recovery → RequestID → OTel → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
+	// OTel is slotted after RequestID (request_id available as span attr) and before
+	// Logging so the active span is live when Zap picks up trace_id/span_id fields.
 	handler := middleware.Recovery(
 		middleware.RequestID(
-			middleware.LoggingMiddleware(logger)(
-				middleware.SecurityHeaders(
-					middleware.CSRFMiddleware(cfg)(
-						middleware.CORSMiddleware(cfg, mux),
+			middleware.OTel(otel.GetTracerProvider())(
+				middleware.LoggingMiddleware(logger)(
+					middleware.SecurityHeaders(
+						middleware.CSRFMiddleware(cfg)(
+							middleware.CORSMiddleware(cfg, mux),
+						),
 					),
 				),
 			),

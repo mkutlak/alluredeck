@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -62,6 +63,9 @@ func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}
+
+	// Instrument all S3 operations with OTel spans.
+	otelaws.AppendMiddlewares(&awsCfg.APIOptions)
 
 	clientOpts := []func(*s3.Options){}
 	if cfg.S3.Endpoint != "" {

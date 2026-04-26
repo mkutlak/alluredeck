@@ -71,6 +71,11 @@ spec:
             - name: http-api
               containerPort: {{ .Values.api.service.port | int }}
               protocol: TCP
+            {{- if and .Values.observability.enabled .Values.observability.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.observability.metrics.port | int }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: GOMEMLIMIT
               value: {{ .Values.api.config.goMemLimit | quote }}
@@ -138,6 +143,36 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: oidcStateCookieSecret
+            {{- end }}
+            {{- if .Values.observability.enabled }}
+            {{- with .Values.observability }}
+            - name: OBSERVABILITY_ENABLED
+              value: "true"
+            - name: OBSERVABILITY_SERVICE_NAME
+              value: {{ .serviceName | default "alluredeck-api" | quote }}
+            {{- if .environment }}
+            - name: OBSERVABILITY_ENVIRONMENT
+              value: {{ .environment | quote }}
+            {{- end }}
+            {{- if .traces.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: {{ .traces.endpoint | quote }}
+            {{- end }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+              value: {{ .traces.protocol | default "http/protobuf" | quote }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .traces.sampleRatio | default 1.0 | quote }}
+            {{- if .traces.insecure }}
+            - name: OBSERVABILITY_TRACES_INSECURE
+              value: "true"
+            {{- end }}
+            - name: OBSERVABILITY_METRICS_ENABLED
+              value: {{ .metrics.enabled | default true | quote }}
+            - name: OBSERVABILITY_METRICS_ADDR
+              value: {{ printf ":%v" (.metrics.port | default 9464) | quote }}
+            - name: OBSERVABILITY_METRICS_PATH
+              value: {{ .metrics.path | default "/metrics" | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
