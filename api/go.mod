@@ -17,7 +17,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/riverqueue/river v0.35.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.35.0
-	github.com/riverqueue/river/rivertype v0.35.0
+	github.com/riverqueue/river/rivertype v0.35.1
 	github.com/swaggo/swag v1.16.6
 	go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws v0.68.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0
