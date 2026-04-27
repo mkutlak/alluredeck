@@ -26,6 +26,7 @@ type AuthHandler struct {
 	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
 	userStore   store.UserStorer               // optional; nil disables DB-backed local login fallback
 	audit       store.AuditLogger              // optional; nil disables persistent audit emission
+	throttler   *middleware.AccountThrottler   // optional; nil disables per-account brute-force throttle
 }
 
 // NewAuthHandler creates and returns a new AuthHandler. The familyStore parameter
@@ -53,6 +54,17 @@ func (h *AuthHandler) WithUserStore(s store.UserStorer) *AuthHandler {
 // request it is auditing.
 func (h *AuthHandler) WithAuditLogger(a store.AuditLogger) *AuthHandler {
 	h.audit = a
+	return h
+}
+
+// WithAccountThrottler wires a per-username brute-force throttle that
+// complements the per-IP rate limit (the latter is the first-tier defence;
+// this is the second tier that resists distributed credential stuffing
+// where IP rotation defeats IP-keyed limits). Nil is acceptable — throttle
+// becomes a no-op, preserving the pre-F-4 behaviour for callers that don't
+// wire it (e.g. unit tests that don't care about lockout semantics).
+func (h *AuthHandler) WithAccountThrottler(t *middleware.AccountThrottler) *AuthHandler {
+	h.throttler = t
 	return h
 }
 
@@ -87,6 +99,43 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	username := req.Username
 	password := req.Password
+
+	// F-4: per-account brute-force throttle. The check runs BEFORE the
+	// credential comparison so a locked-out account never reaches the
+	// password compare (which is the expensive operation an attacker is
+	// trying to time). On lockout we emit an audit event with
+	// metadata.lockout=true so the SOC can correlate spraying campaigns,
+	// then return 429 with Retry-After so honest clients back off.
+	if h.throttler != nil {
+		throttleResult := h.throttler.Check(username)
+		if !throttleResult.Allowed {
+			lockoutEvt := auditFromRequest(r)
+			lockoutEvt.Action = store.AuditActionLoginFailure
+			lockoutEvt.Outcome = store.AuditOutcomeFailure
+			lockoutEvt.ActorLabel = username
+			lockoutEvt.TargetType = store.AuditTargetUser
+			lockoutEvt.Metadata = auditMetadata(map[string]any{
+				"lockout":       true,
+				"locked_until":  throttleResult.LockedUntil.UTC().Format(time.RFC3339),
+				"failure_count": throttleResult.FailureCount,
+			})
+			auditRecord(r.Context(), h.audit, lockoutEvt)
+
+			retryAfter := int(time.Until(throttleResult.LockedUntil).Seconds())
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			writeError(w, http.StatusTooManyRequests, "Too many failed attempts. Try again later.")
+			return
+		}
+		// Soft/exponential delay: hold the goroutine to slow each attempt.
+		// The cap is enforced by the throttler (backoffMax). Skip when zero
+		// (no recorded failures yet).
+		if throttleResult.Delay > 0 {
+			time.Sleep(throttleResult.Delay)
+		}
+	}
 
 	// Use constant-time comparison for usernames to prevent timing-based enumeration (AUDIT 1.5).
 	// Use bcrypt for password verification (C3 fix: no more plaintext passwords).
@@ -137,6 +186,22 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
+		// F-4: increment the per-username failure counter. If this failure
+		// crossed the lockout threshold, the result reports Allowed=false and
+		// we surface that on the audit metadata so the SOC can pinpoint the
+		// transition. The 401 response stays identical regardless — we never
+		// leak lockout state to the unauthenticated client (that would be a
+		// signal an attacker could probe to map account states).
+		failureMeta := map[string]any{}
+		if h.throttler != nil {
+			res := h.throttler.RecordFailure(username)
+			failureMeta["failure_count"] = res.FailureCount
+			if !res.Allowed {
+				failureMeta["lockout"] = true
+				failureMeta["locked_until"] = res.LockedUntil.UTC().Format(time.RFC3339)
+			}
+		}
+
 		// Audit the failure BEFORE returning so a 401 response always corresponds
 		// to a row in audit_log. ActorID stays nil because the credential
 		// rejection happens before any user lookup succeeds.
@@ -145,10 +210,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		failureEvt.Outcome = store.AuditOutcomeFailure
 		failureEvt.ActorLabel = username
 		failureEvt.TargetType = store.AuditTargetUser
+		if len(failureMeta) > 0 {
+			failureEvt.Metadata = auditMetadata(failureMeta)
+		}
 		auditRecord(r.Context(), h.audit, failureEvt)
 
 		writeError(w, http.StatusUnauthorized, "Invalid username/password")
 		return
+	}
+
+	// F-4: credentials checked out — clear the per-username failure counter
+	// so a legitimate user is not punished by their earlier typos.
+	if h.throttler != nil {
+		h.throttler.RecordSuccess(username)
 	}
 
 	// Best-effort: refresh last_login for DB-backed local users. Env admin/viewer

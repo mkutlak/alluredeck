@@ -158,7 +158,19 @@ func main() {
 
 	jwtManager := security.NewJWTManager(cfg, s.blacklist, logger)
 
-	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, logger)
+	// F-4 (SECURITY_REVIEW.md): per-account brute-force throttle. Constructed
+	// here so it can be wired into the AuthHandler before any request is
+	// served. The matching cleanup goroutine is started below alongside the
+	// per-IP rate limiter so both share the same shutdown channel.
+	accountThrottler := middleware.NewAccountThrottler(
+		15*time.Minute, // window — sliding-counter horizon for failures
+		1,              // softThreshold — any failure starts the timer
+		20,             // lockoutThreshold — failures within window → lockout
+		15*time.Minute, // lockoutDuration — how long the account stays locked
+		60*time.Second, // backoffMax — exponential delay cap
+	)
+
+	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, logger)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, s.project, dataStore, logger)
 
@@ -227,6 +239,11 @@ func main() {
 	loginLimiter := middleware.NewIPRateLimiter(5, 10, 15*time.Minute, cfg.TrustForwardedFor)
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
+
+	// F-4 (SECURITY_REVIEW.md): per-account brute-force throttle cleanup.
+	// Reuses limiterDone so both throttle and rate-limit cleanups stop together
+	// at server shutdown.
+	accountThrottler.StartCleanup(5*time.Minute, limiterDone)
 
 	// Per-request is_active recheck cache (F-3 of SECURITY_REVIEW.md). 30s TTL
 	// is the residual exposure window after a deactivation if explicit revoke
@@ -382,6 +399,7 @@ func wireHandlers(
 	allureCore *runner.Allure,
 	jobManager runner.JobQueuer,
 	jwtManager *security.JWTManager,
+	accountThrottler *middleware.AccountThrottler,
 	logger *zap.Logger,
 ) handlerSet {
 	var oidcHandler *handlers.OIDCHandler
@@ -399,7 +417,8 @@ func wireHandlers(
 		system: handlers.NewSystemHandler(cfg, sqlDB),
 		auth: handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily).
 			WithUserStore(s.user).
-			WithAuditLogger(s.audit),
+			WithAuditLogger(s.audit).
+			WithAccountThrottler(accountThrottler),
 		report: handlers.NewReportHandler(handlers.ReportHandlerDeps{
 			JobManager:      jobManager,
 			Runner:          allureCore,

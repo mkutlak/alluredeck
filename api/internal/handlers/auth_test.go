@@ -1025,3 +1025,134 @@ func TestAuthHandler_Session_EnvUserReturnsSubjectVerbatim(t *testing.T) {
 		t.Errorf("Session() username = %v, want 'admin'", data["username"])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// F-4: per-account brute-force throttle integration tests.
+//
+// These exercise AuthHandler.Login with a wired AccountThrottler. We use a
+// tiny window/threshold/backoff so the test stays fast.
+// ---------------------------------------------------------------------------
+
+// newTestThrottler builds an AccountThrottler with parameters tuned for fast
+// tests: 5min window, soft=1, lockout at 3 failures, lockoutDuration 100ms,
+// backoffMax 1ms (so the soft-delay sleep does not slow the suite).
+func newTestLoginThrottler() *middleware.AccountThrottler {
+	return middleware.NewAccountThrottler(
+		5*time.Minute,        // window
+		1,                    // softThreshold
+		3,                    // lockoutThreshold
+		100*time.Millisecond, // lockoutDuration
+		1*time.Millisecond,   // backoffMax (negligible; we don't measure delay here)
+	)
+}
+
+// TestLogin_LockoutReturns429AfterThreshold — wire AuthHandler with throttler
+// set to threshold=3 → 4 bad logins → 4th returns 429 with `Retry-After`
+// header and audit metadata.lockout=true.
+func TestLogin_LockoutReturns429AfterThreshold(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, nil).
+		WithUserStore(mocks.Users).
+		WithAuditLogger(mocks.Audit).
+		WithAccountThrottler(newTestLoginThrottler())
+
+	// 3 bad logins exhaust soft + escalating tier; the 3rd records the
+	// failure that crosses the lockout threshold.
+	for i := 1; i <= 3; i++ {
+		rr := postLogin(t, handler, "admin", "wrong")
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: status = %d, want 401", i, rr.Code)
+		}
+	}
+
+	// 4th attempt should be rejected with 429 BEFORE any credential check.
+	rr := postLogin(t, handler, "admin", "wrong")
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("4th attempt: status = %d, want 429", rr.Code)
+	}
+	if rr.Header().Get("Retry-After") == "" {
+		t.Errorf("4th attempt: expected Retry-After header on 429")
+	}
+
+	// Audit must include a failure event with metadata.lockout=true. The
+	// lockout-triggering failure (#3) and the 4th attempt (rejected at the
+	// gate) are both expected to carry lockout metadata.
+	events := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
+	if len(events) < 4 {
+		t.Fatalf("login.failure events = %d, want >= 4", len(events))
+	}
+	var sawLockoutMeta bool
+	for _, evt := range events {
+		if len(evt.Metadata) == 0 {
+			continue
+		}
+		var meta map[string]any
+		if err := json.Unmarshal(evt.Metadata, &meta); err != nil {
+			continue
+		}
+		if v, ok := meta["lockout"].(bool); ok && v {
+			sawLockoutMeta = true
+			break
+		}
+	}
+	if !sawLockoutMeta {
+		t.Errorf("expected at least one login.failure event with metadata.lockout=true")
+	}
+}
+
+// TestLogin_SuccessResetsCounter — 2 failures → 1 success → 2 more failures
+// → 5th attempt should NOT be locked out (count was reset on success).
+func TestLogin_SuccessResetsCounter(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, nil).
+		WithUserStore(mocks.Users).
+		WithAuditLogger(mocks.Audit).
+		WithAccountThrottler(newTestLoginThrottler())
+
+	// 2 failures.
+	for i := 1; i <= 2; i++ {
+		rr := postLogin(t, handler, "admin", "wrong")
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("pre-success failure %d: status = %d, want 401", i, rr.Code)
+		}
+	}
+
+	// 1 success — counter should reset.
+	rr := postLogin(t, handler, "admin", "password")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("success login: status = %d, want 200", rr.Code)
+	}
+
+	// 2 more failures. Without reset these would be the 4th/5th in a row and
+	// trigger lockout. With the reset they must each return 401 (not 429).
+	for i := 1; i <= 2; i++ {
+		rr := postLogin(t, handler, "admin", "wrong")
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("post-success failure %d: status = %d, want 401 (success should reset counter)", i, rr.Code)
+		}
+	}
+}
+
+// TestLogin_NilThrottlerSkipsCheck — control test: with no throttler wired
+// the handler must behave exactly as before (no 429, no lockout).
+func TestLogin_NilThrottlerSkipsCheck(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	mocks := testutil.New()
+	handler := NewAuthHandler(cfg, jwtManager, nil).
+		WithUserStore(mocks.Users).
+		WithAuditLogger(mocks.Audit)
+	// NB: no WithAccountThrottler call.
+
+	// 10 bad logins must all return 401 (no 429 ever surfaces).
+	for i := 1; i <= 10; i++ {
+		rr := postLogin(t, handler, "admin", "wrong")
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d (no throttler): status = %d, want 401", i, rr.Code)
+		}
+	}
+}
