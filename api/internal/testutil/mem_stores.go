@@ -1051,6 +1051,27 @@ func (m *MemUserStore) UpdateLastLogin(ctx context.Context, id int64) error {
 	return store.ErrUserNotFound
 }
 
+// RelinkOIDC rebinds an existing user row to a new (provider, provider_sub)
+// identity and refreshes last_login. Mirrors pg.UserStore.RelinkOIDC for tests.
+func (m *MemUserStore) RelinkOIDC(ctx context.Context, id int64, provider, sub string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			now := time.Now()
+			u.Provider = provider
+			u.ProviderSub = sub
+			u.LastLogin = &now
+			u.UpdatedAt = now
+			return nil
+		}
+	}
+	return store.ErrUserNotFound
+}
+
 // ClearLastLogin zeroes out the user's LastLogin pointer. Test-only helper used
 // to set up fixtures for verifying Login-path last_login population.
 func (m *MemUserStore) ClearLastLogin(ctx context.Context, id int64) error {

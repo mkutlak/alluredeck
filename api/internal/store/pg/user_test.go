@@ -226,6 +226,83 @@ func TestPGUserStore_UpdatePasswordHash(t *testing.T) {
 	}
 }
 
+// F-5: cross-provider email uniqueness. The first OIDC sign-in inserts a row;
+// a second OIDC sign-in with a different (provider, sub) but the same email
+// must be rejected with store.ErrEmailAlreadyLinked, not bubble up as a raw
+// 23505 from the partial-unique index.
+func TestPGUserStore_UpsertByOIDC_RejectsCrossProviderEmail(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	us := pg.NewUserStore(s)
+
+	email := testEmail(t, "alice")
+	if _, err := us.UpsertByOIDC(ctx, "okta", "okta|1", email, "Alice", "viewer"); err != nil {
+		t.Fatalf("first UpsertByOIDC (okta): %v", err)
+	}
+	_, err := us.UpsertByOIDC(ctx, "keycloak", "kc|1", email, "Alice K.", "viewer")
+	if !errors.Is(err, store.ErrEmailAlreadyLinked) {
+		t.Errorf("second UpsertByOIDC err = %v, want ErrEmailAlreadyLinked", err)
+	}
+}
+
+// F-5: same provider + same sub keeps the existing upsert semantics. The
+// (provider, provider_sub) ON CONFLICT path fires and updates the row in place.
+func TestPGUserStore_UpsertByOIDC_SameProviderUpdatesInPlace(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	us := pg.NewUserStore(s)
+
+	email := testEmail(t, "carol")
+	first, err := us.UpsertByOIDC(ctx, "okta", "okta|2", email, "Carol", "viewer")
+	if err != nil {
+		t.Fatalf("first UpsertByOIDC: %v", err)
+	}
+	second, err := us.UpsertByOIDC(ctx, "okta", "okta|2", email, "Carol Updated", "editor")
+	if err != nil {
+		t.Fatalf("second UpsertByOIDC (same provider+sub): %v", err)
+	}
+	if first.ID != second.ID {
+		t.Errorf("expected same row id; got %d -> %d", first.ID, second.ID)
+	}
+	if second.Name != "Carol Updated" {
+		t.Errorf("Name = %q, want Carol Updated", second.Name)
+	}
+	if second.Role != "editor" {
+		t.Errorf("Role = %q, want editor", second.Role)
+	}
+}
+
+// F-5: RelinkOIDC rebinds the row to a new (provider, provider_sub).
+func TestPGUserStore_RelinkOIDC(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	us := pg.NewUserStore(s)
+
+	email := testEmail(t, "relink")
+	u, err := us.UpsertByOIDC(ctx, "okta", "okta|relink", email, "Relink User", "viewer")
+	if err != nil {
+		t.Fatalf("UpsertByOIDC: %v", err)
+	}
+
+	if err := us.RelinkOIDC(ctx, u.ID, "keycloak", "kc|relink"); err != nil {
+		t.Fatalf("RelinkOIDC: %v", err)
+	}
+	got, err := us.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Provider != "keycloak" {
+		t.Errorf("Provider = %q, want keycloak", got.Provider)
+	}
+	if got.ProviderSub != "kc|relink" {
+		t.Errorf("ProviderSub = %q, want kc|relink", got.ProviderSub)
+	}
+
+	if err := us.RelinkOIDC(ctx, 9999999, "x", "y"); !errors.Is(err, store.ErrUserNotFound) {
+		t.Errorf("RelinkOIDC missing id err = %v, want ErrUserNotFound", err)
+	}
+}
+
 func TestPGUserStore_GetByEmail_CaseInsensitive(t *testing.T) {
 	s := openLockTestStore(t)
 	ctx := context.Background()

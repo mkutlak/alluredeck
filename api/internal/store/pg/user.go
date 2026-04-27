@@ -35,6 +35,13 @@ func scanUser(row pgx.Row, u *store.User) error {
 
 // UpsertByOIDC inserts a new user or updates email, name, role, and last_login on conflict.
 // The conflict target is (provider, provider_sub) filtered by provider_sub != ”.
+//
+// F-5: when the new partial-unique index idx_users_email_global rejects the
+// insert (a different identity already owns this email), the underlying 23505
+// surfaces with ConstraintName="idx_users_email_global". We translate that into
+// store.ErrEmailAlreadyLinked so callers can distinguish "same email, different
+// provider/sub" from generic upsert failures and decide to either reject the
+// login or rebind the existing row via RelinkOIDC.
 func (s *UserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
 	var u store.User
 	err := scanUser(s.pool.QueryRow(ctx, `
@@ -51,9 +58,35 @@ func (s *UserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name
 		email, name, provider, sub, role,
 	), &u)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_users_email_global" {
+			return nil, fmt.Errorf("%w: email=%s", store.ErrEmailAlreadyLinked, email)
+		}
 		return nil, fmt.Errorf("upsert user by oidc: %w", err)
 	}
 	return &u, nil
+}
+
+// RelinkOIDC rebinds the users row identified by id to a new (provider,
+// provider_sub) identity and refreshes last_login + updated_at. F-5 calls this
+// after OIDC_AUTO_LINK_BY_EMAIL has been opted in and the IdP attests that the
+// colliding email is verified. Returns ErrUserNotFound when no row matches id.
+func (s *UserStore) RelinkOIDC(ctx context.Context, id int64, provider, sub string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users
+		    SET provider = $1,
+		        provider_sub = $2,
+		        last_login = NOW(),
+		        updated_at = NOW()
+		  WHERE id = $3`,
+		provider, sub, id)
+	if err != nil {
+		return fmt.Errorf("relink user oidc: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: id=%d", store.ErrUserNotFound, id)
+	}
+	return nil
 }
 
 // CreateLocal inserts a new local (password-based) user. Returns

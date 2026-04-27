@@ -779,6 +779,7 @@ type MockUserStore struct {
 	UpdatePasswordHashFn func(ctx context.Context, id int64, passwordHash string) error
 	UpdateLastLoginFn    func(ctx context.Context, id int64) error
 	DeactivateFn         func(ctx context.Context, id int64) error
+	RelinkOIDCFn         func(ctx context.Context, id int64, provider, sub string) error
 }
 
 func (m *MockUserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
@@ -861,6 +862,13 @@ func (m *MockUserStore) UpdateLastLogin(ctx context.Context, id int64) error {
 func (m *MockUserStore) Deactivate(ctx context.Context, id int64) error {
 	if m.DeactivateFn != nil {
 		return m.DeactivateFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *MockUserStore) RelinkOIDC(ctx context.Context, id int64, provider, sub string) error {
+	if m.RelinkOIDCFn != nil {
+		return m.RelinkOIDCFn(ctx, id, provider, sub)
 	}
 	return nil
 }

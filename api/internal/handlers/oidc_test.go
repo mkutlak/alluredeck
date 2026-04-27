@@ -12,6 +12,7 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
@@ -251,4 +252,205 @@ func TestOIDCHandler_Callback_Success(t *testing.T) {
 	if stateCookie == nil || stateCookie.MaxAge != -1 {
 		t.Error("Callback() success: expected oidc_state cookie cleared (MaxAge=-1)")
 	}
+}
+
+// TestOIDCHandler_Callback_EmailCollisionWithoutAutoLink_Returns409 verifies
+// F-5 default behaviour: when UpsertByOIDC reports ErrEmailAlreadyLinked and
+// OIDC_AUTO_LINK_BY_EMAIL is unset, the handler responds 409 and emits
+// auth.login.failure with metadata.reason="oidc_email_collision".
+func TestOIDCHandler_Callback_EmailCollisionWithoutAutoLink_Returns409(t *testing.T) {
+	cfg := testOIDCConfig()
+	cfg.OIDC.AutoLinkByEmail = false
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+
+	userStore := &testutil.MockUserStore{
+		UpsertByOIDCFn: func(_ context.Context, _, _, _, _, _ string) (*store.User, error) {
+			return nil, store.ErrEmailAlreadyLinked
+		},
+	}
+
+	exchanger := &mockOIDCExchanger{
+		userInfo: &security.OIDCUserInfo{
+			Subject:       "kc|attacker",
+			Email:         "alice@example.com",
+			EmailVerified: true,
+			Name:          "Alice",
+			Groups:        []string{},
+		},
+	}
+
+	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop()).
+		WithAuditLogger(mocks.Audit)
+
+	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
+	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
+	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
+	rr := httptest.NewRecorder()
+	handler.Callback(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("Callback() collision (auto-link off) status = %d, want 409. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	failures := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
+	if len(failures) != 1 {
+		t.Fatalf("expected 1 auth.login.failure event, got %d", len(failures))
+	}
+	body := string(failures[0].Metadata)
+	if !contains(body, `"reason":"oidc_email_collision"`) {
+		t.Errorf("audit metadata = %s, want reason=oidc_email_collision", body)
+	}
+}
+
+// TestOIDCHandler_Callback_EmailCollisionWithAutoLinkAndVerified_Relinks
+// verifies F-5 auto-link path: when AutoLinkByEmail is true AND the IdP
+// reported email_verified=true, the handler calls RelinkOIDC and proceeds to
+// mint cookies + emit auth.login.success with metadata.oidc_link="auto".
+func TestOIDCHandler_Callback_EmailCollisionWithAutoLinkAndVerified_Relinks(t *testing.T) {
+	cfg := testOIDCConfig()
+	cfg.OIDC.AutoLinkByEmail = true
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+
+	relinkedID := int64(0)
+	relinkedSub := ""
+	existing := &store.User{
+		ID:          42,
+		Email:       "alice@example.com",
+		Name:        "Alice",
+		Provider:    "okta",
+		ProviderSub: "okta|orig",
+		Role:        "viewer",
+		IsActive:    true,
+	}
+	userStore := &testutil.MockUserStore{
+		UpsertByOIDCFn: func(_ context.Context, _, _, _, _, _ string) (*store.User, error) {
+			return nil, store.ErrEmailAlreadyLinked
+		},
+		GetByEmailFn: func(_ context.Context, _ string) (*store.User, error) {
+			cp := *existing
+			return &cp, nil
+		},
+		RelinkOIDCFn: func(_ context.Context, id int64, provider, sub string) error {
+			relinkedID = id
+			relinkedSub = sub
+			_ = provider
+			return nil
+		},
+	}
+
+	exchanger := &mockOIDCExchanger{
+		userInfo: &security.OIDCUserInfo{
+			Subject:       "kc|verified",
+			Email:         "alice@example.com",
+			EmailVerified: true,
+			Name:          "Alice",
+			Groups:        []string{},
+		},
+	}
+
+	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop()).
+		WithAuditLogger(mocks.Audit)
+
+	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
+	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
+	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
+	rr := httptest.NewRecorder()
+	handler.Callback(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Callback() auto-link verified status = %d, want 302. Body: %s", rr.Code, rr.Body.String())
+	}
+	if relinkedID != existing.ID {
+		t.Errorf("RelinkOIDC called with id=%d, want %d", relinkedID, existing.ID)
+	}
+	if relinkedSub != "kc|verified" {
+		t.Errorf("RelinkOIDC called with sub=%q, want kc|verified", relinkedSub)
+	}
+
+	successes := mocks.Audit.EventsByAction(store.AuditActionLoginSuccess)
+	if len(successes) != 1 {
+		t.Fatalf("expected 1 auth.login.success event, got %d", len(successes))
+	}
+	body := string(successes[0].Metadata)
+	if !contains(body, `"oidc_link":"auto"`) {
+		t.Errorf("audit metadata = %s, want oidc_link=auto", body)
+	}
+	if !contains(body, `"verified":true`) {
+		t.Errorf("audit metadata = %s, want verified=true", body)
+	}
+	if !contains(body, `"previous_provider":"okta"`) {
+		t.Errorf("audit metadata = %s, want previous_provider=okta", body)
+	}
+}
+
+// TestOIDCHandler_Callback_EmailCollisionWithAutoLinkButUnverified_Returns409
+// verifies the safety check: even with AutoLinkByEmail=true, an unverified
+// email must not be allowed to take over an existing account.
+func TestOIDCHandler_Callback_EmailCollisionWithAutoLinkButUnverified_Returns409(t *testing.T) {
+	cfg := testOIDCConfig()
+	cfg.OIDC.AutoLinkByEmail = true
+	mocks := testutil.New()
+	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
+
+	relinkCalled := false
+	userStore := &testutil.MockUserStore{
+		UpsertByOIDCFn: func(_ context.Context, _, _, _, _, _ string) (*store.User, error) {
+			return nil, store.ErrEmailAlreadyLinked
+		},
+		RelinkOIDCFn: func(_ context.Context, _ int64, _, _ string) error {
+			relinkCalled = true
+			return nil
+		},
+	}
+
+	exchanger := &mockOIDCExchanger{
+		userInfo: &security.OIDCUserInfo{
+			Subject:       "kc|unverified",
+			Email:         "alice@example.com",
+			EmailVerified: false, // <-- the safety check
+			Name:          "Alice",
+			Groups:        []string{},
+		},
+	}
+
+	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop()).
+		WithAuditLogger(mocks.Audit)
+
+	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
+	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
+	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
+	rr := httptest.NewRecorder()
+	handler.Callback(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("Callback() auto-link unverified status = %d, want 409. Body: %s", rr.Code, rr.Body.String())
+	}
+	if relinkCalled {
+		t.Error("RelinkOIDC must not be called when email_verified=false")
+	}
+
+	failures := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
+	if len(failures) != 1 {
+		t.Fatalf("expected 1 auth.login.failure event, got %d", len(failures))
+	}
+	body := string(failures[0].Metadata)
+	if !contains(body, `"reason":"oidc_email_collision_unverified"`) {
+		t.Errorf("audit metadata = %s, want reason=oidc_email_collision_unverified", body)
+	}
+}
+
+// contains is a small substring helper kept local to oidc_test.go to avoid
+// pulling in strings just for the audit-metadata assertions.
+func contains(haystack, needle string) bool {
+	return len(needle) == 0 || (len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0)
+}
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

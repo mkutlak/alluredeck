@@ -409,7 +409,8 @@ func wireHandlers(
 		if oidcErr != nil {
 			logger.Fatal("OIDC discovery failed", zap.Error(oidcErr))
 		}
-		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, s.user, s.refreshFamily, logger)
+		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, s.user, s.refreshFamily, logger).
+			WithAuditLogger(s.audit)
 		logger.Info("OIDC SSO enabled", zap.String("issuer", cfg.OIDC.IssuerURL))
 	}
 

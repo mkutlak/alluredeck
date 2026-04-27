@@ -16,11 +16,19 @@ import (
 )
 
 // OIDCUserInfo holds claims extracted from an OIDC ID token.
+//
+// EmailVerified mirrors the standard "email_verified" boolean claim
+// (RFC 7519 / OpenID Connect Core 1.0 §5.1). It is required by F-5 of
+// SECURITY_REVIEW.md when OIDC_AUTO_LINK_BY_EMAIL is enabled: an unverified
+// email must never be allowed to take over an existing account, even with
+// the operator's opt-in. When the IdP omits the claim, the field is false
+// (the safe default).
 type OIDCUserInfo struct {
-	Subject string
-	Email   string
-	Name    string
-	Groups  []string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	Name          string
+	Groups        []string
 }
 
 // OIDCExchanger is the interface for OIDC authorization code exchange operations.
@@ -142,6 +150,18 @@ func extractClaimsFromMap(claims map[string]any, subject string, logger *zap.Log
 
 	if email, ok := claims["email"].(string); ok {
 		info.Email = email
+	}
+	// email_verified is OpenID-Connect-standard boolean. Some IdPs omit it
+	// (effectively false); some Azure AD configurations encode it as a string
+	// "true"/"false" rather than a JSON bool. Accept both shapes; fall back
+	// to false on any other shape, which is the safe default for F-5.
+	if v, ok := claims["email_verified"]; ok {
+		switch ev := v.(type) {
+		case bool:
+			info.EmailVerified = ev
+		case string:
+			info.EmailVerified = ev == "true"
+		}
 	}
 	if name, ok := claims["name"].(string); ok {
 		info.Name = name

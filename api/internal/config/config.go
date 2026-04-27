@@ -83,6 +83,16 @@ type OIDCConfig struct {
 	StateCookieSecret string   `yaml:"state_cookie_secret" envconfig:"OIDC_STATE_COOKIE_SECRET"` //nolint:gosec // field name is intentional
 	PostLoginRedirect string   `yaml:"post_login_redirect" envconfig:"OIDC_POST_LOGIN_REDIRECT"`
 	EndSessionURL     string   `yaml:"end_session_url" envconfig:"OIDC_END_SESSION_URL"`
+	// AutoLinkByEmail controls how OIDC sign-in resolves an email collision
+	// detected by the global email-uniqueness index (F-5 of SECURITY_REVIEW.md).
+	// Default false: the new IdP login is rejected with 409 — operators must
+	// untangle the duplicate identities by hand.
+	// When true: the existing users row is rebound to the new (provider,
+	// provider_sub) but ONLY if the IdP attests email_verified == true. An
+	// unverified colliding email is still rejected; otherwise an attacker
+	// who controls a federated IdP could claim arbitrary email strings and
+	// take over local accounts.
+	AutoLinkByEmail bool `yaml:"auto_link_by_email" envconfig:"OIDC_AUTO_LINK_BY_EMAIL"`
 }
 
 // TracesConfig holds OpenTelemetry trace export configuration.

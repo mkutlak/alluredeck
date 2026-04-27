@@ -26,6 +26,11 @@ var (
 	ErrWebhookNotFound           = errors.New("webhook not found")
 	ErrPreferencesNotFound       = errors.New("preferences not found")
 	ErrRefreshFamilyNotFound     = errors.New("refresh token family not found")
+	// ErrEmailAlreadyLinked is returned by UpsertByOIDC when the email is
+	// already bound to a different (provider, provider_sub) identity. F-5 of
+	// SECURITY_REVIEW.md uses this to enforce one account per email across
+	// all OIDC (and local) providers.
+	ErrEmailAlreadyLinked = errors.New("email already linked to a different identity")
 )
 
 // ProjectStorer is the interface for project operations.
@@ -309,6 +314,13 @@ type UserStorer interface {
 	// treat failures as best-effort and not fail the surrounding request.
 	UpdateLastLogin(ctx context.Context, id int64) error
 	Deactivate(ctx context.Context, id int64) error
+	// RelinkOIDC rebinds an existing users row to a new (provider, provider_sub)
+	// identity and refreshes last_login. Used by F-5 of SECURITY_REVIEW.md when
+	// OIDC_AUTO_LINK_BY_EMAIL is enabled and the IdP marked the colliding email
+	// as verified — the operator has explicitly opted in to letting a verified
+	// OIDC sign-in take over an existing account. Returns ErrUserNotFound when
+	// no row matches id.
+	RelinkOIDC(ctx context.Context, id int64, provider, sub string) error
 }
 
 // Defect category constants — mirror the CHECK constraint values stored in defect_fingerprints.category.

@@ -4,8 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -23,6 +25,7 @@ type OIDCHandler struct {
 	jwtManager  *security.JWTManager
 	userStore   store.UserStorer
 	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
+	audit       store.AuditLogger              // optional; nil disables persistent audit emission
 	logger      *zap.Logger
 }
 
@@ -37,6 +40,15 @@ func NewOIDCHandler(cfg *config.Config, oidcProv security.OIDCExchanger, jwtMana
 		familyStore: familyStore,
 		logger:      logger,
 	}
+}
+
+// WithAuditLogger wires the persistent audit logger so OIDC success/failure
+// events are recorded to the audit_log table. Nil is acceptable — emit becomes
+// a no-op, matching the F-1 contract that audit must never fail the request
+// it is auditing.
+func (h *OIDCHandler) WithAuditLogger(a store.AuditLogger) *OIDCHandler {
+	h.audit = a
+	return h
 }
 
 // Login initiates the OIDC authorization code + PKCE flow.
@@ -134,12 +146,28 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// 5. Resolve role from groups
 	role := security.ResolveRole(userInfo.Groups, &h.cfg.OIDC)
 
-	// 6. JIT user provisioning via UpsertByOIDC
+	// 6. JIT user provisioning via UpsertByOIDC. F-5: when the partial-unique
+	// email index rejects the insert because a different identity already owns
+	// this email, UpsertByOIDC returns ErrEmailAlreadyLinked. We resolve that
+	// either by rejecting (default) or, when the operator opted in via
+	// OIDC_AUTO_LINK_BY_EMAIL AND the IdP attests email_verified, by relinking
+	// the existing row to the new (provider, provider_sub).
+	//
+	// relinkPrev tracks the previous provider in the audit metadata of the
+	// auto-link success path; it stays empty on the non-link branches.
+	var relinkPrev string
 	user, err := h.userStore.UpsertByOIDC(r.Context(), "oidc", userInfo.Subject, userInfo.Email, userInfo.Name, role)
 	if err != nil {
-		h.logger.Error("oidc: user upsert failed", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "Failed to provision user")
-		return
+		if errors.Is(err, store.ErrEmailAlreadyLinked) {
+			user, relinkPrev = h.handleEmailCollision(w, r, userInfo, role)
+			if user == nil {
+				return
+			}
+		} else {
+			h.logger.Error("oidc: user upsert failed", zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "Failed to provision user")
+			return
+		}
 	}
 
 	// 7. Check if user is active
@@ -202,12 +230,117 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	// 12. Redirect to post-login URL
+	// 12. Audit the successful login. Emit AFTER tokens are set so a successful
+	// audit row genuinely corresponds to a session that was handed out. The
+	// metadata distinguishes the normal upsert path from the F-5 auto-link path
+	// so incident response can spot every cross-provider rebinding.
+	successEvt := auditFromRequest(r)
+	successEvt.Action = store.AuditActionLoginSuccess
+	successEvt.Outcome = store.AuditOutcomeSuccess
+	successEvt.ActorLabel = user.Email
+	successEvt.TargetType = store.AuditTargetUser
+	successEvt.TargetID = fmt.Sprintf("%d", user.ID)
+	uid := user.ID
+	successEvt.ActorID = &uid
+	successMeta := map[string]any{
+		"family_id": familyID,
+		"role":      user.Role,
+		"provider":  "oidc",
+	}
+	if relinkPrev != "" {
+		successMeta["oidc_link"] = "auto"
+		successMeta["verified"] = true
+		successMeta["previous_provider"] = relinkPrev
+		successMeta["new_provider"] = "oidc"
+	}
+	successEvt.Metadata = auditMetadata(successMeta)
+	auditRecord(r.Context(), h.audit, successEvt)
+
+	// 13. Redirect to post-login URL
 	postLoginURL := h.cfg.OIDC.PostLoginRedirect
 	if postLoginURL == "" {
 		postLoginURL = "/"
 	}
 	http.Redirect(w, r, postLoginURL+"?oidc=success", http.StatusFound)
+}
+
+// handleEmailCollision resolves an ErrEmailAlreadyLinked from UpsertByOIDC.
+//
+// Default (cfg.OIDC.AutoLinkByEmail=false): respond 409 with a clear message,
+// emit auth.login.failure with metadata.reason="oidc_email_collision", and
+// return (nil, "") to signal the caller to bail.
+//
+// Auto-link enabled AND IdP marked email_verified=true: load the existing row
+// by email, rebind it to the new (provider, provider_sub) via RelinkOIDC, and
+// return the refreshed user plus the previous provider for audit metadata.
+//
+// Auto-link enabled BUT email_verified=false: same 409 + audit-failure as the
+// default path. An attacker controlling a federated IdP must NOT be able to
+// claim an arbitrary email and take over an account.
+//
+// On any internal failure (GetByEmail/RelinkOIDC error) the request is rejected
+// with 409 + audit-failure to keep the operator-facing failure surface
+// uniform — internal details belong in the structured log, not the response.
+func (h *OIDCHandler) handleEmailCollision(w http.ResponseWriter, r *http.Request, userInfo *security.OIDCUserInfo, role string) (*store.User, string) {
+	emailLower := strings.ToLower(strings.TrimSpace(userInfo.Email))
+
+	rejectFn := func(reason string) {
+		evt := auditFromRequest(r)
+		evt.Action = store.AuditActionLoginFailure
+		evt.Outcome = store.AuditOutcomeFailure
+		evt.ActorLabel = emailLower
+		evt.TargetType = store.AuditTargetUser
+		evt.Metadata = auditMetadata(map[string]any{
+			"reason":          reason,
+			"attempted_email": emailLower,
+			"provider":        "oidc",
+			"provider_sub":    userInfo.Subject,
+		})
+		auditRecord(r.Context(), h.audit, evt)
+		writeError(w, http.StatusConflict, "An account with this email already exists under a different identity. Contact an administrator to link them.")
+	}
+
+	if !h.cfg.OIDC.AutoLinkByEmail {
+		h.logger.Warn("oidc: email collision rejected (auto-link disabled)",
+			zap.String("email", emailLower), zap.String("subject", userInfo.Subject))
+		rejectFn("oidc_email_collision")
+		return nil, ""
+	}
+
+	// Auto-link path. The IdP MUST attest the email is verified, otherwise
+	// any IdP that accepts arbitrary email input could claim ownership of
+	// an existing account.
+	if !userInfo.EmailVerified {
+		h.logger.Warn("oidc: email collision rejected (auto-link enabled but email_verified=false)",
+			zap.String("email", emailLower), zap.String("subject", userInfo.Subject))
+		rejectFn("oidc_email_collision_unverified")
+		return nil, ""
+	}
+
+	existing, err := h.userStore.GetByEmail(r.Context(), userInfo.Email)
+	if err != nil || existing == nil {
+		h.logger.Error("oidc: auto-link failed to load existing row",
+			zap.String("email", emailLower), zap.Error(err))
+		rejectFn("oidc_email_collision_lookup_failed")
+		return nil, ""
+	}
+	prevProvider := existing.Provider
+	if err := h.userStore.RelinkOIDC(r.Context(), existing.ID, "oidc", userInfo.Subject); err != nil {
+		h.logger.Error("oidc: auto-link relink failed",
+			zap.String("email", emailLower), zap.Int64("user_id", existing.ID), zap.Error(err))
+		rejectFn("oidc_email_collision_relink_failed")
+		return nil, ""
+	}
+	// Refresh the user view so callers see the new provider/sub and bumped
+	// last_login. RelinkOIDC's UPDATE has already mutated the row server-side;
+	// we only need to reflect that here.
+	existing.Provider = "oidc"
+	existing.ProviderSub = userInfo.Subject
+	existing.Role = role
+	now := time.Now()
+	existing.LastLogin = &now
+	existing.UpdatedAt = now
+	return existing, prevProvider
 }
 
 // randomHex returns n cryptographically random bytes as a lowercase hex string.

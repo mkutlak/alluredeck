@@ -62,6 +62,9 @@ func (s *stubUserStore) UpdatePasswordHash(_ context.Context, _ int64, _ string)
 func (s *stubUserStore) UpdateLastLogin(_ context.Context, _ int64) error { panic("unused") }
 func (s *stubUserStore) ClearLastLogin(_ context.Context, _ int64) error  { panic("unused") }
 func (s *stubUserStore) Deactivate(_ context.Context, _ int64) error      { panic("unused") }
+func (s *stubUserStore) RelinkOIDC(_ context.Context, _ int64, _, _ string) error {
+	panic("unused")
+}
 
 var _ store.UserStorer = (*stubUserStore)(nil)
 
