@@ -26,14 +26,14 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
 
-	handler := AuthMiddleware(cfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
+	handler := AuthMiddleware(cfg, jwtManager, false, nil, nil)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	t.Run("SecurityDisabled", func(t *testing.T) {
 		t.Parallel()
 		disabledCfg := &config.Config{SecurityEnabled: false}
-		h := AuthMiddleware(disabledCfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
+		h := AuthMiddleware(disabledCfg, jwtManager, false, nil, nil)(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -118,7 +118,7 @@ func TestAuthMiddleware(t *testing.T) {
 		// Wait for the token to expire
 		time.Sleep(5 * time.Millisecond)
 
-		expiredHandler := AuthMiddleware(cfg, jwtManager, false, nil)(func(w http.ResponseWriter, _ *http.Request) {
+		expiredHandler := AuthMiddleware(cfg, jwtManager, false, nil, nil)(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -161,7 +161,7 @@ func TestRequireRole(t *testing.T) {
 		inner := func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}
-		return AuthMiddleware(cfg, jwtMgr, false, nil)(RequireRole(requiredRole)(inner))
+		return AuthMiddleware(cfg, jwtMgr, false, nil, nil)(RequireRole(requiredRole)(inner))
 	}
 
 	t.Run("AdminAllowedOnAdminEndpoint", func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestAuthMiddleware_APIKeyValid(t *testing.T) {
 	token := "ald_" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
 
 	var capturedClaims any
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, r *http.Request) {
 		capturedClaims, _ = ClaimsFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})
@@ -358,7 +358,7 @@ func TestAuthMiddleware_APIKeyExpired(t *testing.T) {
 
 	token := "ald_" + "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"
 
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, _ *http.Request) {
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -390,7 +390,7 @@ func TestAuthMiddleware_APIKeyInvalid(t *testing.T) {
 
 	token := "ald_" + "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, _ *http.Request) {
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -423,7 +423,7 @@ func TestAuthMiddleware_NonAldBearerUsesJWT(t *testing.T) {
 
 	accessToken, _, _ := jwtManager.GenerateTokens("jwtuser", "viewer")
 
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore)(func(w http.ResponseWriter, _ *http.Request) {
+	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 

@@ -25,7 +25,20 @@ const ClaimsKey contextKey = "jwt_claims"
 // On success, the parsed JWT claims are stored in the request context under ClaimsKey.
 // When apiKeyStore is non-nil and the token has the "ald_" prefix, API key authentication
 // is used instead of JWT validation.
-func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefresh bool, apiKeyStore store.APIKeyStorer) func(http.HandlerFunc) http.HandlerFunc {
+//
+// userActiveCache, when non-nil, enforces a per-request re-check of
+// users.is_active for DB-backed users (numeric JWT sub) and for API-key
+// authenticated requests. This is the F-3 defence-in-depth control: even if a
+// future code path forgets to revoke explicit sessions on deactivation, the
+// next request after the cache TTL (30s by default) will be rejected.
+// Pass nil to disable the recheck (preserves old test wiring).
+func AuthMiddleware(
+	cfg *config.Config,
+	jwtManager *security.JWTManager,
+	isRefresh bool,
+	apiKeyStore store.APIKeyStorer,
+	userActiveCache *UserActiveCache,
+) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !cfg.SecurityEnabled {
@@ -59,6 +72,21 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 					writeMiddlewareError(w, http.StatusUnauthorized, "API key has expired")
 					return
 				}
+				// F-3: re-check that the API key's owning user is still active.
+				// Lookup is by email (the API key Username field). On DB error
+				// we fail open and log a warning — the explicit revocation in
+				// F-2 is the primary control, and we do not want a transient
+				// DB blip to take down every API-key client.
+				if userActiveCache != nil {
+					active, recheckErr := userActiveCache.IsActiveByEmail(r.Context(), apiKey.Username)
+					if recheckErr != nil {
+						logging.FromContext(r.Context()).Warn("auth: api key user active recheck failed",
+							zap.String("username", apiKey.Username), zap.Error(recheckErr))
+					} else if !active {
+						writeMiddlewareError(w, http.StatusUnauthorized, "Account inactive")
+						return
+					}
+				}
 				// Update last_used asynchronously — fire-and-forget.
 				// Use the request context so the update is cancelled if the
 				// client disconnects, and to satisfy gosec G118.
@@ -82,6 +110,21 @@ func AuthMiddleware(cfg *config.Config, jwtManager *security.JWTManager, isRefre
 				logging.FromContext(r.Context()).Warn("auth: token validation failed", zap.Error(err))
 				writeMiddlewareError(w, http.StatusUnauthorized, "Invalid token")
 				return
+			}
+
+			// F-3: re-check users.is_active for DB-backed users (numeric sub).
+			// IsActive returns (true, nil) for non-numeric sub values (env
+			// users), so this call is safe to invoke unconditionally.
+			if userActiveCache != nil {
+				sub, _ := claims["sub"].(string)
+				active, recheckErr := userActiveCache.IsActive(r.Context(), sub)
+				if recheckErr != nil {
+					logging.FromContext(r.Context()).Warn("auth: user active recheck failed",
+						zap.String("sub", sub), zap.Error(recheckErr))
+				} else if !active {
+					writeMiddlewareError(w, http.StatusUnauthorized, "Account inactive")
+					return
+				}
 			}
 
 			// Propagate claims through context so handlers can access username/role

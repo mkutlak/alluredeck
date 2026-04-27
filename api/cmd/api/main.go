@@ -80,13 +80,14 @@ type handlerSet struct {
 
 // routeDeps bundles all dependencies needed by registerRoutes.
 type routeDeps struct {
-	mux          *http.ServeMux
-	prefix       string
-	cfg          *config.Config
-	jwtManager   *security.JWTManager
-	loginLimiter *middleware.IPRateLimiter
-	apiKeyStore  store.APIKeyStorer
-	h            handlerSet
+	mux             *http.ServeMux
+	prefix          string
+	cfg             *config.Config
+	jwtManager      *security.JWTManager
+	loginLimiter    *middleware.IPRateLimiter
+	apiKeyStore     store.APIKeyStorer
+	userActiveCache *middleware.UserActiveCache
+	h               handlerSet
 }
 
 // @title           AllureDeck API
@@ -227,14 +228,20 @@ func main() {
 	limiterDone := make(chan struct{})
 	loginLimiter.StartCleanup(5*time.Minute, limiterDone)
 
+	// Per-request is_active recheck cache (F-3 of SECURITY_REVIEW.md). 30s TTL
+	// is the residual exposure window after a deactivation if explicit revoke
+	// was missed; 10k entries comfortably holds typical working sets.
+	userActiveCache := middleware.NewUserActiveCache(s.user, 30*time.Second, 10000)
+
 	registerRoutes(routeDeps{
-		mux:          mux,
-		prefix:       "/api/v1",
-		cfg:          cfg,
-		jwtManager:   jwtManager,
-		loginLimiter: loginLimiter,
-		apiKeyStore:  s.apiKey,
-		h:            h,
+		mux:             mux,
+		prefix:          "/api/v1",
+		cfg:             cfg,
+		jwtManager:      jwtManager,
+		loginLimiter:    loginLimiter,
+		apiKeyStore:     s.apiKey,
+		userActiveCache: userActiveCache,
+		h:               h,
 	})
 
 	// Chain middleware: Recovery → RequestID → OTel → Logging → SecurityHeaders → CSRF → CORS → mux (AUDIT 3.1, 2.6, REVIEW #11, #16).
@@ -605,7 +612,7 @@ func migrateChildStoragePaths(ctx context.Context, projectStore store.ProjectSto
 // registerRoutes mounts all API routes under the given URL prefix.
 func registerRoutes(d routeDeps) {
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
-		return middleware.AuthMiddleware(d.cfg, d.jwtManager, false, d.apiKeyStore)(h)
+		return middleware.AuthMiddleware(d.cfg, d.jwtManager, false, d.apiKeyStore, d.userActiveCache)(h)
 	}
 	rateLimit := middleware.RateLimitMiddleware(d.loginLimiter)
 
