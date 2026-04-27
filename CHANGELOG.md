@@ -1,3 +1,9 @@
+## [0.32.0](https://github.com/mkutlak/alluredeck/compare/v0.31.0...v0.32.0) (2026-04-27)
+
+### Features
+
+* **attachments:** add server-side test status filter ([64efb4b](https://github.com/mkutlak/alluredeck/commit/64efb4b8c66f582420f16c8e77bcaf5090ec95ab))
+
 ## [0.31.0](https://github.com/mkutlak/alluredeck/compare/v0.30.0...v0.31.0) (2026-04-26)
 
 ### Features
