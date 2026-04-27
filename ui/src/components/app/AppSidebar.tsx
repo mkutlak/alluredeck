@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   Paperclip,
   Shield,
-  UserCircle,
   UsersRound,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -139,14 +138,6 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Profile">
-                <NavLink to="/settings/profile">
-                  <UserCircle />
-                  <span>Profile</span>
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>

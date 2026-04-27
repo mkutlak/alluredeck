@@ -246,7 +246,7 @@ type PipelineStorer interface {
 
 // AttachmentStorer provides queries over test attachment metadata.
 type AttachmentStorer interface {
-	ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]TestAttachment, int, error)
+	ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]TestAttachment, int, error)
 	GetBySource(ctx context.Context, buildID int64, source string) (*TestAttachment, error)
 	// InsertBuildAttachments inserts build-level attachments (e.g. from Playwright
 	// data/ directory) that are not linked to a specific test result.

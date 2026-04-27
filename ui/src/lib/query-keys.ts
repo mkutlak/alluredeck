@@ -57,9 +57,9 @@ export const queryKeys = {
     branch != null
       ? (['trends', pid, builds, branch] as const)
       : (['trends', pid, builds] as const),
-  attachments: (projectId: string, reportId: string, mimeType?: string) =>
-    mimeType != null
-      ? (['attachments', projectId, reportId, mimeType] as const)
+  attachments: (projectId: string, reportId: string, status?: string) =>
+    status != null
+      ? (['attachments', projectId, reportId, status] as const)
       : (['attachments', projectId, reportId] as const),
   defects: (projectId: string, filters?: Record<string, unknown>) =>
     filters != null

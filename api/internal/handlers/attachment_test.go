@@ -29,7 +29,7 @@ type mockAttachmentStore struct {
 	source      *store.TestAttachment
 }
 
-func (m *mockAttachmentStore) ListByBuild(_ context.Context, _ int64, _ int64, _ string, _, _ int) ([]store.TestAttachment, int, error) {
+func (m *mockAttachmentStore) ListByBuild(_ context.Context, _ int64, _ int64, _, _ string, _, _ int) ([]store.TestAttachment, int, error) {
 	return m.attachments, m.total, m.errToReturn
 }
 
@@ -372,13 +372,76 @@ func TestListAttachments_MimeFilter(t *testing.T) {
 	}
 }
 
+func TestListAttachments_InvalidTestStatus(t *testing.T) {
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
+	as := &mockAttachmentStore{}
+	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/1/reports/1/attachments?test_status=bogus", nil)
+	req.SetPathValue("project_id", "1")
+	req.SetPathValue("report_id", "1")
+	rr := httptest.NewRecorder()
+	h.ListAttachments(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestListAttachments_ValidTestStatusForwardedToStore(t *testing.T) {
+	validStatuses := []string{"passed", "failed", "broken", "skipped", "unknown"}
+	for _, status := range validStatuses {
+		t.Run(status, func(t *testing.T) {
+			var capturedStatus string
+			bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
+			as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
+			captureStore := &captureStatusStore{inner: as, capturedStatus: &capturedStatus}
+			h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+				"/api/v1/projects/1/reports/1/attachments?test_status="+status, nil)
+			req.SetPathValue("project_id", "1")
+			req.SetPathValue("report_id", "1")
+			rr := httptest.NewRecorder()
+			h.ListAttachments(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+			if capturedStatus != status {
+				t.Errorf("testStatus passed to store = %q, want %q", capturedStatus, status)
+			}
+		})
+	}
+}
+
+func TestListAttachments_MissingTestStatusPassesEmptyToStore(t *testing.T) {
+	var capturedStatus string
+	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
+	as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
+	captureStore := &captureStatusStore{inner: as, capturedStatus: &capturedStatus}
+	h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/projects/1/reports/1/attachments", nil)
+	req.SetPathValue("project_id", "1")
+	req.SetPathValue("report_id", "1")
+	rr := httptest.NewRecorder()
+	h.ListAttachments(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if capturedStatus != "" {
+		t.Errorf("testStatus passed to store = %q, want empty string", capturedStatus)
+	}
+}
+
 // captureMimeStore wraps mockAttachmentStore to capture the mimeFilter argument.
 type captureMimeStore struct {
 	inner        *mockAttachmentStore
 	capturedMime *string
 }
 
-func (c *captureMimeStore) ListByBuild(_ context.Context, _ int64, _ int64, mimeFilter string, _, _ int) ([]store.TestAttachment, int, error) {
+func (c *captureMimeStore) ListByBuild(_ context.Context, _ int64, _ int64, mimeFilter, _ string, _, _ int) ([]store.TestAttachment, int, error) {
 	*c.capturedMime = mimeFilter
 	return c.inner.attachments, c.inner.total, c.inner.errToReturn
 }
@@ -388,6 +451,25 @@ func (c *captureMimeStore) GetBySource(_ context.Context, _ int64, _ string) (*s
 }
 
 func (c *captureMimeStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
+	return nil
+}
+
+// captureStatusStore wraps mockAttachmentStore to capture the testStatus argument.
+type captureStatusStore struct {
+	inner          *mockAttachmentStore
+	capturedStatus *string
+}
+
+func (c *captureStatusStore) ListByBuild(_ context.Context, _ int64, _ int64, _, testStatus string, _, _ int) ([]store.TestAttachment, int, error) {
+	*c.capturedStatus = testStatus
+	return c.inner.attachments, c.inner.total, c.inner.errToReturn
+}
+
+func (c *captureStatusStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
+	return c.inner.source, c.inner.errToReturn
+}
+
+func (c *captureStatusStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
 	return nil
 }
 

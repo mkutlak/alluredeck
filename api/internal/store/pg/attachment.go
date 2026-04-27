@@ -22,12 +22,29 @@ func NewAttachmentStore(s *PGStore) *AttachmentStore {
 }
 
 // ListByBuild returns attachment metadata for all attachments belonging to a
-// specific build, with optional MIME type prefix filtering and pagination.
-func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
+// specific build, with optional MIME type prefix filtering, optional test status
+// filtering, and pagination.
+func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]store.TestAttachment, int, error) {
 	var rows pgx.Rows
 	var err error
 
-	if mimeFilter != "" {
+	switch {
+	case mimeFilter != "" && testStatus != "":
+		rows, err = a.pool.Query(ctx, `
+			SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes,
+			       tr.test_name, tr.status,
+			       COUNT(*) OVER() AS total
+			FROM test_attachments ta
+			JOIN test_results tr ON tr.id = ta.test_result_id
+			WHERE tr.build_id = $1
+			  AND tr.project_id = $2
+			  AND ta.mime_type LIKE $3 || '%'
+			  AND tr.status = $4
+			ORDER BY tr.test_name, ta.id
+			LIMIT $5 OFFSET $6`,
+			buildID, projectID, mimeFilter, testStatus, limit, offset,
+		)
+	case mimeFilter != "":
 		rows, err = a.pool.Query(ctx, `
 			SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes,
 			       tr.test_name, tr.status,
@@ -41,7 +58,21 @@ func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID int64, buil
 			LIMIT $4 OFFSET $5`,
 			buildID, projectID, mimeFilter, limit, offset,
 		)
-	} else {
+	case testStatus != "":
+		rows, err = a.pool.Query(ctx, `
+			SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes,
+			       tr.test_name, tr.status,
+			       COUNT(*) OVER() AS total
+			FROM test_attachments ta
+			JOIN test_results tr ON tr.id = ta.test_result_id
+			WHERE tr.build_id = $1
+			  AND tr.project_id = $2
+			  AND tr.status = $3
+			ORDER BY tr.test_name, ta.id
+			LIMIT $4 OFFSET $5`,
+			buildID, projectID, testStatus, limit, offset,
+		)
+	default:
 		rows, err = a.pool.Query(ctx, `
 			SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source, ta.mime_type, ta.size_bytes,
 			       tr.test_name, tr.status,

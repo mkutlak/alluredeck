@@ -121,10 +121,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			})
 			auditRecord(r.Context(), h.audit, lockoutEvt)
 
-			retryAfter := int(time.Until(throttleResult.LockedUntil).Seconds())
-			if retryAfter < 1 {
-				retryAfter = 1
-			}
+			retryAfter := max(int(time.Until(throttleResult.LockedUntil).Seconds()), 1)
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			writeError(w, http.StatusTooManyRequests, "Too many failed attempts. Try again later.")
 			return

@@ -1368,6 +1368,10 @@ paths:
         in: query
         name: mime_type
         type: string
+      - description: 'Filter by test status: passed, failed, broken, skipped, unknown'
+        in: query
+        name: test_status
+        type: string
       - description: Max results (default 100, max 500)
         in: query
         name: limit

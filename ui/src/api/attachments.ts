@@ -1,8 +1,11 @@
 import { apiClient } from './client'
 import type { AttachmentsData, AttachmentGroup } from '@/types/api'
 
+export type AttachmentStatusFilter = 'passed' | 'failed' | 'broken' | 'skipped'
+
 export interface FetchAttachmentsOptions {
   mimeType?: string
+  status?: AttachmentStatusFilter
   limit?: number
   offset?: number
 }
@@ -17,6 +20,7 @@ export async function fetchAttachments(
     {
       params: {
         ...(opts?.mimeType ? { mime_type: opts.mimeType } : {}),
+        ...(opts?.status ? { test_status: opts.status } : {}),
         ...(opts?.limit !== undefined ? { limit: opts.limit } : {}),
         ...(opts?.offset !== undefined ? { offset: opts.offset } : {}),
       },

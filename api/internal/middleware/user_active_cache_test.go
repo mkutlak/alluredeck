@@ -19,7 +19,7 @@ type stubUserStore struct {
 	getByIDFn  func(ctx context.Context, id int64) (*store.User, error)
 	getByEmail func(ctx context.Context, email string) (*store.User, error)
 	getIDCalls int32
-	getEmCalls int32
+	getEmCalls atomic.Int32
 	getIDDelay time.Duration // optional delay to widen the singleflight race window
 }
 
@@ -35,7 +35,7 @@ func (s *stubUserStore) GetByID(ctx context.Context, id int64) (*store.User, err
 }
 
 func (s *stubUserStore) GetByEmail(ctx context.Context, email string) (*store.User, error) {
-	atomic.AddInt32(&s.getEmCalls, 1)
+	s.getEmCalls.Add(1)
 	if s.getByEmail == nil {
 		return nil, store.ErrUserNotFound
 	}
@@ -160,7 +160,7 @@ func TestUserActiveCache_ConcurrentMissDedupes(t *testing.T) {
 	const N = 100
 	var wg sync.WaitGroup
 	wg.Add(N)
-	for i := 0; i < N; i++ {
+	for range N {
 		go func() {
 			defer wg.Done()
 			if ok, err := c.IsActive(context.Background(), "7"); err != nil || !ok {
@@ -284,7 +284,7 @@ func TestUserActiveCache_ByEmailMergesWithByID(t *testing.T) {
 	if got := atomic.LoadInt32(&stub.getIDCalls); got != 0 {
 		t.Fatalf("expected zero GetByID calls (cache hit via email warmup), got %d", got)
 	}
-	if got := atomic.LoadInt32(&stub.getEmCalls); got != 1 {
+	if got := stub.getEmCalls.Load(); got != 1 {
 		t.Fatalf("expected exactly 1 GetByEmail call, got %d", got)
 	}
 }

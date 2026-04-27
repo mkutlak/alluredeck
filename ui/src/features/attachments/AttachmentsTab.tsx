@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Paperclip, ChevronDown, ChevronRight } from 'lucide-react'
 import { fetchAttachments } from '@/api/attachments'
+import type { AttachmentStatusFilter } from '@/api/attachments'
 import { fetchReportHistory } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -30,6 +31,16 @@ const MIME_FILTERS = [
 ] as const
 
 type MimeFilter = (typeof MIME_FILTERS)[number]['value']
+
+type StatusFilterValue = 'all' | AttachmentStatusFilter
+
+const STATUS_FILTERS: { label: string; value: StatusFilterValue }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Passed', value: 'passed' },
+  { label: 'Failed', value: 'failed' },
+  { label: 'Broken', value: 'broken' },
+  { label: 'Skipped', value: 'skipped' },
+]
 
 const statusStyles: Record<string, string> = {
   passed: 'text-emerald-600 dark:text-emerald-400',
@@ -66,6 +77,7 @@ export function AttachmentsTab() {
   const [mimeFilter, setMimeFilter] = useState<MimeFilter>('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [selectedReport, setSelectedReport] = useState('latest')
+  const [selectedStatus, setSelectedStatus] = useState<StatusFilterValue>('all')
 
   // Fetch report list for the dropdown.
   const { data: reportsData } = useQuery({
@@ -77,9 +89,11 @@ export function AttachmentsTab() {
 
   const reports = reportsData?.data?.reports ?? []
 
+  const statusForQuery = selectedStatus !== 'all' ? selectedStatus : undefined
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.attachments(projectId!, selectedReport),
-    queryFn: () => fetchAttachments(projectId!, selectedReport),
+    queryKey: queryKeys.attachments(projectId!, selectedReport, statusForQuery),
+    queryFn: () =>
+      fetchAttachments(projectId!, selectedReport, statusForQuery ? { status: statusForQuery } : undefined),
     enabled: !!projectId,
     staleTime: 10_000,
   })
@@ -137,7 +151,11 @@ export function AttachmentsTab() {
       <div>
         <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
         <p className="text-muted-foreground text-sm">
-          Attachments · Report {reportLabel} · {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
+          Attachments · Report {reportLabel}
+          {selectedStatus !== 'all' &&
+            ` · ${selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)} only`}
+          {' · '}
+          {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
         </p>
       </div>
 
@@ -155,20 +173,34 @@ export function AttachmentsTab() {
             </Button>
           ))}
         </div>
-        <Select value={selectedReport} onValueChange={setSelectedReport}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Select report" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="latest">Latest</SelectItem>
-            {reports.map((r) => (
-              <SelectItem key={r.report_id} value={r.report_id}>
-                #{r.report_id}
-                {r.is_latest ? ' (latest)' : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as StatusFilterValue)}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_FILTERS.map(({ label, value }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedReport} onValueChange={setSelectedReport}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Select report" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="latest">Latest</SelectItem>
+              {reports.map((r) => (
+                <SelectItem key={r.report_id} value={r.report_id}>
+                  #{r.report_id}
+                  {r.is_latest ? ' (latest)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {filteredGroups.length === 0 ? (
@@ -176,9 +208,11 @@ export function AttachmentsTab() {
           <Paperclip className="text-muted-foreground/40 h-8 w-8" />
           <p className="font-medium">No attachments found</p>
           <p className="text-muted-foreground text-sm">
-            {mimeFilter !== ''
-              ? 'Try selecting a different filter.'
-              : 'Generate a report with attachments to see them here.'}
+            {selectedStatus !== 'all'
+              ? 'Try selecting a different status filter.'
+              : mimeFilter !== ''
+                ? 'Try selecting a different filter.'
+                : 'Generate a report with attachments to see them here.'}
           </p>
         </div>
       ) : (

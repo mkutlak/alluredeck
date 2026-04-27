@@ -233,10 +233,7 @@ func backoffFor(count int, backoffMax time.Duration) time.Duration {
 	}
 	// Compute 1s * 2^(count-1) without unbounded shifting (cap exponent
 	// at 30 — beyond that we are well past backoffMax anyway).
-	exp := count - 1
-	if exp > 30 {
-		exp = 30
-	}
+	exp := min(count-1, 30)
 	d := time.Second * time.Duration(int64(1)<<exp)
 	if d > backoffMax || d < 0 { // d<0 guards against overflow
 		return backoffMax

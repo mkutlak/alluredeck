@@ -172,8 +172,8 @@ describe('AttachmentsTab', () => {
     await screen.findByText('shouldRegisterNewUser')
     // Should show report label with build number
     expect(screen.getByText(/Report #5 \(latest\)/)).toBeInTheDocument()
-    // Should have report selector
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    // Should have two comboboxes: report selector and status filter
+    expect(screen.getAllByRole('combobox')).toHaveLength(2)
   })
 
   it('filters by Images shows only image attachments', async () => {
@@ -256,5 +256,85 @@ describe('AttachmentsTab', () => {
     expect(screen.queryByText('screenshot.png')).not.toBeInTheDocument()
     expect(screen.queryByText('response.json')).not.toBeInTheDocument()
     expect(screen.queryByText('output.txt')).not.toBeInTheDocument()
+  })
+
+  describe('status filter', () => {
+    it('renders a status filter combobox defaulting to "All"', async () => {
+      vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+      renderTab()
+      await screen.findByText('shouldRegisterNewUser')
+      const comboboxes = screen.getAllByRole('combobox')
+      // Status filter is the first combobox (placed left of the report selector)
+      const statusTrigger = comboboxes[0]
+      expect(statusTrigger).toHaveTextContent(/all/i)
+    })
+
+    it('calls fetchAttachments without test_status when status is "All"', async () => {
+      vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+      renderTab()
+      await screen.findByText('shouldRegisterNewUser')
+      expect(fetchAttachments).toHaveBeenCalledWith('proj1', 'latest', undefined)
+    })
+
+    it('calls fetchAttachments with status when a non-All value is selected', async () => {
+      const user = userEvent.setup()
+      vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+      renderTab()
+      await screen.findByText('shouldRegisterNewUser')
+
+      // Open status dropdown and pick "Failed"
+      const comboboxes = screen.getAllByRole('combobox')
+      await user.click(comboboxes[0])
+      const failedOption = await screen.findByRole('option', { name: /^failed$/i })
+      await user.click(failedOption)
+
+      expect(fetchAttachments).toHaveBeenCalledWith('proj1', 'latest', expect.objectContaining({ status: 'failed' }))
+    })
+
+    it('includes status in query key causing a refetch when status changes', async () => {
+      const user = userEvent.setup()
+      vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+      renderTab()
+      await screen.findByText('shouldRegisterNewUser')
+
+      const callsBefore = vi.mocked(fetchAttachments).mock.calls.length
+
+      const comboboxes = screen.getAllByRole('combobox')
+      await user.click(comboboxes[0])
+      const brokenOption = await screen.findByRole('option', { name: /^broken$/i })
+      await user.click(brokenOption)
+
+      expect(vi.mocked(fetchAttachments).mock.calls.length).toBeGreaterThan(callsBefore)
+    })
+
+    it('shows status label in subtitle when a status filter is active', async () => {
+      const user = userEvent.setup()
+      vi.mocked(fetchAttachments).mockResolvedValue(mockData)
+      renderTab()
+      await screen.findByText('shouldRegisterNewUser')
+
+      const comboboxes = screen.getAllByRole('combobox')
+      await user.click(comboboxes[0])
+      const failedOption = await screen.findByRole('option', { name: /^failed$/i })
+      await user.click(failedOption)
+
+      expect(await screen.findByText(/failed only/i)).toBeInTheDocument()
+    })
+
+    it('shows status-aware empty-state copy when status filter yields no results', async () => {
+      const user = userEvent.setup()
+      vi.mocked(fetchAttachments)
+        .mockResolvedValueOnce(mockData)
+        .mockResolvedValue({ groups: [], total: 0, limit: 100, offset: 0 })
+      renderTab()
+      await screen.findByText('shouldRegisterNewUser')
+
+      const comboboxes = screen.getAllByRole('combobox')
+      await user.click(comboboxes[0])
+      const skippedOption = await screen.findByRole('option', { name: /^skipped$/i })
+      await user.click(skippedOption)
+
+      expect(await screen.findByText(/status filter/i)).toBeInTheDocument()
+    })
   })
 })

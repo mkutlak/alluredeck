@@ -2002,6 +2002,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by test status: passed, failed, broken, skipped, unknown",
+                        "name": "test_status",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Max results (default 100, max 500)",
                         "name": "limit",

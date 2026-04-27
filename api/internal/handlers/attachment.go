@@ -93,11 +93,12 @@ type attachmentGroup struct {
 // @Description  Returns paginated attachment metadata for all test attachments in a build.
 // @Tags         attachments
 // @Produce      json
-// @Param        project_id  path   string  true  "Project ID"
-// @Param        report_id   path   string  true  "Build order number or 'latest'"
-// @Param        mime_type   query  string  false "MIME type prefix filter (e.g. 'image')"
-// @Param        limit       query  int     false "Max results (default 100, max 500)"
-// @Param        offset      query  int     false "Pagination offset (default 0)"
+// @Param        project_id   path   string  true  "Project ID"
+// @Param        report_id    path   string  true  "Build order number or 'latest'"
+// @Param        mime_type    query  string  false "MIME type prefix filter (e.g. 'image')"
+// @Param        test_status  query  string  false "Filter by test status: passed, failed, broken, skipped, unknown"
+// @Param        limit        query  int     false "Max results (default 100, max 500)"
+// @Param        offset       query  int     false "Pagination offset (default 0)"
 // @Success      200  {object}  map[string]any
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
@@ -124,6 +125,17 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 	q := r.URL.Query()
 	mimeType := q.Get("mime_type")
 
+	testStatus := q.Get("test_status")
+	if testStatus != "" {
+		switch testStatus {
+		case "passed", "failed", "broken", "skipped", "unknown":
+			// valid
+		default:
+			writeError(w, http.StatusBadRequest, "test_status must be one of: passed, failed, broken, skipped, unknown")
+			return
+		}
+	}
+
 	limit := 100
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -141,7 +153,7 @@ func (h *AttachmentHandler) ListAttachments(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	atts, total, err := h.attachmentStore.ListByBuild(ctx, projectID, build.ID, mimeType, limit, offset)
+	atts, total, err := h.attachmentStore.ListByBuild(ctx, projectID, build.ID, mimeType, testStatus, limit, offset)
 	if err != nil {
 		h.logger.Error("failed to list attachments", zap.Int64("project_id", projectID), zap.Int64("build_id", build.ID), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "internal error")

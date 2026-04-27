@@ -40,7 +40,7 @@ func TestAccountThrottle_AllowsBelowThreshold(t *testing.T) {
 func TestAccountThrottle_LocksOutAtThreshold(t *testing.T) {
 	tr := newTestThrottler()
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		res := tr.RecordFailure("bob")
 		if !res.Allowed {
 			t.Fatalf("failure %d: locked too early, count=%d", i+1, res.FailureCount)
@@ -67,7 +67,7 @@ func TestAccountThrottle_LocksOutAtThreshold(t *testing.T) {
 func TestAccountThrottle_RecordSuccessResets(t *testing.T) {
 	tr := newTestThrottler()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		tr.RecordFailure("carol")
 	}
 	tr.RecordSuccess("carol")
@@ -92,7 +92,7 @@ func TestAccountThrottle_WindowExpires(t *testing.T) {
 	now := time.Now()
 	tr.SetNowFn(func() time.Time { return now })
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		tr.RecordFailure("dave")
 	}
 
@@ -148,12 +148,10 @@ func TestAccountThrottle_Concurrent(t *testing.T) {
 	tr := NewAccountThrottler(time.Minute, 1, 1000, time.Minute, 60*time.Second)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			tr.RecordFailure("frank")
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -202,7 +200,7 @@ func TestAccountThrottle_LockoutExpiresAllowsRetry(t *testing.T) {
 	now := time.Now()
 	tr.SetNowFn(func() time.Time { return now })
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		tr.RecordFailure("grace")
 	}
 

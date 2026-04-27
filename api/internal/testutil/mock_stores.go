@@ -880,14 +880,14 @@ func (m *MockUserStore) RelinkOIDC(ctx context.Context, id int64, provider, sub 
 // MockAttachmentStore is a test double for store.AttachmentStorer.
 // Set function fields to control behaviour; unset fields return zero values.
 type MockAttachmentStore struct {
-	ListByBuildFn            func(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error)
+	ListByBuildFn            func(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]store.TestAttachment, int, error)
 	GetBySourceFn            func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
 	InsertBuildAttachmentsFn func(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error
 }
 
-func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter string, limit, offset int) ([]store.TestAttachment, int, error) {
+func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]store.TestAttachment, int, error) {
 	if m.ListByBuildFn != nil {
-		return m.ListByBuildFn(ctx, projectID, buildID, mimeFilter, limit, offset)
+		return m.ListByBuildFn(ctx, projectID, buildID, mimeFilter, testStatus, limit, offset)
 	}
 	return nil, 0, nil
 }
