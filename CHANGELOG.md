@@ -1,3 +1,9 @@
+## [0.32.1](https://github.com/mkutlak/alluredeck/compare/v0.32.0...v0.32.1) (2026-04-29)
+
+### Bug Fixes
+
+* **authz:** fix is_active recheck for legacy api_key.username shapes ([927ef9e](https://github.com/mkutlak/alluredeck/commit/927ef9ef42d0ebcd90b2ba98390a9ccae3cfe791))
+
 ## [0.32.0](https://github.com/mkutlak/alluredeck/compare/v0.31.0...v0.32.0) (2026-04-27)
 
 ### Features
