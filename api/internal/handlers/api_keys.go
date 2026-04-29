@@ -14,13 +14,14 @@ import (
 
 // APIKeyHandler handles CRUD operations for API keys.
 type APIKeyHandler struct {
-	store store.APIKeyStorer
-	audit store.AuditLogger // optional; nil disables persistent audit emission
+	store     store.APIKeyStorer
+	userStore store.UserStorer  // used at creation to resolve numeric sub → email
+	audit     store.AuditLogger // optional; nil disables persistent audit emission
 }
 
 // NewAPIKeyHandler creates a new APIKeyHandler.
-func NewAPIKeyHandler(s store.APIKeyStorer) *APIKeyHandler {
-	return &APIKeyHandler{store: s}
+func NewAPIKeyHandler(s store.APIKeyStorer, us store.UserStorer) *APIKeyHandler {
+	return &APIKeyHandler{store: s, userStore: us}
 }
 
 // WithAuditLogger wires the persistent audit logger so api_keys.create and
@@ -156,6 +157,20 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
+	// Resolve the username stored on the key. For DB-backed users the JWT sub
+	// is a numeric user ID string; store the user's email instead so F-3 can
+	// look it up via IsActiveByEmail. For env users (non-numeric sub) keep the
+	// literal as-is — IsActiveByAPIKeyUsername handles those at runtime.
+	keyUsername := username
+	if id, parseErr := strconv.ParseInt(username, 10, 64); parseErr == nil {
+		u, lookupErr := h.userStore.GetByID(ctx, id)
+		if lookupErr != nil {
+			writeError(w, http.StatusInternalServerError, "error resolving user")
+			return
+		}
+		keyUsername = u.Email
+	}
+
 	fullKey, err := security.GenerateAPIKey()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "error generating API key")
@@ -168,7 +183,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:      req.Name,
 		Prefix:    prefix,
 		KeyHash:   hash,
-		Username:  username,
+		Username:  keyUsername,
 		Role:      role,
 		ExpiresAt: expiresAt,
 	}

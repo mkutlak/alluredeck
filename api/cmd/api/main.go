@@ -446,7 +446,7 @@ func wireHandlers(
 		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, s.project),
 		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
-		apiKey:          handlers.NewAPIKeyHandler(s.apiKey).WithAuditLogger(s.audit),
+		apiKey:          handlers.NewAPIKeyHandler(s.apiKey, s.user).WithAuditLogger(s.audit),
 		user: handlers.NewUserHandler(s.user, logger).
 			WithAuditLogger(s.audit).
 			WithFamilyStore(s.refreshFamily).

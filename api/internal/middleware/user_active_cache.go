@@ -98,18 +98,49 @@ func (c *UserActiveCache) IsActive(ctx context.Context, sub string) (bool, error
 // Used by the API-key auth path where the JWT-sub indirection is absent.
 // Cached by stringified user ID so subsequent IsActive(sub=user.ID) hits the
 // same entry.
+//
+// Unlike the old behaviour, ErrUserNotFound is now surfaced as an error
+// (wrapped, so callers can use errors.Is). The auth middleware treats this as
+// a data-inconsistency signal and fails open with a warning log — it must NOT
+// be treated as "user is inactive".
 func (c *UserActiveCache) IsActiveByEmail(ctx context.Context, email string) (bool, error) {
 	u, err := c.store.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, store.ErrUserNotFound) {
-			// Unknown email → treat as inactive. Don't cache (no stable key).
-			return false, nil
+			// Surface as error so callers can distinguish "not found" from
+			// "found but deactivated". Do not cache — no stable key exists.
+			return false, fmt.Errorf("user_active_cache: get by email: %w", err)
 		}
 		return false, fmt.Errorf("user_active_cache: get by email: %w", err)
 	}
 	key := strconv.FormatInt(u.ID, 10)
 	c.storeEntry(key, u.IsActive)
 	return u.IsActive, nil
+}
+
+// envUsers is the set of environment-config user literals that have no users
+// row and are always considered active.
+var envUsers = map[string]bool{
+	"admin":  true,
+	"editor": true,
+	"viewer": true,
+}
+
+// IsActiveByAPIKeyUsername resolves an api_keys.username value regardless of
+// its historical shape:
+//   - env-user literal ("admin", "editor", "viewer") → (true, nil); these have
+//     no users row and are always active.
+//   - numeric string (legacy DB-user ID stored at creation time) → IsActive(sub);
+//     looks up by users.id.
+//   - anything else (email address, the correct post-Phase-2 shape) → IsActiveByEmail.
+func (c *UserActiveCache) IsActiveByAPIKeyUsername(ctx context.Context, username string) (bool, error) {
+	if envUsers[username] {
+		return true, nil
+	}
+	if _, err := strconv.ParseInt(username, 10, 64); err == nil {
+		return c.IsActive(ctx, username)
+	}
+	return c.IsActiveByEmail(ctx, username)
 }
 
 // Invalidate purges the entry for the given key (stringified user ID). Safe

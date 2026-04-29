@@ -437,6 +437,154 @@ func TestAuthMiddleware_NonAldBearerUsesJWT(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// F-3 API key active recheck — username shape dispatch (Phase 1)
+// ---------------------------------------------------------------------------
+
+func makeAPIKeyAuthHandler(cfg *config.Config, jwtMgr *security.JWTManager, apiKeyStore store.APIKeyStorer, userActiveCache *UserActiveCache) http.HandlerFunc {
+	return AuthMiddleware(cfg, jwtMgr, false, apiKeyStore, userActiveCache)(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func TestAuthMiddleware_APIKey_LegacyEnvUsername_AllowedActive(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+
+	now := time.Now().Add(time.Hour)
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return &store.APIKey{ID: 1, Username: "admin", Role: "admin", ExpiresAt: &now}, nil
+		},
+		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
+	}
+
+	// UserActiveCache with a user store that should NOT be called for env user "admin".
+	mem := testutil.NewMemUserStore()
+	cache := NewUserActiveCache(mem, time.Second, 10)
+
+	token := "ald_" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("legacy env username 'admin': want 200, got %d", rr.Code)
+	}
+}
+
+func TestAuthMiddleware_APIKey_NumericUsername_AllowedActive(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+
+	now := time.Now().Add(time.Hour)
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return &store.APIKey{ID: 2, Username: "1", Role: "admin", ExpiresAt: &now}, nil
+		},
+		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
+	}
+
+	// Seed a user with ID=1 (active).
+	mem := testutil.NewMemUserStore()
+	if _, err := mem.UpsertByOIDC(context.Background(), "local", "sub-1", "admin@example.com", "Admin", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewUserActiveCache(mem, time.Second, 10)
+
+	token := "ald_" + "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("numeric username '1': want 200 for active user, got %d", rr.Code)
+	}
+}
+
+func TestAuthMiddleware_APIKey_EmailUsername_AllowedActive(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+
+	now := time.Now().Add(time.Hour)
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return &store.APIKey{ID: 3, Username: "x@y.z", Role: "viewer", ExpiresAt: &now}, nil
+		},
+		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
+	}
+
+	mem := testutil.NewMemUserStore()
+	if _, err := mem.UpsertByOIDC(context.Background(), "local", "sub-2", "x@y.z", "X Y", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewUserActiveCache(mem, time.Second, 10)
+
+	token := "ald_" + "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("email username 'x@y.z': want 200 for active user, got %d", rr.Code)
+	}
+}
+
+func TestAuthMiddleware_APIKey_MissingEmailUsername_FailOpen(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		SecurityEnabled:    true,
+		JWTSecret:          "test-secret",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+
+	now := time.Now().Add(time.Hour)
+	apiKeyStore := &testutil.MockAPIKeyStore{
+		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
+			return &store.APIKey{ID: 4, Username: "nope@nowhere", Role: "viewer", ExpiresAt: &now}, nil
+		},
+		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
+	}
+
+	// Empty user store — GetByEmail returns ErrUserNotFound.
+	mem := testutil.NewMemUserStore()
+	cache := NewUserActiveCache(mem, time.Second, 10)
+
+	token := "ald_" + "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
+
+	// ErrUserNotFound is a data-inconsistency signal; fail open (200), not 401.
+	if rr.Code != http.StatusOK {
+		t.Errorf("unknown email 'nope@nowhere': want 200 (fail open), got %d", rr.Code)
+	}
+}
+
 func TestCORSMiddleware(t *testing.T) {
 	t.Parallel()
 	t.Run("AllowAll", func(t *testing.T) {

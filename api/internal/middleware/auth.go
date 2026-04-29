@@ -73,15 +73,19 @@ func AuthMiddleware(
 					return
 				}
 				// F-3: re-check that the API key's owning user is still active.
-				// Lookup is by email (the API key Username field). On DB error
+				// Dispatch by username shape (env literal / numeric ID / email)
+				// so all historical api_keys.username values are handled. On
+				// transient DB error or ErrUserNotFound (data inconsistency)
 				// we fail open and log a warning — the explicit revocation in
-				// F-2 is the primary control, and we do not want a transient
-				// DB blip to take down every API-key client.
+				// F-2 is the primary control, and we do not want a blip or
+				// a stale row to block legitimate API-key clients.
 				if userActiveCache != nil {
-					active, recheckErr := userActiveCache.IsActiveByEmail(r.Context(), apiKey.Username)
+					active, recheckErr := userActiveCache.IsActiveByAPIKeyUsername(r.Context(), apiKey.Username)
 					if recheckErr != nil {
 						logging.FromContext(r.Context()).Warn("auth: api key user active recheck failed",
 							zap.String("username", apiKey.Username), zap.Error(recheckErr))
+						// Fail open: data-inconsistency / transient DB error is
+						// not an authn signal; let the request through.
 					} else if !active {
 						writeMiddlewareError(w, http.StatusUnauthorized, "Account inactive")
 						return

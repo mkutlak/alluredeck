@@ -118,22 +118,22 @@ export function AppSidebar() {
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            {isEditor && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Webhooks">
-                  <NavLink to="/settings/webhooks">
-                    <Bell />
-                    <span>Webhooks</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
             {isAdmin && (
               <SidebarMenuItem>
                 <SidebarMenuButton asChild tooltip="Users">
                   <NavLink to="/settings/users">
                     <UsersRound />
                     <span>Users</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+            {isEditor && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Webhooks">
+                  <NavLink to="/settings/webhooks">
+                    <Bell />
+                    <span>Webhooks</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

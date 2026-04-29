@@ -289,6 +289,134 @@ func TestUserActiveCache_ByEmailMergesWithByID(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// IsActiveByEmail — ErrUserNotFound propagation (Phase 1 fix)
+// ---------------------------------------------------------------------------
+
+func TestUserActiveCache_IsActiveByEmail_NotFoundPropagatesError(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{
+		// getByEmail returns ErrUserNotFound — must surface as error, not (false, nil).
+		getByEmail: nil, // nil fn → ErrUserNotFound (see stubUserStore.GetByEmail)
+	}
+	c := NewUserActiveCache(stub, time.Second, 10)
+
+	ok, err := c.IsActiveByEmail(context.Background(), "nope@nowhere")
+	if err == nil {
+		t.Fatal("expected ErrUserNotFound to propagate as an error, got nil")
+	}
+	if !errors.Is(err, store.ErrUserNotFound) {
+		t.Fatalf("expected errors.Is(err, store.ErrUserNotFound), got: %v", err)
+	}
+	if ok {
+		t.Fatal("expected ok=false when user not found")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// IsActiveByAPIKeyUsername — shape dispatch (Phase 1 new method)
+// ---------------------------------------------------------------------------
+
+func TestUserActiveCache_IsActiveByAPIKeyUsername_EnvUserAdmin(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{
+		getByIDFn: func(_ context.Context, _ int64) (*store.User, error) {
+			t.Fatal("store must not be consulted for env user 'admin'")
+			return nil, nil
+		},
+		getByEmail: func(_ context.Context, _ string) (*store.User, error) {
+			t.Fatal("store must not be consulted for env user 'admin'")
+			return nil, nil
+		},
+	}
+	c := NewUserActiveCache(stub, time.Second, 10)
+	ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "admin")
+	if err != nil || !ok {
+		t.Fatalf("env user 'admin': want (true, nil), got (%v, %v)", ok, err)
+	}
+	if atomic.LoadInt32(&stub.getIDCalls) != 0 || stub.getEmCalls.Load() != 0 {
+		t.Fatal("expected zero store calls for env user 'admin'")
+	}
+}
+
+func TestUserActiveCache_IsActiveByAPIKeyUsername_EnvUserViewer(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{}
+	c := NewUserActiveCache(stub, time.Second, 10)
+	ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "viewer")
+	if err != nil || !ok {
+		t.Fatalf("env user 'viewer': want (true, nil), got (%v, %v)", ok, err)
+	}
+}
+
+func TestUserActiveCache_IsActiveByAPIKeyUsername_EnvUserEditor(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{}
+	c := NewUserActiveCache(stub, time.Second, 10)
+	ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "editor")
+	if err != nil || !ok {
+		t.Fatalf("env user 'editor': want (true, nil), got (%v, %v)", ok, err)
+	}
+}
+
+func TestUserActiveCache_IsActiveByAPIKeyUsername_NumericUsesIsActive(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{
+		getByIDFn: func(_ context.Context, id int64) (*store.User, error) {
+			return activeUser(id, "u@x.test", true), nil
+		},
+	}
+	c := NewUserActiveCache(stub, time.Second, 10)
+	ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "1")
+	if err != nil || !ok {
+		t.Fatalf("numeric username '1': want (true, nil), got (%v, %v)", ok, err)
+	}
+	if got := atomic.LoadInt32(&stub.getIDCalls); got != 1 {
+		t.Fatalf("expected 1 GetByID call for numeric username, got %d", got)
+	}
+	if stub.getEmCalls.Load() != 0 {
+		t.Fatalf("expected 0 GetByEmail calls for numeric username, got %d", stub.getEmCalls.Load())
+	}
+}
+
+func TestUserActiveCache_IsActiveByAPIKeyUsername_EmailUsesIsActiveByEmail(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{
+		getByEmail: func(_ context.Context, email string) (*store.User, error) {
+			return activeUser(42, email, true), nil
+		},
+	}
+	c := NewUserActiveCache(stub, time.Second, 10)
+	ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "x@y.z")
+	if err != nil || !ok {
+		t.Fatalf("email username: want (true, nil), got (%v, %v)", ok, err)
+	}
+	if stub.getEmCalls.Load() != 1 {
+		t.Fatalf("expected 1 GetByEmail call for email username, got %d", stub.getEmCalls.Load())
+	}
+	if atomic.LoadInt32(&stub.getIDCalls) != 0 {
+		t.Fatalf("expected 0 GetByID calls for email username, got %d", stub.getIDCalls)
+	}
+}
+
+func TestUserActiveCache_IsActiveByAPIKeyUsername_MissingEmailPropagatesError(t *testing.T) {
+	t.Parallel()
+	stub := &stubUserStore{
+		// getByEmail nil → ErrUserNotFound propagated from IsActiveByEmail
+	}
+	c := NewUserActiveCache(stub, time.Second, 10)
+	ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "nope@nowhere")
+	if err == nil {
+		t.Fatal("expected error for unknown email, got nil")
+	}
+	if !errors.Is(err, store.ErrUserNotFound) {
+		t.Fatalf("expected errors.Is(err, store.ErrUserNotFound), got: %v", err)
+	}
+	if ok {
+		t.Fatal("expected ok=false when user not found by email")
+	}
+}
+
 // Smoke test: the cache works against the canonical MemUserStore too.
 func TestUserActiveCache_WithMemUserStore(t *testing.T) {
 	t.Parallel()

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func injectClaims(r *http.Request, username, role string) *http.Request {
 func newTestAPIKeyHandler(t *testing.T) *APIKeyHandler {
 	t.Helper()
 	mocks := testutil.New()
-	return NewAPIKeyHandler(mocks.APIKeys)
+	return NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
 }
 
 // makeAPIKey builds a minimal store.APIKey for seeding the in-memory store.
@@ -78,7 +79,7 @@ func TestAPIKeyHandler_List_Empty(t *testing.T) {
 func TestAPIKeyHandler_List_ReturnsUserKeys(t *testing.T) {
 	t.Parallel()
 	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys)
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
 
 	ctx := context.Background()
 	for _, name := range []string{"key-a", "key-b"} {
@@ -159,7 +160,7 @@ func TestAPIKeyHandler_Create_Success(t *testing.T) {
 func TestAPIKeyHandler_Create_FiveKeyLimit(t *testing.T) {
 	t.Parallel()
 	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys)
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
 
 	ctx := context.Background()
 	for i := range 5 {
@@ -236,13 +237,93 @@ func TestAPIKeyHandler_Create_PastExpiresAt(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 2: username resolution at creation — numeric sub → user email
+// ---------------------------------------------------------------------------
+
+func TestAPIKeyHandler_Create_NumericSub_StoresEmail(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
+
+	ctx := context.Background()
+	// Seed a DB user whose sub (JWT claim) is numeric "1".
+	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", "admin@example.com", "Admin", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	numericSub := strconv.FormatInt(u.ID, 10)
+
+	body := map[string]any{"name": "ci-key"}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/api-keys", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Inject claims with numeric sub (as the JWT would for a DB user).
+	req = injectClaims(req, numericSub, "admin")
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data == nil {
+		t.Fatal("expected data object")
+	}
+	if got := data["username"]; got != "admin@example.com" {
+		t.Errorf("username = %v, want %q (email, not numeric ID)", got, "admin@example.com")
+	}
+}
+
+func TestAPIKeyHandler_Create_EnvUserSub_StoresLiteralUsername(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
+
+	body := map[string]any{"name": "env-key"}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/api-keys", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Env user: sub is the literal "admin" string.
+	req = injectClaims(req, "admin", "admin")
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data == nil {
+		t.Fatal("expected data object")
+	}
+	if got := data["username"]; got != "admin" {
+		t.Errorf("username = %v, want %q (env user literal preserved)", got, "admin")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Delete
 // ---------------------------------------------------------------------------
 
 func TestAPIKeyHandler_Delete_OwnKey(t *testing.T) {
 	t.Parallel()
 	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys)
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
 
 	ctx := context.Background()
 	k := makeAPIKey("my-key", "alice", "admin")
@@ -270,7 +351,7 @@ func TestAPIKeyHandler_Delete_OwnKey(t *testing.T) {
 func TestAPIKeyHandler_Delete_WrongUsername_IDOR(t *testing.T) {
 	t.Parallel()
 	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys)
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
 
 	ctx := context.Background()
 	k := makeAPIKey("alice-key", "alice", "admin")
@@ -303,7 +384,7 @@ func TestAPIKeyHandler_Delete_WrongUsername_IDOR(t *testing.T) {
 func TestAPIKeyHandler_Create_EmitsAudit(t *testing.T) {
 	t.Parallel()
 	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys).WithAuditLogger(mocks.Audit)
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users).WithAuditLogger(mocks.Audit)
 
 	body := map[string]any{"name": "ci-key"}
 	bodyBytes, _ := json.Marshal(body)
@@ -333,7 +414,7 @@ func TestAPIKeyHandler_Create_EmitsAudit(t *testing.T) {
 func TestAPIKeyHandler_Delete_EmitsAudit(t *testing.T) {
 	t.Parallel()
 	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys).WithAuditLogger(mocks.Audit)
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users).WithAuditLogger(mocks.Audit)
 
 	ctx := context.Background()
 	k := makeAPIKey("my-key", "alice", "admin")
