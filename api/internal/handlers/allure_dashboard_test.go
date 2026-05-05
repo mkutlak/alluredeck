@@ -61,8 +61,8 @@ func TestGetDashboard_SingleProject(t *testing.T) {
 					ProjectID:   1,
 					BuildNumber: 3,
 					IsLatest:    true,
-					StatPassed:  intPtr(90),
-					StatTotal:   intPtr(100),
+					StatPassed:  new(90),
+					StatTotal:   new(100),
 				},
 				Sparkline: []store.SparklinePoint{
 					{BuildNumber: 1, PassRate: 80.0},
@@ -127,8 +127,8 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 
 				Latest: &store.Build{
 					BuildNumber: 1,
-					StatPassed:  intPtr(95),
-					StatTotal:   intPtr(100),
+					StatPassed:  new(95),
+					StatTotal:   new(100),
 				},
 				Sparkline: []store.SparklinePoint{},
 			},
@@ -139,8 +139,8 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 
 				Latest: &store.Build{
 					BuildNumber: 1,
-					StatPassed:  intPtr(80),
-					StatTotal:   intPtr(100),
+					StatPassed:  new(80),
+					StatTotal:   new(100),
 				},
 				Sparkline: []store.SparklinePoint{},
 			},
@@ -151,8 +151,8 @@ func TestGetDashboard_HealthSummary(t *testing.T) {
 
 				Latest: &store.Build{
 					BuildNumber: 1,
-					StatPassed:  intPtr(50),
-					StatTotal:   intPtr(100),
+					StatPassed:  new(50),
+					StatTotal:   new(100),
 				},
 				Sparkline: []store.SparklinePoint{},
 			},

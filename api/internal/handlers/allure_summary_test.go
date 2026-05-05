@@ -14,9 +14,14 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func intPtr(v int) *int       { return &v }
-func int64Ptr(v int64) *int64 { return &v }
-func ptr(v string) *string    { return &v }
+//go:fix inline
+func intPtr(v int) *int { return new(v) }
+
+//go:fix inline
+func int64Ptr(v int64) *int64 { return new(v) }
+
+//go:fix inline
+func ptr(v string) *string { return new(v) }
 
 func TestGetReportSummary_NumericReportID(t *testing.T) {
 	projectsDir := t.TempDir()
@@ -40,16 +45,16 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 				ProjectID:      projectID,
 				BuildNumber:    3,
 				IsLatest:       true,
-				CIProvider:     ptr("GitHub Actions"),
-				StatPassed:     intPtr(85),
-				StatFailed:     intPtr(10),
-				StatBroken:     intPtr(3),
-				StatSkipped:    intPtr(2),
-				StatTotal:      intPtr(100),
+				CIProvider:     new("GitHub Actions"),
+				StatPassed:     new(85),
+				StatFailed:     new(10),
+				StatBroken:     new(3),
+				StatSkipped:    new(2),
+				StatTotal:      new(100),
 				DurationMs:     int64Ptr(45000),
-				FlakyCount:     intPtr(2),
-				NewFailedCount: intPtr(3),
-				NewPassedCount: intPtr(1),
+				FlakyCount:     new(2),
+				NewFailedCount: new(3),
+				NewPassedCount: new(1),
 			}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound
@@ -167,8 +172,8 @@ func TestGetReportSummary_Latest(t *testing.T) {
 			ProjectID:   projectID,
 			BuildNumber: 2,
 			IsLatest:    true,
-			StatPassed:  intPtr(50),
-			StatTotal:   intPtr(50),
+			StatPassed:  new(50),
+			StatTotal:   new(50),
 		}, nil
 	}
 	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
@@ -223,11 +228,11 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 				ID:          2,
 				ProjectID:   projectID,
 				BuildNumber: 2,
-				StatPassed:  intPtr(85),
-				StatFailed:  intPtr(10),
-				StatBroken:  intPtr(3),
-				StatSkipped: intPtr(2),
-				StatTotal:   intPtr(100),
+				StatPassed:  new(85),
+				StatFailed:  new(10),
+				StatBroken:  new(3),
+				StatSkipped: new(2),
+				StatTotal:   new(100),
 				DurationMs:  int64Ptr(45000),
 			}, nil
 		}
@@ -238,11 +243,11 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 			ID:          1,
 			ProjectID:   projectID,
 			BuildNumber: 1,
-			StatPassed:  intPtr(90),
-			StatFailed:  intPtr(5),
-			StatBroken:  intPtr(2),
-			StatSkipped: intPtr(3),
-			StatTotal:   intPtr(100),
+			StatPassed:  new(90),
+			StatFailed:  new(5),
+			StatBroken:  new(2),
+			StatSkipped: new(3),
+			StatTotal:   new(100),
 			DurationMs:  int64Ptr(40000),
 		}, nil
 	}
@@ -362,8 +367,8 @@ func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
 				ID:          1,
 				ProjectID:   projectID,
 				BuildNumber: 1,
-				StatFailed:  intPtr(15),
-				StatTotal:   intPtr(30),
+				StatFailed:  new(15),
+				StatTotal:   new(30),
 			}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound

@@ -35,11 +35,11 @@ func TestGetReportStability_DBPath_NumericReportID(t *testing.T) {
 				ID:             200,
 				ProjectID:      projectID,
 				BuildNumber:    5,
-				FlakyCount:     intPtr(2),
-				RetriedCount:   intPtr(1),
-				NewFailedCount: intPtr(1),
-				NewPassedCount: intPtr(1),
-				StatTotal:      intPtr(100),
+				FlakyCount:     new(2),
+				RetriedCount:   new(1),
+				NewFailedCount: new(1),
+				NewPassedCount: new(1),
+				StatTotal:      new(100),
 			}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound
@@ -135,7 +135,7 @@ func TestGetReportStability_DBPath_Latest(t *testing.T) {
 			ID:          50,
 			ProjectID:   projectID,
 			BuildNumber: 7,
-			StatTotal:   intPtr(42),
+			StatTotal:   new(42),
 		}, nil
 	}
 
@@ -242,11 +242,11 @@ func TestGetReportStability_EmptyResults(t *testing.T) {
 			ID:             10,
 			ProjectID:      projectID,
 			BuildNumber:    1,
-			FlakyCount:     intPtr(0),
-			RetriedCount:   intPtr(0),
-			NewFailedCount: intPtr(0),
-			NewPassedCount: intPtr(0),
-			StatTotal:      intPtr(0),
+			FlakyCount:     new(0),
+			RetriedCount:   new(0),
+			NewFailedCount: new(0),
+			NewPassedCount: new(0),
+			StatTotal:      new(0),
 		}, nil
 	}
 
