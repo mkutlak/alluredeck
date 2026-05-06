@@ -96,6 +96,9 @@ func isPrivateIP(host string) bool {
 	hostname := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostname = h
+	} else if len(host) > 2 && host[0] == '[' && host[len(host)-1] == ']' {
+		// Bracketed IPv6 literal without a port (e.g. "[::1]" from url.Host).
+		hostname = host[1 : len(host)-1]
 	}
 
 	if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {

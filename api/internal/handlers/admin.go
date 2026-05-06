@@ -63,7 +63,7 @@ type pendingResultsEntry struct {
 // @Router       /admin/jobs [get]
 func (h *AdminHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	pp := parsePagination(r)
-	jobs := h.jobManager.ListJobs()
+	jobs := h.jobManager.ListJobs(r.Context())
 
 	total := len(jobs)
 	start := min((pp.Page-1)*pp.PerPage, total)
@@ -175,7 +175,7 @@ func (h *AdminHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.jobManager.Cancel(jobID)
+	err := h.jobManager.Cancel(r.Context(), jobID)
 	if err == nil {
 		writeSuccess(w, http.StatusOK, map[string]any{}, "job cancelled")
 		return
@@ -363,7 +363,7 @@ func (h *AdminHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.jobManager.Delete(jobID)
+	err := h.jobManager.Delete(r.Context(), jobID)
 	if err == nil {
 		writeSuccess(w, http.StatusOK, map[string]any{}, "job deleted")
 		return

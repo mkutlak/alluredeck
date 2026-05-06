@@ -274,8 +274,7 @@ func derefStr(p *string) string {
 type RiverJobManager struct {
 	client    *river.Client[pgx.Tx]
 	pool      *pgxpool.Pool
-	ctx       context.Context // set by Start
-	reportIDs sync.Map        // river job ID (int64) -> report ID (string)
+	reportIDs sync.Map // river job ID (int64) -> report ID (string)
 	logger    *zap.Logger
 }
 
@@ -342,9 +341,8 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	return jm, nil
 }
 
-// Start stores the server context and starts the River client.
+// Start begins processing River jobs using the given context.
 func (jm *RiverJobManager) Start(ctx context.Context) {
-	jm.ctx = ctx
 	if err := jm.client.Start(ctx); err != nil {
 		jm.logger.Error("river client start failed", zap.Error(err))
 	}
@@ -375,7 +373,7 @@ func (jm *RiverJobManager) Submit(ctx context.Context, projectID int64, slug str
 		CIPipelineID:  params.CIPipelineID,
 		CIPipelineURL: params.CIPipelineURL,
 	}
-	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{Metadata: InjectTraceContextIntoMetadata(ctx)})
+	res, err := jm.client.Insert(ctx, args, &river.InsertOpts{Metadata: InjectTraceContextIntoMetadata(ctx)})
 	if err != nil {
 		jm.logger.Error("river insert failed", zap.Int64("project_id", projectID), zap.String("slug", slug), zap.Error(err))
 		return &Job{
@@ -402,7 +400,7 @@ func (jm *RiverJobManager) SubmitPlaywright(ctx context.Context, projectID int64
 		CIPipelineID:  ciPipelineID,
 		CIPipelineURL: ciPipelineURL,
 	}
-	res, err := jm.client.Insert(jm.ctx, args, &river.InsertOpts{MaxAttempts: 3, Metadata: InjectTraceContextIntoMetadata(ctx)})
+	res, err := jm.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 3, Metadata: InjectTraceContextIntoMetadata(ctx)})
 	if err != nil {
 		jm.logger.Error("river insert failed", zap.Int64("project_id", projectID), zap.String("slug", slug), zap.Error(err))
 		return &Job{
@@ -417,12 +415,12 @@ func (jm *RiverJobManager) SubmitPlaywright(ctx context.Context, projectID int64
 }
 
 // Get returns the job with the given string ID (River int64 rendered as decimal string), or nil.
-func (jm *RiverJobManager) Get(jobID string) *Job {
+func (jm *RiverJobManager) Get(ctx context.Context, jobID string) *Job {
 	id, err := strconv.ParseInt(jobID, 10, 64)
 	if err != nil {
 		return nil
 	}
-	row, err := jm.client.JobGet(jm.ctx, id)
+	row, err := jm.client.JobGet(ctx, id)
 	if err != nil {
 		return nil
 	}
@@ -434,12 +432,12 @@ func (jm *RiverJobManager) Get(jobID string) *Job {
 }
 
 // ListJobs returns all generate_report and playwright_ingest jobs known to River, newest first (capped at 200).
-func (jm *RiverJobManager) ListJobs() []*Job {
+func (jm *RiverJobManager) ListJobs(ctx context.Context) []*Job {
 	params := river.NewJobListParams().
 		Kinds("generate_report", "playwright_ingest").
 		First(200)
 
-	res, err := jm.client.JobList(jm.ctx, params)
+	res, err := jm.client.JobList(ctx, params)
 	if err != nil {
 		jm.logger.Error("river job list failed", zap.Error(err))
 		return []*Job{}
@@ -459,13 +457,13 @@ func (jm *RiverJobManager) ListJobs() []*Job {
 // Delete removes a terminal job (completed, failed, or cancelled) from River.
 // Returns ErrJobNotFound if the job does not exist,
 // or ErrJobNotTerminal if the job is still active.
-func (jm *RiverJobManager) Delete(jobID string) error {
+func (jm *RiverJobManager) Delete(ctx context.Context, jobID string) error {
 	id, err := strconv.ParseInt(jobID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
 
-	row, err := jm.client.JobGet(jm.ctx, id)
+	row, err := jm.client.JobGet(ctx, id)
 	if err != nil {
 		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
@@ -475,7 +473,7 @@ func (jm *RiverJobManager) Delete(jobID string) error {
 		return fmt.Errorf("job %q: %w", jobID, ErrJobNotTerminal)
 	}
 
-	if _, err := jm.client.JobDelete(jm.ctx, id); err != nil {
+	if _, err := jm.client.JobDelete(ctx, id); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
 			return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 		}
@@ -486,12 +484,12 @@ func (jm *RiverJobManager) Delete(jobID string) error {
 
 // Cancel cancels the River job with the given string ID.
 // Returns ErrJobNotFound if the job does not exist.
-func (jm *RiverJobManager) Cancel(jobID string) error {
+func (jm *RiverJobManager) Cancel(ctx context.Context, jobID string) error {
 	id, err := strconv.ParseInt(jobID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
 	}
-	_, err = jm.client.JobCancel(context.Background(), id)
+	_, err = jm.client.JobCancel(ctx, id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
 			return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)

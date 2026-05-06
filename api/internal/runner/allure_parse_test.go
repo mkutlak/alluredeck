@@ -188,7 +188,7 @@ func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 		t.Errorf("InsertBatchFull buildID = %d, want 42", spy.lastBuildID)
 	}
 	if spy.lastProjectID != projectID {
-		t.Errorf("InsertBatchFull projectID = %q, want %q", spy.lastProjectID, projectID)
+		t.Errorf("InsertBatchFull projectID = %d, want %d", spy.lastProjectID, projectID)
 	}
 	if len(spy.lastResults) == 0 {
 		t.Error("InsertBatchFull called with empty results slice")

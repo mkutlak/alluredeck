@@ -48,7 +48,8 @@ func (m *MemJobManager) Shutdown() {
 }
 
 // Submit enqueues a new job and returns it immediately with Pending status.
-func (m *MemJobManager) Submit(_ context.Context, projectID int64, slug string, params JobParams) *Job {
+// If ctx is cancelled before the job can be enqueued, it returns a failed job.
+func (m *MemJobManager) Submit(ctx context.Context, projectID int64, slug string, params JobParams) *Job {
 	j := &Job{
 		ID:         newMemJobID(),
 		ProjectID:  projectID,
@@ -63,7 +64,14 @@ func (m *MemJobManager) Submit(_ context.Context, projectID int64, slug string, 
 	m.jobs[j.ID] = j
 	m.mu.Unlock()
 
-	m.workCh <- j
+	select {
+	case m.workCh <- j:
+	case <-ctx.Done():
+		m.mu.Lock()
+		j.Status = JobStatusFailed
+		j.Error = ctx.Err().Error()
+		m.mu.Unlock()
+	}
 	return j
 }
 
@@ -97,7 +105,7 @@ func (m *MemJobManager) SubmitPlaywright(_ context.Context, projectID int64, slu
 
 // ListJobs returns a snapshot of all known jobs.
 // Each element is a copy so callers can safely read fields without holding the lock.
-func (m *MemJobManager) ListJobs() []*Job {
+func (m *MemJobManager) ListJobs(_ context.Context) []*Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	jobs := make([]*Job, 0, len(m.jobs))
@@ -109,7 +117,7 @@ func (m *MemJobManager) ListJobs() []*Job {
 }
 
 // Cancel cancels a pending or running job.
-func (m *MemJobManager) Cancel(jobID string) error {
+func (m *MemJobManager) Cancel(_ context.Context, jobID string) error {
 	m.mu.Lock()
 	j, ok := m.jobs[jobID]
 	if !ok {
@@ -137,7 +145,7 @@ func (m *MemJobManager) Cancel(jobID string) error {
 // Delete removes a terminal job (completed, failed, or cancelled) by ID.
 // Returns an error ending with "not found" if the job does not exist,
 // or ending with "not in a terminal state" if the job is still active.
-func (m *MemJobManager) Delete(jobID string) error {
+func (m *MemJobManager) Delete(_ context.Context, jobID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -154,7 +162,7 @@ func (m *MemJobManager) Delete(jobID string) error {
 
 // Get returns a snapshot of a job by ID, or nil if not found.
 // The returned value is a copy so callers can safely read fields without holding the lock.
-func (m *MemJobManager) Get(jobID string) *Job {
+func (m *MemJobManager) Get(_ context.Context, jobID string) *Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	j, ok := m.jobs[jobID]

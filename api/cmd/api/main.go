@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -126,6 +127,9 @@ func main() {
 	// Migrate child project storage paths from slug-based to numeric-ID-based names
 	// (idempotent, safe to re-run on every startup).
 	migrateChildStoragePaths(context.Background(), s.project, dataStore, logger)
+
+	// Audit all stored URLs at startup to surface malformed entries early.
+	auditStoredURLs(context.Background(), s, logger)
 
 	allureCore := runner.NewAllure(runner.AllureDeps{
 		Config:          cfg,
@@ -300,7 +304,7 @@ func main() {
 	startRetentionScheduler(ctx, cfg, s.project, s.build, dataStore, s.webhook, logger)
 
 	if cfg.StorageType != "s3" {
-		backgroundWatcher.Start()
+		backgroundWatcher.Start(ctx)
 	} else {
 		logger.Info("background file watcher is disabled", zap.String("reason", "StorageType=s3"))
 	}
@@ -465,7 +469,9 @@ func wireHandlers(
 // server, stops the background watcher, and waits for in-flight jobs before returning.
 func awaitShutdown(ctx context.Context, srv *http.Server, watcher *runner.Watcher, jobManager runner.JobQueuer, cfg *config.Config, limiterDone chan struct{}, logger *zap.Logger) {
 	<-ctx.Done()
-	logger.Info("shutdown signal received, draining connections")
+	cause := context.Cause(ctx)
+	logger.Info("shutdown signal received, draining connections",
+		zap.NamedError("cause", cause))
 
 	close(limiterDone) // stop rate limiter cleanup goroutine
 
@@ -627,6 +633,38 @@ func migrateChildStoragePaths(ctx context.Context, projectStore store.ProjectSto
 		return
 	}
 	logger.Info("storage migration: child project storage paths migrated successfully", zap.Int("count", len(entries)))
+}
+
+// auditStoredURLs performs a one-shot startup audit of all webhook URLs
+// persisted in the database. Parse failures are logged at WARN level and are
+// non-fatal. The store.Project type does not expose a ticket_url field so
+// that leg of the audit is omitted here.
+func auditStoredURLs(ctx context.Context, s stores, logger *zap.Logger) {
+	projects, err := s.project.ListProjects(ctx)
+	if err != nil {
+		logger.Warn("url audit: failed to list projects", zap.Error(err))
+		return
+	}
+
+	for _, p := range projects {
+		webhooks, listErr := s.webhook.List(ctx, p.ID)
+		if listErr != nil {
+			logger.Warn("url audit: failed to list webhooks for project",
+				zap.Int64("project_id", p.ID), zap.Error(listErr))
+			continue
+		}
+		for i := range webhooks {
+			wh := &webhooks[i]
+			if _, parseErr := url.Parse(wh.URL); parseErr != nil {
+				logger.Warn("url audit: invalid url in webhook",
+					zap.String("webhook_id", wh.ID),
+					zap.Int64("project_id", p.ID),
+					zap.String("url", wh.URL),
+					zap.Error(parseErr),
+				)
+			}
+		}
+	}
 }
 
 // registerRoutes mounts all API routes under the given URL prefix.

@@ -85,7 +85,7 @@ func TestRenderWebhookPayload_Generic(t *testing.T) {
 		t.Fatalf("failed to unmarshal generic output: %v", err)
 	}
 	if roundtrip.ProjectID != payload.ProjectID {
-		t.Errorf("ProjectID mismatch: got %q, want %q", roundtrip.ProjectID, payload.ProjectID)
+		t.Errorf("ProjectID mismatch: got %d, want %d", roundtrip.ProjectID, payload.ProjectID)
 	}
 	if roundtrip.BuildNumber != payload.BuildNumber {
 		t.Errorf("BuildNumber mismatch: got %d, want %d", roundtrip.BuildNumber, payload.BuildNumber)

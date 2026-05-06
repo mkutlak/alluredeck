@@ -14,15 +14,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-//go:fix inline
-func intPtr(v int) *int { return new(v) }
-
-//go:fix inline
-func int64Ptr(v int64) *int64 { return new(v) }
-
-//go:fix inline
-func ptr(v string) *string { return new(v) }
-
 func TestGetReportSummary_NumericReportID(t *testing.T) {
 	projectsDir := t.TempDir()
 	projectSlug := "summary-proj"
@@ -51,7 +42,7 @@ func TestGetReportSummary_NumericReportID(t *testing.T) {
 				StatBroken:     new(3),
 				StatSkipped:    new(2),
 				StatTotal:      new(100),
-				DurationMs:     int64Ptr(45000),
+				DurationMs:     new(int64(45000)),
 				FlakyCount:     new(2),
 				NewFailedCount: new(3),
 				NewPassedCount: new(1),
@@ -233,7 +224,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 				StatBroken:  new(3),
 				StatSkipped: new(2),
 				StatTotal:   new(100),
-				DurationMs:  int64Ptr(45000),
+				DurationMs:  new(int64(45000)),
 			}, nil
 		}
 		return store.Build{}, store.ErrBuildNotFound
@@ -248,7 +239,7 @@ func TestGetReportSummary_TrendDelta(t *testing.T) {
 			StatBroken:  new(2),
 			StatSkipped: new(3),
 			StatTotal:   new(100),
-			DurationMs:  int64Ptr(40000),
+			DurationMs:  new(int64(40000)),
 		}, nil
 	}
 

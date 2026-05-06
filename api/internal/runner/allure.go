@@ -243,11 +243,9 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 						// Extract start/stop: nested Time takes priority, top-level as fallback.
 						var startMs, stopMs *int64
 						if se.Time != nil && se.Time.Start != 0 {
-							s, e := se.Time.Start, se.Time.Stop
-							startMs, stopMs = &s, &e
+							startMs, stopMs = new(se.Time.Start), new(se.Time.Stop)
 						} else if se.Start != 0 {
-							s, e := se.Start, se.Stop
-							startMs, stopMs = &s, &e
+							startMs, stopMs = new(se.Start), new(se.Stop)
 						}
 
 						// Extract thread/host from labels.

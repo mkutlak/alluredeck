@@ -409,7 +409,7 @@ func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
 	// Wait for completion.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if got := jm.Get(j.ID); got != nil && got.Status == runner.JobStatusCompleted {
+		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusCompleted {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -435,7 +435,7 @@ func TestAdminCancelJob_Success(t *testing.T) {
 	// Wait for running.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if got := jm.Get(j.ID); got != nil && got.Status == runner.JobStatusRunning {
+		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusRunning {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -563,7 +563,7 @@ func TestAdminDeleteJob_NonTerminal(t *testing.T) {
 	// Wait for the job to reach running state.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if got := jm.Get(j.ID); got != nil && got.Status == runner.JobStatusRunning {
+		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusRunning {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -591,7 +591,7 @@ func TestAdminDeleteJob_Success(t *testing.T) {
 	// Wait for completion.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if got := jm.Get(j.ID); got != nil && got.Status == runner.JobStatusCompleted {
+		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusCompleted {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -609,7 +609,7 @@ func TestAdminDeleteJob_Success(t *testing.T) {
 	}
 
 	// Job should no longer be retrievable.
-	if got := jm.Get(j.ID); got != nil {
+	if got := jm.Get(context.Background(), j.ID); got != nil {
 		t.Errorf("expected job to be deleted, but Get returned %+v", got)
 	}
 }

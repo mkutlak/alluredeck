@@ -58,8 +58,7 @@ func (s *UserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name
 		email, name, provider, sub, role,
 	), &u)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_users_email_global" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_users_email_global" {
 			return nil, fmt.Errorf("%w: email=%s", store.ErrEmailAlreadyLinked, email)
 		}
 		return nil, fmt.Errorf("upsert user by oidc: %w", err)
@@ -101,8 +100,7 @@ func (s *UserStore) CreateLocal(ctx context.Context, email, name, passwordHash, 
 		email, name, passwordHash, role,
 	), &u)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
 			return nil, fmt.Errorf("%w: email=%s", store.ErrDuplicateEntry, email)
 		}
 		return nil, fmt.Errorf("create local user: %w", err)

@@ -59,7 +59,7 @@ func Init(ctx context.Context, cfg config.ObservabilityConfig, logger *zap.Logge
 		zap.Float64("sample_ratio", cfg.Traces.SampleRatio),
 	)
 
-	metricsSrv, err := newMeterProvider(ctx, cfg, res)
+	metricsSrv, err := newMeterProvider(ctx, cfg, res, logger)
 	if err != nil {
 		// Shut down the already-started trace provider before returning.
 		_ = tp.Shutdown(ctx)

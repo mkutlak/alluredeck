@@ -34,7 +34,7 @@ func makeFullLatestReport(t *testing.T, latestDir string) {
 // TestStoreReport_CopiesOnlyVariableDirs verifies that StoreReport copies
 // only data/, widgets/, and history/ — not static assets like index.html or plugins/.
 func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := "myproject"
 	buildNumber := 3
 
@@ -69,7 +69,7 @@ func TestStoreReport_CopiesOnlyVariableDirs(t *testing.T) {
 // TestStoreReport_EmptyLatest verifies that StoreReport is a no-op when
 // latest/ exists but is empty.
 func TestStoreReport_EmptyLatest(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	latestDir := filepath.Join(dir, "myproject", "reports", "latest")
 	if err := os.MkdirAll(latestDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestStoreReport_EmptyLatest(t *testing.T) {
 // TestStoreReport_LatestNotExist verifies that StoreReport returns nil when
 // the latest/ directory does not exist at all.
 func TestStoreReport_LatestNotExist(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	a := newTestAllure(t, dir)
 	if err := a.StoreReport(context.Background(), "nonexistent", 1); err != nil {
 		t.Fatalf("StoreReport when latest/ missing: %v", err)
@@ -94,7 +94,7 @@ func TestStoreReport_LatestNotExist(t *testing.T) {
 // TestStoreReport_MissingOptionalDir verifies that StoreReport gracefully skips
 // variable dirs that are absent from latest/ and copies those that do exist.
 func TestStoreReport_MissingOptionalDir(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := "myproject"
 	buildNumber := 2
 
@@ -121,7 +121,7 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 // TestStoreAndPruneBuild_InsertBuildErrorPropagates verifies that when
 // InsertBuild fails, the error is returned instead of swallowed.
 func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(10)
 	slug := "err-proj"
 
@@ -151,7 +151,7 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 // TestRecordBuild_RecordsInDB verifies that recordBuild calls InsertBuild and
 // the build is subsequently visible via ListBuilds.
 func TestRecordBuild_RecordsInDB(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(11)
 	slug := "record-proj"
 
@@ -192,7 +192,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 // TestStoreReport_WidgetsReadable verifies that after a partial store,
 // readBuildStats can still read statistics from the copied widgets/ dir.
 func TestStoreReport_WidgetsReadable(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := "myproject"
 	buildNumber := 1
 

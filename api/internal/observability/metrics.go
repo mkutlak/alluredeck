@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
@@ -21,7 +23,7 @@ import (
 // registers it globally, starts Go runtime metric collection, and starts the
 // auxiliary HTTP server that serves the Prometheus scrape endpoint.
 // Returns the metrics HTTP server so the composite shutdown can close it.
-func newMeterProvider(ctx context.Context, cfg config.ObservabilityConfig, res *resource.Resource) (*http.Server, error) {
+func newMeterProvider(ctx context.Context, cfg config.ObservabilityConfig, res *resource.Resource, logger *zap.Logger) (*http.Server, error) {
 	promExporter, err := otelprometheus.New()
 	if err != nil {
 		return nil, fmt.Errorf("prometheus exporter: %w", err)
@@ -58,9 +60,9 @@ func newMeterProvider(ctx context.Context, cfg config.ObservabilityConfig, res *
 	}
 
 	go func() {
-		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
+		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			// Non-fatal: log at error level but don't crash the process.
-			_ = serveErr
+			logger.Error("metrics server error", zap.Error(serveErr))
 		}
 	}()
 

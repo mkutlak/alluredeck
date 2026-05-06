@@ -30,8 +30,7 @@ func (ks *KnownIssueStore) Create(ctx context.Context, projectID int64, testName
 		projectID, testName, pattern, ticketURL, description,
 	).Scan(&id)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
 			return nil, fmt.Errorf("create known issue: %w", store.ErrDuplicateEntry)
 		}
 		return nil, fmt.Errorf("create known issue: %w", err)

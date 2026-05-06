@@ -44,9 +44,9 @@ func TestPipelineHandler_GetPipelineRuns_Success(t *testing.T) {
 	ps := &testutil.MockPipelineStore{
 		ListPipelineRunsFn: func(_ context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
 			return []store.PipelineRunRow{
-				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "https://ci/1", CreatedAt: now, ProjectID: childA.ID, Slug: "child-a", BuildNumber: 5, StatPassed: new(40), StatFailed: new(2), StatBroken: new(0), StatTotal: new(42), DurationMs: int64Ptr(15000)},
-				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "", CreatedAt: now.Add(-time.Second), ProjectID: childB.ID, Slug: "child-b", BuildNumber: 3, StatPassed: new(100), StatFailed: new(0), StatBroken: new(0), StatTotal: new(100), DurationMs: int64Ptr(30000)},
-				{CommitSHA: "def5678", Branch: "main", CIBuildURL: "https://ci/2", CreatedAt: now.Add(-time.Hour), ProjectID: childA.ID, Slug: "child-a", BuildNumber: 4, StatPassed: new(42), StatFailed: new(0), StatBroken: new(0), StatTotal: new(42), DurationMs: int64Ptr(14000)},
+				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "https://ci/1", CreatedAt: now, ProjectID: childA.ID, Slug: "child-a", BuildNumber: 5, StatPassed: new(40), StatFailed: new(2), StatBroken: new(0), StatTotal: new(42), DurationMs: new(int64(15000))},
+				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "", CreatedAt: now.Add(-time.Second), ProjectID: childB.ID, Slug: "child-b", BuildNumber: 3, StatPassed: new(100), StatFailed: new(0), StatBroken: new(0), StatTotal: new(100), DurationMs: new(int64(30000))},
+				{CommitSHA: "def5678", Branch: "main", CIBuildURL: "https://ci/2", CreatedAt: now.Add(-time.Hour), ProjectID: childA.ID, Slug: "child-a", BuildNumber: 4, StatPassed: new(42), StatFailed: new(0), StatBroken: new(0), StatTotal: new(42), DurationMs: new(int64(14000))},
 			}, 2, nil
 		},
 	}

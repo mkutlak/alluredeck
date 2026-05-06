@@ -34,7 +34,7 @@ func newTestAllureWithAttachments(t *testing.T, projectsDir string, mocks *testu
 // TestCopyPlaywrightReport_NoLatest verifies that copyPlaywrightReport is a no-op
 // when playwright-reports/latest/ does not exist.
 func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(1)
 	slug := "pw-no-latest"
 	buildNumber := 1
@@ -63,7 +63,7 @@ func TestCopyPlaywrightReport_NoLatest(t *testing.T) {
 // TestCopyPlaywrightReport_EmptyLatest verifies that copyPlaywrightReport is a no-op
 // when playwright-reports/latest/ exists but is empty.
 func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(2)
 	slug := "pw-empty-latest"
 	buildNumber := 1
@@ -92,7 +92,7 @@ func TestCopyPlaywrightReport_EmptyLatest(t *testing.T) {
 // playwright-reports/latest/ to playwright-reports/{buildNumber}/, sets
 // has_playwright_report=true, and cleans latest/.
 func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(3)
 	slug := "pw-copy-test"
 	buildNumber := 3
@@ -168,7 +168,7 @@ func TestCopyPlaywrightReport_CopiesReport(t *testing.T) {
 // TestCopyPlaywrightReport_SkipsDatFiles verifies that .dat files are not inserted
 // as attachments (they are allure step metadata, not useful attachments).
 func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(4)
 	slug := "pw-skip-dat"
 	buildNumber := 1
@@ -206,7 +206,7 @@ func TestCopyPlaywrightReport_SkipsDatFiles(t *testing.T) {
 // TestCopyPlaywrightReport_NoDataDir verifies that copyPlaywrightReport succeeds
 // even when no data/ directory exists in the Playwright report.
 func TestCopyPlaywrightReport_NoDataDir(t *testing.T) {
-	dir := t.TempDir()
+	dir := t.ArtifactDir()
 	projectID := int64(5)
 	slug := "pw-no-data"
 	buildNumber := 2

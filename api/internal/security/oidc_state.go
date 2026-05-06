@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 )
 
@@ -65,7 +64,7 @@ func EncodeStateCookie(secret []byte, state, nonce, codeVerifier string) (string
 	}
 
 	nonceBuf := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonceBuf); err != nil {
+	if _, err := rand.Read(nonceBuf); err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
 

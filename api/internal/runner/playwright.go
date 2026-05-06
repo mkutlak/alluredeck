@@ -177,8 +177,7 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 			for _, r := range results {
 				var startMs, stopMs *int64
 				if r.StartMs != 0 {
-					s, e := r.StartMs, r.StopMs
-					startMs, stopMs = &s, &e
+					startMs, stopMs = new(r.StartMs), new(r.StopMs)
 				}
 
 				var thread, host string

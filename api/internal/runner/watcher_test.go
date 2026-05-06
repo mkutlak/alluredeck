@@ -47,7 +47,7 @@ func TestWatcher_DoesNotDuplicateChildProjects(t *testing.T) {
 		logger:       zap.NewNop(),
 	}
 
-	w.checkProjects(make(map[string]string))
+	w.checkProjects(ctx, make(map[string]string))
 
 	if createCalled {
 		t.Error("CreateProject was called for a child-project slug — duplicate would have been created")

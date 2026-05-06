@@ -14,7 +14,7 @@ BUILD_REF     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown
 GOLANGCI_LINT := $(shell which golangci-lint 2>/dev/null || echo "go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest")
 SWAG          := $(shell which swag 2>/dev/null || echo "go run github.com/swaggo/swag/cmd/swag@latest")
 
-.PHONY: help build run build-static test test-race test-cover \
+.PHONY: help build run build-static test test-race test-cover test-leak \
         fmt lint vet tidy modernize check swagger clean
 
 help: ## Show available targets
@@ -49,6 +49,9 @@ test-cover: ## Run tests with coverage report
 	go test -coverprofile=bin/coverage.out ./...
 	go tool cover -html=bin/coverage.out -o bin/coverage.html
 	@echo "Coverage report: bin/coverage.html"
+
+test-leak: ## Run goroutine-leak detection tests (Go 1.26 GOEXPERIMENT=goroutineleakprofile)
+	GOEXPERIMENT=goroutineleakprofile go test -tags=leakprofile -count=1 ./...
 
 # ── Code quality ────────────────────────────────────────────────
 

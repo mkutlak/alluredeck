@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -757,6 +758,34 @@ func TestWebhookHandler_ListDeliveries_Pagination(t *testing.T) {
 	pageNum, _ := pg["page"].(float64)
 	if int(pageNum) != 1 {
 		t.Errorf("page = %v, want 1", pageNum)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// validateWebhookURL — IPv6 regression (Go 1.26 stricter net/url.Parse)
+// ---------------------------------------------------------------------------
+
+// TestValidateWebhookURL_IPv6Loopback documents that bracketed IPv6 loopback
+// addresses parse cleanly under Go 1.26's stricter url.Parse but are still
+// rejected by isPrivateIP (SSRF prevention).
+func TestValidateWebhookURL_IPv6Loopback(t *testing.T) {
+	t.Parallel()
+	rawURL := "http://[::1]/hook"
+
+	// Confirm url.Parse itself does not error on a bracketed IPv6 literal.
+	parsed, parseErr := url.Parse(rawURL)
+	if parseErr != nil {
+		t.Fatalf("url.Parse(%q) returned unexpected error: %v", rawURL, parseErr)
+	}
+	if parsed.Host == "" {
+		t.Fatalf("url.Parse(%q) produced empty host", rawURL)
+	}
+
+	// validateWebhookURL must reject the URL because isPrivateIP recognises
+	// the IPv6 loopback address ::1.
+	err := validateWebhookURL(rawURL)
+	if err == nil {
+		t.Fatal("validateWebhookURL: expected error for IPv6 loopback, got nil")
 	}
 }
 

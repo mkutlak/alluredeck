@@ -212,8 +212,7 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 	if err := h.extractPlaywrightArchive(r, storageKey, targetDir); err != nil {
 		code := http.StatusBadRequest
 		msg := err.Error()
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			code = http.StatusRequestEntityTooLarge
 			msg = "request body too large"
 		}

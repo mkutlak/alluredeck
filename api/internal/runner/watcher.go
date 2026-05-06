@@ -22,7 +22,6 @@ type Watcher struct {
 	allureCore   *Allure
 	projectStore store.ProjectStorer
 	store        storage.Store
-	stop         chan struct{}
 	wg           sync.WaitGroup
 	logger       *zap.Logger
 }
@@ -34,13 +33,13 @@ func NewWatcher(cfg *config.Config, allureCore *Allure, projectStore store.Proje
 		allureCore:   allureCore,
 		projectStore: projectStore,
 		store:        st,
-		stop:         make(chan struct{}),
 		logger:       logger,
 	}
 }
 
-// Start begins the polling loop in a background goroutine
-func (w *Watcher) Start() {
+// Start begins the polling loop in a background goroutine. It stops when ctx
+// is cancelled, propagating cancellation into any in-flight subprocess.
+func (w *Watcher) Start(ctx context.Context) {
 	checkSecsStr := w.cfg.CheckResultsEverySeconds
 	if strings.EqualFold(checkSecsStr, "NONE") || checkSecsStr == "" {
 		w.logger.Info("background file watcher is disabled", zap.String("reason", "CHECK_RESULTS_EVERY_SECONDS=NONE"))
@@ -55,16 +54,16 @@ func (w *Watcher) Start() {
 	}
 
 	w.wg.Add(1)
-	go w.watchLoop(time.Duration(interval) * time.Second)
+	go w.watchLoop(ctx, time.Duration(interval)*time.Second)
 }
 
-// Stop gracefully shuts down the watcher
+// Stop is a no-op retained for call-site compatibility. Shutdown is driven by
+// the context passed to Start.
 func (w *Watcher) Stop() {
-	close(w.stop)
 	w.wg.Wait()
 }
 
-func (w *Watcher) watchLoop(interval time.Duration) {
+func (w *Watcher) watchLoop(ctx context.Context, interval time.Duration) {
 	defer w.wg.Done()
 	w.logger.Info("starting background file watcher", zap.Duration("interval", interval))
 
@@ -76,11 +75,11 @@ func (w *Watcher) watchLoop(interval time.Duration) {
 
 	for {
 		select {
-		case <-w.stop:
+		case <-ctx.Done():
 			w.logger.Info("stopping file watcher")
 			return
 		case <-ticker.C:
-			w.checkProjects(projectHashes)
+			w.checkProjects(ctx, projectHashes)
 		}
 	}
 }
@@ -138,9 +137,7 @@ func (w *Watcher) checkProject(ctx context.Context, slug, previousHash string, f
 	return currentHash, false
 }
 
-func (w *Watcher) checkProjects(projectHashes map[string]string) {
-	ctx := context.Background()
-
+func (w *Watcher) checkProjects(ctx context.Context, projectHashes map[string]string) {
 	slugs, err := w.store.ListProjects(ctx)
 	if err != nil {
 		w.logger.Error("watcher error listing projects", zap.Error(err))

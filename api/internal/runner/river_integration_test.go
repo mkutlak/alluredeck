@@ -74,7 +74,7 @@ func TestRiverJobManager_SubmitAndGet(t *testing.T) {
 		t.Errorf("ProjectID: got %d, want %d", job.ProjectID, int64(1))
 	}
 
-	got := jm.Get(job.ID)
+	got := jm.Get(context.Background(), job.ID)
 	if got == nil {
 		t.Fatal("Get returned nil for existing job ID")
 		return // unreachable, but satisfies staticcheck SA5011
@@ -89,7 +89,7 @@ func TestRiverJobManager_ListJobs(t *testing.T) {
 	s := openRiverTestStore(t)
 	jm := newTestRiverJM(t, s, &riverMockGen{out: "ok"})
 
-	before := len(jm.ListJobs())
+	before := len(jm.ListJobs(context.Background()))
 
 	jm.Submit(context.Background(), int64(2), "river-list-proj-a", runner.JobParams{})
 	jm.Submit(context.Background(), int64(3), "river-list-proj-b", runner.JobParams{})
@@ -97,13 +97,13 @@ func TestRiverJobManager_ListJobs(t *testing.T) {
 	// Poll until both jobs appear in River's DB (inserted asynchronously).
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(jm.ListJobs()) >= before+2 {
+		if len(jm.ListJobs(context.Background())) >= before+2 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	jobs := jm.ListJobs()
+	jobs := jm.ListJobs(context.Background())
 	if len(jobs) < before+2 {
 		t.Errorf("expected at least %d jobs, got %d", before+2, len(jobs))
 	}
@@ -114,10 +114,10 @@ func TestRiverJobManager_GetUnknownID(t *testing.T) {
 	s := openRiverTestStore(t)
 	jm := newTestRiverJM(t, s, &riverMockGen{out: "ok"})
 
-	if got := jm.Get("99999999999"); got != nil {
+	if got := jm.Get(context.Background(), "99999999999"); got != nil {
 		t.Errorf("expected nil for unknown ID, got %+v", got)
 	}
-	if got := jm.Get("not-a-number"); got != nil {
+	if got := jm.Get(context.Background(), "not-a-number"); got != nil {
 		t.Errorf("expected nil for non-numeric ID, got %+v", got)
 	}
 }
@@ -127,7 +127,7 @@ func TestRiverJobManager_CancelUnknownID(t *testing.T) {
 	s := openRiverTestStore(t)
 	jm := newTestRiverJM(t, s, &riverMockGen{out: "ok"})
 
-	err := jm.Cancel("99999999998")
+	err := jm.Cancel(context.Background(), "99999999998")
 	if err == nil {
 		t.Fatal("expected error cancelling unknown job, got nil")
 	}

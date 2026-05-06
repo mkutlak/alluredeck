@@ -25,7 +25,7 @@ help: ## Show available targets
 
 # ── API (delegates to api/Makefile) ───────────────────────────
 
-.PHONY: api-build api-run api-build-static api-test api-test-race api-test-cover \
+.PHONY: api-build api-run api-build-static api-test api-test-race api-test-cover api-test-leak \
         api-fmt api-lint api-vet api-tidy api-modernize api-check api-swagger api-clean
 
 api-build: ## Build API binary
@@ -45,6 +45,9 @@ api-test-race: ## Run API tests with race detector
 
 api-test-cover: ## Run API tests with coverage report
 	$(MAKE) -C api test-cover
+
+api-test-leak: ## Run goroutine-leak detection tests (Go 1.26 GOEXPERIMENT=goroutineleakprofile)
+	$(MAKE) -C api test-leak
 
 api-fmt: ## Format API code
 	$(MAKE) -C api fmt

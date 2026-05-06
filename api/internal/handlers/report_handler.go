@@ -180,7 +180,7 @@ func (h *ReportHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := r.PathValue("job_id")
-	job := h.jobManager.Get(jobID)
+	job := h.jobManager.Get(r.Context(), jobID)
 	if job == nil || job.ProjectID != projectID {
 		writeError(w, http.StatusNotFound, "job not found")
 		return

@@ -50,6 +50,9 @@ func NewS3Store(cfg *config.Config, logger *zap.Logger) (*S3Store, error) {
 		))
 	}
 	if cfg.S3.TLSInsecureSkipVerify {
+		// Do not pin CipherSuites or CurvePreferences here without explicitly
+		// including tls.X25519MLKEM768 (Go 1.26 default) — silent removal would
+		// disable hybrid post-quantum key exchange for outbound S3 traffic.
 		opts = append(opts, awsconfig.WithHTTPClient(&http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{

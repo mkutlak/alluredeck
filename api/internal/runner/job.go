@@ -59,10 +59,10 @@ type Job struct {
 type JobQueuer interface {
 	Submit(ctx context.Context, projectID int64, slug string, params JobParams) *Job
 	SubmitPlaywright(ctx context.Context, projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job
-	ListJobs() []*Job
-	Cancel(jobID string) error
-	Delete(jobID string) error
-	Get(jobID string) *Job
+	ListJobs(ctx context.Context) []*Job
+	Cancel(ctx context.Context, jobID string) error
+	Delete(ctx context.Context, jobID string) error
+	Get(ctx context.Context, jobID string) *Job
 	Start(ctx context.Context)
 	Shutdown()
 }

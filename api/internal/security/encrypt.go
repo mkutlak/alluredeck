@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 )
 
 // ErrDecryptionFailed is returned when ciphertext cannot be decrypted.
@@ -34,7 +33,7 @@ func Encrypt(plaintext string, key []byte) (string, error) {
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
 
