@@ -1,3 +1,14 @@
+## [0.34.0](https://github.com/mkutlak/alluredeck/compare/v0.33.2...v0.34.0) (2026-05-09)
+
+### Features
+
+* **jobs:** expose phase and progress in /jobs/{id} ([a801d0d](https://github.com/mkutlak/alluredeck/commit/a801d0d2e850cdfc28d9b731c3d2a704fc560fc1))
+* **upload:** async tar.gz upload via staging blob + River worker ([24fe265](https://github.com/mkutlak/alluredeck/commit/24fe26552db43947b3c9cfc30869b0296e0daa79))
+
+### Performance Improvements
+
+* **playwright:** spool tar entries to disk to bound peak heap ([584ab9b](https://github.com/mkutlak/alluredeck/commit/584ab9b84a27efd0f0a7ff62e2d452083741aa74))
+
 ## [0.33.2](https://github.com/mkutlak/alluredeck/compare/v0.33.1...v0.33.2) (2026-05-09)
 
 ### Performance Improvements
