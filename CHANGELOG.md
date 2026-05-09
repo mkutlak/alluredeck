@@ -1,3 +1,9 @@
+## [0.32.2](https://github.com/mkutlak/alluredeck/compare/v0.32.1...v0.32.2) (2026-05-09)
+
+### Bug Fixes
+
+* **branches:** derive branch list from builds across child projects ([3fae6c0](https://github.com/mkutlak/alluredeck/commit/3fae6c03db0820a0224eb1a581242e1614211843))
+
 ## [0.32.1](https://github.com/mkutlak/alluredeck/compare/v0.32.0...v0.32.1) (2026-04-29)
 
 ### Bug Fixes
