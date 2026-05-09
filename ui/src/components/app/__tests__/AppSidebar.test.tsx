@@ -64,6 +64,8 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
     reportsGroupBy: 'none',
     selectedBranch: undefined,
     _syncedAt: null,
+    timezone: null,
+    timeFormat: null,
     setProjectViewMode: vi.fn(),
     setLastProjectId: vi.fn(),
     clearLastProjectId: vi.fn(),
@@ -71,6 +73,8 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
     setReportsGroupBy: vi.fn(),
     setSelectedBranch: vi.fn(),
     setSyncedAt: vi.fn(),
+    setTimezone: vi.fn(),
+    setTimeFormat: vi.fn(),
     ...overrides,
   }
 }

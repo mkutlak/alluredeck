@@ -11,6 +11,8 @@ export interface UIState {
   reportsPerPage: number
   reportsGroupBy: GroupByMode
   selectedBranch: string | undefined
+  timezone: string | null
+  timeFormat: '12h' | '24h' | null
   _syncedAt: string | null
 
   setProjectViewMode: (mode: ViewMode) => void
@@ -19,6 +21,8 @@ export interface UIState {
   setReportsPerPage: (perPage: number) => void
   setReportsGroupBy: (groupBy: GroupByMode) => void
   setSelectedBranch: (branch: string | undefined) => void
+  setTimezone: (tz: string | null) => void
+  setTimeFormat: (fmt: '12h' | '24h' | null) => void
   setSyncedAt: (ts: string | null) => void
 }
 
@@ -30,6 +34,8 @@ export const useUIStore = create<UIState>()(
       reportsPerPage: 20,
       reportsGroupBy: 'none',
       selectedBranch: undefined,
+      timezone: null,
+      timeFormat: null,
       _syncedAt: null,
 
       setProjectViewMode: (mode) => set({ projectViewMode: mode }),
@@ -38,6 +44,8 @@ export const useUIStore = create<UIState>()(
       setReportsPerPage: (perPage) => set({ reportsPerPage: perPage }),
       setReportsGroupBy: (groupBy) => set({ reportsGroupBy: groupBy }),
       setSelectedBranch: (branch) => set({ selectedBranch: branch }),
+      setTimezone: (tz) => set({ timezone: tz }),
+      setTimeFormat: (fmt) => set({ timeFormat: fmt }),
       setSyncedAt: (ts) => set({ _syncedAt: ts }),
     }),
     { name: 'allure-ui' },

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router'
 import { createTestQueryClient } from '@/test/render'
 import { ProfilePage } from '../ProfilePage'
 import * as usersApi from '@/api/users'
+import { useUIStore } from '@/store/ui'
 import type { User } from '@/types/api'
 
 vi.mock('@/api/users', () => ({
@@ -19,6 +20,17 @@ vi.mock('@/api/users', () => ({
   updateMe: vi.fn(),
   changeMyPassword: vi.fn(),
   resetUserPassword: vi.fn(),
+}))
+
+vi.mock('@/api/preferences', () => ({
+  fetchPreferences: vi.fn().mockResolvedValue({
+    data: { preferences: {}, updated_at: null },
+    metadata: { message: 'ok' },
+  }),
+  updatePreferences: vi.fn().mockResolvedValue({
+    data: { preferences: {}, updated_at: null },
+    metadata: { message: 'ok' },
+  }),
 }))
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -49,6 +61,10 @@ function renderPage() {
 describe('ProfilePage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    useUIStore.setState({ timezone: null, timeFormat: null })
   })
 
   it('renders profile fields for local user', async () => {
@@ -263,6 +279,132 @@ describe('ProfilePage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('—')).toBeInTheDocument()
+    })
+  })
+
+  describe('Display section', () => {
+    it('renders the Display heading and timezone combobox', async () => {
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Display')).toBeInTheDocument()
+        expect(screen.getByText('Timezone')).toBeInTheDocument()
+        expect(screen.getByRole('combobox')).toBeInTheDocument()
+      })
+    })
+
+    it('timezone change updates the store', async () => {
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+      const user = userEvent.setup()
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument()
+      })
+
+      // Open the combobox
+      await user.click(screen.getByRole('combobox'))
+
+      // Search for Tokyo to narrow the list
+      const searchInput = await screen.findByPlaceholderText('Search timezone…')
+      await user.type(searchInput, 'Asia/Tokyo')
+
+      const tokyoOption = await screen.findByText('Asia/Tokyo')
+      await user.click(tokyoOption)
+
+      expect(useUIStore.getState().timezone).toBe('Asia/Tokyo')
+    })
+
+    it('selecting Auto reverts timezone to null', async () => {
+      useUIStore.setState({ timezone: 'Asia/Tokyo' })
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+      const user = userEvent.setup()
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument()
+      })
+
+      // Open the combobox (currently showing Asia/Tokyo)
+      await user.click(screen.getByRole('combobox'))
+
+      // Search for auto
+      const searchInput = await screen.findByPlaceholderText('Search timezone…')
+      await user.type(searchInput, 'Auto')
+
+      const autoOption = await screen.findByText(/^Auto \(browser:/)
+      await user.click(autoOption)
+
+      expect(useUIStore.getState().timezone).toBeNull()
+    })
+
+    it('time format toggle: clicking 24-hour sets timeFormat to 24h', async () => {
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+      const user = userEvent.setup()
+
+      renderPage()
+
+      const btn24 = await screen.findByRole('button', { name: '24-hour' })
+      await user.click(btn24)
+
+      expect(useUIStore.getState().timeFormat).toBe('24h')
+    })
+
+    it('time format toggle: clicking Auto resets timeFormat to null', async () => {
+      useUIStore.setState({ timeFormat: '24h' })
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+      const user = userEvent.setup()
+
+      renderPage()
+
+      const btnAuto = await screen.findByRole('button', { name: 'Auto' })
+      await user.click(btnAuto)
+
+      expect(useUIStore.getState().timeFormat).toBeNull()
+    })
+
+    it('preview text is present and non-empty', async () => {
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Preview:/)).toBeInTheDocument()
+      })
+
+      const previewText = screen.getByText(/^Preview:/).textContent ?? ''
+      expect(previewText.length).toBeGreaterThan('Preview: '.length)
+    })
+
+    it('preview reflects timeFormat: 12h shows AM/PM, 24h does not', async () => {
+      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+
+      // Render with 12h format
+      useUIStore.setState({ timezone: null, timeFormat: '12h' })
+      const { unmount } = renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Preview:/)).toBeInTheDocument()
+      })
+      const preview12h = screen.getByText(/^Preview:/).textContent ?? ''
+      unmount()
+
+      // Render with 24h format
+      useUIStore.setState({ timezone: null, timeFormat: '24h' })
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText(/^Preview:/)).toBeInTheDocument()
+      })
+      const preview24h = screen.getByText(/^Preview:/).textContent ?? ''
+
+      // 12h format contains AM or PM; 24h does not
+      expect(preview12h).toMatch(/AM|PM/)
+      expect(preview24h).not.toMatch(/AM|PM/)
     })
   })
 })

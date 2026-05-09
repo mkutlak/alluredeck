@@ -71,10 +71,14 @@ function renderSwitcher(path: string, lastProjectId: string | null = null) {
       reportsGroupBy: 'none' as const,
       selectedBranch: undefined,
       _syncedAt: null,
+      timezone: null,
+      timeFormat: null,
       setReportsPerPage: vi.fn(),
       setReportsGroupBy: vi.fn(),
       setSelectedBranch: vi.fn(),
       setSyncedAt: vi.fn(),
+      setTimezone: vi.fn(),
+      setTimeFormat: vi.fn(),
     }),
   )
   return render(

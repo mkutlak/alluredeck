@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   cn,
   formatDate,
@@ -8,6 +8,7 @@ import {
   truncate,
   formatBytes,
 } from './utils'
+import { useUIStore } from '@/store/ui'
 
 describe('cn', () => {
   it('merges class names', () => {
@@ -101,6 +102,10 @@ describe('truncate', () => {
 })
 
 describe('formatDate', () => {
+  afterEach(() => {
+    useUIStore.setState({ timezone: null, timeFormat: null })
+  })
+
   it('formats a timestamp', () => {
     const result = formatDate(new Date('2025-01-15T10:30:00Z'))
     expect(result).toMatch(/Jan/)
@@ -110,6 +115,40 @@ describe('formatDate', () => {
   it('formats a date string', () => {
     const result = formatDate('2025-06-01T00:00:00Z')
     expect(result).toMatch(/Jun/)
+  })
+
+  it('default state produces output with year, month, day, hour, minute and AM/PM marker', () => {
+    const result = formatDate(new Date('2026-03-15T14:30:00Z'))
+    expect(result).toMatch(/2026/)
+    expect(result).toMatch(/Mar/)
+    expect(result).toMatch(/\d{2}:\d{2}/)
+    expect(result).toMatch(/AM|PM/)
+  })
+
+  it('timezone Asia/Tokyo shifts hour for known UTC timestamp', () => {
+    useUIStore.setState({ timezone: 'Asia/Tokyo' })
+    // 2026-01-01T00:00:00Z is 09:00 in Tokyo (UTC+9, no DST)
+    const result = formatDate(new Date('2026-01-01T00:00:00Z'))
+    expect(result).toMatch(/09/)
+  })
+
+  it('timeFormat 24h produces output without AM or PM', () => {
+    useUIStore.setState({ timeFormat: '24h' })
+    const result = formatDate(new Date('2026-01-01T14:00:00Z'))
+    expect(result).not.toMatch(/AM|PM/)
+  })
+
+  it('timeFormat 12h produces output with AM or PM', () => {
+    useUIStore.setState({ timeFormat: '12h' })
+    const result = formatDate(new Date('2026-01-01T14:00:00Z'))
+    expect(result).toMatch(/AM|PM/)
+  })
+
+  it('accepts a numeric timestamp', () => {
+    const ts = new Date('2026-06-01T00:00:00Z').getTime()
+    const result = formatDate(ts)
+    expect(result).toMatch(/Jun/)
+    expect(result).toMatch(/2026/)
   })
 })
 

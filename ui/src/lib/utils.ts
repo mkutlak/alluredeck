@@ -1,22 +1,45 @@
+import { useCallback, useMemo } from 'react'
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { useUIStore } from '@/store/ui'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-const _dateFormatter = new Intl.DateTimeFormat('en-US', {
-  year: 'numeric',
-  month: 'short',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-})
+function buildFormatter(
+  timezone: string | null,
+  timeFormat: '12h' | '24h' | null,
+): Intl.DateTimeFormat {
+  const opts: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }
+  if (timezone) opts.timeZone = timezone
+  if (timeFormat === '12h') opts.hour12 = true
+  else if (timeFormat === '24h') opts.hour12 = false
+  return new Intl.DateTimeFormat('en-US', opts)
+}
 
 export function formatDate(dateStr: string | Date | number): string {
+  const { timezone, timeFormat } = useUIStore.getState()
   const date =
     typeof dateStr === 'string' || typeof dateStr === 'number' ? new Date(dateStr) : dateStr
-  return _dateFormatter.format(date)
+  return buildFormatter(timezone, timeFormat).format(date)
+}
+
+export function useFormatDate(): (d: string | Date | number) => string {
+  const timezone = useUIStore((s) => s.timezone)
+  const timeFormat = useUIStore((s) => s.timeFormat)
+  const fmt = useMemo(() => buildFormatter(timezone, timeFormat), [timezone, timeFormat])
+  return useCallback(
+    (d: string | Date | number) =>
+      fmt.format(typeof d === 'string' || typeof d === 'number' ? new Date(d) : d),
+    [fmt],
+  )
 }
 
 export function formatDuration(ms: number): string {

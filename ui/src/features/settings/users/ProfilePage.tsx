@@ -1,9 +1,11 @@
-import { useState, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { formatDate } from '@/lib/utils'
+import { formatDate, useFormatDate } from '@/lib/utils'
+import { useUIStore } from '@/store/ui'
 import { useMeQuery, useUpdateMeMutation } from './hooks/useMe'
 import { ChangePasswordCard } from './components/ChangePasswordCard'
 import type { User } from '@/types/api'
@@ -99,6 +101,83 @@ function ProfileForm({ me }: ProfileFormProps) {
   )
 }
 
+function DisplayCard() {
+  const timezone = useUIStore((s) => s.timezone)
+  const timeFormat = useUIStore((s) => s.timeFormat)
+  const setTimezone = useUIStore((s) => s.setTimezone)
+  const setTimeFormat = useUIStore((s) => s.setTimeFormat)
+  const format = useFormatDate()
+
+  const detectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  const timezoneOptions = useMemo(
+    () => [
+      { value: '__auto__', label: `Auto (browser: ${detectedZone})` },
+      ...Intl.supportedValuesOf('timeZone').map((z) => ({ value: z, label: z })),
+    ],
+    [detectedZone],
+  )
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Display</h2>
+      </div>
+
+      {/* Timezone row */}
+      <div className="space-y-1">
+        <p className="text-sm font-medium">Timezone</p>
+        <Combobox
+          options={timezoneOptions}
+          value={timezone ?? '__auto__'}
+          onChange={(v) => setTimezone(v === '__auto__' ? null : v)}
+          placeholder="Select timezone"
+          searchPlaceholder="Search timezone…"
+          emptyText="No timezone matches"
+          className="w-72"
+        />
+        <p className="text-muted-foreground text-sm">
+          Times throughout the app will be shown in this zone.
+        </p>
+      </div>
+
+      {/* Time format row */}
+      <div className="space-y-1">
+        <p className="text-sm font-medium">Time format</p>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={timeFormat === null ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setTimeFormat(null)}
+          >
+            Auto
+          </Button>
+          <Button
+            type="button"
+            variant={timeFormat === '24h' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setTimeFormat('24h')}
+          >
+            24-hour
+          </Button>
+          <Button
+            type="button"
+            variant={timeFormat === '12h' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setTimeFormat('12h')}
+          >
+            12-hour
+          </Button>
+        </div>
+      </div>
+
+      {/* Preview row */}
+      <p className="text-muted-foreground text-sm">Preview: {format(new Date())}</p>
+    </div>
+  )
+}
+
 export function ProfilePage() {
   const { data: me, isLoading, isError } = useMeQuery()
 
@@ -131,6 +210,8 @@ export function ProfilePage() {
           <ChangePasswordCard />
         </>
       )}
+      <Separator />
+      <DisplayCard />
     </div>
   )
 }

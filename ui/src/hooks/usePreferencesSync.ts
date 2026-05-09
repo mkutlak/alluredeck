@@ -10,6 +10,8 @@ const SYNC_KEYS: readonly (keyof UIState)[] = [
   'reportsPerPage',
   'reportsGroupBy',
   'selectedBranch',
+  'timezone',
+  'timeFormat',
 ] as const
 
 function pickSyncState(state: UIState): Record<string, unknown> {
