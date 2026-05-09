@@ -148,6 +148,7 @@ database_url: {{ .Values.api.config.databaseURL | quote }}
 {{- end }}
 max_upload_size_mb: {{ .Values.api.config.maxUploadSizeMb | int }}
 max_archive_file_count: {{ .Values.api.config.maxArchiveFileCount | int }}
+upload_write_concurrency: {{ .Values.api.config.uploadWriteConcurrency | int }}
 report_generation_timeout: {{ .Values.api.config.reportGenerationTimeout | quote }}
 {{- $corsOrigins := .Values.api.config.corsAllowedOrigins }}
 {{- if and (empty $corsOrigins) .Values.ingress.enabled .Values.ingress.host }}

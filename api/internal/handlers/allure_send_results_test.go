@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -767,5 +769,100 @@ func TestParseResultsBody_TarGzRouting(t *testing.T) {
 				t.Fatalf("expected processed=[routed.xml], got %v", processed)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Parallel-write regression tests
+// ---------------------------------------------------------------------------
+
+// TestSendTarGzResults_ManyFilesParallel exercises the parallel write loop
+// with enough files to make ordering and dedup races visible under -race.
+// Verifies all files are written and the returned `processed` slice is sorted
+// regardless of goroutine completion order.
+func TestSendTarGzResults_ManyFilesParallel(t *testing.T) {
+	h, projectID, resultsDir := setupTarGzTest(t)
+
+	const n = 200
+	files := make(map[string][]byte, n)
+	for i := range n {
+		files[fmt.Sprintf("result-%03d.json", i)] = []byte(fmt.Sprintf(`{"i":%d}`, i))
+	}
+	archive := makeTarGz(t, files)
+	req := makeTarGzRequest(t, projectID, archive)
+
+	processed, failed, err := h.sendTarGzResults(req, projectID, "batch-many")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(failed) != 0 {
+		t.Fatalf("expected no failed files, got %v", failed)
+	}
+	if len(processed) != n {
+		t.Fatalf("expected %d processed, got %d", n, len(processed))
+	}
+	// Determinism: the returned slice must be sorted even though writes
+	// completed in goroutine-arrival order.
+	if !sort.StringsAreSorted(processed) {
+		t.Errorf("processed slice not sorted: %v", processed)
+	}
+	// Spot-check that one of the files actually landed on disk.
+	got, err := os.ReadFile(filepath.Join(resultsDir, "batch-many", "result-042.json"))
+	if err != nil {
+		t.Fatalf("expected file written: %v", err)
+	}
+	if !bytes.Equal(got, []byte(`{"i":42}`)) {
+		t.Errorf("file content mismatch: got %q", got)
+	}
+}
+
+// TestSendTarGzResults_StorageWriteFailure verifies that when a single
+// WriteResultFile call fails mid-batch, sendTarGzResults returns an error
+// and processed list is nil (so the caller never schedules a parsing job).
+// This is the atomicity guarantee for the parallel commit phase.
+func TestSendTarGzResults_StorageWriteFailure(t *testing.T) {
+	cfg := &config.Config{ProjectsPath: t.TempDir(), MaxUploadSizeMB: 100, UploadWriteConcurrency: 8}
+	logger := zap.NewNop()
+	mocks := testutil.New()
+
+	mockStore := &storage.MockStore{
+		WriteResultFileFn: func(_ context.Context, _, _, filename string, r io.Reader) error {
+			// Drain reader so the goroutine doesn't leave dangling state.
+			_, _ = io.Copy(io.Discard, r)
+			if filename == "boom.json" {
+				return errors.New("simulated MinIO PUT failure")
+			}
+			return nil
+		},
+	}
+
+	r := runner.NewAllure(runner.AllureDeps{
+		Config:     cfg,
+		Store:      mockStore,
+		BuildStore: mocks.MemBuilds,
+		Locker:     mocks.Locker,
+		Logger:     logger,
+	})
+	jm := runner.NewMemJobManager(nil, 0, logger)
+	h := NewResultUploadHandler(mockStore, mocks.Projects, jm, r, cfg, logger)
+
+	files := map[string][]byte{
+		"a.json":    []byte("ok"),
+		"boom.json": []byte("nope"),
+		"c.json":    []byte("ok"),
+		"d.json":    []byte("ok"),
+	}
+	archive := makeTarGz(t, files)
+	req := makeTarGzRequest(t, "proj", archive)
+
+	processed, failed, err := h.sendTarGzResults(req, "proj", "batch-fail")
+	if err == nil {
+		t.Fatal("expected error from boom.json write, got nil")
+	}
+	if processed != nil {
+		t.Errorf("expected processed=nil on failure, got %v", processed)
+	}
+	if failed != nil {
+		t.Errorf("expected failed=nil on early-return failure, got %v", failed)
 	}
 }

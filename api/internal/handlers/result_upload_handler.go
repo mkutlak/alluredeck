@@ -15,8 +15,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
@@ -467,20 +469,48 @@ func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey, batc
 	// Sort for deterministic output.
 	sort.Strings(fileNames)
 
-	// Write validated files to storage.
+	// Write validated files to storage in parallel. Validation has already
+	// passed in the temp-dir extraction phase above, so any error here means
+	// the storage backend rejected a file mid-batch — fail fast and don't
+	// submit a parsing job for a partial batch (same atomicity story as the
+	// pre-existing sequential loop, just much faster on multi-file uploads).
+	g, gctx := errgroup.WithContext(r.Context())
+	g.SetLimit(uploadWriteConcurrency(h.cfg))
+
+	var (
+		mu      sync.Mutex
+		written = make([]string, 0, len(fileNames))
+	)
 	for _, name := range fileNames {
-		tmpPath := filepath.Join(tmpDir, name)
-		f, err := os.Open(tmpPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("reopen temp file %q: %w", name, err)
-		}
-		err = h.store.WriteResultFile(r.Context(), storageKey, batchID, name, f)
-		_ = f.Close()
-		if err != nil {
-			return nil, nil, fmt.Errorf("write result file %q: %w", name, err)
-		}
-		processed = append(processed, name)
+		g.Go(func() error {
+			f, err := os.Open(filepath.Join(tmpDir, name))
+			if err != nil {
+				return fmt.Errorf("reopen temp file %q: %w", name, err)
+			}
+			defer func() { _ = f.Close() }()
+			if err := h.store.WriteResultFile(gctx, storageKey, batchID, name, f); err != nil {
+				return fmt.Errorf("write result file %q: %w", name, err)
+			}
+			mu.Lock()
+			written = append(written, name)
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
 	}
 
-	return processed, nil, nil
+	// Restore deterministic order across goroutine completion order.
+	sort.Strings(written)
+	return written, nil, nil
+}
+
+// uploadWriteConcurrency returns the configured concurrency for parallel
+// upload writes, falling back to a safe default if unset or non-positive.
+func uploadWriteConcurrency(cfg *config.Config) int {
+	if cfg != nil && cfg.UploadWriteConcurrency > 0 {
+		return cfg.UploadWriteConcurrency
+	}
+	return 32
 }

@@ -272,10 +272,12 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, storageKey
 	foundIndex := false
 
 	// Upload files to S3 concurrently — Playwright reports can contain hundreds
-	// of files and sequential uploads easily exceed HTTP timeouts.
-	const uploadConcurrency = 10
+	// of files and sequential uploads easily exceed HTTP timeouts. Concurrency
+	// is shared with the Allure tar.gz path via UPLOAD_WRITE_CONCURRENCY; worst-
+	// case heap usage during extraction is roughly concurrency × largest_file
+	// because each entry is buffered in memory before its goroutine drains it.
 	g, ctx := errgroup.WithContext(r.Context())
-	g.SetLimit(uploadConcurrency)
+	g.SetLimit(uploadWriteConcurrency(h.cfg))
 
 	for {
 		hdr, err := tr.Next()

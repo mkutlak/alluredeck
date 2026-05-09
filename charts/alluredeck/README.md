@@ -1,8 +1,8 @@
 # AllureDeck Helm Chart
 
 [![Release Helm Chart](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml/badge.svg)](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml)
-![Version: 0.16.0](https://img.shields.io/badge/Version-0.16.0-informational?style=flat-square)
-![AppVersion: 0.31.0](https://img.shields.io/badge/AppVersion-0.31.0-informational?style=flat-square)
+![Version: 0.17.0](https://img.shields.io/badge/Version-0.17.0-informational?style=flat-square)
+![AppVersion: 0.33.1](https://img.shields.io/badge/AppVersion-0.33.1-informational?style=flat-square)
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for [AllureDeck](https://github.com/mkutlak/alluredeck) — an Allure Reports Dashboard that provides a centralized UI for viewing and managing Allure test reports.
@@ -188,6 +188,8 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.config.keepHistoryLatest` | Number of history entries to keep (0 = unlimited) | `"100"` |
 | `api.config.keepHistoryMaxAgeDays` | Delete reports older than N days (0 = disabled) | `"0"` |
 | `api.config.maxUploadSizeMb` | Max upload size in MB | `"100"` |
+| `api.config.maxArchiveFileCount` | Max files allowed in a tar.gz archive upload | `"5000"` |
+| `api.config.uploadWriteConcurrency` | Parallel storage writes during tar.gz extraction (Allure + Playwright); tune to MinIO/S3 capacity | `"32"` |
 | `api.config.apiResponseLessVerbose` | Return minimal JSON responses (omit verbose fields) | `"false"` |
 | `api.config.staticContentProjects` | Root directory for static project content (embedded report overlay file server) | `"/data/projects"` |
 | `api.config.goMemLimit` | Go memory limit (set to ~80% of memory limit) | `"768MiB"` |
