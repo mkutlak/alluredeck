@@ -1,3 +1,9 @@
+## [0.33.1](https://github.com/mkutlak/alluredeck/compare/v0.33.0...v0.33.1) (2026-05-09)
+
+### Performance Improvements
+
+* **upload:** parallelize tar.gz storage writes ([c53c227](https://github.com/mkutlak/alluredeck/commit/c53c227f77506fa8cea63d60903264a2e17bdbe9))
+
 ## [0.33.0](https://github.com/mkutlak/alluredeck/compare/v0.32.2...v0.33.0) (2026-05-09)
 
 ### Features
