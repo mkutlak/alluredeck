@@ -1,3 +1,9 @@
+## [0.33.0](https://github.com/mkutlak/alluredeck/compare/v0.32.2...v0.33.0) (2026-05-09)
+
+### Features
+
+* **ui:** user-configurable timezone and 12h/24h time format ([c6a66b1](https://github.com/mkutlak/alluredeck/commit/c6a66b16dfb7005b3b7e6373f2df3abe05148b2e))
+
 ## [0.32.2](https://github.com/mkutlak/alluredeck/compare/v0.32.1...v0.32.2) (2026-05-09)
 
 ### Bug Fixes
