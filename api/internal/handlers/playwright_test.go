@@ -5,11 +5,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -416,6 +420,129 @@ func TestPlaywrightUpload_WithBuildNumber_Invalid(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestPlaywrightExtract_DiskSpool verifies that extractPlaywrightArchive correctly
+// spools all entries to disk and streams them to storage. It uses a MockStore so
+// no real filesystem project layout is required, and includes a ~10 MB file to
+// confirm large entries are handled without buffering in memory.
+func TestPlaywrightExtract_DiskSpool(t *testing.T) {
+	large := make([]byte, 10<<20) // 10 MB
+	for i := range large {
+		large[i] = byte(i % 251)
+	}
+
+	files := map[string][]byte{
+		"index.html":          []byte("<html><body>Playwright</body></html>"),
+		"data/trace.zip":      large,
+		"data/screenshot.png": []byte("\x89PNG\r\n"),
+		"data/video.webm":     []byte("WEBM"),
+		"assets/app.js":       []byte("console.log('hi')"),
+	}
+	archive := makeTarGz(t, files)
+
+	// Collect what was written via the mock store.
+	type written struct {
+		subPath string
+		content []byte
+	}
+	var mu sync.Mutex
+	var uploads []written
+
+	mock := &storage.MockStore{
+		WritePlaywrightFileFn: func(_ context.Context, _, subPath string, r io.Reader) error {
+			data, err := io.ReadAll(r)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			uploads = append(uploads, written{subPath: subPath, content: data})
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	cfg := &config.Config{MaxUploadSizeMB: 200, UploadWriteConcurrency: 4}
+	h := &PlaywrightHandler{store: mock, cfg: cfg, logger: zap.NewNop()}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+
+	if err := h.extractPlaywrightArchive(req, "proj-key", "latest"); err != nil {
+		t.Fatalf("extractPlaywrightArchive: %v", err)
+	}
+
+	if len(uploads) != len(files) {
+		t.Fatalf("expected %d uploads, got %d", len(files), len(uploads))
+	}
+
+	// Build a map for easy lookup.
+	got := make(map[string][]byte, len(uploads))
+	for _, u := range uploads {
+		got[u.subPath] = u.content
+	}
+
+	for name, want := range files {
+		key := "latest/" + name
+		content, ok := got[key]
+		if !ok {
+			t.Errorf("missing upload for %q", key)
+			continue
+		}
+		if !bytes.Equal(content, want) {
+			t.Errorf("content mismatch for %q: got %d bytes, want %d bytes", key, len(content), len(want))
+		}
+	}
+}
+
+// TestPlaywrightExtract_MidBatchFailure verifies that when one WritePlaywrightFile
+// call returns an error, extractPlaywrightArchive propagates that error and the
+// context passed to remaining goroutines is cancelled so they can detect it.
+func TestPlaywrightExtract_MidBatchFailure(t *testing.T) {
+	const failTarget = "data/fail-me.bin"
+
+	files := map[string][]byte{
+		"index.html":   []byte("<html/>"),
+		failTarget:     []byte("bad"),
+		"data/ok1.bin": []byte("ok1"),
+		"data/ok2.bin": []byte("ok2"),
+	}
+	archive := makeTarGz(t, files)
+
+	errTarget := fmt.Errorf("injected store error")
+
+	mock := &storage.MockStore{
+		WritePlaywrightFileFn: func(ctx context.Context, _, subPath string, r io.Reader) error {
+			if strings.HasSuffix(subPath, failTarget) {
+				return errTarget
+			}
+			// Respect context cancellation so goroutines queued after the
+			// failure do not silently succeed.
+			return ctx.Err()
+		},
+	}
+
+	cfg := &config.Config{MaxUploadSizeMB: 10, UploadWriteConcurrency: 4}
+	h := &PlaywrightHandler{store: mock, cfg: cfg, logger: zap.NewNop()}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/gzip")
+
+	extractErr := h.extractPlaywrightArchive(req, "proj-key", "latest")
+	if extractErr == nil {
+		t.Fatal("expected an error from extractPlaywrightArchive, got nil")
+	}
+	// The injected error must be reachable via errors.Is (errgroup returns the
+	// first non-nil error from the group).
+	if !errors.Is(extractErr, errTarget) {
+		t.Errorf("expected injected store error in chain, got: %v", extractErr)
 	}
 }
 

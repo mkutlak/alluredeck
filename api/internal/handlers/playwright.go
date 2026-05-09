@@ -2,13 +2,13 @@ package handlers
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -255,6 +255,11 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 // project's results directory, preserving subdirectory structure. Unlike the
 // Allure handler, nested paths (e.g. data/screenshot.png) are preserved.
 // It validates that index.html is present in the extracted contents.
+//
+// Memory bound: each tar entry is spooled to a temp file on disk during the
+// sequential walk phase; the parallel upload phase then streams from disk.
+// Peak heap is roughly concurrency × HTTP buffer size (KBs), regardless of
+// individual file size — suitable for reports with large video/trace attachments.
 func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, storageKey, targetDir string) error {
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
@@ -271,14 +276,22 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, storageKey
 	fileCount := 0
 	foundIndex := false
 
-	// Upload files to S3 concurrently — Playwright reports can contain hundreds
-	// of files and sequential uploads easily exceed HTTP timeouts. Concurrency
-	// is shared with the Allure tar.gz path via UPLOAD_WRITE_CONCURRENCY; worst-
-	// case heap usage during extraction is roughly concurrency × largest_file
-	// because each entry is buffered in memory before its goroutine drains it.
-	g, ctx := errgroup.WithContext(r.Context())
-	g.SetLimit(uploadWriteConcurrency(h.cfg))
+	// Create a temp dir to spool tar entries to disk before the upload phase.
+	// Deferred removal runs regardless of success or failure.
+	tmpDir, err := os.MkdirTemp("", "alluredeck-pw-targz-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
+	// spooledEntry pairs the cleaned archive name with its temp file path.
+	type spooledEntry struct {
+		name    string // cleaned path within the archive (e.g. "data/screen.png")
+		tmpPath string // absolute path of the spooled temp file
+	}
+	var entries []spooledEntry
+
+	// Phase 1: walk the tar sequentially, validate paths, spool to disk.
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -319,26 +332,44 @@ func (h *PlaywrightHandler) extractPlaywrightArchive(r *http.Request, storageKey
 			foundIndex = true
 		}
 
-		// Buffer file content so the tar reader can advance while S3 uploads
-		// proceed concurrently.
-		data, err := io.ReadAll(tr)
+		// Spool the entry content to a flat temp file (replace path separators
+		// to avoid needing subdirectories inside tmpDir).
+		safeTmpName := strings.ReplaceAll(cleanName, "/", "_")
+		tmpPath := filepath.Join(tmpDir, safeTmpName)
+		f, err := os.Create(tmpPath)
 		if err != nil {
-			return fmt.Errorf("read %q from archive: %w", cleanName, err)
+			return fmt.Errorf("create temp file for %q: %w", cleanName, err)
+		}
+		if _, err := io.Copy(f, tr); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("spool %q to disk: %w", cleanName, err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close temp file for %q: %w", cleanName, err)
 		}
 
-		name := cleanName
-		g.Go(func() error {
-			return h.store.WritePlaywrightFile(ctx, storageKey, targetDir+"/"+name, bytes.NewReader(data))
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return err
+		entries = append(entries, spooledEntry{name: cleanName, tmpPath: tmpPath})
 	}
 
 	if !foundIndex {
 		return fmt.Errorf("archive does not contain index.html")
 	}
 
-	return nil
+	// Phase 2: upload spooled files to storage in parallel, streaming from disk.
+	// Peak heap is bounded by HTTP buffer sizes, not file sizes.
+	g, gctx := errgroup.WithContext(r.Context())
+	g.SetLimit(uploadWriteConcurrency(h.cfg))
+
+	for _, e := range entries {
+		g.Go(func() error {
+			f, err := os.Open(e.tmpPath)
+			if err != nil {
+				return fmt.Errorf("open temp file for %q: %w", e.name, err)
+			}
+			defer func() { _ = f.Close() }()
+			return h.store.WritePlaywrightFile(gctx, storageKey, targetDir+"/"+e.name, f)
+		})
+	}
+
+	return g.Wait()
 }
