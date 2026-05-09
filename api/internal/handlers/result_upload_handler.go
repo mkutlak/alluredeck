@@ -1,30 +1,29 @@
 package handlers
 
 import (
-	"archive/tar"
-	"compress/gzip"
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
+
+// gzipMagic is the two-byte signature that prefixes every valid gzip stream
+// (RFC 1952 §2.3.1). The async upload path peeks for this before streaming
+// the body to MinIO so a malformed/non-gzip body fails fast at the edge
+// instead of being staged and crashing the worker later.
+var gzipMagic = []byte{0x1f, 0x8b}
 
 // ResultUploadHandler handles test result file uploads and cleanup.
 type ResultUploadHandler struct {
@@ -102,7 +101,9 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 // @Param        ci_commit_sha           query  string  false  "CI commit SHA"
 // @Param        ci_pipeline_id          query  string  false  "CI pipeline ID"
 // @Param        ci_pipeline_url         query  string  false  "CI pipeline URL"
+// @Param        async                   query  bool    false  "Stream tar.gz to staging blob and return 202 immediately (only honored for application/gzip uploads)"
 // @Success      200  {object}  map[string]any
+// @Success      202  {object}  map[string]any  "Accepted (async=true): returns {job_id, batch_id} once the tar.gz is staged"
 // @Failure      400  {object}  map[string]any
 // @Failure      404  {object}  map[string]any
 // @Failure      413  {object}  map[string]any
@@ -211,6 +212,15 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 	// Configurable via MAX_UPLOAD_SIZE_MB env var or max_upload_size_mb YAML key (default 100 MB).
 	maxBodyBytes := int64(h.cfg.MaxUploadSizeMB) << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+	// Async upload: stream the tar.gz body straight to storage at
+	// staging/{batchID}.tar.gz, enqueue a worker to extract + generate, and
+	// return 202. Only honored for tar.gz Content-Types — JSON/multipart
+	// callers fall through to the sync path.
+	if r.URL.Query().Get("async") == "true" && isTarGzContentType(r.Header.Get("Content-Type")) {
+		h.sendResultsAsync(w, r, projectID, slug, storageKey, batchID, execName, execFrom, execType, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL)
+		return
+	}
 
 	processedFiles, failedFiles, err := h.parseResultsBody(r, storageKey, batchID)
 	if errors.Is(err, errUnsupportedContentType) {
@@ -374,135 +384,22 @@ func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey, 
 	return processed, failed, nil
 }
 
-// sendTarGzResults extracts a tar.gz archive to a temp directory, validates
-// all entries, then writes them to storage. Atomic: rejects all on any error.
+// sendTarGzResults extracts a tar.gz archive and streams entries directly to
+// storage. Validation (decompression bomb, nested path, dup name, file count,
+// empty archive) runs in the shared extractor.
 func (h *ResultUploadHandler) sendTarGzResults(r *http.Request, storageKey, batchID string) (processed []string, failed []map[string]string, _ error) {
-	gz, err := gzip.NewReader(r.Body)
+	maxFiles := maxArchiveFileCount
+	if h.cfg != nil && h.cfg.MaxArchiveFileCount > 0 {
+		maxFiles = h.cfg.MaxArchiveFileCount
+	}
+	written, err := runner.ExtractTarGzToStorage(r.Context(), h.store, storageKey, batchID, r.Body, runner.TarExtractOptions{
+		MaxDecompressedBytes: maxDecompressedBytes,
+		MaxFileCount:         maxFiles,
+		Concurrency:          uploadWriteConcurrency(h.cfg),
+	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid gzip stream: %w", err)
-	}
-	defer func() { _ = gz.Close() }()
-
-	cr := &countingReader{r: gz, limit: maxDecompressedBytes}
-	tr := tar.NewReader(cr)
-
-	tmpDir, err := os.MkdirTemp("", "alluredeck-targz-*")
-	if err != nil {
-		return nil, nil, fmt.Errorf("create temp dir: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	seen := make(map[string]bool)
-	var fileNames []string
-	fileCount := 0
-
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			if cr.exceeded {
-				return nil, nil, ErrArchiveDecompBomb
-			}
-			return nil, nil, fmt.Errorf("read tar entry: %w", err)
-		}
-
-		// Skip non-regular files (directories, symlinks, etc.).
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-
-		// Sanitize filename.
-		safeName := secureFilename(hdr.Name)
-		if safeName == "." || safeName == "" {
-			return nil, nil, fmt.Errorf("entry %q: %w", hdr.Name, ErrArchiveInvalidEntry)
-		}
-
-		// Reject nested paths: if the original name differs from the base name,
-		// it contained directory components.
-		cleanName := filepath.Clean(hdr.Name)
-		if cleanName != safeName {
-			return nil, nil, fmt.Errorf("entry %q resolves to nested path: %w", hdr.Name, ErrArchiveNestedPath)
-		}
-
-		// Reject duplicates.
-		if seen[safeName] {
-			return nil, nil, fmt.Errorf("entry %q: %w", safeName, ErrArchiveDuplicateFile)
-		}
-		seen[safeName] = true
-
-		// Enforce file count limit.
-		fileCount++
-		limit := maxArchiveFileCount
-		if h.cfg.MaxArchiveFileCount > 0 {
-			limit = h.cfg.MaxArchiveFileCount
-		}
-		if fileCount > limit {
-			return nil, nil, fmt.Errorf("archive has more than %d files: %w", limit, ErrArchiveTooManyFiles)
-		}
-
-		// Write to temp dir.
-		tmpPath := filepath.Join(tmpDir, safeName)
-		f, err := os.Create(tmpPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("create temp file %q: %w", safeName, err)
-		}
-		if _, err := io.Copy(f, tr); err != nil {
-			_ = f.Close()
-			if cr.exceeded {
-				return nil, nil, ErrArchiveDecompBomb
-			}
-			return nil, nil, fmt.Errorf("extract %q: %w", safeName, err)
-		}
-		if err := f.Close(); err != nil {
-			return nil, nil, fmt.Errorf("close temp file %q: %w", safeName, err)
-		}
-
-		fileNames = append(fileNames, safeName)
-	}
-
-	if len(fileNames) == 0 {
-		return nil, nil, ErrArchiveEmpty
-	}
-
-	// Sort for deterministic output.
-	sort.Strings(fileNames)
-
-	// Write validated files to storage in parallel. Validation has already
-	// passed in the temp-dir extraction phase above, so any error here means
-	// the storage backend rejected a file mid-batch — fail fast and don't
-	// submit a parsing job for a partial batch (same atomicity story as the
-	// pre-existing sequential loop, just much faster on multi-file uploads).
-	g, gctx := errgroup.WithContext(r.Context())
-	g.SetLimit(uploadWriteConcurrency(h.cfg))
-
-	var (
-		mu      sync.Mutex
-		written = make([]string, 0, len(fileNames))
-	)
-	for _, name := range fileNames {
-		g.Go(func() error {
-			f, err := os.Open(filepath.Join(tmpDir, name))
-			if err != nil {
-				return fmt.Errorf("reopen temp file %q: %w", name, err)
-			}
-			defer func() { _ = f.Close() }()
-			if err := h.store.WriteResultFile(gctx, storageKey, batchID, name, f); err != nil {
-				return fmt.Errorf("write result file %q: %w", name, err)
-			}
-			mu.Lock()
-			written = append(written, name)
-			mu.Unlock()
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
 		return nil, nil, err
 	}
-
-	// Restore deterministic order across goroutine completion order.
-	sort.Strings(written)
 	return written, nil, nil
 }
 
@@ -513,4 +410,89 @@ func uploadWriteConcurrency(cfg *config.Config) int {
 		return cfg.UploadWriteConcurrency
 	}
 	return 32
+}
+
+// isTarGzContentType reports whether the given Content-Type header value
+// matches one of the supported tar.gz upload content types.
+func isTarGzContentType(ct string) bool {
+	return ct == "application/gzip" ||
+		ct == "application/x-gzip" ||
+		ct == "application/x-tar+gzip"
+}
+
+// sendResultsAsync streams the request body to a staging blob and enqueues a
+// River job to extract and generate the report. It returns 202 with
+// {job_id, batch_id} on success.
+//
+// Validation that runs at the edge: the gzip magic bytes (1f 8b) are peeked
+// before any byte hits storage. The body length cap is already enforced by
+// the http.MaxBytesReader applied by SendResults. All deeper validation
+// (decompression bomb, nested paths, dup names, file count, empty archive)
+// runs in the worker.
+func (h *ResultUploadHandler) sendResultsAsync(w http.ResponseWriter, r *http.Request, projectID int64, slug, storageKey, batchID, execName, execFrom, execType, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) {
+	// Peek the first two bytes for the gzip magic without consuming them so
+	// the staged blob still contains a valid gzip stream.
+	br := bufio.NewReader(r.Body)
+	head, err := br.Peek(len(gzipMagic))
+	if err != nil {
+		// Treat MaxBytes errors as 413; everything else is a 400.
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid gzip stream: "+err.Error())
+		return
+	}
+	if !bytesEqual(head, gzipMagic) {
+		writeError(w, http.StatusBadRequest, "invalid gzip stream: missing gzip magic bytes")
+		return
+	}
+
+	stagingKey := "staging/" + batchID + ".tar.gz"
+	if err := h.store.WriteRawBlob(r.Context(), stagingKey, br); err != nil {
+		// The blob may be partially uploaded — do NOT enqueue a job. Surface
+		// the error and let the caller retry. http.MaxBytesError still
+		// surfaces at this layer when the body exceeds the configured cap.
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		h.logger.Error("async upload: write staging blob failed",
+			zap.String("slug", slug), zap.String("staging_key", stagingKey), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "failed to stage upload")
+		return
+	}
+
+	job := h.jobManager.SubmitStagedTarGz(r.Context(), projectID, slug, runner.StagedTarGzParams{
+		StorageKey:    storageKey,
+		BatchID:       batchID,
+		StagingKey:    stagingKey,
+		ExecName:      execName,
+		ExecFrom:      execFrom,
+		ExecType:      execType,
+		StoreResults:  true,
+		CIBranch:      ciBranch,
+		CICommitSHA:   ciCommitSHA,
+		CIPipelineID:  ciPipelineID,
+		CIPipelineURL: ciPipelineURL,
+	})
+
+	writeSuccess(w, http.StatusAccepted, map[string]any{
+		"job_id":   job.ID,
+		"batch_id": batchID,
+	}, fmt.Sprintf("Results staged for project '%s' (async)", slug))
+}
+
+// bytesEqual reports whether a and b are byte-wise equal. Avoids importing
+// bytes for a single equality check.
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

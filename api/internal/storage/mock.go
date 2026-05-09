@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"io"
+	"time"
 )
 
 // MockStore is a test double for Store. Set function fields to control behavior.
@@ -32,6 +33,10 @@ type MockStore struct {
 	ListReportBuildsFn            func(ctx context.Context, projectID string) ([]int, error)
 	LatestReportExistsFn          func(ctx context.Context, projectID string) (bool, error)
 	ResultsDirHashFn              func(ctx context.Context, projectID string) (string, error)
+	WriteRawBlobFn                func(ctx context.Context, key string, r io.Reader) error
+	OpenBlobFn                    func(ctx context.Context, key string) (io.ReadCloser, error)
+	DeleteBlobFn                  func(ctx context.Context, key string) error
+	ListStagingBlobsFn            func(ctx context.Context, olderThan time.Duration) ([]string, error)
 	WritePlaywrightFileFn         func(ctx context.Context, projectID, subPath string, r io.Reader) error
 	PlaywrightReportExistsFn      func(ctx context.Context, projectID string, buildNumber int) (bool, error)
 	CopyPlaywrightLatestToBuildFn func(ctx context.Context, projectID string, buildNumber int) error
@@ -281,4 +286,36 @@ func (m *MockStore) ReadPlaywrightFile(ctx context.Context, projectID, subPath s
 		return m.ReadPlaywrightFileFn(ctx, projectID, subPath)
 	}
 	return nil, "", nil
+}
+
+// WriteRawBlob implements Store.
+func (m *MockStore) WriteRawBlob(ctx context.Context, key string, r io.Reader) error {
+	if m.WriteRawBlobFn != nil {
+		return m.WriteRawBlobFn(ctx, key, r)
+	}
+	return nil
+}
+
+// OpenBlob implements Store.
+func (m *MockStore) OpenBlob(ctx context.Context, key string) (io.ReadCloser, error) {
+	if m.OpenBlobFn != nil {
+		return m.OpenBlobFn(ctx, key)
+	}
+	return nil, nil
+}
+
+// DeleteBlob implements Store.
+func (m *MockStore) DeleteBlob(ctx context.Context, key string) error {
+	if m.DeleteBlobFn != nil {
+		return m.DeleteBlobFn(ctx, key)
+	}
+	return nil
+}
+
+// ListStagingBlobs implements Store.
+func (m *MockStore) ListStagingBlobs(ctx context.Context, olderThan time.Duration) ([]string, error) {
+	if m.ListStagingBlobsFn != nil {
+		return m.ListStagingBlobsFn(ctx, olderThan)
+	}
+	return nil, nil
 }

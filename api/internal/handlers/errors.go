@@ -1,6 +1,10 @@
 package handlers
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/mkutlak/alluredeck/api/internal/runner"
+)
 
 // Sentinel errors for HTTP request validation.
 var (
@@ -11,13 +15,15 @@ var (
 	ErrContentBase64Required = errors.New("'content_base64' attribute is required")
 	ErrNoFilesProvided       = errors.New("no files provided in 'files[]' field")
 
-	// tar.gz archive validation errors.
-	ErrArchiveEmpty         = errors.New("archive contains no files")
-	ErrArchiveTooManyFiles  = errors.New("archive exceeds maximum file count")
-	ErrArchiveDecompBomb    = errors.New("decompressed archive exceeds size limit")
-	ErrArchiveNestedPath    = errors.New("archive entry contains nested path")
-	ErrArchiveInvalidEntry  = errors.New("archive entry is not a regular file")
-	ErrArchiveDuplicateFile = errors.New("archive contains duplicate file names")
+	// tar.gz archive validation errors are owned by internal/runner so the
+	// sync handler path and the staged worker share one set. Aliased here
+	// for backward compatibility with existing tests and callers.
+	ErrArchiveEmpty         = runner.ErrArchiveEmpty
+	ErrArchiveTooManyFiles  = runner.ErrArchiveTooManyFiles
+	ErrArchiveDecompBomb    = runner.ErrArchiveDecompBomb
+	ErrArchiveNestedPath    = runner.ErrArchiveNestedPath
+	ErrArchiveInvalidEntry  = runner.ErrArchiveInvalidEntry
+	ErrArchiveDuplicateFile = runner.ErrArchiveDuplicateFile
 
 	// report_id validation errors.
 	ErrReportIDRequired = errors.New("report_id is required")
@@ -32,6 +38,10 @@ var (
 )
 
 // Package-level limits for tar.gz extraction (vars for testability).
+// Tests temporarily override these to keep fixtures small. The handler path
+// only consults them when the runtime config does not provide overrides, so
+// flipping them here is sufficient to exercise the corresponding error
+// branches without rebuilding huge archives.
 //
 //nolint:gochecknoglobals // overridden in tests to avoid creating huge archives
 var (

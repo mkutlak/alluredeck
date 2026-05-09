@@ -17,8 +17,17 @@ import (
 	"github.com/riverqueue/river/rivertype"
 	"go.uber.org/zap"
 
+	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
+
+// stagingCleanupRetention is the default retention applied by the periodic
+// cleanup job. Orphan staging blobs older than this are deleted on each run.
+const stagingCleanupRetention = 7 * 24 * time.Hour
+
+// stagingCleanupInterval is how often the periodic cleanup job runs.
+const stagingCleanupInterval = time.Hour
 
 // GenerateReportArgs holds the River job arguments for async report generation.
 type GenerateReportArgs struct {
@@ -351,7 +360,10 @@ func (jm *RiverJobManager) deleteJobProgress(ctx context.Context, jobID int64) {
 var _ JobQueuer = (*RiverJobManager)(nil)
 
 // NewRiverJobManager creates a new RiverJobManager. Call Start to begin processing jobs.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
+// The storage store and config are used to wire the staged tar.gz worker and
+// the periodic staging-cleanup job; both may be nil during tests that don't
+// exercise the async upload path.
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, dataStore storage.Store, cfg *config.Config, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
 	jm := &RiverJobManager{pool: pool, logger: logger}
 
 	workers := river.NewWorkers()
@@ -387,6 +399,38 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		river.AddWorker(workers, pwWorker)
 	}
 
+	var stagedWorker *ParseStagedTarGzWorker
+	if dataStore != nil {
+		stagedWorker = &ParseStagedTarGzWorker{
+			store:        dataStore,
+			cfg:          cfg,
+			generator:    generator,
+			buildStore:   buildStore,
+			webhookStore: webhookStore,
+			externalURL:  externalURL,
+			reportIDs:    &jm.reportIDs,
+			jobTimeout:   jobTimeout,
+			progress:     jm,
+			logger:       logger,
+		}
+		river.AddWorker(workers, stagedWorker)
+		river.AddWorker(workers, &StagingCleanupWorker{
+			store:  dataStore,
+			logger: logger,
+		})
+	}
+
+	var periodicJobs []*river.PeriodicJob
+	if dataStore != nil {
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(stagingCleanupInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return StagingCleanupArgs{OlderThanSeconds: int64(stagingCleanupRetention.Seconds())}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		))
+	}
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: maxWorkers},
@@ -396,6 +440,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		WorkerMiddleware: []rivertype.WorkerMiddleware{
 			NewOTelWorkerMiddleware(),
 		},
+		PeriodicJobs: periodicJobs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create River client: %w", err)
@@ -405,6 +450,9 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	reportWorker.riverClient = client
 	if pwWorker != nil {
 		pwWorker.riverClient = client
+	}
+	if stagedWorker != nil {
+		stagedWorker.riverClient = client
 	}
 
 	jm.client = client
@@ -446,6 +494,38 @@ func (jm *RiverJobManager) Submit(ctx context.Context, projectID int64, slug str
 	res, err := jm.client.Insert(ctx, args, &river.InsertOpts{Metadata: InjectTraceContextIntoMetadata(ctx)})
 	if err != nil {
 		jm.logger.Error("river insert failed", zap.Int64("project_id", projectID), zap.String("slug", slug), zap.Error(err))
+		return &Job{
+			ProjectID: projectID,
+			Slug:      slug,
+			Status:    JobStatusFailed,
+			CreatedAt: time.Now(),
+			Error:     err.Error(),
+		}
+	}
+	return riverRowToJob(res.Job)
+}
+
+// SubmitStagedTarGz enqueues a job that processes a staged tar.gz blob.
+func (jm *RiverJobManager) SubmitStagedTarGz(ctx context.Context, projectID int64, slug string, params StagedTarGzParams) *Job {
+	args := ParseStagedTarGzArgs{
+		ProjectID:     projectID,
+		Slug:          slug,
+		StorageKey:    params.StorageKey,
+		BatchID:       params.BatchID,
+		StagingKey:    params.StagingKey,
+		ExecName:      params.ExecName,
+		ExecFrom:      params.ExecFrom,
+		ExecType:      params.ExecType,
+		StoreResults:  params.StoreResults,
+		CIBranch:      params.CIBranch,
+		CICommitSHA:   params.CICommitSHA,
+		CIPipelineID:  params.CIPipelineID,
+		CIPipelineURL: params.CIPipelineURL,
+	}
+	res, err := jm.client.Insert(ctx, args, &river.InsertOpts{Metadata: InjectTraceContextIntoMetadata(ctx)})
+	if err != nil {
+		jm.logger.Error("river insert (staged tar.gz) failed",
+			zap.Int64("project_id", projectID), zap.String("slug", slug), zap.Error(err))
 		return &Job{
 			ProjectID: projectID,
 			Slug:      slug,
@@ -510,7 +590,7 @@ func (jm *RiverJobManager) Get(ctx context.Context, jobID string) *Job {
 // ListJobs returns all generate_report and playwright_ingest jobs known to River, newest first (capped at 200).
 func (jm *RiverJobManager) ListJobs(ctx context.Context) []*Job {
 	params := river.NewJobListParams().
-		Kinds("generate_report", "playwright_ingest").
+		Kinds("generate_report", "playwright_ingest", "parse_staged_targz").
 		First(200)
 
 	res, err := jm.client.JobList(ctx, params)
@@ -598,13 +678,23 @@ func riverRowToJob(r *rivertype.JobRow) *Job {
 		t := *r.FinalizedAt
 		j.CompletedAt = &t
 	}
-	// Try to decode project_id, slug, and storage_key from either job arg type.
+	// Try to decode project_id, slug, and storage_key from any of the
+	// known job arg types. The encoded args are JSON-tagged, so the first
+	// successful decode with a non-zero ProjectID wins.
 	var genArgs GenerateReportArgs
-	if err := json.Unmarshal(r.EncodedArgs, &genArgs); err == nil && genArgs.ProjectID != 0 {
+	switch {
+	case json.Unmarshal(r.EncodedArgs, &genArgs) == nil && genArgs.ProjectID != 0:
 		j.ProjectID = genArgs.ProjectID
 		j.Slug = genArgs.Slug
 		j.StorageKey = genArgs.StorageKey
-	} else {
+	default:
+		var stagedArgs ParseStagedTarGzArgs
+		if err := json.Unmarshal(r.EncodedArgs, &stagedArgs); err == nil && stagedArgs.ProjectID != 0 {
+			j.ProjectID = stagedArgs.ProjectID
+			j.Slug = stagedArgs.Slug
+			j.StorageKey = stagedArgs.StorageKey
+			break
+		}
 		var pwArgs PlaywrightIngestArgs
 		if err := json.Unmarshal(r.EncodedArgs, &pwArgs); err == nil {
 			j.ProjectID = pwArgs.ProjectID

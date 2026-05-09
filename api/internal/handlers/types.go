@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"fmt"
-	"io"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -83,26 +81,6 @@ type CategoryEntry struct {
 type testResultTiming struct {
 	Start int64 `json:"start"`
 	Stop  int64 `json:"stop"`
-}
-
-// countingReader wraps an io.Reader and tracks cumulative bytes read.
-// When the limit is exceeded it returns an explicit error instead of silently
-// truncating (which io.LimitReader would do).
-type countingReader struct {
-	r        io.Reader
-	n        int64
-	limit    int64
-	exceeded bool
-}
-
-func (cr *countingReader) Read(p []byte) (int, error) {
-	n, err := cr.r.Read(p)
-	cr.n += int64(n)
-	if cr.n > cr.limit {
-		cr.exceeded = true
-		return n, fmt.Errorf("decompressed size exceeds %d bytes: %w", cr.limit, ErrArchiveDecompBomb)
-	}
-	return n, err
 }
 
 // buildEntryFromDB converts a store.Build to a ReportHistoryEntry without filesystem I/O.

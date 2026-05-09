@@ -75,6 +75,40 @@ func (m *MemJobManager) Submit(ctx context.Context, projectID int64, slug string
 	return j
 }
 
+// SubmitStagedTarGz records a staged tar.gz job. MemJobManager does not
+// actually exercise the staged extraction logic; it returns an immediately-
+// completed job suitable for handler-level tests. End-to-end staged worker
+// tests use a River-backed manager (or call ParseStagedTarGzWorker.Work
+// directly).
+func (m *MemJobManager) SubmitStagedTarGz(_ context.Context, projectID int64, slug string, params StagedTarGzParams) *Job {
+	now := time.Now()
+	j := &Job{
+		ID:          newMemJobID(),
+		ProjectID:   projectID,
+		Slug:        slug,
+		StorageKey:  params.StorageKey,
+		Status:      JobStatusCompleted,
+		CreatedAt:   now,
+		CompletedAt: &now,
+		Params: JobParams{
+			StorageKey:    params.StorageKey,
+			BatchID:       params.BatchID,
+			ExecName:      params.ExecName,
+			ExecFrom:      params.ExecFrom,
+			ExecType:      params.ExecType,
+			StoreResults:  params.StoreResults,
+			CIBranch:      params.CIBranch,
+			CICommitSHA:   params.CICommitSHA,
+			CIPipelineID:  params.CIPipelineID,
+			CIPipelineURL: params.CIPipelineURL,
+		},
+	}
+	m.mu.Lock()
+	m.jobs[j.ID] = j
+	m.mu.Unlock()
+	return j
+}
+
 // SubmitPlaywright enqueues a new Playwright ingestion job.
 // MemJobManager does not execute Playwright ingestion; it records the job as completed immediately.
 func (m *MemJobManager) SubmitPlaywright(_ context.Context, projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job {

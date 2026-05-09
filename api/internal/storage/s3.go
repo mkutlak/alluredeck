@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -925,6 +926,73 @@ func (s *S3Store) ReadPlaywrightFile(ctx context.Context, projectID, subPath str
 		contentType = "application/octet-stream"
 	}
 	return out.Body, contentType, nil
+}
+
+// WriteRawBlob streams r to S3 at key using the multipart-aware uploader.
+// The transfer manager handles parts internally so the request body is never
+// fully buffered in memory.
+func (s *S3Store) WriteRawBlob(ctx context.Context, key string, r io.Reader) error {
+	if _, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Body:   r,
+	}); err != nil {
+		return fmt.Errorf("put raw blob %q: %w", key, err)
+	}
+	return nil
+}
+
+// OpenBlob returns a streaming ReadCloser for the S3 object at key.
+func (s *S3Store) OpenBlob(ctx context.Context, key string) (io.ReadCloser, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get raw blob %q: %w", key, err)
+	}
+	return out.Body, nil
+}
+
+// DeleteBlob removes a single S3 object. Missing keys are tolerated so callers
+// can use this idempotently.
+func (s *S3Store) DeleteBlob(ctx context.Context, key string) error {
+	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}); err != nil {
+		return fmt.Errorf("delete raw blob %q: %w", key, err)
+	}
+	return nil
+}
+
+// ListStagingBlobs returns the keys of objects under the "staging/" prefix
+// whose LastModified is older than olderThan. Used by the periodic cleanup
+// job to garbage-collect orphan staging uploads.
+func (s *S3Store) ListStagingBlobs(ctx context.Context, olderThan time.Duration) ([]string, error) {
+	prefix := "staging/"
+	cutoff := time.Now().Add(-olderThan)
+	var keys []string
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list staging blobs: %w", err)
+		}
+		for _, obj := range page.Contents {
+			if obj.Key == nil {
+				continue
+			}
+			if olderThan > 0 && obj.LastModified != nil && obj.LastModified.After(cutoff) {
+				continue
+			}
+			keys = append(keys, *obj.Key)
+		}
+	}
+	return keys, nil
 }
 
 // Ensure S3Store implements Store at compile time.

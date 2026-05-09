@@ -82,8 +82,7 @@ func TestMemJobManager_PublishesPhaseAndProgress(t *testing.T) {
 	}
 
 	mgr := NewMemJobManager(gen, 1, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Shutdown()
 
@@ -122,8 +121,7 @@ func TestMemJobManager_FailureSetsFailedPhase(t *testing.T) {
 	}
 
 	mgr := NewMemJobManager(gen, 1, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Shutdown()
 
@@ -156,8 +154,7 @@ func TestMemJobManager_ProgressNilWhenZero(t *testing.T) {
 	}
 
 	mgr := NewMemJobManager(gen, 1, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 
 	job := mgr.Submit(ctx, 1, "p", JobParams{StorageKey: "p"})

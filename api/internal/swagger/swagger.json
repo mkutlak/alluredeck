@@ -2448,11 +2448,24 @@
                         "description": "CI pipeline URL",
                         "name": "ci_pipeline_url",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Stream tar.gz to staging blob and return 202 immediately (only honored for application/gzip uploads)",
+                        "name": "async",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted (async=true): returns {job_id, batch_id} once the tar.gz is staged",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

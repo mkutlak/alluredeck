@@ -204,6 +204,18 @@ func (m *mockDataStore) ListPlaywrightDataFiles(_ context.Context, _ string, _ i
 func (m *mockDataStore) ReadPlaywrightFile(_ context.Context, _, _ string) (io.ReadCloser, string, error) {
 	panic("not implemented")
 }
+func (m *mockDataStore) WriteRawBlob(_ context.Context, _ string, _ io.Reader) error {
+	panic("not implemented")
+}
+func (m *mockDataStore) OpenBlob(_ context.Context, _ string) (io.ReadCloser, error) {
+	panic("not implemented")
+}
+func (m *mockDataStore) DeleteBlob(_ context.Context, _ string) error {
+	panic("not implemented")
+}
+func (m *mockDataStore) ListStagingBlobs(_ context.Context, _ time.Duration) ([]string, error) {
+	panic("not implemented")
+}
 
 // ---------------------------------------------------------------------------
 // helpers

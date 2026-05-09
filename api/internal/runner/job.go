@@ -32,6 +32,7 @@ type JobPhase string
 
 const (
 	JobPhasePending          JobPhase = "pending"
+	JobPhaseExtractingStaged JobPhase = "extracting_staged"
 	JobPhasePreparingLocal   JobPhase = "preparing_local"
 	JobPhaseGeneratingReport JobPhase = "generating_report"
 	JobPhasePublishingReport JobPhase = "publishing_report"
@@ -86,11 +87,31 @@ type Job struct {
 	Params      JobParams    `json:"-"`
 }
 
+// StagedTarGzParams holds the parameters for an async tar.gz upload job that
+// processes a previously staged blob in MinIO/S3 (or local disk).
+type StagedTarGzParams struct {
+	StorageKey    string
+	BatchID       string
+	StagingKey    string // e.g. "staging/{batchID}.tar.gz"
+	ExecName      string
+	ExecFrom      string
+	ExecType      string
+	StoreResults  bool
+	CIBranch      string
+	CICommitSHA   string
+	CIPipelineID  string
+	CIPipelineURL string
+}
+
 // JobQueuer is the interface for async report generation job queues.
 // Implemented by RiverJobManager (PostgreSQL-backed).
 type JobQueuer interface {
 	Submit(ctx context.Context, projectID int64, slug string, params JobParams) *Job
 	SubmitPlaywright(ctx context.Context, projectID int64, slug, storageKey string, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) *Job
+	// SubmitStagedTarGz enqueues a job that opens a staged tar.gz blob,
+	// extracts it into projectID/results/{batchID}/, and chains the existing
+	// report-generation flow on success.
+	SubmitStagedTarGz(ctx context.Context, projectID int64, slug string, params StagedTarGzParams) *Job
 	ListJobs(ctx context.Context) []*Job
 	Cancel(ctx context.Context, jobID string) error
 	Delete(ctx context.Context, jobID string) error

@@ -14,9 +14,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
+
+// stagingDir is the relative subdirectory under ProjectsPath where async tar.gz
+// uploads are spooled before the River worker processes them. Kept separate
+// from per-project directories so the cleanup job can list it without
+// scanning the entire projects tree.
+const stagingDir = "staging"
 
 // Sentinel errors for LocalStore operations.
 var (
@@ -656,6 +663,84 @@ func (ls *LocalStore) ReadPlaywrightFile(_ context.Context, projectID, subPath s
 		ct = "application/octet-stream"
 	}
 	return f, ct, nil
+}
+
+// stagingPath resolves a staging blob key to its on-disk path. The key is
+// expected to start with "staging/"; any other prefix is treated as relative
+// to ProjectsPath.
+func (ls *LocalStore) stagingPath(key string) string {
+	return filepath.Join(ls.cfg.ProjectsPath, filepath.FromSlash(key))
+}
+
+// WriteRawBlob streams r to disk at ProjectsPath/key. Parent directories are
+// created automatically. Used for staging async tar.gz uploads under the
+// "staging/" key prefix.
+func (ls *LocalStore) WriteRawBlob(_ context.Context, key string, r io.Reader) error {
+	dest := ls.stagingPath(key)
+	//nolint:gosec // G301: 0o755 lets the API process re-read its own staged blobs.
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("create staging dir: %w", err)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("create staging blob %q: %w", dest, err)
+	}
+	if _, err := io.Copy(f, r); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write staging blob %q: %w", dest, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close staging blob %q: %w", dest, err)
+	}
+	return nil
+}
+
+// OpenBlob returns a streaming ReadCloser for the blob at ProjectsPath/key.
+func (ls *LocalStore) OpenBlob(_ context.Context, key string) (io.ReadCloser, error) {
+	f, err := os.Open(ls.stagingPath(key))
+	if err != nil {
+		return nil, fmt.Errorf("open staging blob %q: %w", key, err)
+	}
+	return f, nil
+}
+
+// DeleteBlob removes the blob at ProjectsPath/key. Missing blobs are not an
+// error so the worker can call this idempotently.
+func (ls *LocalStore) DeleteBlob(_ context.Context, key string) error {
+	if err := os.Remove(ls.stagingPath(key)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete staging blob %q: %w", key, err)
+	}
+	return nil
+}
+
+// ListStagingBlobs returns the keys (relative to ProjectsPath, slash-separated)
+// of staging-prefixed blobs whose modification time is older than olderThan.
+// Returns an empty slice when the staging dir does not yet exist.
+func (ls *LocalStore) ListStagingBlobs(_ context.Context, olderThan time.Duration) ([]string, error) {
+	dir := filepath.Join(ls.cfg.ProjectsPath, stagingDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read staging dir: %w", err)
+	}
+	cutoff := time.Now().Add(-olderThan)
+	var keys []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if olderThan > 0 && info.ModTime().After(cutoff) {
+			continue
+		}
+		keys = append(keys, stagingDir+"/"+e.Name())
+	}
+	return keys, nil
 }
 
 // --- Helper functions ---

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 )
 
 // Sentinel errors for storage operations.
@@ -92,6 +93,19 @@ type Store interface {
 	// ResultsDirHash returns a hash of the results directory contents for change detection.
 	// Returns ("", nil) for S3Store (watcher is disabled in S3 mode).
 	ResultsDirHash(ctx context.Context, projectID string) (string, error)
+
+	// Raw blob primitives — used by the async tar.gz upload path to stage
+	// uploads under the "staging/" prefix and have a worker process them
+	// later. Implementations must stream r and r's content rather than
+	// buffering the whole body in memory.
+	WriteRawBlob(ctx context.Context, key string, r io.Reader) error
+	OpenBlob(ctx context.Context, key string) (io.ReadCloser, error)
+	DeleteBlob(ctx context.Context, key string) error
+	// ListStagingBlobs returns the keys of staging/ blobs older than
+	// olderThan as measured by the storage backend's last-modified time.
+	// Implementations may return an empty slice when the backend has no
+	// notion of last-modified (or when no GC is required).
+	ListStagingBlobs(ctx context.Context, olderThan time.Duration) ([]string, error)
 
 	// Playwright report storage
 	// WritePlaywrightFile writes r to projects/{projectID}/playwright-reports/{subPath}.
