@@ -22,16 +22,16 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
   const displayName = useProjectDisplay(projectId)
   const [page, setPage] = useState(1)
 
-  // Use the first child's projectId for the branch selector (children share CI branches)
-  const branchProjectId = childIds[0] ?? projectId
-
   const selectedBranch = useUIStore((s) => s.selectedBranch)
   const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
 
+  // Branches are listed against the parent: the API derives the union
+  // across the parent and all children from builds.ci_branch, matching
+  // the scope of the pipeline-runs query below.
   const { data: branchesData } = useQuery({
-    queryKey: queryKeys.branches.list(branchProjectId),
-    queryFn: () => fetchBranches(branchProjectId),
-    enabled: !!branchProjectId,
+    queryKey: queryKeys.branches.list(projectId),
+    queryFn: () => fetchBranches(projectId),
+    enabled: !!projectId,
     staleTime: 60_000,
   })
   const effectiveBranch =
@@ -63,7 +63,7 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground text-xs">Choose branch:</span>
         <BranchSelector
-          projectId={branchProjectId}
+          projectId={projectId}
           selectedBranch={selectedBranch}
           onBranchChange={(branch) => {
             setSelectedBranch(branch)

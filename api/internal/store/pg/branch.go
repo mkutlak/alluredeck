@@ -57,11 +57,33 @@ func (bs *BranchStore) GetOrCreate(ctx context.Context, projectID int64, name st
 	return b, true, nil
 }
 
-// List returns all branches for a project ordered by name.
+// List returns the set of CI branches that have ever been observed in builds
+// for the given project or any of its children, ordered by name.
+//
+// The branches table is populated lazily during report ingestion and can
+// diverge from builds.ci_branch when GetOrCreate fails or the build was
+// uploaded before migration 0010. For a parent project, builds aggregate
+// across all children but each child's branches table is independent.
+// Deriving from builds.ci_branch keeps the dropdown in lockstep with the
+// pipeline rows it filters.
 func (bs *BranchStore) List(ctx context.Context, projectID int64) ([]store.Branch, error) {
-	rows, err := bs.pool.Query(ctx,
-		"SELECT id, project_id, name, is_default, created_at FROM branches WHERE project_id = $1 ORDER BY name ASC",
-		projectID)
+	const q = `
+SELECT COALESCE(MIN(br.id), 0)                AS id,
+       $1::bigint                             AS project_id,
+       b.ci_branch                            AS name,
+       bool_or(COALESCE(br.is_default, FALSE)) AS is_default,
+       MIN(COALESCE(br.created_at, b.created_at)) AS created_at
+FROM builds b
+JOIN projects p ON p.id = b.project_id
+LEFT JOIN branches br
+    ON br.project_id = b.project_id
+   AND br.name       = b.ci_branch
+WHERE (p.id = $1 OR p.parent_id = $1)
+  AND b.ci_branch IS NOT NULL
+  AND b.ci_branch <> ''
+GROUP BY b.ci_branch
+ORDER BY name ASC`
+	rows, err := bs.pool.Query(ctx, q, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list branches: %w", err)
 	}
