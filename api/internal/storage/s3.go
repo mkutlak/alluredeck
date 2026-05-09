@@ -269,7 +269,10 @@ func (s *S3Store) CleanResults(ctx context.Context, projectID string) error {
 
 // PrepareLocal creates a temp dir and downloads results + history from S3 in parallel.
 // Results are fatal; history is non-fatal (may not exist on first run).
-func (s *S3Store) PrepareLocal(ctx context.Context, projectID string) (string, error) {
+// progress, when non-nil, is invoked with throttled (done, total) updates as
+// the results prefix is downloaded. History downloads do not feed progress —
+// they are typically tiny and non-fatal.
+func (s *S3Store) PrepareLocal(ctx context.Context, projectID string, progress ProgressFn) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "allure-s3-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
@@ -287,12 +290,12 @@ func (s *S3Store) PrepareLocal(ctx context.Context, projectID string) (string, e
 
 	g.Go(func() error {
 		return downloadPrefix(gctx, s.client, s.bucket, resultsPrefix, resultsDir,
-			s.cfg.S3.Concurrency, defaultSizeWarnBytes, s.logger)
+			s.cfg.S3.Concurrency, defaultSizeWarnBytes, s.logger, progress)
 	})
 	g.Go(func() error {
 		// History may not exist — non-fatal; capture but don't propagate.
 		historyErr = downloadPrefix(gctx, s.client, s.bucket, historyPrefix, historyDir,
-			s.cfg.S3.Concurrency, 0, s.logger)
+			s.cfg.S3.Concurrency, 0, s.logger, nil)
 		return nil
 	})
 
@@ -328,8 +331,33 @@ func (s *S3Store) CleanupLocal(localProjectDir string) error {
 
 // PublishReport uploads the generated report from the local temp dir to S3.
 // It uploads to both reports/latest/ and reports/{buildNumber}/.
-func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error {
+// progress, when non-nil, is invoked with throttled (done, total) updates as
+// files are uploaded across both destinations. The total reflects the sum of
+// files in latest/ plus the variable subdirs copied to the numbered build.
+func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string, progress ProgressFn) error {
 	latestDir := filepath.Join(localProjectDir, "reports", "latest")
+
+	// Compute the combined total up-front so the callback can publish a stable
+	// (done, total) pair across multiple uploadDir invocations.
+	latestTotal := countFilesInDir(latestDir)
+	dirTotals := make(map[string]int, 3)
+	for _, dir := range []string{"data", "widgets", "history"} {
+		dirTotals[dir] = countFilesInDir(filepath.Join(latestDir, dir))
+	}
+	combinedTotal := latestTotal
+	for _, n := range dirTotals {
+		combinedTotal += n
+	}
+
+	var done int
+	relay := func(_, _ int) {} // default no-op; overwritten below when progress != nil
+	if progress != nil {
+		// Each uploadDir call sees its own (done, total) pair; rebase those onto
+		// the combined counter via a closure captured per-call.
+		relay = func(d, _ int) {
+			progress(done+d, combinedTotal)
+		}
+	}
 
 	// Upload to reports/latest/
 	latestPrefix := s.s3Key("projects", projectID, "reports", "latest") + "/"
@@ -337,9 +365,10 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildNumb
 	if err := deletePrefix(ctx, s.client, s.bucket, latestPrefix); err != nil {
 		return fmt.Errorf("clear latest: %w", err)
 	}
-	if err := uploadDir(ctx, s.uploader, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency); err != nil {
+	if err := uploadDir(ctx, s.uploader, s.bucket, latestDir, latestPrefix, s.cfg.S3.Concurrency, relay); err != nil {
 		return fmt.Errorf("upload to latest: %w", err)
 	}
+	done += latestTotal
 
 	// Upload only variable dirs (data, widgets, history) to reports/{buildNumber}/
 	buildPrefix := s.s3Key("projects", projectID, "reports", strconv.Itoa(buildNumber)) + "/"
@@ -349,11 +378,36 @@ func (s *S3Store) PublishReport(ctx context.Context, projectID string, buildNumb
 			continue
 		}
 		dirPrefix := buildPrefix + dir + "/"
-		if err := uploadDir(ctx, s.uploader, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency); err != nil {
+		if err := uploadDir(ctx, s.uploader, s.bucket, srcDir, dirPrefix, s.cfg.S3.Concurrency, relay); err != nil {
 			return fmt.Errorf("upload %s to build %d: %w", dir, buildNumber, err)
 		}
+		done += dirTotals[dir]
+	}
+	if progress != nil && combinedTotal > 0 {
+		// Final flush to guarantee callers see done == total when finished.
+		progress(combinedTotal, combinedTotal)
 	}
 	return nil
+}
+
+// countFilesInDir returns the count of regular files reachable under root,
+// or 0 when the directory is missing or unreadable. It is a cheap up-front
+// scan used to compute the combined total for progress reporting.
+func countFilesInDir(root string) int {
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return 0
+	}
+	var n int
+	_ = filepath.Walk(root, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		if !info.IsDir() {
+			n++
+		}
+		return nil
+	})
+	return n
 }
 
 // DeleteReport removes all S3 objects for a numbered report.

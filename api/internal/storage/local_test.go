@@ -242,7 +242,7 @@ func TestLocalStore_PrepareLocal(t *testing.T) {
 	ls, root := makeLocalStore(t)
 	ctx := context.Background()
 
-	localDir, err := ls.PrepareLocal(ctx, "proj")
+	localDir, err := ls.PrepareLocal(ctx, "proj", nil)
 	if err != nil {
 		t.Fatalf("PrepareLocal: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestLocalStore_PublishReport(t *testing.T) {
 	writeFile(t, filepath.Join(latestDir, "index.html"), "<html/>")
 	mkdirAll(t, filepath.Join(latestDir, "plugins", "myplug"))
 
-	if err := ls.PublishReport(ctx, "proj", 1, filepath.Join(root, "proj")); err != nil {
+	if err := ls.PublishReport(ctx, "proj", 1, filepath.Join(root, "proj"), nil); err != nil {
 		t.Fatalf("PublishReport: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestLocalStore_PublishReport_EmptyLatest(t *testing.T) {
 	// Create empty latest dir
 	mkdirAll(t, filepath.Join(root, "proj", "reports", "latest"))
 
-	if err := ls.PublishReport(ctx, "proj", 1, filepath.Join(root, "proj")); err != nil {
+	if err := ls.PublishReport(ctx, "proj", 1, filepath.Join(root, "proj"), nil); err != nil {
 		t.Fatalf("PublishReport empty latest: %v", err)
 	}
 	// build dir should not be created
@@ -342,7 +342,7 @@ func TestLocalStore_PublishReport_MissingLatest(t *testing.T) {
 	}
 
 	// latest dir does not exist
-	if err := ls.PublishReport(ctx, "proj", 1, filepath.Join(root, "proj")); err != nil {
+	if err := ls.PublishReport(ctx, "proj", 1, filepath.Join(root, "proj"), nil); err != nil {
 		t.Fatalf("PublishReport missing latest: %v", err)
 	}
 }

@@ -32,6 +32,13 @@ type BuildStats struct {
 	DurationMs int64
 }
 
+// ProgressFn is an optional callback invoked by storage operations that
+// process many files. It is called as items are processed with the running
+// (done, total) counts. Implementations may be called concurrently and must
+// be safe for that. Storage helpers throttle calls and never invoke the
+// callback per-file for large transfers.
+type ProgressFn func(done, total int)
+
 // Store abstracts all storage operations for Allure project data.
 // LocalStore implements this for local filesystem.
 // S3Store implements this for S3/MinIO (added later).
@@ -53,13 +60,19 @@ type Store interface {
 	// Report generation lifecycle (local working dir)
 	// PrepareLocal returns the local project directory to use for allure CLI operations.
 	// For LocalStore this is the real project dir; for S3Store it's a temp dir with downloaded data.
-	PrepareLocal(ctx context.Context, projectID string) (localProjectDir string, err error)
+	// progress, when non-nil, is invoked with (done, total) counts for the
+	// download phase (S3Store only; LocalStore is effectively instantaneous
+	// and never invokes the callback).
+	PrepareLocal(ctx context.Context, projectID string, progress ProgressFn) (localProjectDir string, err error)
 	// CleanupLocal cleans up any temp resources created by PrepareLocal.
 	// For LocalStore this is a no-op; for S3Store it removes the temp dir.
 	CleanupLocal(localProjectDir string) error
 
 	// Report storage
-	PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error
+	// PublishReport copies the generated report into final storage.
+	// progress, when non-nil, is invoked with (done, total) counts for the
+	// upload phase (S3Store only; LocalStore copies a few directories synchronously).
+	PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string, progress ProgressFn) error
 	DeleteReport(ctx context.Context, projectID, reportID string) error
 	PruneReportDirs(ctx context.Context, projectID string, buildNumbers []int) error
 

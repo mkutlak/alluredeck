@@ -165,6 +165,14 @@ func (h *ReportHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 // GetJobStatus godoc
 // @Summary      Get async report generation job status
 // @Description  Returns the current status of an async report generation job.
+// @Description  In addition to status/created_at/started_at/completed_at, the
+// @Description  response includes an optional `phase` string ("pending",
+// @Description  "preparing_local", "generating_report", "publishing_report",
+// @Description  "finalizing", "completed", "failed") and an optional
+// @Description  `progress` object `{done, total}` for phases that report
+// @Description  per-file progress (downloads and uploads). These fields are
+// @Description  omitted when no progress has been published yet, so older
+// @Description  clients ignoring unknown fields remain compatible.
 // @Tags         reports
 // @Produce      json
 // @Param        project_id  path  string  true  "Project ID"

@@ -192,7 +192,8 @@ func (ls *LocalStore) CleanResults(_ context.Context, projectID string) error {
 }
 
 // PrepareLocal ensures results/ and reports/ dirs exist and returns the project directory.
-func (ls *LocalStore) PrepareLocal(_ context.Context, projectID string) (string, error) {
+// LocalStore performs no per-file work, so the progress callback is unused.
+func (ls *LocalStore) PrepareLocal(_ context.Context, projectID string, _ ProgressFn) (string, error) {
 	base := filepath.Join(ls.cfg.ProjectsPath, projectID)
 	//nolint:gosec // G301: 0o755 required for allure web server
 	if err := os.MkdirAll(filepath.Join(base, "results"), 0o755); err != nil {
@@ -213,7 +214,8 @@ func (ls *LocalStore) CleanupLocal(_ string) error {
 // PublishReport copies only the variable-content subdirs (data, widgets, history)
 // from localProjectDir/reports/latest/ to localProjectDir/reports/<buildNumber>/.
 // If latest does not exist or is empty, it returns nil without error.
-func (ls *LocalStore) PublishReport(_ context.Context, _ string, buildNumber int, localProjectDir string) error {
+// LocalStore performs no per-file network work, so the progress callback is unused.
+func (ls *LocalStore) PublishReport(_ context.Context, _ string, buildNumber int, localProjectDir string, _ ProgressFn) error {
 	latestDir := filepath.Join(localProjectDir, "reports", "latest")
 
 	empty, err := isDirEmpty(latestDir)

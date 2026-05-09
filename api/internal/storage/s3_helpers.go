@@ -53,11 +53,18 @@ type fileEntry struct {
 	s3Key string
 }
 
+// progressBatchSize is the granularity at which storage helpers publish
+// progress updates. Updating per-file thrashes Postgres on multi-thousand-file
+// jobs; 50 strikes a balance between responsiveness and write volume.
+const progressBatchSize = 50
+
 // uploadDir walks localDir and uploads each file to S3 under s3Prefix using bounded
 // concurrency. Phase 1: walk to collect file entries (sequential). Phase 2: fan-out
 // uploads with errgroup limited to concurrency workers.
 // Files are streamed directly via the uploader — no full-file buffering in memory.
-func uploadDir(ctx context.Context, uploader s3Uploader, bucket, localDir, s3Prefix string, concurrency int) error {
+// progress, when non-nil, is invoked with (done, total) every progressBatchSize
+// completed uploads (and once at the end). Never invoked per file.
+func uploadDir(ctx context.Context, uploader s3Uploader, bucket, localDir, s3Prefix string, concurrency int, progress ProgressFn) error {
 	if concurrency <= 0 {
 		concurrency = 10
 	}
@@ -88,6 +95,9 @@ func uploadDir(ctx context.Context, uploader s3Uploader, bucket, localDir, s3Pre
 		return nil
 	}
 
+	total := len(entries)
+	var done atomic.Int32
+
 	// Phase 2: fan-out uploads with bounded concurrency.
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(concurrency)
@@ -105,6 +115,11 @@ func uploadDir(ctx context.Context, uploader s3Uploader, bucket, localDir, s3Pre
 				Body:   f,
 			}); err != nil {
 				return fmt.Errorf("upload %q: %w", e.s3Key, err)
+			}
+			n := done.Add(1)
+			// Throttle progress: emit on every batch boundary, plus on final item.
+			if progress != nil && (int(n)%progressBatchSize == 0 || int(n) == total) {
+				progress(int(n), total)
 			}
 			return nil
 		})
@@ -150,7 +165,10 @@ func downloadObject(ctx context.Context, client s3API, bucket, key, localDir, s3
 //
 // If sizeWarnBytes > 0 and the total downloaded bytes exceed that threshold, a warning
 // is logged but the operation continues normally.
-func downloadPrefix(ctx context.Context, client s3API, bucket, s3Prefix, localDir string, concurrency int, sizeWarnBytes int64, logger *zap.Logger) error {
+//
+// progress, when non-nil, is invoked with (done, total) every progressBatchSize
+// completed downloads (and once at the end). Never invoked per file.
+func downloadPrefix(ctx context.Context, client s3API, bucket, s3Prefix, localDir string, concurrency int, sizeWarnBytes int64, logger *zap.Logger, progress ProgressFn) error {
 	if concurrency <= 0 {
 		concurrency = 10
 	}
@@ -177,8 +195,16 @@ func downloadPrefix(ctx context.Context, client s3API, bucket, s3Prefix, localDi
 		return nil
 	}
 
+	total := len(keys)
+	if progress != nil {
+		// Publish total up-front so callers immediately see "0/N" instead of
+		// nothing until the first batch boundary.
+		progress(0, total)
+	}
+
 	// Phase 2: fan-out downloads with bounded concurrency.
 	var totalSize atomic.Int64
+	var done atomic.Int32
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(concurrency)
 
@@ -189,6 +215,10 @@ func downloadPrefix(ctx context.Context, client s3API, bucket, s3Prefix, localDi
 				return err
 			}
 			totalSize.Add(n)
+			d := done.Add(1)
+			if progress != nil && (int(d)%progressBatchSize == 0 || int(d) == total) {
+				progress(int(d), total)
+			}
 			return nil
 		})
 	}

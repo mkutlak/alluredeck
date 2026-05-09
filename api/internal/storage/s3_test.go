@@ -584,7 +584,7 @@ func TestPrepareLocal_ParallelDownloads(t *testing.T) {
 	}
 
 	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	tmpDir, err := store.PrepareLocal(context.Background(), "myproject")
+	tmpDir, err := store.PrepareLocal(context.Background(), "myproject", nil)
 	if err != nil {
 		t.Fatalf("PrepareLocal: %v", err)
 	}
@@ -633,7 +633,7 @@ func TestPrepareLocal_HistoryFailureNonFatal(t *testing.T) {
 	}
 
 	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	tmpDir, err := store.PrepareLocal(context.Background(), "myproject")
+	tmpDir, err := store.PrepareLocal(context.Background(), "myproject", nil)
 	if err != nil {
 		t.Fatalf("PrepareLocal should succeed even when history fails, got: %v", err)
 	}

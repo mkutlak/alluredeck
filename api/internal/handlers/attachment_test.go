@@ -155,11 +155,11 @@ func (m *mockDataStore) CleanResults(_ context.Context, _ string) error  { panic
 func (m *mockDataStore) ListResultBatches(_ context.Context, _ string) ([]string, error) {
 	panic("not implemented")
 }
-func (m *mockDataStore) PrepareLocal(_ context.Context, _ string) (string, error) {
+func (m *mockDataStore) PrepareLocal(_ context.Context, _ string, _ storage.ProgressFn) (string, error) {
 	panic("not implemented")
 }
 func (m *mockDataStore) CleanupLocal(_ string) error { panic("not implemented") }
-func (m *mockDataStore) PublishReport(_ context.Context, _ string, _ int, _ string) error {
+func (m *mockDataStore) PublishReport(_ context.Context, _ string, _ int, _ string, _ storage.ProgressFn) error {
 	panic("not implemented")
 }
 func (m *mockDataStore) DeleteReport(_ context.Context, _, _ string) error { panic("not implemented") }

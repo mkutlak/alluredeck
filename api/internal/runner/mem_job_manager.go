@@ -104,14 +104,13 @@ func (m *MemJobManager) SubmitPlaywright(_ context.Context, projectID int64, slu
 }
 
 // ListJobs returns a snapshot of all known jobs.
-// Each element is a copy so callers can safely read fields without holding the lock.
+// Each element is a deep copy so callers can safely read fields without holding the lock.
 func (m *MemJobManager) ListJobs(_ context.Context) []*Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	jobs := make([]*Job, 0, len(m.jobs))
 	for _, j := range m.jobs {
-		cp := *j
-		jobs = append(jobs, &cp)
+		jobs = append(jobs, copyJob(j))
 	}
 	return jobs
 }
@@ -161,7 +160,7 @@ func (m *MemJobManager) Delete(_ context.Context, jobID string) error {
 }
 
 // Get returns a snapshot of a job by ID, or nil if not found.
-// The returned value is a copy so callers can safely read fields without holding the lock.
+// The returned value is a deep copy so callers can safely read fields without holding the lock.
 func (m *MemJobManager) Get(_ context.Context, jobID string) *Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -169,7 +168,26 @@ func (m *MemJobManager) Get(_ context.Context, jobID string) *Job {
 	if !ok {
 		return nil
 	}
+	return copyJob(j)
+}
+
+// copyJob returns a deep copy of j safe to expose to readers outside the lock.
+// Pointer fields (StartedAt, CompletedAt, Progress) are duplicated so that
+// subsequent mutations to the original do not race with readers.
+func copyJob(j *Job) *Job {
 	cp := *j
+	if j.StartedAt != nil {
+		t := *j.StartedAt
+		cp.StartedAt = &t
+	}
+	if j.CompletedAt != nil {
+		t := *j.CompletedAt
+		cp.CompletedAt = &t
+	}
+	if j.Progress != nil {
+		p := *j.Progress
+		cp.Progress = &p
+	}
 	return &cp
 }
 
@@ -188,11 +206,34 @@ func (m *MemJobManager) runJob(parentCtx context.Context, j *Job) {
 	m.cancels[j.ID] = cancel
 	now := time.Now()
 	j.Status = JobStatusRunning
+	j.Phase = JobPhasePending
 	j.StartedAt = &now
 	m.mu.Unlock()
 
+	// Build a per-job reporter that writes phase/progress under m.mu so concurrent
+	// Get/ListJobs see consistent snapshots.
+	reporter := func(phase JobPhase, done, total int) {
+		m.mu.Lock()
+		j.Phase = phase
+		if total > 0 || done > 0 {
+			j.Progress = &JobProgress{Done: done, Total: total}
+		} else {
+			j.Progress = nil
+		}
+		m.mu.Unlock()
+	}
+
+	gen := m.gen
+	if pr, ok := m.gen.(progressAwareGenerator); ok {
+		gen = pr.WithProgressReporter(reporter)
+	} else if rec, ok := m.gen.(progressReceiver); ok {
+		// Test fakes that capture the reporter without copying state implement
+		// SetProgressReporter directly.
+		rec.SetProgressReporter(reporter)
+	}
+
 	p := j.Params
-	output, err := m.gen.GenerateReport(jobCtx,
+	output, err := gen.GenerateReport(jobCtx,
 		j.ProjectID, j.Slug, j.StorageKey, p.BatchID, p.ExecName, p.ExecFrom, p.ExecType, p.StoreResults, p.CIBranch, p.CICommitSHA, p.CIPipelineID, p.CIPipelineURL)
 
 	completed := time.Now()
@@ -201,14 +242,31 @@ func (m *MemJobManager) runJob(parentCtx context.Context, j *Job) {
 	if j.Status != JobStatusCancelled {
 		if err != nil {
 			j.Status = JobStatusFailed
+			j.Phase = JobPhaseFailed
 			j.Error = err.Error()
 		} else {
 			j.Status = JobStatusCompleted
+			j.Phase = JobPhaseCompleted
 			j.ReportID = output
 		}
 	}
 	delete(m.cancels, j.ID)
 	m.mu.Unlock()
+}
+
+// progressAwareGenerator is the interface satisfied by ReportGenerator
+// implementations that can produce a derived runner bound to a per-job
+// progress reporter. *Allure satisfies it.
+type progressAwareGenerator interface {
+	ReportGenerator
+	WithProgressReporter(JobProgressReporter) *Allure
+}
+
+// progressReceiver is an alternative shape used by lightweight test fakes:
+// they install the reporter directly on themselves rather than returning a
+// derived value. Real production runners should prefer progressAwareGenerator.
+type progressReceiver interface {
+	SetProgressReporter(JobProgressReporter)
 }
 
 // newMemJobID generates a random hex string suitable as a job ID.

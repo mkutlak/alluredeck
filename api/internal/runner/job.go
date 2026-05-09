@@ -24,6 +24,36 @@ const (
 	JobStatusCancelled JobStatus = "cancelled"
 )
 
+// JobPhase identifies which step of GenerateReport is currently executing.
+// It is a finer-grained signal than JobStatus and is intended for polling
+// CI clients that want to surface progress to a user. Phases other than
+// "completed" and "failed" only occur while JobStatus is "running".
+type JobPhase string
+
+const (
+	JobPhasePending          JobPhase = "pending"
+	JobPhasePreparingLocal   JobPhase = "preparing_local"
+	JobPhaseGeneratingReport JobPhase = "generating_report"
+	JobPhasePublishingReport JobPhase = "publishing_report"
+	JobPhaseFinalizing       JobPhase = "finalizing"
+	JobPhaseCompleted        JobPhase = "completed"
+	JobPhaseFailed           JobPhase = "failed"
+)
+
+// JobProgress carries an optional per-phase counter.
+// Both fields are zero when the active phase has no meaningful per-item
+// progress (e.g. running the Allure CLI, finalizing).
+type JobProgress struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
+}
+
+// JobProgressReporter is invoked by the runner whenever the active phase or
+// per-phase counter changes. Implementations must be safe for concurrent
+// calls from multiple goroutines and should return promptly — they are
+// invoked from inside hot loops (storage download/upload).
+type JobProgressReporter func(phase JobPhase, done, total int)
+
 // JobParams holds the parameters for a report generation job.
 type JobParams struct {
 	StorageKey    string
@@ -40,18 +70,20 @@ type JobParams struct {
 
 // Job represents a single async report generation task.
 type Job struct {
-	ID          string     `json:"job_id"`
-	ProjectID   int64      `json:"project_id"`
-	Slug        string     `json:"slug"`
-	StorageKey  string     `json:"storage_key"`
-	Status      JobStatus  `json:"status"`
-	ReportID    string     `json:"report_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Output      string     `json:"output,omitempty"`
-	Error       string     `json:"error,omitempty"`
-	Params      JobParams  `json:"-"`
+	ID          string       `json:"job_id"`
+	ProjectID   int64        `json:"project_id"`
+	Slug        string       `json:"slug"`
+	StorageKey  string       `json:"storage_key"`
+	Status      JobStatus    `json:"status"`
+	Phase       JobPhase     `json:"phase,omitempty"`
+	Progress    *JobProgress `json:"progress,omitempty"`
+	ReportID    string       `json:"report_id,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+	StartedAt   *time.Time   `json:"started_at,omitempty"`
+	CompletedAt *time.Time   `json:"completed_at,omitempty"`
+	Output      string       `json:"output,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	Params      JobParams    `json:"-"`
 }
 
 // JobQueuer is the interface for async report generation job queues.

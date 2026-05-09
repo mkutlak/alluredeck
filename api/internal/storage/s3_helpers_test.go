@@ -67,7 +67,7 @@ func TestDownloadPrefix_Parallel_MultipleObjects(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, concurrency, 0, zap.NewNop()); err != nil {
+	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, concurrency, 0, zap.NewNop(), nil); err != nil {
 		t.Fatalf("downloadPrefix: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestDownloadPrefix_EmptyPrefix(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	if err := downloadPrefix(context.Background(), mock, "bucket", "empty/", tmpDir, 10, 0, zap.NewNop()); err != nil {
+	if err := downloadPrefix(context.Background(), mock, "bucket", "empty/", tmpDir, 10, 0, zap.NewNop(), nil); err != nil {
 		t.Fatalf("downloadPrefix: %v", err)
 	}
 	if getObjectCalled {
@@ -124,7 +124,7 @@ func TestDownloadPrefix_SingleObject(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, 0, zap.NewNop()); err != nil {
+	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, 0, zap.NewNop(), nil); err != nil {
 		t.Fatalf("downloadPrefix: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestDownloadPrefix_ContextCancellation(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	err := downloadPrefix(ctx, mock, "bucket", prefix, tmpDir, 1, 0, zap.NewNop())
+	err := downloadPrefix(ctx, mock, "bucket", prefix, tmpDir, 1, 0, zap.NewNop(), nil)
 	if err == nil {
 		t.Error("expected error after context cancellation, got nil")
 	}
@@ -194,7 +194,7 @@ func TestDownloadPrefix_SizeWarning(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	const sizeThreshold int64 = 1000
-	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, sizeThreshold, logger); err != nil {
+	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, sizeThreshold, logger, nil); err != nil {
 		t.Fatalf("downloadPrefix: %v", err)
 	}
 
@@ -222,7 +222,7 @@ func TestDownloadPrefix_ErrorInOneObject(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, 0, zap.NewNop())
+	err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, 0, zap.NewNop(), nil)
 	if err == nil {
 		t.Error("expected error when one object fails, got nil")
 	}
@@ -258,7 +258,7 @@ func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
 		},
 	}
 
-	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", concurrency); err != nil {
+	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", concurrency, nil); err != nil {
 		t.Fatalf("uploadDir: %v", err)
 	}
 	if p := peak.Load(); p > int32(concurrency) {
@@ -277,7 +277,7 @@ func TestUploadDir_EmptyDir(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", 10); err != nil {
+	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", 10, nil); err != nil {
 		t.Fatalf("uploadDir: %v", err)
 	}
 	if uploadCalled {
@@ -310,7 +310,7 @@ func TestUploadDir_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	err := uploadDir(ctx, mock, "bucket", tmpDir, "prefix/", 1)
+	err := uploadDir(ctx, mock, "bucket", tmpDir, "prefix/", 1, nil)
 	if err == nil {
 		t.Error("expected error after context cancellation, got nil")
 	}

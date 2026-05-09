@@ -818,7 +818,16 @@ paths:
       - compare
   /projects/{project_id}/jobs/{job_id}:
     get:
-      description: Returns the current status of an async report generation job.
+      description: |-
+        Returns the current status of an async report generation job.
+        In addition to status/created_at/started_at/completed_at, the
+        response includes an optional `phase` string ("pending",
+        "preparing_local", "generating_report", "publishing_report",
+        "finalizing", "completed", "failed") and an optional
+        `progress` object `{done, total}` for phases that report
+        per-file progress (downloads and uploads). These fields are
+        omitted when no progress has been published yet, so older
+        clients ignoring unknown fields remain compatible.
       parameters:
       - description: Project ID
         in: path

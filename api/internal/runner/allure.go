@@ -77,6 +77,29 @@ type Allure struct {
 	defectStore     store.DefectStorer
 	attachmentStore store.AttachmentStorer
 	logger          *zap.Logger
+
+	// progressFn, when non-nil, is invoked with phase/progress updates as
+	// GenerateReport advances. It is set by the JobQueuer prior to running
+	// a job (see (*Allure).WithProgressReporter).
+	progressFn JobProgressReporter
+}
+
+// WithProgressReporter returns a shallow copy of the Allure runner whose
+// progress callback is set to fn. The original is left untouched so concurrent
+// jobs can each install their own per-job reporter without racing on a shared
+// field.
+func (a *Allure) WithProgressReporter(fn JobProgressReporter) *Allure {
+	cp := *a
+	cp.progressFn = fn
+	return &cp
+}
+
+// publishProgress is a nil-safe wrapper around the runner's progress callback.
+func (a *Allure) publishProgress(phase JobPhase, done, total int) {
+	if a == nil || a.progressFn == nil {
+		return
+	}
+	a.progressFn(phase, done, total)
 }
 
 // AllureDeps holds the dependencies for creating an Allure runner.
@@ -183,7 +206,11 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, storageKey, reportID
 // slug is the human-readable identifier used for logging only.
 // batchID scopes the results directory to the upload batch subdirectory.
 func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, storageKey, batchID, localProjectDir string, buildNumber int, ciMeta store.CIMetadata, branchID *int64) error {
-	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir); err != nil {
+	a.publishProgress(JobPhasePublishingReport, 0, 0)
+	pubProgress := func(done, total int) {
+		a.publishProgress(JobPhasePublishingReport, done, total)
+	}
+	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir, pubProgress); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
 	if err := a.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
@@ -368,7 +395,11 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 
 	// 3. PrepareLocal returns the project dir (local) or a temp dir (S3).
-	localProjectDir, err := a.store.PrepareLocal(ctx, storageKey)
+	a.publishProgress(JobPhasePreparingLocal, 0, 0)
+	prepProgress := func(done, total int) {
+		a.publishProgress(JobPhasePreparingLocal, done, total)
+	}
+	localProjectDir, err := a.store.PrepareLocal(ctx, storageKey, prepProgress)
 	if err != nil {
 		return "", fmt.Errorf("prepare local dir for %q: %w", slug, err)
 	}
@@ -399,6 +430,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	latestReportDir := filepath.Join(localProjectDir, "reports", "latest")
 
 	// 6a–6c. Preserve history, clear stale output, run allure generate.
+	a.publishProgress(JobPhaseGeneratingReport, 0, 0)
 	if err := a.runAllureGenerate(ctx, slug, storageKey, batchID, latestReportDir, localProjectDir); err != nil {
 		return "", err
 	}
@@ -439,6 +471,7 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 
 	// 8. Keep Latest History (Cleanup old reports)
+	a.publishProgress(JobPhaseFinalizing, 0, 0)
 	if err := a.KeepLatestHistory(ctx, projectID, slug, storageKey, resolvedBranchID); err != nil {
 		return "", err
 	}
@@ -557,7 +590,7 @@ func (a *Allure) CreateProject(ctx context.Context, storageKey string) error {
 // store.PublishReport directly with the localProjectDir from PrepareLocal.
 func (a *Allure) StoreReport(ctx context.Context, storageKey string, buildNumber int) error {
 	localProjectDir := filepath.Join(a.cfg.ProjectsPath, storageKey)
-	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir); err != nil {
+	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir, nil); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
 	return nil

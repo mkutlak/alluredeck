@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -64,13 +65,26 @@ type GenerateReportWorker struct {
 	riverClient  *river.Client[pgx.Tx]
 	reportIDs    *sync.Map
 	jobTimeout   time.Duration
+	progress     riverProgressWriter
 	logger       *zap.Logger
+}
+
+// riverProgressWriter persists per-job phase/progress. It is satisfied by
+// *RiverJobManager; tests inject a no-op or capturing writer.
+type riverProgressWriter interface {
+	upsertJobProgress(ctx context.Context, jobID int64, phase JobPhase, done, total int)
 }
 
 // Work implements river.Worker.
 func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[GenerateReportArgs]) error {
 	a := job.Args
-	reportID, err := w.generator.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL)
+	gen := w.generator
+	if pr, ok := w.generator.(progressAwareGenerator); ok && w.progress != nil {
+		gen = pr.WithProgressReporter(func(phase JobPhase, done, total int) {
+			w.progress.upsertJobProgress(ctx, job.ID, phase, done, total)
+		})
+	}
+	reportID, err := gen.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID, a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults, a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL)
 	if err != nil {
 		w.logger.Error("river: report generation failed",
 			zap.Int64("job_id", job.ID),
@@ -78,10 +92,16 @@ func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[Generate
 			zap.String("slug", a.Slug),
 			zap.Error(err),
 		)
+		if w.progress != nil {
+			w.progress.upsertJobProgress(ctx, job.ID, JobPhaseFailed, 0, 0)
+		}
 		return err
 	}
 	if reportID != "" {
 		w.reportIDs.Store(job.ID, reportID)
+	}
+	if w.progress != nil {
+		w.progress.upsertJobProgress(ctx, job.ID, JobPhaseCompleted, 0, 0)
 	}
 	w.logger.Info("river: report generation completed",
 		zap.Int64("job_id", job.ID),
@@ -278,6 +298,55 @@ type RiverJobManager struct {
 	logger    *zap.Logger
 }
 
+// upsertJobProgress writes the latest phase/progress for a job using last-write-wins
+// semantics. Errors are logged and swallowed: progress reporting must never fail
+// the underlying report-generation work.
+func (jm *RiverJobManager) upsertJobProgress(ctx context.Context, jobID int64, phase JobPhase, done, total int) {
+	const stmt = `
+		INSERT INTO job_progress (job_id, phase, progress_done, progress_total, updated_at)
+		VALUES ($1, $2, $3, $4, now())
+		ON CONFLICT (job_id) DO UPDATE
+		   SET phase = EXCLUDED.phase,
+		       progress_done = EXCLUDED.progress_done,
+		       progress_total = EXCLUDED.progress_total,
+		       updated_at = now()
+	`
+	if _, err := jm.pool.Exec(ctx, stmt, jobID, string(phase), done, total); err != nil {
+		jm.logger.Warn("failed to write job_progress",
+			zap.Int64("job_id", jobID), zap.String("phase", string(phase)), zap.Error(err))
+	}
+}
+
+// readJobProgress fetches the most recent phase/progress for a job. Returns
+// ("", 0, 0, false) when no row exists. Errors other than no-rows are logged.
+func (jm *RiverJobManager) readJobProgress(ctx context.Context, jobID int64) (JobPhase, int, int, bool) {
+	var (
+		phase string
+		done  int
+		total int
+	)
+	err := jm.pool.QueryRow(ctx,
+		`SELECT phase, progress_done, progress_total FROM job_progress WHERE job_id = $1`,
+		jobID).Scan(&phase, &done, &total)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			jm.logger.Warn("failed to read job_progress",
+				zap.Int64("job_id", jobID), zap.Error(err))
+		}
+		return "", 0, 0, false
+	}
+	return JobPhase(phase), done, total, true
+}
+
+// deleteJobProgress removes the progress row associated with a deleted job.
+// Errors are logged and swallowed.
+func (jm *RiverJobManager) deleteJobProgress(ctx context.Context, jobID int64) {
+	if _, err := jm.pool.Exec(ctx, `DELETE FROM job_progress WHERE job_id = $1`, jobID); err != nil {
+		jm.logger.Warn("failed to delete job_progress",
+			zap.Int64("job_id", jobID), zap.Error(err))
+	}
+}
+
 // compile-time check
 var _ JobQueuer = (*RiverJobManager)(nil)
 
@@ -293,6 +362,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		externalURL:  externalURL,
 		reportIDs:    &jm.reportIDs,
 		jobTimeout:   jobTimeout,
+		progress:     jm,
 		logger:       logger,
 	}
 	river.AddWorker(workers, reportWorker)
@@ -428,6 +498,12 @@ func (jm *RiverJobManager) Get(ctx context.Context, jobID string) *Job {
 	if v, ok := jm.reportIDs.Load(row.ID); ok {
 		j.ReportID = v.(string)
 	}
+	if phase, done, total, ok := jm.readJobProgress(ctx, id); ok {
+		j.Phase = phase
+		if done > 0 || total > 0 {
+			j.Progress = &JobProgress{Done: done, Total: total}
+		}
+	}
 	return j
 }
 
@@ -448,6 +524,12 @@ func (jm *RiverJobManager) ListJobs(ctx context.Context) []*Job {
 		j := riverRowToJob(r)
 		if v, ok := jm.reportIDs.Load(r.ID); ok {
 			j.ReportID = v.(string)
+		}
+		if phase, done, total, ok := jm.readJobProgress(ctx, r.ID); ok {
+			j.Phase = phase
+			if done > 0 || total > 0 {
+				j.Progress = &JobProgress{Done: done, Total: total}
+			}
 		}
 		jobs = append(jobs, j)
 	}
@@ -479,6 +561,8 @@ func (jm *RiverJobManager) Delete(ctx context.Context, jobID string) error {
 		}
 		return fmt.Errorf("delete job %q: %w", jobID, err)
 	}
+	// Best-effort progress cleanup; failures are logged inside the helper.
+	jm.deleteJobProgress(ctx, id)
 	return nil
 }
 

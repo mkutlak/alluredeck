@@ -18,9 +18,9 @@ type MockStore struct {
 	CleanBatchFn                  func(ctx context.Context, projectID, batchID string) error
 	CleanResultsFn                func(ctx context.Context, projectID string) error
 	ListResultBatchesFn           func(ctx context.Context, projectID string) ([]string, error)
-	PrepareLocalFn                func(ctx context.Context, projectID string) (string, error)
+	PrepareLocalFn                func(ctx context.Context, projectID string, progress ProgressFn) (string, error)
 	CleanupLocalFn                func(localProjectDir string) error
-	PublishReportFn               func(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error
+	PublishReportFn               func(ctx context.Context, projectID string, buildNumber int, localProjectDir string, progress ProgressFn) error
 	DeleteReportFn                func(ctx context.Context, projectID, reportID string) error
 	PruneReportDirsFn             func(ctx context.Context, projectID string, buildNumbers []int) error
 	KeepHistoryFn                 func(ctx context.Context, projectID, batchID string) error
@@ -124,9 +124,9 @@ func (m *MockStore) ListResultBatches(ctx context.Context, projectID string) ([]
 }
 
 // PrepareLocal implements Store.
-func (m *MockStore) PrepareLocal(ctx context.Context, projectID string) (string, error) {
+func (m *MockStore) PrepareLocal(ctx context.Context, projectID string, progress ProgressFn) (string, error) {
 	if m.PrepareLocalFn != nil {
-		return m.PrepareLocalFn(ctx, projectID)
+		return m.PrepareLocalFn(ctx, projectID, progress)
 	}
 	return "", nil
 }
@@ -140,9 +140,9 @@ func (m *MockStore) CleanupLocal(localProjectDir string) error {
 }
 
 // PublishReport implements Store.
-func (m *MockStore) PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string) error {
+func (m *MockStore) PublishReport(ctx context.Context, projectID string, buildNumber int, localProjectDir string, progress ProgressFn) error {
 	if m.PublishReportFn != nil {
-		return m.PublishReportFn(ctx, projectID, buildNumber, localProjectDir)
+		return m.PublishReportFn(ctx, projectID, buildNumber, localProjectDir, progress)
 	}
 	return nil
 }
