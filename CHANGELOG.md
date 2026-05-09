@@ -1,3 +1,9 @@
+## [0.33.2](https://github.com/mkutlak/alluredeck/compare/v0.33.1...v0.33.2) (2026-05-09)
+
+### Performance Improvements
+
+* **docker:** cross-compile Go binary natively for multi-arch builds ([18548ae](https://github.com/mkutlak/alluredeck/commit/18548ae33d5481baf5c43b7ef035f688be979c5f))
+
 ## [0.33.1](https://github.com/mkutlak/alluredeck/compare/v0.33.0...v0.33.1) (2026-05-09)
 
 ### Performance Improvements
