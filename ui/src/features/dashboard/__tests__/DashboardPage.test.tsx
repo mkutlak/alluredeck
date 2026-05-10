@@ -141,7 +141,7 @@ describe('DashboardPage', () => {
     renderPage()
     await waitFor(() => {
       expect(screen.getByText('group-one')).toBeInTheDocument()
-      expect(screen.getByText('88%')).toBeInTheDocument()
+      expect(screen.getByText('87.80%')).toBeInTheDocument()
       expect(screen.getByText('Group')).toBeInTheDocument()
     })
   })

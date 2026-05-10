@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { ExternalLink, Trash2, GitBranch, ChevronRight, Clapperboard } from 'lucide-react'
 import { env } from '@/lib/env'
 import { isSafeUrl } from '@/lib/url'
-import { formatDate, calcPassRate } from '@/lib/utils'
+import { formatDate, calcPassRate, formatPassRate } from '@/lib/utils'
 import { getPassRateColorClass, STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -104,8 +104,10 @@ function ReportRow({
         {rStat?.skipped ?? '—'}
       </TableCell>
       <TableCell className="text-center">
-        {rPassRate !== null ? (
-          <span className={`font-semibold ${getPassRateColorClass(rPassRate)}`}>{rPassRate}%</span>
+        {rStat && rPassRate !== null ? (
+          <span className={`font-semibold ${getPassRateColorClass(rPassRate)}`}>
+            {formatPassRate(rStat.passed, rStat.total)}
+          </span>
         ) : (
           '—'
         )}

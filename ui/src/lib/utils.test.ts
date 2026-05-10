@@ -4,6 +4,7 @@ import {
   formatDate,
   formatDuration,
   calcPassRate,
+  formatPassRate,
   getStatusVariant,
   truncate,
   formatBytes,
@@ -52,12 +53,61 @@ describe('calcPassRate', () => {
     expect(calcPassRate(90, 100)).toBe(90)
   })
 
-  it('rounds to nearest integer', () => {
-    expect(calcPassRate(1, 3)).toBe(33)
+  it('returns full precision (no rounding)', () => {
+    expect(calcPassRate(1, 3)).toBeCloseTo(33.333, 2)
   })
 
   it('returns 100 when all passed', () => {
     expect(calcPassRate(50, 50)).toBe(100)
+  })
+
+  it('returns full precision for near-100% values', () => {
+    expect(calcPassRate(737, 740)).toBeCloseTo(99.594, 2)
+  })
+})
+
+describe('formatPassRate', () => {
+  it('formats the canonical bug case (737/740) with 2 decimals', () => {
+    expect(formatPassRate(737, 740)).toBe('99.59%')
+  })
+
+  it('floors near-100% values rather than rounding up', () => {
+    // 731/735 = 99.4557… — floor to 99.45, not round to 99.46
+    expect(formatPassRate(731, 735)).toBe('99.45%')
+  })
+
+  it('returns "100%" when all passed (exact)', () => {
+    expect(formatPassRate(50, 50)).toBe('100%')
+    expect(formatPassRate(3, 3)).toBe('100%')
+  })
+
+  it('returns "0%" when none passed', () => {
+    expect(formatPassRate(0, 100)).toBe('0%')
+  })
+
+  it('returns "0%" when total is 0', () => {
+    expect(formatPassRate(0, 0)).toBe('0%')
+  })
+
+  it('preserves tiny non-zero rates as 2-decimal output', () => {
+    // 1/740 = 0.1351% — floor to 0.13
+    expect(formatPassRate(1, 740)).toBe('0.13%')
+  })
+
+  it('accepts a precomputed rate via single-arg overload', () => {
+    expect(formatPassRate(99.594)).toBe('99.59%')
+  })
+
+  it('returns "100%" for exact 100 via single-arg overload', () => {
+    expect(formatPassRate(100)).toBe('100%')
+  })
+
+  it('returns "0%" for exact 0 via single-arg overload', () => {
+    expect(formatPassRate(0)).toBe('0%')
+  })
+
+  it('never renders 100% for 99.999% (floor guarantee)', () => {
+    expect(formatPassRate(99.999)).toBe('99.99%')
   })
 })
 

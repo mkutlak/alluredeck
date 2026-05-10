@@ -17,7 +17,7 @@ import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { useProjectDndContext } from '@/features/projects/components/DndProjectConstants'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
-import { cn } from '@/lib/utils'
+import { cn, formatPassRate } from '@/lib/utils'
 import type { DashboardProjectEntry } from '@/types/api'
 import { formatProjectLabel } from '@/lib/projectLabel'
 import { getPassRate, getProjectType } from './sort'
@@ -105,7 +105,7 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown, allProjects
               variant={rate >= 90 ? 'default' : rate >= 70 ? 'secondary' : 'destructive'}
               className={getPassRateBadgeClass(rate)}
             >
-              {rate.toFixed(0)}%
+              {formatPassRate(rate)}
             </Badge>
           ) : (
             <span className="text-muted-foreground text-sm">&mdash;</span>

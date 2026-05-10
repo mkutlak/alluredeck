@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router'
 
 import { getPassRateBadgeClass } from '@/lib/status-colors'
+import { formatPassRate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import type { PipelineSuite } from '@/types/api'
 
@@ -19,7 +20,7 @@ export function SuiteBadge({ suite }: SuiteBadgeProps) {
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-medium">{suite.slug}</span>
         <Badge className={getPassRateBadgeClass(suite.pass_rate)}>
-          {statusIcon} {suite.pass_rate.toFixed(0)}%
+          {statusIcon} {formatPassRate(suite.pass_rate)}
         </Badge>
       </div>
       <div className="text-muted-foreground mt-1 flex gap-3 text-xs">

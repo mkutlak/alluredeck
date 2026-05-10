@@ -9,7 +9,7 @@ import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { projectIndexOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
-import { formatDuration } from '@/lib/utils'
+import { formatDuration, calcPassRate, formatPassRate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -120,7 +120,7 @@ export function OverviewTab() {
     const latest = reports.find((r) => r.is_latest)
     const tableReports = reports.filter((r) => r.report_id !== 'latest')
     const stat = latest?.statistic
-    const passRate = stat && stat.total > 0 ? Math.round((stat.passed / stat.total) * 100) : null
+    const passRate = stat && stat.total > 0 ? calcPassRate(stat.passed, stat.total) : null
     return { latest, tableReports, passRate }
   }, [reports])
 
@@ -180,7 +180,7 @@ export function OverviewTab() {
               variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
               className={getPassRateBadgeClass(passRate)}
             >
-              Pass rate: {passRate.toFixed(0)}%
+              Pass rate: {formatPassRate(stat.passed, stat.total)}
             </Badge>
             <Badge variant="outline">Tests: {stat.total}</Badge>
             {stat.failed + stat.broken > 0 && (

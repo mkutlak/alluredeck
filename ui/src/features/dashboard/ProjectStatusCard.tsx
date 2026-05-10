@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { formatDate, formatDuration } from '@/lib/utils'
+import { formatDate, formatDuration, formatPassRate } from '@/lib/utils'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { PassRateSparkline } from './PassRateSparkline'
 import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
@@ -144,7 +144,7 @@ export function ProjectStatusCard({ project }: Props) {
                   }
                   className={getPassRateBadgeClass(passRate)}
                 >
-                  {passRate.toFixed(0)}%
+                  {formatPassRate(latest_build.statistics.passed, latest_build.statistics.total)}
                 </Badge>
               ) : (
                 <Badge variant="secondary">No builds</Badge>
