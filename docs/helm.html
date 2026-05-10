@@ -68,7 +68,7 @@
         </div>
 
         <h1>Helm Chart Configuration</h1>
-        <p>Complete reference for all <code>values.yaml</code> options. Install AllureDeck from the OCI registry — no <code>helm repo add</code> required.</p>
+        <p>Complete reference for all <code>values.yaml</code> options. Chart <strong>0.18.1</strong> / app <strong>v0.34.1</strong>. Install from the OCI registry — no <code>helm repo add</code> required.</p>
 
         <!-- PREREQUISITES -->
         <h2 id="prerequisites">Prerequisites</h2>
@@ -106,9 +106,9 @@
         <div class="code-block">
           <div class="terminal-bar">
             <span class="terminal-title">Pin a specific chart version</span>
-            <button class="copy-btn" data-copy="helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.4.0">Copy</button>
+            <button class="copy-btn" data-copy="helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.18.1">Copy</button>
           </div>
-          <pre>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.4.0</pre>
+          <pre>helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.18.1</pre>
         </div>
 
         <!-- API CONFIGURATION -->
@@ -181,8 +181,23 @@
             </tr>
             <tr>
               <td>api.config.swaggerEnabled</td>
-              <td>Enable Swagger UI at <code>/swagger/index.html</code></td>
+              <td>Enable Scalar API reference at <code>/swagger/</code></td>
               <td><code>"false"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.maxArchiveFileCount</td>
+              <td>Maximum files allowed in a single tar.gz archive upload</td>
+              <td><code>"5000"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.uploadWriteConcurrency</td>
+              <td>Parallel storage writes during tar.gz extraction — tune to S3/MinIO capacity</td>
+              <td><code>"32"</code></td>
+            </tr>
+            <tr>
+              <td>api.config.reportGenerationTimeout</td>
+              <td>Max wall-clock time for a single report generation job (Go duration string, e.g. <code>"5m"</code>, <code>"30m"</code>)</td>
+              <td><code>"5m"</code></td>
             </tr>
             <tr>
               <td>api.config.makeViewerEndpointsPublic</td>
@@ -592,8 +607,12 @@
               <td>API (Go backend)</td>
             </tr>
             <tr>
+              <td>/trace</td>
+              <td>API — Playwright Trace Viewer (always routed; viewer only renders when a trace attachment exists)</td>
+            </tr>
+            <tr>
               <td>/swagger</td>
-              <td>API — Swagger UI (only when <code>api.config.swaggerEnabled: "true"</code>)</td>
+              <td>API — Scalar API reference (only when <code>api.config.swaggerEnabled: "true"</code>)</td>
             </tr>
           </tbody>
         </table>

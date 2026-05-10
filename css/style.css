@@ -1106,6 +1106,49 @@ footer a:hover {
   .config-table td:first-child { white-space: normal; }
 }
 
+/* ── WHAT'S NEW CALLOUT ── */
+.whats-new-callout {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-glow);
+  border-radius: 0 8px 8px 0;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+}
+
+.whats-new-heading {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 12px;
+  letter-spacing: 0.02em;
+}
+
+.whats-new-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+}
+
+.whats-new-list li {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.whats-new-list a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.whats-new-list a:hover {
+  color: var(--accent);
+}
+
 /* ── ANIMATIONS ── */
 @media (prefers-reduced-motion: no-preference) {
   .fade-in {

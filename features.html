@@ -231,25 +231,139 @@
       </div>
 
       <!-- 9. Report Operations & CI/CD -->
-      <div class="feature-showcase">
+      <div id="async-uploads" class="feature-showcase">
         <div class="feature-showcase-inner">
           <div class="feature-showcase-text">
             <p class="section-label">// CI/CD</p>
             <h2>Report Operations &amp; CI/CD</h2>
             <p>The action bar exposes the full report lifecycle: upload results (drag-and-drop or tar.gz), generate reports, and clean results or history. All operations are also available over the REST API for seamless CI/CD integration.</p>
             <p><strong>API keys with an <code>ald_</code> prefix</strong> enable passwordless access from pipelines. Each project can have multiple keys with scoped permissions. Curl examples and a GitHub Actions snippet are provided directly in the UI to minimise setup time.</p>
+            <p>Large tar.gz uploads are processed <strong>asynchronously</strong> by River background workers. The UI polls <code>/jobs/{id}</code> and shows phase and progress in real time — no browser timeouts on big result sets.</p>
             <ul>
               <li>Upload results via drag-and-drop or tar.gz</li>
+              <li>Async tar.gz processing with real-time job progress</li>
               <li>Generate reports, clean results and history</li>
               <li>API keys with <code>ald_</code> prefix for CI/CD access</li>
               <li>Curl examples for upload and generate operations</li>
               <li>GitHub Actions integration example</li>
-              <li>Swagger UI at <code>/swagger</code> for full API reference</li>
+              <li>Scalar API reference at <code>/swagger</code></li>
             </ul>
           </div>
           <div class="feature-showcase-image">
             <img src="screenshots/action-bar.png" alt="Report action bar with upload, generate, and clean operations" loading="lazy">
             <img src="screenshots/send-results.png" alt="Send results panel showing curl example and API key usage" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- NEW: Defects -->
+      <div id="defects" class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Defects</p>
+            <h2>Defects View</h2>
+            <p>The Defects view groups recurring test failures by their <strong>fingerprint</strong> — a normalised hash of the failure message and stack trace. Instead of drowning in individual test rows, you see clusters of structurally identical failures across builds so you can triage root causes immediately.</p>
+            <p>Each defect group shows affected test count, first/last seen build, and a heuristic category (product bug, infrastructure, test issue). Click any group to drill into the individual failures and their full error context.</p>
+            <ul>
+              <li>Fingerprint-based grouping of recurring failures</li>
+              <li>Heuristic categorisation: product bug, infrastructure, test issue</li>
+              <li>First/last seen build and affected test count per group</li>
+              <li>Drill-through to individual failure detail</li>
+              <li>Computed per-build — no manual tagging required</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/defects-list.png" alt="Defects list view showing fingerprint-grouped failure clusters" loading="lazy">
+            <img src="screenshots/defects-detail.png" alt="Defect detail panel showing individual failures in a group" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- NEW: Trace Viewer -->
+      <div id="trace-viewer" class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Trace Viewer</p>
+            <h2>Embedded Playwright Trace Viewer</h2>
+            <p>When a test run includes Playwright trace attachments, AllureDeck embeds the <strong>official Playwright Trace Viewer</strong> directly in the dashboard. No need to download zip files or run a local server — click the attachment and the trace opens inline.</p>
+            <p>The trace viewer exposes the full Playwright toolset: step-by-step timeline, network requests, console logs, DOM snapshots, and before/after screenshots for each action. Combined with the Allure attachment browser, this makes post-mortem debugging significantly faster.</p>
+            <ul>
+              <li>Embedded Playwright Trace Viewer at <code>/trace/</code></li>
+              <li>Step-by-step timeline, DOM snapshots, network log</li>
+              <li>Before/after screenshots per action</li>
+              <li>Works alongside Allure attachment viewer</li>
+              <li>No local tooling or file download required</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/trace-viewer.png" alt="Embedded Playwright Trace Viewer showing step timeline and DOM snapshot" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- NEW: Webhooks -->
+      <div id="webhooks" class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Webhooks</p>
+            <h2>Webhook Notifications</h2>
+            <p>Get notified in Slack, Discord, Microsoft Teams, or any HTTP endpoint whenever a build completes. Webhooks are configured per-project and support <strong>templated payloads</strong> so you control exactly what information hits your channel.</p>
+            <p>The webhook editor includes a live payload preview so you can verify the message format before saving. Delivery history and retry status are visible in the admin panel's System Monitor.</p>
+            <ul>
+              <li>Native Slack, Discord, and Teams message formatting</li>
+              <li>Generic HTTP endpoint support with custom payload</li>
+              <li>Per-project webhook rules</li>
+              <li>Live payload preview in the editor</li>
+              <li>Delivery history in System Monitor</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/webhooks-list.png" alt="Webhooks list showing configured notification targets" loading="lazy">
+            <img src="screenshots/webhook-edit.png" alt="Webhook editor with live payload preview" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- NEW: User Management -->
+      <div id="user-management" class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Users</p>
+            <h2>User Management &amp; Profile</h2>
+            <p>Admins have a dedicated user management panel to create, edit, deactivate, and delete user accounts. Role assignments (admin, editor, viewer) can be changed without touching the identity provider, making it easy to grant temporary elevated access.</p>
+            <p>Each user can set their own <strong>timezone and time format</strong> (12h/24h) in their profile preferences. Timestamps throughout the UI — report history, job logs, retention schedules — respect these preferences, eliminating the guesswork of interpreting UTC timestamps.</p>
+            <ul>
+              <li>Admin CRUD for user accounts</li>
+              <li>Role assignment independent of IdP groups</li>
+              <li>Deactivate accounts without deletion (SSO 403 on next login)</li>
+              <li>Self-service timezone selection per user</li>
+              <li>12h / 24h time format preference</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/user-management.png" alt="Admin user management panel with role assignment" loading="lazy">
+            <img src="screenshots/user-profile.png" alt="User profile page with timezone and time format preferences" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <!-- NEW: Pipeline Runs -->
+      <div id="pipeline-runs" class="feature-showcase">
+        <div class="feature-showcase-inner">
+          <div class="feature-showcase-text">
+            <p class="section-label">// Pipelines</p>
+            <h2>Pipeline Runs</h2>
+            <p>Parent projects aggregate child project runs by <strong>CI pipeline ID</strong>, giving you a single row per pipeline execution that links to all the child reports that ran under it. This is especially useful for monorepos or multi-service suites where a single CI pipeline triggers tests across several projects.</p>
+            <p>The Pipeline Runs view shows pass rate, total test count, and duration rolled up across all children for that pipeline, so you can assess overall suite health without drilling into each child individually.</p>
+            <ul>
+              <li>Groups child project runs by CI pipeline ID</li>
+              <li>Rolled-up pass rate, test count, and duration</li>
+              <li>Direct links to each child project's report</li>
+              <li>Useful for monorepos and multi-service CI pipelines</li>
+            </ul>
+          </div>
+          <div class="feature-showcase-image">
+            <img src="screenshots/pipeline-runs.png" alt="Pipeline Runs view showing aggregated results across child projects" loading="lazy">
           </div>
         </div>
       </div>

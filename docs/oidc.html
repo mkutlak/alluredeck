@@ -244,8 +244,12 @@
         <ul>
           <li><strong>First login:</strong> User record created automatically (JIT provisioning) with resolved role</li>
           <li><strong>Subsequent logins:</strong> Name, email, and role updated from latest token claims</li>
-          <li><strong>Deactivation:</strong> Set <code>is_active=false</code> in users table. User receives 403 on next SSO login</li>
+          <li><strong>Deactivation:</strong> Set <code>is_active=false</code> in users table or via admin UI. User receives 403 on next SSO login</li>
+          <li><strong>Email uniqueness:</strong> Email addresses are unique across all authentication providers. If a user registers via OIDC with the same email as an existing local account, the accounts are linked rather than duplicated. This prevents identity collisions when the same person has both a local and an SSO credential.</li>
         </ul>
+        <div class="callout callout-warning">
+          <strong>Cross-provider email collision:</strong> Email uniqueness is enforced globally. If a user attempts SSO login with an email already owned by a local account (or a different IdP), the existing account is updated rather than a new one created. Ensure your IdP is configured to expose a verified email claim to prevent accidental account takeover.
+        </div>
 
         <!-- PROVIDER SETUP -->
         <h2 id="provider-setup">Provider Setup</h2>

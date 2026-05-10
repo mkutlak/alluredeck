@@ -119,6 +119,17 @@
       <h2>Key Features</h2>
       <p class="section-desc">Everything you need to manage Allure test reports at scale.</p>
 
+      <!-- What's new callout -->
+      <div class="whats-new-callout">
+        <p class="whats-new-heading">&#x1f680; What's new in v0.34</p>
+        <ul class="whats-new-list">
+          <li><a href="features.html#defects">&#x1f50d; Defects view</a> — fingerprint-grouped failure tracking across builds</li>
+          <li><a href="features.html#async-uploads">&#x23eb; Async tar.gz uploads</a> — River worker pipeline with real-time job progress</li>
+          <li><a href="features.html#trace-viewer">&#x1f3a5; Embedded Playwright Trace Viewer</a> — inspect traces without leaving the dashboard</li>
+          <li><a href="features.html#user-management">&#x1f465; User management &amp; profile preferences</a> — admin CRUD, timezone, and time format</li>
+        </ul>
+      </div>
+
       <div class="features-grid">
         <div class="feature-card fade-in">
           <span class="feature-icon" aria-hidden="true">&#x1f4ca;</span>
@@ -146,9 +157,9 @@
           <p>Select two builds to see regressions, fixes, added, and removed tests. Filter by category with duration deltas.</p>
         </div>
         <div class="feature-card fade-in">
-          <span class="feature-icon" aria-hidden="true">&#x1f41b;</span>
-          <h3>Known Issues</h3>
-          <p>Tag flaky tests and known bugs with regex patterns. Adjusted pass rate excludes matched tests for cleaner metrics.</p>
+          <span class="feature-icon" aria-hidden="true">&#x1f50d;</span>
+          <h3>Defects &amp; Fingerprinting</h3>
+          <p>Fingerprint-grouped defect view surfaces recurring failures across builds. Categorise and track root causes with heuristic normalisation.</p>
         </div>
         <div class="feature-card fade-in">
           <span class="feature-icon" aria-hidden="true">&#x1f512;</span>
@@ -161,9 +172,9 @@
           <p>Programmatic access with <code>ald_</code> prefix keys. SHA-256 hashed storage, role-based, optional expiry dates.</p>
         </div>
         <div class="feature-card fade-in">
-          <span class="feature-icon" aria-hidden="true">&#x1f4be;</span>
-          <h3>Flexible Storage</h3>
-          <p>Local persistent volumes or S3-compatible storage (AWS, MinIO). IRSA support for EKS deployments.</p>
+          <span class="feature-icon" aria-hidden="true">&#x23eb;</span>
+          <h3>Async Uploads &amp; Jobs</h3>
+          <p>tar.gz uploads processed by River workers with real-time phase and progress tracking via <code>/jobs/{id}</code>.</p>
         </div>
         <div class="feature-card fade-in">
           <span class="feature-icon" aria-hidden="true">&#x1f50d;</span>
@@ -171,9 +182,9 @@
           <p>Cmd+K command palette with PostgreSQL full-text search. Find projects and tests instantly.</p>
         </div>
         <div class="feature-card fade-in">
-          <span class="feature-icon" aria-hidden="true">&#x1f5d3;&#xfe0f;</span>
-          <h3>Report Retention</h3>
-          <p>Count-based and age-based retention strategies. Daily background scheduler with safe-latest-build protection.</p>
+          <span class="feature-icon" aria-hidden="true">&#x1f514;</span>
+          <h3>Webhook Notifications</h3>
+          <p>Push build results to Slack, Discord, Teams, or any HTTP endpoint. Per-project rules, configurable triggers.</p>
         </div>
         <div class="feature-card fade-in">
           <span class="feature-icon" aria-hidden="true">&#x1f3a8;</span>
@@ -234,12 +245,12 @@
           <span class="arch-arrow">&rarr;</span>
           <div class="arch-box accent">
             <div class="arch-box-label">Frontend</div>
-            <div class="arch-box-name">React UI</div>
+            <div class="arch-box-name">React 19 + Vite + Tailwind 4</div>
           </div>
           <span class="arch-arrow">&rarr;</span>
           <div class="arch-box accent">
             <div class="arch-box-label">Backend</div>
-            <div class="arch-box-name">Go API</div>
+            <div class="arch-box-name">Go + River + PostgreSQL</div>
           </div>
           <span class="arch-arrow">&rarr;</span>
           <div class="arch-box">
@@ -247,7 +258,7 @@
             <div class="arch-box-name">PVC / S3</div>
           </div>
         </div>
-        <p class="arch-note">Each component runs as a separate Deployment with dedicated Service, ServiceAccount, and optional NetworkPolicy. The UI proxies API requests, and CORS is auto-configured when ingress is enabled.</p>
+        <p class="arch-note">Frontend: React 19 + Vite + Tailwind CSS 4 + shadcn/ui + Radix primitives. Backend: Go API with River workers for async jobs, PostgreSQL with full-text search, S3-compatible object storage. Each component runs as a separate Deployment with dedicated Service, ServiceAccount, and optional NetworkPolicy. CORS is auto-configured when ingress is enabled.</p>
       </div>
     </div>
   </section>
