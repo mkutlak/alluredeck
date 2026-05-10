@@ -1,3 +1,9 @@
+## [0.34.2](https://github.com/mkutlak/alluredeck/compare/v0.34.1...v0.34.2) (2026-05-10)
+
+### Bug Fixes
+
+* **ui:** never round pass rate up to 100% when there are failures ([bb96c92](https://github.com/mkutlak/alluredeck/commit/bb96c928e4cdcf8642058c017cb93c91fadaf229))
+
 ## [0.34.1](https://github.com/mkutlak/alluredeck/compare/v0.34.0...v0.34.1) (2026-05-10)
 
 ### Bug Fixes
