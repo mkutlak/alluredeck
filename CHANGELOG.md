@@ -1,3 +1,13 @@
+## [0.34.1](https://github.com/mkutlak/alluredeck/compare/v0.34.0...v0.34.1) (2026-05-10)
+
+### Bug Fixes
+
+* **jobs:** wire progress callbacks into preparing_local and publishing_report ([224ad48](https://github.com/mkutlak/alluredeck/commit/224ad48fd56b0dfc73356106fabacdd7e5877eff))
+
+### Performance Improvements
+
+* **staged-upload:** extract tar.gz to pod-local disk, skip MinIO round-trip ([8679b38](https://github.com/mkutlak/alluredeck/commit/8679b38e70b4dabd4449d67b81b3b988f7276ad2))
+
 ## [0.34.0](https://github.com/mkutlak/alluredeck/compare/v0.33.2...v0.34.0) (2026-05-09)
 
 ### Features
