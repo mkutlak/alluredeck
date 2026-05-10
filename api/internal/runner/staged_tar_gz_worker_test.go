@@ -233,8 +233,11 @@ func (f *fakeReportGenerator) GenerateReport(_ context.Context, _ int64, _, _, _
 }
 
 // TestParseStagedTarGzWorker_Success drives the worker end-to-end against a
-// fake store and a fake generator. It asserts the staging blob is deleted and
-// the file made it into "results" storage.
+// fake store and a fake generator. The new extraction path writes to a pod-
+// local temp dir (not to the Store), so the assertion confirms the generator
+// was invoked and the staging blob was deleted; the absence of any
+// WriteResultFile call against the Store is the regression guard for the
+// round-trip-removal change.
 func TestParseStagedTarGzWorker_Success(t *testing.T) {
 	t.Parallel()
 	files := map[string][]byte{"r.json": []byte(`{"x":1}`)}
@@ -266,8 +269,8 @@ func TestParseStagedTarGzWorker_Success(t *testing.T) {
 	if !gen.called {
 		t.Error("expected ReportGenerator.GenerateReport to be called")
 	}
-	if _, ok := store.written["p/b1/r.json"]; !ok {
-		t.Errorf("expected r.json under p/b1, got %v", store.written)
+	if len(store.written) != 0 {
+		t.Errorf("expected no WriteResultFile calls (extraction is local-only now), got %v", store.written)
 	}
 	if len(store.deletes) != 1 || store.deletes[0] != "staging/b1.tar.gz" {
 		t.Errorf("expected staging blob deletion, got %v", store.deletes)

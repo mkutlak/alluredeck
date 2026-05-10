@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -59,6 +61,19 @@ type ParseStagedTarGzWorker struct {
 }
 
 // Work implements river.Worker.
+//
+// The staged worker extracts the tar.gz directly to a pod-local temp dir and
+// runs report generation against that dir. The legacy implementation wrote
+// each entry to MinIO at storageKey/results/{batchID}/ and then immediately
+// downloaded the same files back via PrepareLocal — observed in prod as ~4 min
+// extracting_staged + ~4 min preparing_local for a 15919-file batch.
+//
+// The staging tar.gz blob remains the durability source of truth: on pod
+// failure River retries from there, so the per-file MinIO write was pure
+// dead weight. Atomicity: if extraction fails partway, defer os.RemoveAll
+// removes the temp dir and no MinIO state was touched (a strict improvement
+// over the old behavior, which left half-written objects under
+// storageKey/results/{batchID}/).
 func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseStagedTarGzArgs]) error {
 	a := job.Args
 	if w.progress != nil {
@@ -78,7 +93,6 @@ func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseS
 		return fmt.Errorf("open staging blob %q: %w", a.StagingKey, err)
 	}
 
-	concurrency := uploadConcurrencyFromCfg(w.cfg)
 	maxFiles := DefaultMaxArchiveFileCount
 	if w.cfg != nil && w.cfg.MaxArchiveFileCount > 0 {
 		maxFiles = w.cfg.MaxArchiveFileCount
@@ -90,10 +104,40 @@ func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseS
 		}
 	}
 
-	_, extractErr := ExtractTarGzToStorage(ctx, w.store, a.StorageKey, a.BatchID, blob, TarExtractOptions{
+	tmpDir, err := os.MkdirTemp("", "alluredeck-staged-*")
+	if err != nil {
+		_ = blob.Close()
+		w.logger.Error("river: create temp dir failed",
+			zap.Int64("job_id", job.ID),
+			zap.Error(err),
+		)
+		if w.progress != nil {
+			w.progress.upsertJobProgress(ctx, job.ID, JobPhaseFailed, 0, 0)
+		}
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	localResultsDir := filepath.Join(tmpDir, "results", a.BatchID)
+	//nolint:gosec // G301: 0o755 required for the allure CLI to read inputs
+	if err := os.MkdirAll(localResultsDir, 0o755); err != nil {
+		_ = blob.Close()
+		w.logger.Error("river: create local results dir failed",
+			zap.Int64("job_id", job.ID),
+			zap.String("dir", localResultsDir),
+			zap.Error(err),
+		)
+		if w.progress != nil {
+			w.progress.upsertJobProgress(ctx, job.ID, JobPhaseFailed, 0, 0)
+		}
+		return fmt.Errorf("create local results dir %q: %w", localResultsDir, err)
+	}
+
+	// TODO(progress): plumb reporter into ExtractTarGzToDir already wired —
+	// the second-pass progress agent will refine its cadence.
+	_, extractErr := ExtractTarGzToDir(ctx, blob, localResultsDir, TarExtractOptions{
 		MaxDecompressedBytes: DefaultMaxDecompressedBytes,
 		MaxFileCount:         maxFiles,
-		Concurrency:          concurrency,
 		Reporter:             reporter,
 	})
 	_ = blob.Close()
@@ -110,19 +154,40 @@ func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseS
 			w.progress.upsertJobProgress(ctx, job.ID, JobPhaseFailed, 0, 0)
 		}
 		// Leave the staging blob in place for inspection — cleanup job GCs eventually.
+		// The temp dir is removed on defer above; no MinIO state was touched.
 		return extractErr
 	}
 
 	// Chain report generation in-process so the same River job tracks the full
 	// async upload lifecycle (single job_id surfaces extracting_staged →
 	// preparing_local → … → completed via the existing reporter).
-	gen := w.generator
-	if pr, ok := w.generator.(progressAwareGenerator); ok && w.progress != nil {
-		gen = pr.WithProgressReporter(reporter)
+	//
+	// Prefer the local-dir path when the configured generator supports it
+	// (production *Allure does). Fall back to the legacy GenerateReport for
+	// test doubles that only satisfy ReportGenerator.
+	var reportID string
+	if local, ok := w.generator.(LocalReportGenerator); ok {
+		gen := local
+		if pr, ok := w.generator.(progressAwareGenerator); ok && w.progress != nil {
+			// *Allure satisfies LocalReportGenerator (see iface.go); the implicit
+			// interface conversion keeps the local path bound to the per-job reporter.
+			gen = pr.WithProgressReporter(reporter)
+		}
+		// TODO(progress): the local path emits preparing_local from inside
+		// generateReportFromLocal; wiring will be refined by the progress agent.
+		reportID, err = gen.GenerateReportFromLocalDir(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID,
+			a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults,
+			a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL,
+			tmpDir)
+	} else {
+		gen := w.generator
+		if pr, ok := w.generator.(progressAwareGenerator); ok && w.progress != nil {
+			gen = pr.WithProgressReporter(reporter)
+		}
+		reportID, err = gen.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID,
+			a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults,
+			a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL)
 	}
-	reportID, err := gen.GenerateReport(ctx, a.ProjectID, a.Slug, a.StorageKey, a.BatchID,
-		a.ExecName, a.ExecFrom, a.ExecType, a.StoreResults,
-		a.CIBranch, a.CICommitSHA, a.CIPipelineID, a.CIPipelineURL)
 	if err != nil {
 		w.logger.Error("river: staged report generation failed",
 			zap.Int64("job_id", job.ID),
@@ -173,17 +238,6 @@ func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseS
 // GenerateReportWorker.
 func (w *ParseStagedTarGzWorker) Timeout(*river.Job[ParseStagedTarGzArgs]) time.Duration {
 	return w.jobTimeout
-}
-
-// uploadConcurrencyFromCfg returns the configured upload write concurrency,
-// defaulting to 32 when unset. Mirrors handlers.uploadWriteConcurrency but
-// lives in the runner package so the staged worker can reuse it without
-// importing handlers.
-func uploadConcurrencyFromCfg(cfg *config.Config) int {
-	if cfg != nil && cfg.UploadWriteConcurrency > 0 {
-		return cfg.UploadWriteConcurrency
-	}
-	return 32
 }
 
 // StagingCleanupArgs is the River job arg for the periodic staging GC job.

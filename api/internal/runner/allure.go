@@ -405,6 +405,91 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 	defer func() { _ = a.store.CleanupLocal(localProjectDir) }()
 
+	return a.generateReportFromLocal(ctx, projectID, slug, storageKey, batchID,
+		execName, execFrom, execType, storeResults,
+		ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL,
+		localProjectDir, buildNumber)
+}
+
+// GenerateReportFromLocalDir runs report generation against a localProjectDir
+// that already contains an extracted results/{batchID}/ tree on the pod's
+// local disk (the staged async path extracts the tar.gz directly to a temp
+// dir to skip the MinIO round-trip the legacy worker incurred).
+//
+// The caller is responsible for:
+//   - creating localProjectDir (typically via os.MkdirTemp)
+//   - populating localProjectDir/results/{batchID}/ with the test result files
+//   - removing localProjectDir on completion (defer os.RemoveAll(...))
+//
+// This method downloads only the trends history into localProjectDir's
+// results dir before invoking the same shared helper as the sync GenerateReport.
+// On entry, advisory project lock is acquired; on exit it is released.
+func (a *Allure) GenerateReportFromLocalDir(
+	ctx context.Context,
+	projectID int64,
+	slug, storageKey, batchID, execName, execFrom, execType string,
+	storeResults bool,
+	ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string,
+	localProjectDir string,
+) (string, error) {
+	if execName == "" {
+		execName = "Automatic Execution"
+	}
+	if execType == "" {
+		execType = "another"
+	}
+
+	// 1. Acquire per-project lock to serialize concurrent report generation.
+	unlock, err := a.lockManager.AcquireLock(ctx, slug)
+	if err != nil {
+		return "", fmt.Errorf("acquire generation lock: %w", err)
+	}
+	defer unlock()
+
+	// 2. Get next build order atomically from the database.
+	buildNumber, err := a.buildStore.NextBuildNumber(ctx, projectID)
+	if err != nil {
+		return "", fmt.Errorf("next build order: %w", err)
+	}
+
+	// 3. Download history trends into the local results dir. Results
+	// themselves are already on local disk (caller-extracted), so this
+	// is the only MinIO read that remains for the staged path. History
+	// is non-fatal — first-run projects have none.
+	a.publishProgress(JobPhasePreparingLocal, 0, 0)
+	// TODO(progress): wire ProgressFn into downloadHistoryToLocal so progress
+	// is reflected during multi-MB history fetches.
+	if err := downloadHistoryToLocal(ctx, a.store, storageKey, localProjectDir, a.logger); err != nil {
+		// Non-fatal — log and continue. Allure 3 generates without history.
+		a.logger.Info("staged: no history to restore (non-fatal)",
+			zap.String("slug", slug),
+			zap.String("storage_key", storageKey),
+			zap.Error(err))
+	}
+
+	return a.generateReportFromLocal(ctx, projectID, slug, storageKey, batchID,
+		execName, execFrom, execType, storeResults,
+		ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL,
+		localProjectDir, buildNumber)
+}
+
+// generateReportFromLocal is the shared post-PrepareLocal portion of
+// GenerateReport. It expects the caller to have already acquired the project
+// advisory lock, fetched the next buildNumber, and made localProjectDir
+// available with results/{batchID}/ populated and (optionally) a history dir
+// available for trends.
+//
+// Behavior must remain byte-for-byte identical for the sync GenerateReport
+// caller — verified by the existing Allure*/staged_tar_gz tests.
+func (a *Allure) generateReportFromLocal(
+	ctx context.Context,
+	projectID int64,
+	slug, storageKey, batchID, execName, execFrom, execType string,
+	storeResults bool,
+	ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string,
+	localProjectDir string,
+	buildNumber int,
+) (string, error) {
 	resultsDir := filepath.Join(localProjectDir, "results", batchID)
 
 	// 4. Write executor.json directly — always local (temp dir in S3 mode)
@@ -488,6 +573,65 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 
 	return strconv.Itoa(buildNumber), nil
+}
+
+// downloadHistoryToLocal fetches reports/latest/history/ from the persistent
+// store and writes it under localProjectDir/results/history/. This is the
+// only persistent-store read the staged path performs — results themselves
+// are already on local disk via the in-pod tar.gz extraction.
+//
+// History is non-fatal (first-run projects have no history). The function
+// returns an error from the underlying store; callers should log it but not
+// abort report generation.
+//
+// For LocalStore the source is the persistent project dir on the same
+// filesystem; this helper falls back to a directory copy. For S3Store we
+// stream the prefix listing and ReadFile each entry — the history dir is
+// typically a few KB, so a slim sequential download is sufficient (no need
+// to reproduce PrepareLocal's parallel download path).
+func downloadHistoryToLocal(ctx context.Context, st storage.Store, storageKey, localProjectDir string, logger *zap.Logger) error {
+	historyRel := "reports/latest/history"
+	dstDir := filepath.Join(localProjectDir, "results", "history")
+
+	entries, err := st.ReadDir(ctx, storageKey, historyRel)
+	if err != nil {
+		// Missing history is the common first-run case; surface as a single
+		// "no history" signal to the caller (which logs at info level).
+		return fmt.Errorf("list %s: %w", historyRel, err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	//nolint:gosec // G301: 0o755 required for the allure CLI to read inputs
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return fmt.Errorf("create history dst dir %q: %w", dstDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir {
+			// History does not contain nested subdirs in the current Allure 3
+			// layout; skip defensively if a backend ever adds one.
+			continue
+		}
+		srcRel := historyRel + "/" + entry.Name
+		data, err := st.ReadFile(ctx, storageKey, srcRel)
+		if err != nil {
+			if logger != nil {
+				logger.Warn("failed to read history file",
+					zap.String("storage_key", storageKey),
+					zap.String("rel_path", srcRel),
+					zap.Error(err))
+			}
+			continue
+		}
+		dstPath := filepath.Join(dstDir, secureBaseName(entry.Name))
+		//nolint:gosec // G306: 0o644 required for the allure CLI to read inputs
+		if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+			return fmt.Errorf("write history file %q: %w", dstPath, err)
+		}
+	}
+	return nil
 }
 
 // CleanHistory delegates to the store module and regenerates.

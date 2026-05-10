@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -78,42 +79,18 @@ func secureBaseName(name string) string {
 	return filepath.Base(filepath.Clean(name))
 }
 
-// ExtractTarGzToStorage reads a tar.gz stream from src, validates each entry
-// against the configured limits, and streams the bodies of regular files to
-// store under projectID/results/batchID/. Returns the sorted list of written
-// filenames on success.
-//
-// On any validation or write error nothing is rolled back — partial files may
-// remain in storage. Callers are expected to treat any non-nil error as
-// "this batch is incomplete" and skip downstream work that depends on a full
-// extraction (the existing sync handler already does this).
-//
-// Validation matches the legacy sync path:
-//   - decompression bomb (countingTarReader + MaxDecompressedBytes)
-//   - nested-path rejection (entry name must equal its base name)
-//   - duplicate-name detection
-//   - file-count limit (MaxFileCount)
-//   - empty-archive rejection (no regular-file entries written)
-func ExtractTarGzToStorage(
-	ctx context.Context,
-	store storage.Store,
-	projectID, batchID string,
-	src io.Reader,
-	opts TarExtractOptions,
-) ([]string, error) {
-	maxBytes := opts.MaxDecompressedBytes
-	if maxBytes <= 0 {
-		maxBytes = DefaultMaxDecompressedBytes
-	}
-	maxFiles := opts.MaxFileCount
-	if maxFiles <= 0 {
-		maxFiles = DefaultMaxArchiveFileCount
-	}
-	concurrency := opts.Concurrency
-	if concurrency <= 0 {
-		concurrency = 32
-	}
+// pendingEntry is a single regular-file entry buffered from the tar stream.
+type pendingEntry struct {
+	name string
+	body []byte
+}
 
+// readAndValidateTarGz walks src as a gzipped tar stream, validates each
+// regular-file entry against the same limits as ExtractTarGzToStorage, and
+// returns the buffered entries. It is the shared front half of both
+// ExtractTarGzToStorage (parallel storage writes) and ExtractTarGzToDir
+// (sequential local-disk writes).
+func readAndValidateTarGz(src io.Reader, maxBytes int64, maxFiles int) ([]pendingEntry, error) {
 	gz, err := gzip.NewReader(src)
 	if err != nil {
 		return nil, fmt.Errorf("invalid gzip stream: %w", err)
@@ -123,14 +100,7 @@ func ExtractTarGzToStorage(
 	cr := &countingTarReader{r: gz, limit: maxBytes}
 	tr := tar.NewReader(cr)
 
-	// Phase 1: walk the tar sequentially. Buffer each regular-file entry as a
-	// pending write so the parallel write phase can fan out without sharing the
-	// (non-thread-safe) tar.Reader.
-	type pending struct {
-		name string
-		body []byte
-	}
-	var entries []pending
+	var entries []pendingEntry
 	seen := make(map[string]bool)
 	fileCount := 0
 
@@ -173,11 +143,54 @@ func ExtractTarGzToStorage(
 			}
 			return nil, fmt.Errorf("extract %q: %w", safeName, err)
 		}
-		entries = append(entries, pending{name: safeName, body: buf})
+		entries = append(entries, pendingEntry{name: safeName, body: buf})
 	}
 
 	if len(entries) == 0 {
 		return nil, ErrArchiveEmpty
+	}
+	return entries, nil
+}
+
+// ExtractTarGzToStorage reads a tar.gz stream from src, validates each entry
+// against the configured limits, and streams the bodies of regular files to
+// store under projectID/results/batchID/. Returns the sorted list of written
+// filenames on success.
+//
+// On any validation or write error nothing is rolled back — partial files may
+// remain in storage. Callers are expected to treat any non-nil error as
+// "this batch is incomplete" and skip downstream work that depends on a full
+// extraction (the existing sync handler already does this).
+//
+// Validation matches the legacy sync path:
+//   - decompression bomb (countingTarReader + MaxDecompressedBytes)
+//   - nested-path rejection (entry name must equal its base name)
+//   - duplicate-name detection
+//   - file-count limit (MaxFileCount)
+//   - empty-archive rejection (no regular-file entries written)
+func ExtractTarGzToStorage(
+	ctx context.Context,
+	store storage.Store,
+	projectID, batchID string,
+	src io.Reader,
+	opts TarExtractOptions,
+) ([]string, error) {
+	maxBytes := opts.MaxDecompressedBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxDecompressedBytes
+	}
+	maxFiles := opts.MaxFileCount
+	if maxFiles <= 0 {
+		maxFiles = DefaultMaxArchiveFileCount
+	}
+	concurrency := opts.Concurrency
+	if concurrency <= 0 {
+		concurrency = 32
+	}
+
+	entries, err := readAndValidateTarGz(src, maxBytes, maxFiles)
+	if err != nil {
+		return nil, err
 	}
 
 	// Phase 2: bounded-parallel storage writes. First error cancels the rest.
@@ -212,6 +225,74 @@ func ExtractTarGzToStorage(
 	}
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+
+	sort.Strings(written)
+	return written, nil
+}
+
+// ExtractTarGzToDir reads a tar.gz stream from src, validates each entry
+// against the same limits as ExtractTarGzToStorage, and writes the bodies of
+// regular files to dstDir as plain files (using the entry's basename as the
+// destination filename). Returns the sorted list of written filenames on
+// success.
+//
+// Writes are sequential: the bottleneck for the staged path is the MinIO
+// round-trip we are eliminating, not pod-local disk I/O. The gzip+tar reader
+// is also sequential, so a single goroutine driving io.WriteFile is sufficient.
+//
+// Validation matches ExtractTarGzToStorage exactly (same sentinel errors).
+//
+// Atomicity: on any error partial files may remain under dstDir. Callers
+// using a temp dir (the staged worker) should defer os.RemoveAll(dstDir) so a
+// failure here leaves no state behind — a substantial improvement over
+// ExtractTarGzToStorage which leaves half-written objects in MinIO on failure.
+//
+// The TarExtractOptions.Concurrency field is ignored.
+func ExtractTarGzToDir(
+	ctx context.Context,
+	src io.Reader,
+	dstDir string,
+	opts TarExtractOptions,
+) ([]string, error) {
+	maxBytes := opts.MaxDecompressedBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxDecompressedBytes
+	}
+	maxFiles := opts.MaxFileCount
+	if maxFiles <= 0 {
+		maxFiles = DefaultMaxArchiveFileCount
+	}
+
+	entries, err := readAndValidateTarGz(src, maxBytes, maxFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	//nolint:gosec // G301: 0o755 required for the allure CLI to read inputs
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create dst dir %q: %w", dstDir, err)
+	}
+
+	total := len(entries)
+	if opts.Reporter != nil {
+		opts.Reporter(JobPhaseExtractingStaged, 0, total)
+	}
+
+	written := make([]string, 0, total)
+	for i, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		path := filepath.Join(dstDir, secureBaseName(e.name))
+		//nolint:gosec // G306: 0o644 required for the allure CLI to read inputs
+		if err := os.WriteFile(path, e.body, 0o644); err != nil {
+			return nil, fmt.Errorf("write %q: %w", path, err)
+		}
+		written = append(written, e.name)
+		if opts.Reporter != nil {
+			opts.Reporter(JobPhaseExtractingStaged, i+1, total)
+		}
 	}
 
 	sort.Strings(written)
