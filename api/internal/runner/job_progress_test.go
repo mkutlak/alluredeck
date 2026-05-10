@@ -196,6 +196,111 @@ func (g *gatedProgressGenerator) GenerateReport(_ context.Context, _ int64, _, _
 	return strconv.Itoa(1), nil
 }
 
+// multiGateProgressGenerator drives the runner through a fixed sequence of
+// phase/progress steps, pausing at each gate until the test releases it. This
+// lets tests observe mid-job state at multiple points without time.Sleep.
+type multiGateProgressGenerator struct {
+	reporter JobProgressReporter
+	// steps pairs each (phase, done, total) update with a gate channel. The
+	// generator publishes the update then blocks on the gate until closed.
+	steps []gatedStep
+	out   string
+	done  chan struct{} // closed when GenerateReport returns
+}
+
+type gatedStep struct {
+	phase JobPhase
+	done  int
+	total int
+	gate  chan struct{} // closed by the test to release this step
+}
+
+func (g *multiGateProgressGenerator) SetProgressReporter(r JobProgressReporter) { g.reporter = r }
+
+func (g *multiGateProgressGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {
+	for _, s := range g.steps {
+		if g.reporter != nil {
+			g.reporter(s.phase, s.done, s.total)
+		}
+		if s.gate != nil {
+			<-s.gate
+		}
+	}
+	if g.done != nil {
+		close(g.done)
+	}
+	return g.out, nil
+}
+
+// TestMemJobManager_PreparingLocalAndPublishingReportProgressSurfaced verifies
+// that MemJobManager records non-zero progress for the preparing_local and
+// publishing_report phases. It drives a fake generator that emits file-count
+// callbacks for those phases and gates on each one so we can inspect the
+// in-flight job state before the next phase begins.
+func TestMemJobManager_PreparingLocalAndPublishingReportProgressSurfaced(t *testing.T) {
+	t.Parallel()
+
+	prepGate := make(chan struct{})
+	pubGate := make(chan struct{})
+
+	gen := &multiGateProgressGenerator{
+		steps: []gatedStep{
+			{JobPhasePreparingLocal, 7500, 15919, prepGate},
+			{JobPhasePublishingReport, 320, 1024, pubGate},
+		},
+		out:  "1",
+		done: make(chan struct{}),
+	}
+
+	mgr := NewMemJobManager(gen, 1, nil)
+	ctx := t.Context()
+	mgr.Start(ctx)
+	defer mgr.Shutdown()
+
+	job := mgr.Submit(ctx, 7, "demo", JobParams{StorageKey: "demo"})
+
+	// Wait for preparing_local phase with non-zero progress.
+	j := waitForPhase(t, mgr, job.ID, JobPhasePreparingLocal, 2*time.Second)
+	if j.Progress == nil {
+		t.Fatalf("preparing_local: expected non-nil progress")
+	}
+	if j.Progress.Done != 7500 {
+		t.Errorf("preparing_local: progress.done got %d, want 7500", j.Progress.Done)
+	}
+	if j.Progress.Total != 15919 {
+		t.Errorf("preparing_local: progress.total got %d, want 15919", j.Progress.Total)
+	}
+
+	// Release preparing_local gate to let publishing_report begin.
+	close(prepGate)
+
+	// Wait for publishing_report phase with non-zero progress.
+	j = waitForPhase(t, mgr, job.ID, JobPhasePublishingReport, 2*time.Second)
+	if j.Progress == nil {
+		t.Fatalf("publishing_report: expected non-nil progress")
+	}
+	if j.Progress.Done != 320 {
+		t.Errorf("publishing_report: progress.done got %d, want 320", j.Progress.Done)
+	}
+	if j.Progress.Total != 1024 {
+		t.Errorf("publishing_report: progress.total got %d, want 1024", j.Progress.Total)
+	}
+
+	// Release publishing_report gate and wait for completion.
+	close(pubGate)
+
+	select {
+	case <-gen.done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("generator never returned")
+	}
+
+	final := waitForPhase(t, mgr, job.ID, JobPhaseCompleted, 1*time.Second)
+	if final.Status != JobStatusCompleted {
+		t.Fatalf("status: got %q, want %q", final.Status, JobStatusCompleted)
+	}
+}
+
 // errBoom is a sentinel test error used to trigger failure paths.
 var errBoom = errBoomError{}
 
