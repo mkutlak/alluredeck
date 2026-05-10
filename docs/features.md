@@ -2,7 +2,7 @@
 
 AllureDeck is a self-hosted dashboard for Allure test reports. It provides a Go API backend and React frontend for managing projects, browsing report history, visualising test analytics, and embedding Allure 2 and 3 reports inline.
 
-Related documentation: [Deployment & Security](deployment.md) · [Configuration Reference](configuration.md) · [Storage](storage.md) · [Authentication](authentication.md) · [Development Guide](development.md)
+Related documentation: [Deployment & Security](deployment.md) · [Configuration Reference](configuration.md) · [Storage](storage.md) · [Authentication](authentication.md) · [Development Guide](development.md) · [Security](security.md) · [User Management](user-management.md) · [Async Uploads](async-uploads.md) · [Webhooks](webhooks.md) · [Defects](defects.md) · [Audit Log](audit-log.md)
 
 ---
 
@@ -25,6 +25,7 @@ Related documentation: [Deployment & Security](deployment.md) · [Configuration 
 12. [Pipeline Runs](#pipeline-runs)
 13. [Report Viewer](#report-viewer)
 14. [Playwright Reports](#playwright-reports)
+    - [Trace Viewer](#trace-viewer)
 15. [Report Operations](#report-operations)
 16. [Webhooks](#webhooks)
 17. [Report Retention](#report-retention)
@@ -133,7 +134,7 @@ Projects are the top-level organisational unit. Each project has a unique slug (
 
 **Create a project:** Click "+ New project" on the dashboard or use the "Create new" (+) button in the top navigation bar.
 
-**Delete a project:** Open the project card's action menu (three-dot button) and select "Delete project". This removes the project record and all associated reports from storage.
+**Delete a project:** Open the project card's action menu and select "Delete project". This removes the project record and all associated reports from storage.
 
 **Tag management:** Open the project card's action menu and select "Edit tags" to assign free-form labels. Tags can be used for filtering on the dashboard.
 
@@ -246,46 +247,15 @@ Known Issues lets you tag test cases that are currently broken by design — fla
 
 ## Defects
 
+![Defects List](screenshots/defects-list.png)
+
 Defects group repeat test failures by **error fingerprint**, so a cluster of tests failing with the same root cause appears as a single tracked item that you can classify and triage — separate from Known Issues (which is about individually-tagged tests).
 
-Each defect has:
-- A **fingerprint** derived from the normalized error message and stack trace
-- A **category** — `product_bug`, `test_bug`, `infrastructure`, or `to_investigate`
-- A **resolution** — `open`, `fixed`, `muted`, or `won't fix`
-- First / last seen build, total occurrence count, and consecutive-clean-build count (used to detect regressions)
-- An optional link to a Known Issue
+Each defect has a fingerprint, a category (`product_bug`, `test_bug`, `infrastructure`, `to_investigate`), a resolution (`open`, `fixed`, `muted`, `won't fix`), first/last seen build, occurrence count, and an optional link to a Known Issue.
 
-The defects page lives at `/projects/{id}/defects` and is also reachable from the sidebar under a project.
+The project-level view shows summary stat cards (Open, Fixed, Muted, Regressions), a build trend chart, and a filterable/sortable/paginated table. Clicking a row opens an inline detail drawer. Bulk actions let you set category or resolution across many defects at once. A build-scoped view shows only defects from a specific build.
 
-**Project-level view (`ProjectDefectsView`):**
-- Four stat cards at the top: **Open**, **Fixed**, **Muted**, **Regressions**
-- A trend chart showing defect counts per build
-- A filterable, sortable, paginated defect table with columns for category badge, error message, test count, build range, and new/regression flags
-
-**Filters** (above the table):
-- Text search on the normalized error message
-- Category dropdown (All / Product Bug / Test Bug / Infrastructure / To Investigate)
-- Resolution dropdown (All / Open / Fixed / Muted / Won't Fix)
-- Sort by last seen, first seen, or occurrence count
-
-**Defect detail:** Clicking a row expands an inline drawer with the metadata grid (first seen, last seen, total occurrences, consecutive clean builds), a category selector, and resolution action buttons (Mute, Won't Fix, Reopen).
-
-**Bulk actions:** Check multiple rows and a toolbar appears with **Set category** and **Set resolution** selectors — the chosen values apply to all selected defects via a single API call.
-
-**Build-level view (`BuildDefectsView`):** Accessible at `/projects/{id}/builds/{build_id}/defects` (e.g., from the Report History table). Shows only the defects observed in that build, with summary badges for **Groups**, **Affected tests**, **New**, and **Regressions**.
-
-**API endpoints:**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/projects/{project_id}/defects` | Paginated project-wide defect list (with filters) |
-| `GET` | `/api/v1/projects/{project_id}/defects/summary` | Open / fixed / muted / regression counts and category breakdown |
-| `GET` | `/api/v1/projects/{project_id}/defects/{defect_id}` | Single defect metadata |
-| `GET` | `/api/v1/projects/{project_id}/defects/{defect_id}/tests` | Tests currently attached to this defect |
-| `PATCH` | `/api/v1/projects/{project_id}/defects/{defect_id}` | Update category / resolution / known-issue link (editor+) |
-| `POST` | `/api/v1/projects/{project_id}/defects/bulk` | Bulk-update category / resolution on many defects (editor+) |
-| `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/defects` | Defects observed in a specific build |
-| `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/defects/summary` | Build-scoped summary counts |
+See [Defects](defects.md) for the full fingerprinting explanation, field reference, filter options, and API endpoints.
 
 ---
 
@@ -311,13 +281,16 @@ This view is especially useful for identifying bottlenecks in parallel test suit
 
 ## Test History
 
-The Test History page (`/projects/{id}/tests/{test_id}/history`) shows the cross-build history of a single test case.
+![Test History](screenshots/test-history.png)
+
+The Test History page (`/projects/{id}/tests/{test_id}/history`) shows the cross-build execution history of a single test case, reachable from the Tests tab or from within a report viewer.
 
 **Features:**
-- Historical status across all builds where the test appeared
+- Historical status across all builds where the test appeared, with pass/fail/broken/skipped indicators
 - Duration trend over time
 - Branch-scoped filtering
-- Navigation from report viewer test results to their full history
+- Commit SHA column for correlating failures with specific code changes
+- Navigation from the report viewer test-results tree to the test's full history
 
 ---
 
@@ -409,11 +382,13 @@ Navigate to the report via the normal report history table (`/projects/{id}/repo
 
 If the build also has an Allure report, a toggle in the action bar lets you switch between the two.
 
-**Embedded trace viewer:**
+### Trace Viewer
 
-Playwright `trace.zip` files attached to a test render inline. The trace viewer itself is served from `/trace/` — a static-file handler with the embedded Playwright trace viewer assets — and is wrapped by the `/projects/{id}/trace/{source}` route on the UI side, which injects the trace file URL as a query parameter.
+![Trace Viewer](screenshots/trace-viewer.png)
 
-No authentication is required to load `/trace/` (it's pure static assets), but the trace file it opens is served through AllureDeck's authenticated attachment endpoint, so traces remain protected.
+Playwright `trace.zip` files attached to a test render inline in AllureDeck's **embedded trace viewer** — no download required. The trace viewer is served as static assets from `/trace/` (populated at build time from `playwright-core`) and is opened via the `/projects/{id}/trace/{source}` UI route, which injects the trace file URL as a query parameter.
+
+No authentication is required to load `/trace/` (it's pure static HTML/JS), but the trace file URL it opens resolves through AllureDeck's authenticated attachment endpoint, so traces remain protected by the normal access controls.
 
 **Action bar behavior:**
 
@@ -452,6 +427,8 @@ The action bar at the top of every project page provides report management opera
 ![Send Results](screenshots/send-results.png)
 
 Clicking "Send results" opens a modal with a drag-and-drop drop zone. You can also browse for files. Supports individual files, multipart form-data, and tar.gz archives. The "Generate report after upload" checkbox (on by default) will automatically trigger report generation after the upload completes.
+
+**Async tar.gz upload (CI/CD):** Large archives can be uploaded with `?async=true` to receive a `202 Accepted` response immediately while a background worker processes the archive. See [Async Uploads](async-uploads.md) for the full curl example and polling pattern.
 
 ### curl examples for CI/CD
 
@@ -511,17 +488,7 @@ Manage webhooks at `/settings/webhooks`. Each webhook belongs to a project, and 
 
 **Delivery history:** Click the history action on a webhook row to see the last deliveries with status code, response body (truncated), error message, attempt number, and duration in milliseconds. Entries are ordered newest first and paginated.
 
-**API endpoints** (editor+):
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/projects/{project_id}/webhooks` | List webhooks for a project |
-| `POST` | `/api/v1/projects/{project_id}/webhooks` | Create a webhook |
-| `GET` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}` | Fetch a single webhook |
-| `PUT` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}` | Update a webhook |
-| `DELETE` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}` | Delete a webhook |
-| `POST` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}/test` | Queue a test delivery |
-| `GET` | `/api/v1/projects/{project_id}/webhooks/{webhook_id}/deliveries` | Paginated delivery history |
+See [Webhooks](webhooks.md) for the full payload shape, per-target examples (Slack, Discord, Teams, generic), HMAC signing details, and the complete API reference.
 
 ---
 
@@ -576,27 +543,32 @@ Accessible via "System Monitor" in the sidebar (admin only), this page provides 
 ## Navigation & UI
 
 **Sidebar:** The collapsible left sidebar shows the current project's navigation tabs in this order:
+
 1. Overview
 2. Analytics
 3. Defects
 4. Timeline
 5. Known Issues
-6. Attachments
+6. Tests
+7. Attachments
+8. Compare
 
-**Parent projects:** When the selected project is a **parent** (has children — see [Project Hierarchy & Grouping](#project-hierarchy--grouping)), the sidebar hides Timeline, Known Issues, and Attachments and shows the [Pipeline Runs](#pipeline-runs) tab instead. Overview, Analytics, and Defects remain visible.
+**Parent projects:** When the selected project is a **parent** (has children — see [Project Hierarchy & Grouping](#project-hierarchy--grouping)), the sidebar hides Timeline, Known Issues, Attachments, Tests, and Compare, and shows the [Pipeline Runs](#pipeline-runs) tab instead. Overview, Analytics, and Defects remain visible.
 
-The Administration section appears below the project section and contains **System Monitor** (`/admin`), **API Keys** (`/settings/api-keys`), and **Webhooks** (`/settings/webhooks`). The System Monitor entry is admin-only.
+The Administration section appears below the project section and contains **System Monitor** (`/admin`), **Users** (`/settings/users`, admin only), **API Keys** (`/settings/api-keys`), and **Webhooks** (`/settings/webhooks`, editor+).
 
 Collapse the sidebar with the toggle button in the header to maximise the main content area.
 
-**Top bar:** The top navigation bar is fixed above the main content and contains (left to right): the sidebar toggle, the AllureDeck favicon/home link, the **ProjectSwitcher** (a searchable dropdown showing the active project — click to switch to any project without returning to the dashboard), a flexible spacer, a **Search** trigger (⌘K / Ctrl+K), a **Create** button for admins (new project), the **theme toggle** (light/dark, Catppuccin Latte/Mocha), and the **user menu** (username, role badge, API Keys link, Sign out).
+**Top bar:** The top navigation bar is fixed above the main content and contains (left to right): the sidebar toggle, the AllureDeck favicon/home link, the **ProjectSwitcher** (a searchable dropdown showing the active project — click to switch to any project without returning to the dashboard), a flexible spacer, a **Search** trigger (⌘K / Ctrl+K), a **Create** button for admins (new project), the **theme toggle** (light/dark, Catppuccin Latte/Mocha), and the **user menu** (username, role badge, Profile link, API Keys link, Sign out).
 
 **Theme toggle:** The moon/sun icon in the top bar switches between light and dark mode (Catppuccin Latte/Mocha colour scheme). The preference is persisted per user (see [User Preferences](#user-preferences)).
+
+**Global search (⌘K):** The `cmdk`-powered command palette opens from anywhere with **Cmd+K** / **Ctrl+K**. Searches project names and test names within the current project using PostgreSQL full-text search. Type at least 2 characters to trigger results; navigate with arrow keys; press Enter to open, Escape to close.
 
 **Branch management:** The branch selector dropdown on the Project Overview and Analytics pages filters all history and stats to the selected branch. The selected branch is remembered per user across sessions.
 
 **Keyboard shortcuts:**
-- **Cmd+K / Ctrl+K** — Open global search
+- **Cmd+K / Ctrl+K** — Open global search palette
 - **Arrow keys** — Navigate search results
 - **Enter** — Select search result
 - **Escape** — Close search / clear timeline selection
