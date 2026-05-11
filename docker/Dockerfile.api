@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 ###### Playwright Trace Viewer Fetch Stage
-FROM --platform=$BUILDPLATFORM node:25-alpine AS trace_fetcher
+FROM --platform=$BUILDPLATFORM node:26-alpine AS trace_fetcher
 WORKDIR /tmp/pw
 RUN npm init -y && npm install playwright-core
 RUN cp -r node_modules/playwright-core/lib/vite/traceViewer /trace-viewer
@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o alluredeck-api ./cmd/api/
 
 ###### Allure Install Stage
-FROM --platform=$BUILDPLATFORM node:25-alpine AS allure_stage
+FROM --platform=$BUILDPLATFORM node:26-alpine AS allure_stage
 WORKDIR /allure-install
 COPY docker/allure-package.json package.json
 RUN --mount=type=cache,target=/root/.npm \
