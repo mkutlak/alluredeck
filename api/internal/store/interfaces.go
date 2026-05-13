@@ -95,6 +95,18 @@ type TestResultStorer interface {
 	ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]MultiTimelineRow, error)
 	ListFailedForFingerprinting(ctx context.Context, projectID int64, buildID int64) ([]FailedTestResult, error)
 	ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]TestResult, error)
+	// MarkFlakyByHistoryID sets flaky=true on the most-recent test_results row
+	// matching (project_id, history_id, full_name). Used by the proposal approval
+	// flow to apply a flaky-proposal without modifying historical rows.
+	MarkFlakyByHistoryID(ctx context.Context, projectID int64, historyID, fullName string) error
+	// SearchByName returns up to limit test results whose full_name matches
+	// the given substring (case-insensitive). Used by the find_test_by_name MCP tool.
+	SearchByName(ctx context.Context, projectID int64, substring string, limit int) ([]*TestResult, error)
+	// ListRecentMessages returns up to limit distinct non-empty status_message
+	// values from failed/broken test_results for a project. Used by the
+	// propose_known_issue dry-run to estimate how many recent failures a regex
+	// would match without a full table scan.
+	ListRecentMessages(ctx context.Context, projectID int64, limit int) ([]string, error)
 }
 
 // KnownIssueStorer is the interface for known issue operations.
@@ -248,6 +260,9 @@ type PipelineStorer interface {
 type AttachmentStorer interface {
 	ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]TestAttachment, int, error)
 	GetBySource(ctx context.Context, buildID int64, source string) (*TestAttachment, error)
+	// GetByID returns a single attachment row by its primary key. Returns
+	// ErrAttachmentNotFound when no row exists.
+	GetByID(ctx context.Context, id int64) (*TestAttachment, error)
 	// InsertBuildAttachments inserts build-level attachments (e.g. from Playwright
 	// data/ directory) that are not linked to a specific test result.
 	InsertBuildAttachments(ctx context.Context, buildID int64, projectID int64, attachments []TestAttachment) error
@@ -465,4 +480,42 @@ type UserPreferences struct {
 type PreferenceStorer interface {
 	GetPreferences(ctx context.Context, username string) (*UserPreferences, error)
 	UpsertPreferences(ctx context.Context, username string, preferences json.RawMessage) (*UserPreferences, error)
+}
+
+// DefectProposalStorer manages MCP-proposed defect reclassifications.
+type DefectProposalStorer interface {
+	// Create inserts a new defect proposal and returns its assigned ID.
+	Create(ctx context.Context, p *DefectProposal) (int64, error)
+	// Get retrieves a single defect proposal by ID.
+	Get(ctx context.Context, id int64) (*DefectProposal, error)
+	// ListPending returns pending proposals for a project with cursor-based pagination.
+	// cursor is an opaque token from the previous call; "" starts from the beginning.
+	// Returns items, the next cursor (empty when no more pages), and any error.
+	ListPending(ctx context.Context, projectID int, limit int, cursor string) ([]*DefectProposal, string, error)
+	// MarkReviewed sets status + reviewed_by_user_id + reviewed_at on a proposal.
+	MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status ProposalStatus) error
+}
+
+// KnownIssueProposalStorer manages MCP-proposed known-issue rules.
+type KnownIssueProposalStorer interface {
+	// Create inserts a new known-issue proposal and returns its assigned ID.
+	Create(ctx context.Context, p *KnownIssueProposal) (int64, error)
+	// Get retrieves a single known-issue proposal by ID.
+	Get(ctx context.Context, id int64) (*KnownIssueProposal, error)
+	// ListPending returns pending proposals for a project with cursor-based pagination.
+	ListPending(ctx context.Context, projectID int, limit int, cursor string) ([]*KnownIssueProposal, string, error)
+	// MarkReviewed sets status + reviewed_by_user_id + reviewed_at on a proposal.
+	MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status ProposalStatus) error
+}
+
+// FlakyProposalStorer manages MCP-proposed flaky-test flags.
+type FlakyProposalStorer interface {
+	// Create inserts a new flaky proposal and returns its assigned ID.
+	Create(ctx context.Context, p *FlakyProposal) (int64, error)
+	// Get retrieves a single flaky proposal by ID.
+	Get(ctx context.Context, id int64) (*FlakyProposal, error)
+	// ListPending returns pending proposals for a project with cursor-based pagination.
+	ListPending(ctx context.Context, projectID int, limit int, cursor string) ([]*FlakyProposal, string, error)
+	// MarkReviewed sets status + reviewed_by_user_id + reviewed_at on a proposal.
+	MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status ProposalStatus) error
 }

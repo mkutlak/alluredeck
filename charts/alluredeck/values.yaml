@@ -43,6 +43,7 @@ api:
     reportGenerationTimeout: "5m"
     staticContentProjects: "/data/projects"
     databaseURL: ""  # PostgreSQL connection string (required); set via DATABASE_URL env var or existingSecret
+    mcpEnabled: "false"  # gates /admin/proposals route in cmd/api; mirrors mcp.enabled
 
   # S3/MinIO connection settings (used when storageType=s3)
   # Authentication: use s3.existingSecret for static credentials (keys: S3_ACCESS_KEY, S3_SECRET_KEY),
@@ -197,6 +198,45 @@ api:
 
   podAnnotations: {}
   podLabels: {}
+
+# ---------------------------------------------------------------------------
+# MCP (Model Context Protocol server)
+# ---------------------------------------------------------------------------
+mcp:
+  enabled: false
+  image:
+    repository: ghcr.io/alluredeck/mcp
+    tag: ""  # defaults to Chart.appVersion
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 8081
+  config:
+    enableMcpServer: true        # plumbed as ENABLE_MCP_SERVER
+    allowedOrigins: ""           # plumbed as MCP_ALLOWED_ORIGINS
+    rateLimitPerMin: 60
+    rateLimitBurst: 10
+    poolMaxConns: 8
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  probes:
+    liveness:
+      path: /mcp/health
+      port: 8081
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    readiness:
+      path: /mcp/health
+      port: 8081
+      initialDelaySeconds: 5
+      periodSeconds: 10
+  service:
+    type: ClusterIP
+  serviceAccountName: ""  # inherits from .Values.api.serviceAccountName if blank
 
 # ---------------------------------------------------------------------------
 # UI (React frontend served by Nginx)

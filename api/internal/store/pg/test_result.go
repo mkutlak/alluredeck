@@ -614,4 +614,97 @@ func (ts *TestResultStore) ListFailedForFingerprinting(ctx context.Context, proj
 	return results, rows.Err()
 }
 
+// MarkFlakyByHistoryID sets flaky=true on the most-recent test_results row
+// matching (project_id, history_id, full_name). When no matching row exists the
+// call is a no-op (not an error) — the build may have been pruned.
+func (ts *TestResultStore) MarkFlakyByHistoryID(ctx context.Context, projectID int64, historyID, fullName string) error {
+	tag, err := ts.pool.Exec(ctx, `
+		UPDATE test_results
+		SET flaky = true
+		WHERE id = (
+			SELECT id FROM test_results
+			WHERE project_id = $1 AND history_id = $2 AND full_name = $3
+			ORDER BY id DESC
+			LIMIT 1
+		)`,
+		projectID, historyID, fullName,
+	)
+	if err != nil {
+		return fmt.Errorf("mark flaky by history_id: %w", err)
+	}
+	_ = tag // no-op when no row found; caller treats 0 rows as success
+	return nil
+}
+
+// SearchByName returns up to limit test results whose full_name contains
+// substring (case-insensitive ILIKE). Results are ordered by full_name.
+func (ts *TestResultStore) SearchByName(ctx context.Context, projectID int64, substring string, limit int) ([]*store.TestResult, error) {
+	rows, err := ts.pool.Query(ctx, `
+		SELECT DISTINCT ON (history_id)
+			build_id, project_id, test_name, full_name, status, history_id,
+			duration_ms, flaky, retries, new_failed, new_passed,
+			start_ms, stop_ms, thread, host
+		FROM test_results
+		WHERE project_id = $1 AND full_name ILIKE $2
+		ORDER BY history_id, build_id DESC
+		LIMIT $3`,
+		projectID, "%"+substring+"%", limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search by name: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*store.TestResult
+	for rows.Next() {
+		var r store.TestResult
+		if err := rows.Scan(
+			&r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status,
+			&r.HistoryID, &r.DurationMs, &r.Flaky, &r.Retries, &r.NewFailed, &r.NewPassed,
+			&r.StartMs, &r.StopMs, &r.Thread, &r.Host,
+		); err != nil {
+			return nil, fmt.Errorf("scan search row: %w", err)
+		}
+		out = append(out, &r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate search rows: %w", err)
+	}
+	return out, nil
+}
+
+// ListRecentMessages returns up to limit distinct non-empty status_message
+// values from failed/broken test_results for a project, ordered by recency.
+// Used by the propose_known_issue dry-run match-count estimate.
+func (ts *TestResultStore) ListRecentMessages(ctx context.Context, projectID int64, limit int) ([]string, error) {
+	rows, err := ts.pool.Query(ctx, `
+		SELECT DISTINCT status_message
+		FROM test_results
+		WHERE project_id = $1
+		  AND status IN ('failed', 'broken')
+		  AND status_message IS NOT NULL
+		  AND status_message != ''
+		ORDER BY status_message
+		LIMIT $2`,
+		projectID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list recent messages: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var msg string
+		if err := rows.Scan(&msg); err != nil {
+			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		out = append(out, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate messages: %w", err)
+	}
+	return out, nil
+}
+
 var _ store.TestResultStorer = (*TestResultStore)(nil)

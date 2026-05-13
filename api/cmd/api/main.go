@@ -16,11 +16,12 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/handlers"
-	"github.com/mkutlak/alluredeck/api/internal/logging"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
-	"github.com/mkutlak/alluredeck/api/internal/observability"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
@@ -31,23 +32,26 @@ import (
 
 // stores groups all database store instances.
 type stores struct {
-	project       store.ProjectStorer
-	build         store.BuildStorer
-	blacklist     store.BlacklistStorer
-	testResult    store.TestResultStorer
-	branch        store.BranchStorer
-	knownIssue    store.KnownIssueStorer
-	search        store.SearchStorer
-	analytics     store.AnalyticsStorer
-	apiKey        store.APIKeyStorer
-	attachment    store.AttachmentStorer
-	user          store.UserStorer
-	defect        store.DefectStorer
-	webhook       store.WebhookStorer
-	pipeline      store.PipelineStorer
-	preference    store.PreferenceStorer
-	refreshFamily store.RefreshTokenFamilyStorer
-	audit         store.AuditLogger
+	project             store.ProjectStorer
+	build               store.BuildStorer
+	blacklist           store.BlacklistStorer
+	testResult          store.TestResultStorer
+	branch              store.BranchStorer
+	knownIssue          store.KnownIssueStorer
+	search              store.SearchStorer
+	analytics           store.AnalyticsStorer
+	apiKey              store.APIKeyStorer
+	attachment          store.AttachmentStorer
+	user                store.UserStorer
+	defect              store.DefectStorer
+	webhook             store.WebhookStorer
+	pipeline            store.PipelineStorer
+	preference          store.PreferenceStorer
+	refreshFamily       store.RefreshTokenFamilyStorer
+	audit               store.AuditLogger
+	defectProposals     store.DefectProposalStorer
+	knownIssueProposals store.KnownIssueProposalStorer
+	flakyProposals      store.FlakyProposalStorer
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -77,6 +81,7 @@ type handlerSet struct {
 	pipeline        *handlers.PipelineHandler
 	preferences     *handlers.PreferenceHandler
 	oidc            *handlers.OIDCHandler // may be nil
+	proposals       *handlers.ProposalsHandler // may be nil; only set when MCPServerEnabled
 }
 
 // routeDeps bundles all dependencies needed by registerRoutes.
@@ -104,7 +109,7 @@ func main() {
 	// ready. When cfg.Observability.Enabled is false this is a fast no-op.
 	// The shutdown is deferred LAST so it runs AFTER the HTTP server drains
 	// and the DB pool closes, giving in-flight spans time to flush.
-	obsShutdown, err := observability.Init(context.Background(), cfg.Observability, logger)
+	obsShutdown, err := bootstrap.InitOTel(context.Background(), cfg, logger)
 	if err != nil {
 		logger.Fatal("failed to initialise observability", zap.Error(err))
 	}
@@ -160,7 +165,7 @@ func main() {
 	}
 	var jobManager runner.JobQueuer = rjm
 
-	jwtManager := security.NewJWTManager(cfg, s.blacklist, logger)
+	jwtManager := bootstrap.InitJWTManager(cfg, s.blacklist, logger)
 
 	// F-4 (SECURITY_REVIEW.md): per-account brute-force throttle. Constructed
 	// here so it can be wired into the AuthHandler before any request is
@@ -174,7 +179,7 @@ func main() {
 		60*time.Second, // backoffMax — exponential delay cap
 	)
 
-	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, logger)
+	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, pgDB.Pool(), logger)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, s.project, dataStore, logger)
 
@@ -330,7 +335,7 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 		os.Exit(1)
 	}
 
-	logger := logging.Setup(cfg.DevMode, cfg.LogLevel)
+	logger := bootstrap.InitLogger(cfg)
 
 	// Fail fast if security is enabled with an insecure default secret (AUDIT 1.3).
 	if err := cfg.Validate(); err != nil {
@@ -349,52 +354,48 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 }
 
 // mustInitStores opens the PostgreSQL database connection and initialises all
-// store instances. encKey is required for the webhook store. Returns the
-// populated stores struct, the *sql.DB handle needed by SystemHandler, the
-// Locker interface, and the raw *pg.PGStore so the caller can pass its pool
-// to the job manager and register a deferred close.
+// store instances via the shared bootstrap package. encKey is required for the
+// webhook store. Returns the populated stores struct, the *sql.DB handle needed
+// by SystemHandler, the Locker interface, and the raw *pg.PGStore so the caller
+// can pass its pool to the job manager and register a deferred close.
 func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
 	initCtx := context.Background()
 
-	pgDB, err := pg.Open(initCtx, cfg)
+	bs, err := bootstrap.InitStores(initCtx, cfg, bootstrap.DefaultPoolConfig(), encKey, dataStore, logger)
 	if err != nil {
 		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
 	}
 
-	pgProj := pg.NewProjectStore(pgDB, logger)
-	pgBuild := pg.NewBuildStore(pgDB, logger)
-
 	s := stores{
-		project:       pgProj,
-		build:         pgBuild,
-		refreshFamily: pg.NewRefreshTokenFamilyStore(pgDB),
-		blacklist:     pg.NewBlacklistStore(pgDB),
-		testResult:    pg.NewTestResultStore(pgDB, logger),
-		branch:        pg.NewBranchStore(pgDB),
-		knownIssue:    pg.NewKnownIssueStore(pgDB),
-		search:        pg.NewSearchStore(pgDB, logger),
-		analytics:     pg.NewAnalyticsStore(pgDB),
-		apiKey:        pg.NewAPIKeyStore(pgDB),
-		attachment:    pg.NewAttachmentStore(pgDB),
-		user:          pg.NewUserStore(pgDB),
-		defect:        pg.NewDefectStore(pgDB),
-		webhook:       pg.NewWebhookStore(pgDB, encKey, logger),
-		pipeline:      pg.NewPipelineStore(pgDB),
-		preference:    pg.NewPreferenceStore(pgDB),
-		audit:         pg.NewAuditStore(pgDB),
+		project:             bs.Project,
+		build:               bs.Build,
+		refreshFamily:       bs.RefreshFamily,
+		blacklist:           bs.Blacklist,
+		testResult:          bs.TestResult,
+		branch:              bs.Branch,
+		knownIssue:          bs.KnownIssue,
+		search:              bs.Search,
+		analytics:           bs.Analytics,
+		apiKey:              bs.APIKey,
+		attachment:          bs.Attachment,
+		user:                bs.User,
+		defect:              bs.Defect,
+		webhook:             bs.Webhook,
+		pipeline:            bs.Pipeline,
+		preference:          bs.Preference,
+		audit:               bs.Audit,
+		defectProposals:     bs.DefectProposals,
+		knownIssueProposals: bs.KnownIssueProposals,
+		flakyProposals:      bs.FlakyProposals,
 	}
 
-	if err := pg.SyncMetadata(initCtx, dataStore, pgProj, pgBuild, logger); err != nil {
-		logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
-	}
-
-	sqlDB := pgDB.DB()
-	var locker store.Locker = pgDB
-	return s, sqlDB, locker, pgDB
+	return s, bs.DB, bs.Locker, bs.PGStore
 }
 
 // wireHandlers constructs every HTTP handler and returns them in a handlerSet.
 // The conditional OIDC handler is nil when OIDC is not enabled.
+// pool is needed by ProposalsHandler for transactional approve/reject operations;
+// it is only wired when cfg.MCPServerEnabled is true.
 func wireHandlers(
 	cfg *config.Config,
 	s stores,
@@ -404,6 +405,7 @@ func wireHandlers(
 	jobManager runner.JobQueuer,
 	jwtManager *security.JWTManager,
 	accountThrottler *middleware.AccountThrottler,
+	pool *pgxpool.Pool,
 	logger *zap.Logger,
 ) handlerSet {
 	var oidcHandler *handlers.OIDCHandler
@@ -416,6 +418,20 @@ func wireHandlers(
 		oidcHandler = handlers.NewOIDCHandler(cfg, oidcProv, jwtManager, s.user, s.refreshFamily, logger).
 			WithAuditLogger(s.audit)
 		logger.Info("OIDC SSO enabled", zap.String("issuer", cfg.OIDC.IssuerURL))
+	}
+
+	var proposalsHandler *handlers.ProposalsHandler
+	if cfg.MCPServerEnabled {
+		proposalsHandler = handlers.NewProposalsHandler(
+			s.defectProposals,
+			s.knownIssueProposals,
+			s.flakyProposals,
+			s.knownIssue,
+			s.testResult,
+			s.defect,
+			pool,
+			logger,
+		)
 	}
 
 	return handlerSet{
@@ -462,6 +478,7 @@ func wireHandlers(
 		pipeline:    handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
 		preferences: handlers.NewPreferenceHandler(s.preference),
 		oidc:        oidcHandler,
+		proposals:   proposalsHandler,
 	}
 }
 
@@ -847,6 +864,13 @@ func registerRoutes(d routeDeps) {
 		mux.HandleFunc("POST "+prefix+"/projects/{project_id}/defects/bulk", editorUp(noStore(d.h.defect.BulkUpdateDefects)))
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects", viewerUp(noStore(d.h.defect.ListBuildDefects)))
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects/summary", viewerUp(mutableCache(d.h.defect.GetBuildDefectSummary)))
+	}
+
+	// MCP proposal review endpoints — only registered when MCPServerEnabled is true.
+	if d.cfg.MCPServerEnabled && d.h.proposals != nil {
+		mux.HandleFunc("GET "+prefix+"/proposals/{type}", viewerUp(noStore(d.h.proposals.ListProposals)))
+		mux.HandleFunc("POST "+prefix+"/proposals/{type}/{id}/approve", adminOnly(noStore(d.h.proposals.ApproveProposal)))
+		mux.HandleFunc("POST "+prefix+"/proposals/{type}/{id}/reject", adminOnly(noStore(d.h.proposals.RejectProposal)))
 	}
 
 	// Webhook management endpoints.

@@ -1,0 +1,17 @@
+{{- if .Values.mcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alluredeck.mcp.fullname" . }}
+  labels:
+    {{- include "alluredeck.mcp.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.mcp.service.type }}
+  ports:
+    - port: {{ .Values.mcp.port | int }}
+      targetPort: http-mcp
+      protocol: TCP
+      name: http-mcp
+  selector:
+    {{- include "alluredeck.mcp.selectorLabels" . | nindent 4 }}
+{{- end }}

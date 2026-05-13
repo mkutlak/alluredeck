@@ -40,7 +40,7 @@ func (s *APIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.API
 // ListByUsername returns all API keys for the given username, newest first.
 func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]store.APIKey, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at
+		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at, allow_mcp_writes
 		FROM api_keys
 		WHERE username = $1
 		ORDER BY created_at DESC`,
@@ -55,7 +55,7 @@ func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]st
 	for rows.Next() {
 		var k store.APIKey
 		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.KeyHash, &k.Username,
-			&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt); err != nil {
+			&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt, &k.AllowMCPWrites); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
 		keys = append(keys, k)
@@ -71,12 +71,12 @@ func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]st
 func (s *APIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.APIKey, error) {
 	var k store.APIKey
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at
+		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at, allow_mcp_writes
 		FROM api_keys
 		WHERE key_hash = $1`,
 		keyHash,
 	).Scan(&k.ID, &k.Name, &k.Prefix, &k.KeyHash, &k.Username,
-		&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt)
+		&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt, &k.AllowMCPWrites)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: hash=%s", store.ErrAPIKeyNotFound, keyHash)
 	}

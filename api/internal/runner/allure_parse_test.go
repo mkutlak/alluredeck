@@ -128,6 +128,15 @@ func (s *spyTestResultStore) ListFailedForFingerprinting(_ context.Context, _ in
 func (s *spyTestResultStore) ListStabilityByBuild(_ context.Context, _ int64, _ int64) ([]store.TestResult, error) {
 	return nil, nil
 }
+func (s *spyTestResultStore) SearchByName(_ context.Context, _ int64, _ string, _ int) ([]*store.TestResult, error) {
+	return nil, nil
+}
+func (s *spyTestResultStore) ListRecentMessages(_ context.Context, _ int64, _ int) ([]string, error) {
+	return nil, nil
+}
+func (s *spyTestResultStore) MarkFlakyByHistoryID(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
 
 // mockStore returns a storage.MockStore wired for storeAndPruneBuild success:
 // ReadBuildStats returns non-empty stats, ReadDir returns empty (no stability entries).

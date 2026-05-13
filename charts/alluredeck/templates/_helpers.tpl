@@ -206,6 +206,30 @@ Priority:
 {{- end }}
 
 {{/*
+MCP component fullname.
+*/}}
+{{- define "alluredeck.mcp.fullname" -}}
+{{- printf "%s-mcp" (include "alluredeck.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+MCP labels.
+*/}}
+{{- define "alluredeck.mcp.labels" -}}
+{{ include "alluredeck.labels" . }}
+{{ include "alluredeck.mcp.selectorLabels" . }}
+{{- end }}
+
+{{/*
+MCP selector labels.
+*/}}
+{{- define "alluredeck.mcp.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "alluredeck.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: mcp
+{{- end }}
+
+{{/*
 Image pull secrets combining global and component-level secrets.
 */}}
 {{- define "alluredeck.imagePullSecrets" -}}

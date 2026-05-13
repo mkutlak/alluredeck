@@ -51,6 +51,15 @@ spec:
                 port:
                   name: http-api
           {{- end }}
+          {{- if .Values.mcp.enabled }}
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "alluredeck.mcp.fullname" . }}
+                port:
+                  name: http-mcp
+          {{- end }}
           {{- range .Values.ingress.extraPaths }}
           - path: {{ .path }}
             pathType: {{ .pathType | default "Prefix" }}

@@ -88,6 +88,7 @@ export interface ConfigData {
   optimize_storage: boolean
   make_viewer_endpoints_public: boolean
   oidc_enabled: boolean
+  mcp_enabled?: boolean
 }
 
 // ---------------------------------------------------------------------------

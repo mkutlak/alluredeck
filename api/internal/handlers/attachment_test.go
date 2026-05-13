@@ -44,6 +44,13 @@ func (m *mockAttachmentStore) InsertBuildAttachments(_ context.Context, _ int64,
 	return nil
 }
 
+func (m *mockAttachmentStore) GetByID(_ context.Context, _ int64) (*store.TestAttachment, error) {
+	if m.errToReturn != nil {
+		return nil, m.errToReturn
+	}
+	return m.source, nil
+}
+
 // ---------------------------------------------------------------------------
 // mockBuildStore (minimal — only the two methods used by AttachmentHandler)
 // ---------------------------------------------------------------------------
@@ -466,6 +473,10 @@ func (c *captureMimeStore) InsertBuildAttachments(_ context.Context, _ int64, _ 
 	return nil
 }
 
+func (c *captureMimeStore) GetByID(_ context.Context, _ int64) (*store.TestAttachment, error) {
+	return c.inner.source, c.inner.errToReturn
+}
+
 // captureStatusStore wraps mockAttachmentStore to capture the testStatus argument.
 type captureStatusStore struct {
 	inner          *mockAttachmentStore
@@ -483,6 +494,10 @@ func (c *captureStatusStore) GetBySource(_ context.Context, _ int64, _ string) (
 
 func (c *captureStatusStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
 	return nil
+}
+
+func (c *captureStatusStore) GetByID(_ context.Context, _ int64) (*store.TestAttachment, error) {
+	return c.inner.source, c.inner.errToReturn
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,11 @@ const ComparePage = lazy(() =>
   import('@/features/compare/ComparePage').then((m) => ({ default: m.ComparePage })),
 )
 const AdminPage = lazy(() => import('@/features/admin').then((m) => ({ default: m.AdminPage })))
+const PendingProposalsPage = lazy(() =>
+  import('@/features/admin/PendingProposalsPage').then((m) => ({
+    default: m.PendingProposalsPage,
+  })),
+)
 const APIKeysPage = lazy(() =>
   import('@/features/settings/APIKeysPage').then((m) => ({ default: m.APIKeysPage })),
 )
@@ -190,6 +195,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <AdminPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="admin/proposals"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <PendingProposalsPage />
               </Suspense>
             }
           />

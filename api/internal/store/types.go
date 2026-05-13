@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+// ProposalStatus represents the review state of an MCP proposal.
+type ProposalStatus string
+
+const (
+	ProposalStatusPending  ProposalStatus = "pending"
+	ProposalStatusApproved ProposalStatus = "approved"
+	ProposalStatusRejected ProposalStatus = "rejected"
+)
+
 // User represents an authenticated user in the system.
 // Provider is 'local' for password-based users and 'oidc' for SSO users.
 type User struct {
@@ -23,15 +32,16 @@ type User struct {
 
 // APIKey represents an API key for programmatic access.
 type APIKey struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	KeyHash   string     `json:"-"`
-	Username  string     `json:"username"`
-	Role      string     `json:"role"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	LastUsed  *time.Time `json:"last_used"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Prefix         string     `json:"prefix"`
+	KeyHash        string     `json:"-"`
+	Username       string     `json:"username"`
+	Role           string     `json:"role"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	LastUsed       *time.Time `json:"last_used"`
+	CreatedAt      time.Time  `json:"created_at"`
+	AllowMCPWrites bool       `json:"allow_mcp_writes"`
 }
 
 // Project represents a registered allure project.
@@ -419,4 +429,69 @@ type WebhookDelivery struct {
 	Attempt      int       `json:"attempt"`
 	DurationMs   *int      `json:"duration_ms,omitempty"`
 	DeliveredAt  time.Time `json:"delivered_at"`
+}
+
+// MCP proposal audit action constants.
+const (
+	AuditActionMCPProposeDefectClassify = "mcp.propose_defect_classify"
+	AuditActionMCPProposeKnownIssue     = "mcp.propose_known_issue"
+	AuditActionMCPProposeFlaky          = "mcp.propose_flaky"
+	AuditActionMCPProposalApprove       = "mcp.proposal_approve"
+	AuditActionMCPProposalReject        = "mcp.proposal_reject"
+)
+
+// DefectProposal represents an MCP-proposed reclassification of a defect fingerprint.
+// ProposedResolution and Rationale are nullable in the DB; empty string when null.
+// ProposerAPIKeyID is nullable; 0 when null.
+// ReviewedByUserID is nullable; 0 when null.
+type DefectProposal struct {
+	ID                 int64
+	ProjectID          int
+	FingerprintHash    string
+	ProposedCategory   string
+	ProposedResolution string     // nullable in DB; "" when null
+	Rationale          string     // nullable in DB; "" when null
+	ProposerUserID     int64
+	ProposerAPIKeyID   int64      // nullable in DB; 0 when null
+	Status             ProposalStatus
+	ReviewedByUserID   int64      // nullable in DB; 0 when null
+	ReviewedAt         *time.Time
+	CreatedAt          time.Time
+}
+
+// KnownIssueProposal represents an MCP-proposed new known-issue rule.
+// ErrorMessageSample replaces FingerprintHash (regex matches by message, not hash).
+// AppliesToStatus is stored as TEXT[] in the DB.
+type KnownIssueProposal struct {
+	ID                 int64
+	ProjectID          int
+	ErrorMessageSample string     // nullable in DB; "" when null
+	ProposedCategory   string
+	ProposedResolution string     // nullable in DB; "" when null
+	Rationale          string     // nullable in DB; "" when null
+	RegexPattern       string
+	AppliesToStatus    []string
+	DryRunMatchCount   int
+	ProposerUserID     int64
+	ProposerAPIKeyID   int64      // nullable in DB; 0 when null
+	Status             ProposalStatus
+	ReviewedByUserID   int64      // nullable in DB; 0 when null
+	ReviewedAt         *time.Time
+	CreatedAt          time.Time
+}
+
+// FlakyProposal represents an MCP-proposed flaky-test flag.
+// Keyed by (test_full_name, history_id) — no fingerprint or category fields.
+type FlakyProposal struct {
+	ID               int64
+	ProjectID        int
+	TestFullName     string
+	HistoryID        string
+	Rationale        string     // nullable in DB; "" when null
+	ProposerUserID   int64
+	ProposerAPIKeyID int64      // nullable in DB; 0 when null
+	Status           ProposalStatus
+	ReviewedByUserID int64      // nullable in DB; 0 when null
+	ReviewedAt       *time.Time
+	CreatedAt        time.Time
 }

@@ -56,6 +56,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  alluredeck-mcp:
+    image: alluredeck-mcp:dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    environment:
+      ENABLE_MCP_SERVER: "true"
+      # MCP_ALLOWED_ORIGINS: ""
+      DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
+      SECURITY_ENABLED: "1"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-68af59c5a580cf01e094ff4cf6722203c6e2a6de6ed6c3fb8185bfac9c490f3e}"
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Provisional: /mcp/health may not exist yet; wget against /mcp and accept any response
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/mcp || true"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   postgres:
     image: postgres:18-alpine
     environment:

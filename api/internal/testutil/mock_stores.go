@@ -400,11 +400,14 @@ type MockTestResultStore struct {
 	ListTimelineFn             func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error)
 	ListFailedByBuildFn        func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error)
 	ListStabilityByBuildFn     func(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error)
+	MarkFlakyByHistoryIDFn     func(ctx context.Context, projectID int64, historyID, fullName string) error
 	GetTestHistoryFn           func(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
 	DeleteByBuildFn            func(ctx context.Context, buildID int64) error
 	DeleteByProjectFn          func(ctx context.Context, projectID int64) error
 	CompareBuildsByHistoryIDFn func(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
 	ListTimelineMultiFn        func(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
+	SearchByNameFn             func(ctx context.Context, projectID int64, substring string, limit int) ([]*store.TestResult, error)
+	ListRecentMessagesFn       func(ctx context.Context, projectID int64, limit int) ([]string, error)
 }
 
 func (m *MockTestResultStore) InsertBatch(ctx context.Context, results []store.TestResult) error {
@@ -499,6 +502,27 @@ func (m *MockTestResultStore) ListStabilityByBuild(ctx context.Context, projectI
 }
 
 func (m *MockTestResultStore) ListFailedForFingerprinting(_ context.Context, _ int64, _ int64) ([]store.FailedTestResult, error) {
+	return nil, nil
+}
+
+func (m *MockTestResultStore) MarkFlakyByHistoryID(ctx context.Context, projectID int64, historyID, fullName string) error {
+	if m.MarkFlakyByHistoryIDFn != nil {
+		return m.MarkFlakyByHistoryIDFn(ctx, projectID, historyID, fullName)
+	}
+	return nil
+}
+
+func (m *MockTestResultStore) SearchByName(ctx context.Context, projectID int64, substring string, limit int) ([]*store.TestResult, error) {
+	if m.SearchByNameFn != nil {
+		return m.SearchByNameFn(ctx, projectID, substring, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockTestResultStore) ListRecentMessages(ctx context.Context, projectID int64, limit int) ([]string, error) {
+	if m.ListRecentMessagesFn != nil {
+		return m.ListRecentMessagesFn(ctx, projectID, limit)
+	}
 	return nil, nil
 }
 
@@ -882,6 +906,7 @@ func (m *MockUserStore) RelinkOIDC(ctx context.Context, id int64, provider, sub 
 type MockAttachmentStore struct {
 	ListByBuildFn            func(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]store.TestAttachment, int, error)
 	GetBySourceFn            func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
+	GetByIDFn                func(ctx context.Context, id int64) (*store.TestAttachment, error)
 	InsertBuildAttachmentsFn func(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error
 }
 
@@ -897,6 +922,13 @@ func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, so
 		return m.GetBySourceFn(ctx, buildID, source)
 	}
 	return nil, nil
+}
+
+func (m *MockAttachmentStore) GetByID(ctx context.Context, id int64) (*store.TestAttachment, error) {
+	if m.GetByIDFn != nil {
+		return m.GetByIDFn(ctx, id)
+	}
+	return nil, store.ErrAttachmentNotFound
 }
 
 func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error {

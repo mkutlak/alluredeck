@@ -1,5 +1,9 @@
 # Go build artifacts
 api/bin/
+# Bare binaries from `go build ./cmd/<name>` run without -o
+api/api
+api/mcp
+api/mcp-eval
 
 # Go coverage
 *.out

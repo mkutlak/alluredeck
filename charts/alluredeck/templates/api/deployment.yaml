@@ -79,6 +79,8 @@ spec:
           env:
             - name: GOMEMLIMIT
               value: {{ .Values.api.config.goMemLimit | quote }}
+            - name: ENABLE_MCP_SERVER
+              value: {{ .Values.api.config.mcpEnabled | default "false" | quote }}
             {{- $secretName := include "alluredeck.api.secretName" . }}
             - name: ADMIN_USER
               valueFrom:

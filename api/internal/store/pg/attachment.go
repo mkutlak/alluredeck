@@ -159,5 +159,24 @@ func (a *AttachmentStore) InsertBuildAttachments(ctx context.Context, _ int64, _
 	return nil
 }
 
+// GetByID returns attachment metadata for the given primary-key ID.
+// Returns store.ErrAttachmentNotFound when no row exists.
+func (a *AttachmentStore) GetByID(ctx context.Context, id int64) (*store.TestAttachment, error) {
+	var at store.TestAttachment
+	err := a.pool.QueryRow(ctx, `
+		SELECT id, test_result_id, test_step_id, name, source, mime_type, size_bytes
+		FROM test_attachments
+		WHERE id = $1`,
+		id,
+	).Scan(&at.ID, &at.TestResultID, &at.TestStepID, &at.Name, &at.Source, &at.MimeType, &at.SizeBytes)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, store.ErrAttachmentNotFound
+		}
+		return nil, fmt.Errorf("get attachment by id: %w", err)
+	}
+	return &at, nil
+}
+
 // Compile-time interface compliance check.
 var _ store.AttachmentStorer = (*AttachmentStore)(nil)

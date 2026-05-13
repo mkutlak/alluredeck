@@ -6,6 +6,7 @@ import {
   Bug,
   Clock,
   Gauge,
+  Inbox,
   KeyRound,
   LayoutDashboard,
   Paperclip,
@@ -17,6 +18,7 @@ import { useActiveProject } from '@/hooks/useActiveProject'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { projectIndexOptions } from '@/lib/queries'
 import { resolveProjectFromParam } from '@/lib/resolveProject'
+import { getConfig } from '@/api/system'
 import {
   Sidebar,
   SidebarContent,
@@ -44,6 +46,12 @@ export function AppSidebar() {
   const isEditor = useAuthStore(selectIsEditor)
 
   const { data: projectsResp } = useQuery(projectIndexOptions())
+  const { data: configResp } = useQuery({
+    queryKey: ['config'],
+    queryFn: getConfig,
+    enabled: isAdmin,
+  })
+  const configData = configResp?.data
   const allProjects = projectsResp?.data ?? []
 
   return (
@@ -106,6 +114,16 @@ export function AppSidebar() {
                   <NavLink to="/admin">
                     <Shield />
                     <span>System Monitor</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+            {isAdmin && configData?.mcp_enabled && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Pending Proposals">
+                  <NavLink to="/admin/proposals">
+                    <Inbox />
+                    <span>Pending Proposals</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

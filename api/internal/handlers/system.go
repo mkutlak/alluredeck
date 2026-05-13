@@ -108,6 +108,7 @@ type ConfigData struct {
 	AppBuildDate              string `json:"app_build_date"`
 	AppBuildRef               string `json:"app_build_ref"`
 	OIDCEnabled               bool   `json:"oidc_enabled"`
+	MCPEnabled                bool   `json:"mcp_enabled"`
 }
 
 // ConfigMetaData holds the response message for config responses.
@@ -143,6 +144,7 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 			AppBuildDate:              version.BuildDate,
 			AppBuildRef:               version.BuildRef,
 			OIDCEnabled:               h.cfg.OIDC.Enabled,
+			MCPEnabled:                h.cfg.MCPServerEnabled,
 		},
 		MetaData: ConfigMetaData{Message: "Config successfully obtained"},
 	})

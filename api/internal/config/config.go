@@ -170,6 +170,25 @@ type Config struct {
 	SecurityPassHash       []byte              `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 	ViewerPassHash         []byte              `yaml:"-" json:"-" envconfig:"-"` // bcrypt hash, populated by HashPasswords()
 	Observability          ObservabilityConfig `yaml:"observability"`
+	// MCPServerEnabled enables the MCP proposal review endpoints under /api/v1/proposals/*.
+	// Set ENABLE_MCP_SERVER=true to activate. When false, the routes are not registered
+	// and ConfigEndpoint advertises mcp_enabled=false to the UI.
+	MCPServerEnabled bool `yaml:"mcp_server_enabled" envconfig:"ENABLE_MCP_SERVER"`
+	// MCPPort is the TCP port the MCP binary listens on (default 8081).
+	MCPPort int `yaml:"mcp_port" envconfig:"MCP_PORT"`
+	// MCPAllowedOrigins is a comma-separated list of allowed Origin header values for
+	// the MCP Streamable HTTP endpoint. Empty string = allow all (non-browser clients).
+	MCPAllowedOrigins string `yaml:"mcp_allowed_origins" envconfig:"MCP_ALLOWED_ORIGINS"`
+	// MCPRateLimitPerMin is the sustained request rate (per minute) per API key / user.
+	MCPRateLimitPerMin int `yaml:"mcp_rate_limit_per_min" envconfig:"MCP_RATE_LIMIT_PER_MIN"`
+	// MCPRateLimitBurst is the burst size for the per-key token bucket.
+	MCPRateLimitBurst int `yaml:"mcp_rate_limit_burst" envconfig:"MCP_RATE_LIMIT_BURST"`
+	// MCPPoolMaxConns caps the pgx connection-pool size used by the MCP binary.
+	MCPPoolMaxConns int `yaml:"mcp_pool_max_conns" envconfig:"MCP_POOL_MAX_CONNS"`
+	// MCPSigningKey is the HMAC-SHA256 key used to sign time-limited attachment
+	// download URLs returned by the alluredeck://attachment/{id} MCP resource.
+	// Required when MCPServerEnabled=true. Set via MCP_SIGNING_KEY env var.
+	MCPSigningKey string `yaml:"mcp_signing_key" envconfig:"MCP_SIGNING_KEY"`
 }
 
 const defaultJWTSecret = "super-secret-key-for-dev"
@@ -200,6 +219,10 @@ func LoadConfig() (*Config, error) {
 		MaxUploadSizeMB:          100,
 		MaxArchiveFileCount:      5000,
 		UploadWriteConcurrency:   32,
+		MCPPort:                  8081,
+		MCPRateLimitPerMin:       60,
+		MCPRateLimitBurst:        10,
+		MCPPoolMaxConns:          8,
 		S3: S3Config{
 			Region:      "us-east-1",
 			Concurrency: 10,

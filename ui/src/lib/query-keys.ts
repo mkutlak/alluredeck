@@ -82,6 +82,10 @@ export const queryKeys = {
     branch != null
       ? (['pipeline-runs', pid, page ?? undefined, branch] as const)
       : (['pipeline-runs', pid, page ?? undefined] as const),
+  proposals: (type: string, projectId: number, cursor?: string) =>
+    cursor !== undefined
+      ? (['proposals', type, projectId, cursor] as const)
+      : (['proposals', type, projectId] as const),
 }
 
 function projectScopedKeys(projectId: string) {

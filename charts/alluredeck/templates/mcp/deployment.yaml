@@ -1,0 +1,105 @@
+{{- if .Values.mcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alluredeck.mcp.fullname" . }}
+  labels:
+    {{- include "alluredeck.mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mcp.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "alluredeck.mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "alluredeck.mcp.labels" . | nindent 8 }}
+    spec:
+      {{- include "alluredeck.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ .Values.mcp.serviceAccountName | default (include "alluredeck.api.serviceAccountName" .) }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: alluredeck-mcp
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
+          ports:
+            - name: http-mcp
+              containerPort: {{ .Values.mcp.port | int }}
+              protocol: TCP
+          env:
+            - name: ENABLE_MCP_SERVER
+              value: {{ .Values.mcp.config.enableMcpServer | quote }}
+            - name: MCP_ALLOWED_ORIGINS
+              value: {{ .Values.mcp.config.allowedOrigins | quote }}
+            - name: MCP_RATE_LIMIT_PER_MIN
+              value: {{ .Values.mcp.config.rateLimitPerMin | quote }}
+            - name: MCP_RATE_LIMIT_BURST
+              value: {{ .Values.mcp.config.rateLimitBurst | quote }}
+            - name: MCP_POOL_MAX_CONNS
+              value: {{ .Values.mcp.config.poolMaxConns | quote }}
+            {{- $secretName := include "alluredeck.api.secretName" . }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: databaseURL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: jwtSecretKey
+            {{- if .Values.observability.enabled }}
+            {{- with .Values.observability }}
+            - name: OBSERVABILITY_ENABLED
+              value: "true"
+            - name: OBSERVABILITY_SERVICE_NAME
+              value: {{ .serviceName | default "alluredeck-mcp" | quote }}
+            {{- if .environment }}
+            - name: OBSERVABILITY_ENVIRONMENT
+              value: {{ .environment | quote }}
+            {{- end }}
+            {{- if .traces.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: {{ .traces.endpoint | quote }}
+            {{- end }}
+            - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+              value: {{ .traces.protocol | default "http/protobuf" | quote }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .traces.sampleRatio | default 1.0 | quote }}
+            {{- if .traces.insecure }}
+            - name: OBSERVABILITY_TRACES_INSECURE
+              value: "true"
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.mcp.probes.liveness.path }}
+              port: {{ .Values.mcp.probes.liveness.port | int }}
+            initialDelaySeconds: {{ .Values.mcp.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mcp.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.mcp.probes.readiness.path }}
+              port: {{ .Values.mcp.probes.readiness.port | int }}
+            initialDelaySeconds: {{ .Values.mcp.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mcp.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
