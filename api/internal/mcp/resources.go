@@ -16,8 +16,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
-	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 const attachmentInlineMaxBytes = 2 * 1024 * 1024 // 2 MB

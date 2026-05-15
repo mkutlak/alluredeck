@@ -50,6 +50,11 @@ export function APIKeyList({ keys, onDelete }: APIKeyListProps) {
                       Expired
                     </Badge>
                   )}
+                  {key.allow_mcp_writes && (
+                    <Badge className="border-transparent bg-purple-100 text-purple-700 hover:bg-purple-100/80 dark:bg-purple-900/30 dark:text-purple-400 text-xs">
+                      MCP
+                    </Badge>
+                  )}
                 </span>
               </TableCell>
               <TableCell>

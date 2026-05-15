@@ -236,6 +236,54 @@ func TestAPIKeyHandler_Create_PastExpiresAt(t *testing.T) {
 	}
 }
 
+func TestAPIKeyHandler_Create_AllowMCPWrites(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
+
+	body := map[string]any{"name": "mcp-key", "allow_mcp_writes": true}
+	bodyBytes, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req = injectClaims(req, "alice", "admin")
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data == nil {
+		t.Fatal("expected data object")
+	}
+	if got, _ := data["allow_mcp_writes"].(bool); !got {
+		t.Errorf("allow_mcp_writes in response = %v, want true", data["allow_mcp_writes"])
+	}
+
+	// Verify the value persisted in the mock store.
+	ctx := context.Background()
+	keys, err := mocks.APIKeys.ListByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 stored key, got %d", len(keys))
+	}
+	if !keys[0].AllowMCPWrites {
+		t.Error("stored key AllowMCPWrites = false, want true")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Phase 2: username resolution at creation — numeric sub → user email
 // ---------------------------------------------------------------------------

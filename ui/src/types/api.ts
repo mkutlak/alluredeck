@@ -516,6 +516,7 @@ export interface APIKey {
   name: string
   prefix: string
   role: Role
+  allow_mcp_writes: boolean
   expires_at: string | null
   last_used: string | null
   created_at: string
@@ -528,6 +529,7 @@ export interface APIKeyCreated extends APIKey {
 export interface CreateAPIKeyRequest {
   name: string
   expires_at?: string
+  allow_mcp_writes?: boolean
 }
 
 // ---------------------------------------------------------------------------

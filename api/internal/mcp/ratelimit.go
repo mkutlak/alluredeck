@@ -118,4 +118,3 @@ func (rl *RateLimiter) ReservationFor(key string) *rate.Reservation {
 	lim := rl.getLimiter(key)
 	return lim.Reserve()
 }
-

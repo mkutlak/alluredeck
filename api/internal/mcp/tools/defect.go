@@ -50,13 +50,13 @@ type ListDefectsInput struct {
 
 // DefectItem is one defect in the list_defects response.
 type DefectItem struct {
-	ID              string `json:"id"`
-	FingerprintHash string `json:"fingerprint_hash"`
+	ID                string `json:"id"`
+	FingerprintHash   string `json:"fingerprint_hash"`
 	NormalizedMessage string `json:"normalized_message"`
-	Category        string `json:"category"`
-	Resolution      string `json:"resolution"`
-	OccurrenceCount int    `json:"occurrence_count"`
-	LastSeenBuildID int64  `json:"last_seen_build_id"`
+	Category          string `json:"category"`
+	Resolution        string `json:"resolution"`
+	OccurrenceCount   int    `json:"occurrence_count"`
+	LastSeenBuildID   int64  `json:"last_seen_build_id"`
 }
 
 // ListDefectsOutput is the structured output for list_defects.

@@ -6,7 +6,7 @@ The Model Context Protocol (MCP) server enables AI clients (Claude Code, Cursor,
 
 ## Prerequisites
 
-- AllureDeck v0.13.0 or later (TODO: confirm after Phase 4 merge)
+- AllureDeck v0.34.1 or later
 - PostgreSQL with migration 0041 applied (`defect_proposals`, `known_issue_proposals`, `flaky_proposals` tables)
 - An API key store row with `allow_mcp_writes` configured if proposals are needed
 
@@ -103,65 +103,108 @@ Token format is always `ald_<base64>`, compatible with the REST API.
 
 ### Claude Code
 
-Add to `~/.claude/mcp.json`:
+**Option A — CLI (recommended)**
+
+```bash
+claude mcp add --transport http alluredeck https://your.host/mcp \
+  --header "Authorization: Bearer ald_<your-key>"
+```
+
+This registers the server in the current directory's local scope. To register it globally (available in every directory), add `--scope user`:
+
+```bash
+claude mcp add --transport http --scope user alluredeck https://your.host/mcp \
+  --header "Authorization: Bearer ald_<your-key>"
+```
+
+After adding, type `/mcp` inside Claude Code to see server status and the full tool list.
+
+**Option B — project `.mcp.json` (team-shareable, committed to source control)**
+
+Create `.mcp.json` at the repository root:
 
 ```json
 {
-  "mcp-servers": {
-    "alluredeck": {
-      "command": "npx",
-      "args": ["@modelcontextprotocol/server-stdio"],
-      "env": {
-        "MCP_ALLOWED_ORIGINS": "https://your.host"
-      }
-    }
-  },
   "mcpServers": {
     "alluredeck": {
+      "type": "http",
       "url": "https://your.host/mcp",
-      "auth": {
-        "type": "bearer",
-        "token": "ald_<base64>"
-      }
+      "headers": { "Authorization": "Bearer ald_<your-key>" }
     }
   }
 }
 ```
+
+Every team member who opens the project in Claude Code picks up this configuration automatically.
 
 ### Cursor
 
-In Cursor settings, go to **Features → MCP Servers** and add:
-
-```json
-{
-  "name": "AllureDeck",
-  "url": "https://your.host/mcp",
-  "auth": {
-    "type": "bearer",
-    "token": "ald_<base64>"
-  }
-}
-```
-
-### Claude Desktop
-
-Edit `~/.config/Claude/claude_desktop_config.json`:
+Create or edit `~/.cursor/mcp.json` (user-wide) or `.cursor/mcp.json` (project-scoped):
 
 ```json
 {
   "mcpServers": {
     "alluredeck": {
-      "command": "curl",
-      "args": [
-        "-H", "Authorization: Bearer ald_<base64>",
-        "https://your.host/mcp"
-      ]
+      "type": "http",
+      "url": "https://your.host/mcp",
+      "headers": { "Authorization": "Bearer ald_<your-key>" }
     }
   }
 }
 ```
 
+Restart Cursor after editing.
+
+### Claude Desktop — Experimental (requires mcp-proxy)
+
+Claude Desktop's `claude_desktop_config.json` expects stdio-based servers. The AllureDeck MCP server is streamable HTTP only, so it is not natively supported.
+
+Use [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) as a stdio↔HTTP bridge. Install it first (`pip install mcp-proxy` or see the mcp-proxy README), then add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "alluredeck": {
+      "command": "mcp-proxy",
+      "args": ["--transport=streamablehttp", "https://your.host/mcp"],
+      "env": { "API_ACCESS_TOKEN": "ald_<your-key>" }
+    }
+  }
+}
+```
+
+`mcp-proxy` reads `API_ACCESS_TOKEN` and forwards it as `Authorization: Bearer` to the upstream server.
+
 Restart Claude Desktop after editing.
+
+---
+
+## Quick start in Claude Code
+
+**Install**
+
+```bash
+claude mcp add --transport http alluredeck https://your.host/mcp \
+  --header "Authorization: Bearer ald_<your-key>"
+```
+
+**Example prompts and the tools they invoke**
+
+1. **"Show recently failed tests on `main` for the alluredeck project"**
+   - Claude calls `list_recent_builds` to find the latest builds on the `main` branch for the named project.
+   - Then calls `list_failing_tests` on the relevant build(s) to return the failing test names, durations, and status codes.
+   - Output: a summary table of failed tests grouped by build, with counts and first-seen timestamps.
+
+2. **"Why did test `<name>` fail in build `<N>`?"**
+   - Claude calls `find_test_by_name` to locate the test record, then `get_test_failure` to retrieve the error message, stack trace, and attached log snippets.
+   - Optionally calls `get_test_history` or `compare_builds` to show whether the failure is new or recurring.
+   - Output: the failure message and stack trace, plus a trend summary if history is available.
+
+3. **"Mark this failure as a known flake"**
+   - Claude calls `propose_mark_flaky` with the test identifier.
+   - The tool does not apply the change directly — it creates a proposal and returns a `review_url`.
+   - A human must approve or reject the proposal at `/admin/proposals` in the AllureDeck UI.
+   - Output: confirmation that the proposal was created and the `review_url` to action it.
 
 ---
 

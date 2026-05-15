@@ -52,14 +52,14 @@ type KnownIssueRef struct {
 
 // GetTestFailureOutput is the structured output for get_test_failure.
 type GetTestFailureOutput struct {
-	Status        string          `json:"status"`
-	StatusMessage string          `json:"status_message,omitempty"`
-	StatusTrace   string          `json:"status_trace,omitempty"`
-	DurationMs    int64           `json:"duration_ms"`
-	Attachments   []AttachmentRef `json:"attachments"`
-	CI            *CIInfo         `json:"ci,omitempty"`
+	Status        string           `json:"status"`
+	StatusMessage string           `json:"status_message,omitempty"`
+	StatusTrace   string           `json:"status_trace,omitempty"`
+	DurationMs    int64            `json:"duration_ms"`
+	Attachments   []AttachmentRef  `json:"attachments"`
+	CI            *CIInfo          `json:"ci,omitempty"`
 	Fingerprint   *FingerprintInfo `json:"fingerprint,omitempty"`
-	KnownIssue    *KnownIssueRef  `json:"known_issue,omitempty"`
+	KnownIssue    *KnownIssueRef   `json:"known_issue,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +96,8 @@ type GetTestHistoryOutput struct {
 
 // CompareBuildsInput holds parameters for compare_builds.
 type CompareBuildsInput struct {
-	ProjectID    int   `json:"project_id"`
-	BaseBuildID  int64 `json:"base_build_id"`
+	ProjectID     int   `json:"project_id"`
+	BaseBuildID   int64 `json:"base_build_id"`
 	TargetBuildID int64 `json:"target_build_id"`
 }
 
@@ -112,11 +112,11 @@ type DiffItem struct {
 
 // CompareBuildsOutput is the structured output for compare_builds.
 type CompareBuildsOutput struct {
-	Regressed  []DiffItem `json:"regressed"`
-	Fixed      []DiffItem `json:"fixed"`
-	NewPassed  []DiffItem `json:"new_passed"`
-	NewFailed  []DiffItem `json:"new_failed"`
-	Removed    []DiffItem `json:"removed"`
+	Regressed []DiffItem `json:"regressed"`
+	Fixed     []DiffItem `json:"fixed"`
+	NewPassed []DiffItem `json:"new_passed"`
+	NewFailed []DiffItem `json:"new_failed"`
+	Removed   []DiffItem `json:"removed"`
 }
 
 // ---------------------------------------------------------------------------

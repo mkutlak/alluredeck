@@ -4,6 +4,7 @@ import { createAPIKey } from '@/api/api-keys'
 import { queryKeys } from '@/lib/query-keys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,7 @@ const EXPIRY_PRESETS = [
 function addDays(days: number): string {
   const d = new Date()
   d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  return d.toISOString()
 }
 
 interface APIKeyFormDialogProps {
@@ -39,6 +40,7 @@ export function APIKeyFormDialog({ open, onOpenChange, onCreated }: APIKeyFormDi
   const [name, setName] = useState('')
   const [expiryPreset, setExpiryPreset] = useState<number | null>(90)
   const [customDate, setCustomDate] = useState('')
+  const [allowMcpWrites, setAllowMcpWrites] = useState(false)
   const queryClient = useQueryClient()
 
   const { mutate: doCreate, isPending } = useMutation({
@@ -49,6 +51,7 @@ export function APIKeyFormDialog({ open, onOpenChange, onCreated }: APIKeyFormDi
       setName('')
       setExpiryPreset(90)
       setCustomDate('')
+      setAllowMcpWrites(false)
     },
     onError: () => {
       toast({ title: 'Failed to create API key', variant: 'destructive' })
@@ -57,7 +60,7 @@ export function APIKeyFormDialog({ open, onOpenChange, onCreated }: APIKeyFormDi
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const req: CreateAPIKeyRequest = { name: name.trim() }
+    const req: CreateAPIKeyRequest = { name: name.trim(), allow_mcp_writes: allowMcpWrites }
     if (expiryPreset !== null) {
       req.expires_at = addDays(expiryPreset)
     } else if (customDate) {
@@ -122,6 +125,22 @@ export function APIKeyFormDialog({ open, onOpenChange, onCreated }: APIKeyFormDi
                 className="w-40"
               />
             </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                id="api-key-allow-mcp-writes"
+                type="checkbox"
+                checked={allowMcpWrites}
+                onChange={(e) => setAllowMcpWrites(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <Label htmlFor="api-key-allow-mcp-writes">Allow MCP writes</Label>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Allow this key to create AI proposals (defect classifications, known-issue rules,
+              flaky marks). Approvals still require a human reviewer.
+            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

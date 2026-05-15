@@ -437,9 +437,9 @@ func execProposeMarkFlaky(
 		Action:     store.AuditActionMCPProposeFlaky,
 		Outcome:    store.AuditOutcomeSuccess,
 		Metadata: auditMetadata(map[string]any{
-			"project_id":    in.ProjectID,
+			"project_id":     in.ProjectID,
 			"test_full_name": in.TestFullName,
-			"history_id":    in.HistoryID,
+			"history_id":     in.HistoryID,
 		}),
 	})
 	if auditErr != nil {

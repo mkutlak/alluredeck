@@ -23,9 +23,9 @@ type MatchKnownIssuesInput struct {
 
 // KnownIssueMatch is one match returned by match_known_issues.
 type KnownIssueMatch struct {
-	KnownIssueID    int64  `json:"known_issue_id"`
-	Name            string `json:"name"`
-	RegexPattern    string `json:"regex_pattern"`
+	KnownIssueID     int64  `json:"known_issue_id"`
+	Name             string `json:"name"`
+	RegexPattern     string `json:"regex_pattern"`
 	MatchedSubstring string `json:"matched_substring"`
 }
 
@@ -68,9 +68,9 @@ func matchKnownIssuesHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 				continue
 			}
 			matches = append(matches, KnownIssueMatch{
-				KnownIssueID:    ki.ID,
-				Name:            ki.TestName,
-				RegexPattern:    ki.Pattern,
+				KnownIssueID:     ki.ID,
+				Name:             ki.TestName,
+				RegexPattern:     ki.Pattern,
 				MatchedSubstring: in.ErrorMessage[loc[0]:loc[1]],
 			})
 		}

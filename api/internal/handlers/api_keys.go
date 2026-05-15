@@ -34,14 +34,15 @@ func (h *APIKeyHandler) WithAuditLogger(a store.AuditLogger) *APIKeyHandler {
 
 // apiKeyResponse is the JSON representation of an API key (without the hash).
 type apiKeyResponse struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	Username  string     `json:"username"`
-	Role      string     `json:"role"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	LastUsed  *time.Time `json:"last_used"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Prefix         string     `json:"prefix"`
+	Username       string     `json:"username"`
+	Role           string     `json:"role"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	LastUsed       *time.Time `json:"last_used"`
+	CreatedAt      time.Time  `json:"created_at"`
+	AllowMCPWrites bool       `json:"allow_mcp_writes"`
 }
 
 // apiKeyCreateResponse extends apiKeyResponse with the full key shown once at creation.
@@ -52,14 +53,15 @@ type apiKeyCreateResponse struct {
 
 func keyToResponse(k *store.APIKey) apiKeyResponse {
 	return apiKeyResponse{
-		ID:        k.ID,
-		Name:      k.Name,
-		Prefix:    k.Prefix,
-		Username:  k.Username,
-		Role:      k.Role,
-		ExpiresAt: k.ExpiresAt,
-		LastUsed:  k.LastUsed,
-		CreatedAt: k.CreatedAt,
+		ID:             k.ID,
+		Name:           k.Name,
+		Prefix:         k.Prefix,
+		Username:       k.Username,
+		Role:           k.Role,
+		ExpiresAt:      k.ExpiresAt,
+		LastUsed:       k.LastUsed,
+		CreatedAt:      k.CreatedAt,
+		AllowMCPWrites: k.AllowMCPWrites,
 	}
 }
 
@@ -96,7 +98,7 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Create godoc
 // @Summary      Create an API key
-// @Description  Generates a new API key for the authenticated user (max 5 per user).
+// @Description  Generates a new API key for the authenticated user (max 5 per user). Set allow_mcp_writes to true to opt the key into MCP mutations.
 // @Tags         api-keys
 // @Accept       json
 // @Produce      json
@@ -127,8 +129,9 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name      string  `json:"name"`
-		ExpiresAt *string `json:"expires_at"`
+		Name           string  `json:"name"`
+		ExpiresAt      *string `json:"expires_at"`
+		AllowMCPWrites bool    `json:"allow_mcp_writes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -180,12 +183,13 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	prefix := security.DisplayPrefix(fullKey)
 
 	key := &store.APIKey{
-		Name:      req.Name,
-		Prefix:    prefix,
-		KeyHash:   hash,
-		Username:  keyUsername,
-		Role:      role,
-		ExpiresAt: expiresAt,
+		Name:           req.Name,
+		Prefix:         prefix,
+		KeyHash:        hash,
+		Username:       keyUsername,
+		Role:           role,
+		ExpiresAt:      expiresAt,
+		AllowMCPWrites: req.AllowMCPWrites,
 	}
 
 	created, err := h.store.Create(ctx, key)
@@ -208,8 +212,9 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		evt.ActorID = &id
 	}
 	evt.Metadata = auditMetadata(map[string]any{
-		"name":   created.Name,
-		"prefix": created.Prefix,
+		"name":             created.Name,
+		"prefix":           created.Prefix,
+		"allow_mcp_writes": created.AllowMCPWrites,
 	})
 	auditRecord(ctx, h.audit, evt)
 

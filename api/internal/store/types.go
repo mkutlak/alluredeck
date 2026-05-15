@@ -449,12 +449,12 @@ type DefectProposal struct {
 	ProjectID          int
 	FingerprintHash    string
 	ProposedCategory   string
-	ProposedResolution string     // nullable in DB; "" when null
-	Rationale          string     // nullable in DB; "" when null
+	ProposedResolution string // nullable in DB; "" when null
+	Rationale          string // nullable in DB; "" when null
 	ProposerUserID     int64
-	ProposerAPIKeyID   int64      // nullable in DB; 0 when null
+	ProposerAPIKeyID   int64 // nullable in DB; 0 when null
 	Status             ProposalStatus
-	ReviewedByUserID   int64      // nullable in DB; 0 when null
+	ReviewedByUserID   int64 // nullable in DB; 0 when null
 	ReviewedAt         *time.Time
 	CreatedAt          time.Time
 }
@@ -465,17 +465,17 @@ type DefectProposal struct {
 type KnownIssueProposal struct {
 	ID                 int64
 	ProjectID          int
-	ErrorMessageSample string     // nullable in DB; "" when null
+	ErrorMessageSample string // nullable in DB; "" when null
 	ProposedCategory   string
-	ProposedResolution string     // nullable in DB; "" when null
-	Rationale          string     // nullable in DB; "" when null
+	ProposedResolution string // nullable in DB; "" when null
+	Rationale          string // nullable in DB; "" when null
 	RegexPattern       string
 	AppliesToStatus    []string
 	DryRunMatchCount   int
 	ProposerUserID     int64
-	ProposerAPIKeyID   int64      // nullable in DB; 0 when null
+	ProposerAPIKeyID   int64 // nullable in DB; 0 when null
 	Status             ProposalStatus
-	ReviewedByUserID   int64      // nullable in DB; 0 when null
+	ReviewedByUserID   int64 // nullable in DB; 0 when null
 	ReviewedAt         *time.Time
 	CreatedAt          time.Time
 }
@@ -487,11 +487,11 @@ type FlakyProposal struct {
 	ProjectID        int
 	TestFullName     string
 	HistoryID        string
-	Rationale        string     // nullable in DB; "" when null
+	Rationale        string // nullable in DB; "" when null
 	ProposerUserID   int64
-	ProposerAPIKeyID int64      // nullable in DB; 0 when null
+	ProposerAPIKeyID int64 // nullable in DB; 0 when null
 	Status           ProposalStatus
-	ReviewedByUserID int64      // nullable in DB; 0 when null
+	ReviewedByUserID int64 // nullable in DB; 0 when null
 	ReviewedAt       *time.Time
 	CreatedAt        time.Time
 }

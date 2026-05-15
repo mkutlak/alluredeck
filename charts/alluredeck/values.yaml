@@ -225,15 +225,21 @@ mcp:
       memory: 64Mi
   probes:
     liveness:
-      path: /mcp/health
+      path: /health
       port: 8081
       initialDelaySeconds: 10
       periodSeconds: 20
     readiness:
-      path: /mcp/health
+      path: /health
       port: 8081
       initialDelaySeconds: 5
       periodSeconds: 10
+  # Security credentials for the MCP server.
+  # mcpSigningKey is stored in the API secret (alluredeck.api.secretName) under key "mcpSigningKey"
+  # and injected as the MCP_SIGNING_KEY environment variable.
+  security:
+    signingKey: ""      # override: set a fixed key; auto-generated (randAlphaNum 64) when blank
+    existingSecret: ""  # use a pre-created Secret instead of the auto-managed API secret
   service:
     type: ClusterIP
   serviceAccountName: ""  # inherits from .Values.api.serviceAccountName if blank

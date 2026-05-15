@@ -80,7 +80,7 @@ type handlerSet struct {
 	webhook         *handlers.WebhookHandler
 	pipeline        *handlers.PipelineHandler
 	preferences     *handlers.PreferenceHandler
-	oidc            *handlers.OIDCHandler // may be nil
+	oidc            *handlers.OIDCHandler      // may be nil
 	proposals       *handlers.ProposalsHandler // may be nil; only set when MCPServerEnabled
 }
 

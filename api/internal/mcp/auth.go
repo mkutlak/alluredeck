@@ -85,14 +85,26 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 		_ = v.apiKeyStore.UpdateLastUsed(context.Background(), apiKey.ID)
 	}()
 
+	// Populate Expiration: the MCP SDK rejects tokens with a zero Expiration.
+	// For keys with a real expiry, use it directly. For "never expires" keys
+	// (ExpiresAt == nil) synthesise a short re-verification window so the SDK
+	// re-calls Verify on a reasonable cadence, keeping revocation prompt.
+	var expiration time.Time
+	if apiKey.ExpiresAt != nil {
+		expiration = *apiKey.ExpiresAt
+	} else {
+		expiration = time.Now().Add(15 * time.Minute)
+	}
+
 	allowMCPWrites := "false"
 	if apiKey.AllowMCPWrites {
 		allowMCPWrites = "true"
 	}
 
 	return &mcpauth.TokenInfo{
-		UserID: apiKey.Username,
-		Scopes: []string{apiKey.Role},
+		UserID:     apiKey.Username,
+		Scopes:     []string{apiKey.Role},
+		Expiration: expiration,
 		Extra: map[string]any{
 			"role":             apiKey.Role,
 			"api_key_id":       apiKey.ID,
@@ -123,9 +135,21 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 		}
 	}
 
+	// Populate Expiration from the JWT exp claim. The MCP SDK rejects tokens
+	// with a zero Expiration. Use GetExpirationTime() which normalises float64,
+	// *NumericDate, json.Number, and int64 representations of the exp claim.
+	// Fall back to a 15-minute window on the unlikely case the claim is absent.
+	var jwtExp time.Time
+	if expNum, err := claims.GetExpirationTime(); err == nil && expNum != nil {
+		jwtExp = expNum.Time
+	} else {
+		jwtExp = time.Now().Add(15 * time.Minute)
+	}
+
 	return &mcpauth.TokenInfo{
-		UserID: sub,
-		Scopes: []string{role},
+		UserID:     sub,
+		Scopes:     []string{role},
+		Expiration: jwtExp,
 		Extra: map[string]any{
 			"role":             role,
 			"api_key_id":       int64(0),
@@ -135,4 +159,3 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 		},
 	}, nil
 }
-

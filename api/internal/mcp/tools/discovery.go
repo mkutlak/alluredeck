@@ -75,10 +75,10 @@ type FindTestByNameInput struct {
 
 // TestNameItem is one test in the find_test_by_name response.
 type TestNameItem struct {
-	HistoryID      string `json:"history_id"`
-	FullName       string `json:"full_name"`
-	LastSeenBuildID int64 `json:"last_seen_build_id"`
-	LastSeenStatus string `json:"last_seen_status"`
+	HistoryID       string `json:"history_id"`
+	FullName        string `json:"full_name"`
+	LastSeenBuildID int64  `json:"last_seen_build_id"`
+	LastSeenStatus  string `json:"last_seen_status"`
 }
 
 // FindTestByNameOutput is the structured output for find_test_by_name.

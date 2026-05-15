@@ -8,9 +8,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
 
 // PoolConfig holds pgx connection-pool tuning parameters.
@@ -108,19 +108,19 @@ func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, enc
 	pgBuild := pg.NewBuildStore(pgDB, logger)
 
 	s := &Stores{
-		Project:       pgProj,
-		Build:         pgBuild,
-		RefreshFamily: pg.NewRefreshTokenFamilyStore(pgDB),
-		Blacklist:     pg.NewBlacklistStore(pgDB),
-		TestResult:    pg.NewTestResultStore(pgDB, logger),
-		Branch:        pg.NewBranchStore(pgDB),
-		KnownIssue:    pg.NewKnownIssueStore(pgDB),
-		Search:        pg.NewSearchStore(pgDB, logger),
-		Analytics:     pg.NewAnalyticsStore(pgDB),
-		APIKey:        pg.NewAPIKeyStore(pgDB),
-		Attachment:    pg.NewAttachmentStore(pgDB),
-		User:          pg.NewUserStore(pgDB),
-		Defect:        pg.NewDefectStore(pgDB),
+		Project:             pgProj,
+		Build:               pgBuild,
+		RefreshFamily:       pg.NewRefreshTokenFamilyStore(pgDB),
+		Blacklist:           pg.NewBlacklistStore(pgDB),
+		TestResult:          pg.NewTestResultStore(pgDB, logger),
+		Branch:              pg.NewBranchStore(pgDB),
+		KnownIssue:          pg.NewKnownIssueStore(pgDB),
+		Search:              pg.NewSearchStore(pgDB, logger),
+		Analytics:           pg.NewAnalyticsStore(pgDB),
+		APIKey:              pg.NewAPIKeyStore(pgDB),
+		Attachment:          pg.NewAttachmentStore(pgDB),
+		User:                pg.NewUserStore(pgDB),
+		Defect:              pg.NewDefectStore(pgDB),
 		Webhook:             pg.NewWebhookStore(pgDB, encKey, logger),
 		Pipeline:            pg.NewPipelineStore(pgDB),
 		Preference:          pg.NewPreferenceStore(pgDB),
@@ -128,9 +128,9 @@ func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, enc
 		DefectProposals:     pg.NewDefectProposalStore(pgDB),
 		KnownIssueProposals: pg.NewKnownIssueProposalStore(pgDB),
 		FlakyProposals:      pg.NewFlakyProposalStore(pgDB),
-		DB:      pgDB.DB(),
-		Locker:  pgDB,
-		PGStore: pgDB,
+		DB:                  pgDB.DB(),
+		Locker:              pgDB,
+		PGStore:             pgDB,
 	}
 
 	if dataStore != nil {

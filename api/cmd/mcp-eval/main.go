@@ -43,13 +43,13 @@ type GroundTruth struct {
 }
 
 type Result struct {
-	HistoryID   string `json:"history_id"`
-	Expected    string `json:"expected"`
-	Predicted   string `json:"predicted"`
-	Score       int    `json:"score"`
-	MCPCallMs   int64  `json:"mcp_call_ms"`
-	LLMCallMs   int64  `json:"llm_call_ms"`
-	Error       string `json:"error,omitempty"`
+	HistoryID string `json:"history_id"`
+	Expected  string `json:"expected"`
+	Predicted string `json:"predicted"`
+	Score     int    `json:"score"`
+	MCPCallMs int64  `json:"mcp_call_ms"`
+	LLMCallMs int64  `json:"llm_call_ms"`
+	Error     string `json:"error,omitempty"`
 }
 
 type Report struct {

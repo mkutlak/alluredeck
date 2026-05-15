@@ -28,6 +28,7 @@ function makeKey(overrides: Partial<APIKey> = {}): APIKey {
     name: 'CI Pipeline',
     prefix: 'ak_abc123',
     role: 'admin',
+    allow_mcp_writes: false,
     expires_at: null,
     last_used: null,
     created_at: '2026-01-01T00:00:00Z',
@@ -202,6 +203,46 @@ describe('APIKeysPage', () => {
 
     await waitFor(() => {
       expect(apiKeysApi.deleteAPIKey).toHaveBeenCalledWith(42)
+    })
+  })
+
+  it('passes allow_mcp_writes: true when toggle is checked before submit', async () => {
+    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([])
+    vi.mocked(apiKeysApi.createAPIKey).mockResolvedValue({
+      apiKey: makeCreatedKey({ allow_mcp_writes: true }),
+      message: 'created',
+    })
+
+    renderPage()
+
+    const createBtn = await screen.findByRole('button', { name: /create api key/i })
+    await userEvent.click(createBtn)
+
+    const nameInput = screen.getByLabelText(/name/i)
+    await userEvent.type(nameInput, 'MCP Key')
+
+    const mcpToggle = screen.getByRole('checkbox', { name: /allow mcp writes/i })
+    await userEvent.click(mcpToggle)
+
+    const submitBtn = screen.getByRole('button', { name: /^create$/i })
+    await userEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(apiKeysApi.createAPIKey).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'MCP Key', allow_mcp_writes: true }),
+      )
+    })
+  })
+
+  it('renders MCP badge for keys with allow_mcp_writes: true', async () => {
+    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
+      makeKey({ name: 'MCP Key', allow_mcp_writes: true }),
+    ])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('MCP')).toBeInTheDocument()
     })
   })
 })

@@ -74,8 +74,8 @@ func NewServer(
 	// Register tools.
 	RegisterTools(mcpServer, stores, logger)
 
-	// Register resource handlers (Phase 2).
-	// RegisterResources(mcpServer, stores, logger, cfg.SigningKey, cfg.PublicURL, cfg.DataStore)
+	// Register resource handlers.
+	RegisterResources(mcpServer, stores, logger, cfg.SigningKey, cfg.PublicURL, cfg.DataStore)
 
 	// Streamable HTTP transport — one MCP server instance shared across all requests.
 	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(_ *http.Request) *mcpsdk.Server {

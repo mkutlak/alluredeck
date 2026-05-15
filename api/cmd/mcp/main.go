@@ -17,6 +17,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/mcp"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
 
 func main() {
@@ -45,9 +46,15 @@ func main() {
 		}
 	}()
 
+	// Initialise file storage backend (local FS or S3) so resources/read can
+	// inline small text/image attachments directly rather than returning signed URLs.
+	dataStore, err := createDataStore(cfg, logger)
+	if err != nil {
+		logger.Fatal("failed to initialize storage", zap.Error(err))
+	}
+
 	// Open PostgreSQL pool with MCP-specific MaxConns (smaller than cmd/api default).
 	poolCfg := bootstrap.PoolConfig{MaxConns: cfg.MCPPoolMaxConns}
-	// dataStore is nil — cmd/mcp does not need SyncMetadata (read-heavy, no file ingestion).
 	stores, err := bootstrap.InitStores(context.Background(), cfg, poolCfg, encKey, nil, logger)
 	if err != nil {
 		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
@@ -68,6 +75,7 @@ func main() {
 		RateLimitBurst:  cfg.MCPRateLimitBurst,
 		PublicURL:       cfg.ExternalURL,
 		SigningKey:      []byte(cfg.MCPSigningKey),
+		DataStore:       dataStore,
 	}
 
 	mcpHandler, _, err := mcp.NewServer(mcpCfg, stores, jwtManager, userActiveCache, logger)
@@ -113,6 +121,22 @@ func main() {
 		logger.Error("MCP server shutdown error", zap.Error(err))
 	}
 	logger.Info("MCP server stopped cleanly")
+}
+
+// createDataStore initialises the storage backend based on StorageType config.
+// Mirrors the same helper in cmd/api/main.go so both binaries read from the
+// same storage backend (local FS path or S3 bucket).
+func createDataStore(cfg *config.Config, logger *zap.Logger) (storage.Store, error) {
+	switch cfg.StorageType {
+	case "s3":
+		st, err := storage.NewS3Store(cfg, logger)
+		if err != nil {
+			return nil, fmt.Errorf("init S3 store: %w", err)
+		}
+		return st, nil
+	default:
+		return storage.NewLocalStore(cfg), nil
+	}
 }
 
 // mustLoadConfig loads and validates configuration, initialises the logger,
