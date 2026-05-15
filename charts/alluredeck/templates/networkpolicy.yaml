@@ -22,7 +22,7 @@ spec:
         - port: {{ .Values.api.service.port | int }}
           protocol: TCP
     # Allow traffic from ingress controller (if ingress is enabled)
-    {{- if .Values.api.ingress.enabled }}
+    {{- if .Values.ingress.enabled }}
     - from:
         - namespaceSelector:
             {{- if .Values.networkPolicy.ingressController.namespaceSelector }}
@@ -60,4 +60,42 @@ spec:
     - ports:
         - port: {{ .Values.ui.service.port | int }}
           protocol: TCP
+{{- if .Values.mcp.enabled }}
+---
+# Allow ingress to MCP
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "alluredeck.mcp.fullname" . }}
+  labels:
+    {{- include "alluredeck.mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "alluredeck.mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from ingress controller (if ingress is enabled)
+    {{- if .Values.ingress.enabled }}
+    - from:
+        - namespaceSelector:
+            {{- if .Values.networkPolicy.ingressController.namespaceSelector }}
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressController.namespaceSelector | nindent 14 }}
+            {{- else }}
+            matchLabels: {}
+            {{- end }}
+          podSelector:
+            {{- if .Values.networkPolicy.ingressController.podSelector }}
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressController.podSelector | nindent 14 }}
+            {{- else }}
+            matchLabels: {}
+            {{- end }}
+      ports:
+        - port: {{ .Values.mcp.port | int }}
+          protocol: TCP
+    {{- end }}
+{{- end }}
 {{- end }}

@@ -64,3 +64,21 @@ NOTE: Using existingSecret={{ .Values.api.security.existingSecret | quote }}.
      api.secretRevision: "v2"   # increment on each rotation
    Or run: kubectl rollout restart {{ .Values.api.kind | default "Deployment" | lower }}/{{ include "alluredeck.api.fullname" . }} -n {{ .Release.Namespace }}
 {{- end }}
+{{- if and .Values.mcp.enabled (not .Values.mcp.security.existingSecret) (not .Values.api.security.existingSecret) (not .Values.mcp.security.signingKey) }}
+
+⚠  MCP — The MCP signing key is auto-generated on first install.
+   It is preserved across upgrades using Helm lookup, but is NOT portable
+   across clusters or Helm releases. For production use, supply a pre-created
+   Secret and reference it with mcp.security.existingSecret:
+
+   kubectl create secret generic {{ include "alluredeck.mcp.fullname" . }} \
+     --namespace {{ .Release.Namespace }} \
+     --from-literal=mcpSigningKey='<64-char-random-string>' \
+     --from-literal=jwtSecretKey='<64-char-random-string>' \
+     --from-literal=databaseURL='<postgresql-connection-string>'
+
+   Then set in your values file:
+     mcp:
+       security:
+         existingSecret: {{ include "alluredeck.mcp.fullname" . }}
+{{- end }}

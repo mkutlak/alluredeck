@@ -7,6 +7,7 @@
 # ── Variables ──────────────────────────────────────────────────
 IMAGE_API    := alluredeck-api
 IMAGE_UI     := alluredeck-ui
+IMAGE_MCP    := alluredeck-mcp
 IMAGE_TAG    := dev
 
 BUILD_DATE    := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -140,7 +141,7 @@ clean: api-clean ui-clean ## Remove all build artifacts
 
 # ── Docker ────────────────────────────────────────────────────
 
-.PHONY: docker-build-api docker-build-ui docker-build \
+.PHONY: docker-build-api docker-build-ui docker-build-mcp docker-build \
         docker-up docker-down docker-logs docker-clean \
         docker-up-dev docker-down-dev docker-logs-dev \
         docker-up-s3 docker-down-s3 docker-logs-s3
@@ -161,7 +162,16 @@ docker-build-ui: ## Build UI Docker image
 		-t $(IMAGE_UI):$(IMAGE_TAG) \
 		.
 
-docker-build: docker-build-api docker-build-ui ## Build all Docker images
+docker-build-mcp: ## Build MCP Docker image
+	docker build \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_VERSION=$(BUILD_VERSION) \
+		--build-arg BUILD_REF=$(BUILD_REF) \
+		-f docker/Dockerfile.mcp \
+		-t $(IMAGE_MCP):$(IMAGE_TAG) \
+		.
+
+docker-build: docker-build-api docker-build-ui docker-build-mcp ## Build all Docker images
 
 docker-up: ## Start full stack (UI + API)
 	docker compose -f $(COMPOSE_FILE) up --build -d
@@ -193,6 +203,7 @@ docker-logs-s3: ## Follow S3 stack logs
 docker-clean: ## Remove all built Docker images
 	docker rmi $(IMAGE_API):$(IMAGE_TAG) 2>/dev/null || true
 	docker rmi $(IMAGE_UI):$(IMAGE_TAG) 2>/dev/null || true
+	docker rmi $(IMAGE_MCP):$(IMAGE_TAG) 2>/dev/null || true
 
 # ── E2E (Playwright) ─────────────────────────────────────────
 

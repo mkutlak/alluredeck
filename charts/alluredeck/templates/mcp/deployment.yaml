@@ -12,16 +12,21 @@ spec:
       {{- include "alluredeck.mcp.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/mcp/secret.yaml") . | sha256sum }}
       labels:
         {{- include "alluredeck.mcp.labels" . | nindent 8 }}
     spec:
       {{- include "alluredeck.imagePullSecrets" . | nindent 6 }}
-      serviceAccountName: {{ .Values.mcp.serviceAccountName | default (include "alluredeck.api.serviceAccountName" .) }}
+      serviceAccountName: {{ include "alluredeck.mcp.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.mcp.serviceAccount.automountServiceAccountToken }}
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: alluredeck-mcp
           image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default .Chart.AppVersion }}"
@@ -41,7 +46,7 @@ spec:
               value: {{ .Values.mcp.config.rateLimitBurst | quote }}
             - name: MCP_POOL_MAX_CONNS
               value: {{ .Values.mcp.config.poolMaxConns | quote }}
-            {{- $secretName := include "alluredeck.api.secretName" . }}
+            {{- $secretName := include "alluredeck.mcp.secretName" . }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -81,6 +86,12 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.mcp.probes.startup.path }}
+              port: {{ .Values.mcp.probes.startup.port | int }}
+            periodSeconds: {{ .Values.mcp.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.mcp.probes.startup.failureThreshold }}
           livenessProbe:
             httpGet:
               path: {{ .Values.mcp.probes.liveness.path }}

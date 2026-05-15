@@ -380,6 +380,7 @@ Required Secret keys:
 | `oidcStateCookieSecret` | AES-GCM key for state cookie encryption (exactly 16/24/32 bytes) | `api.oidc.enabled=true` |
 | `S3_ACCESS_KEY` | S3 access key ID | `api.s3.existingSecret` used and not on IRSA |
 | `S3_SECRET_KEY` | S3 secret access key | `api.s3.existingSecret` used and not on IRSA |
+| `mcpSigningKey` | HMAC signing key for MCP request authentication | `mcp.enabled=true` and the Secret is shared with the API (i.e. `api.security.existingSecret` is set and `mcp.security.existingSecret` is not) |
 
 **Tip:** you can put all of these keys in a single `Secret` and reference it from each of `api.security.existingSecret`, `api.s3.existingSecret`, and `api.oidc.existingSecret` (whichever the chart wires up for each section) — that way one Secret resource holds every credential the chart needs.
 
@@ -432,6 +433,122 @@ ingress:
 ```
 
 Each extra path becomes an additional backend on the same Ingress resource, inheriting all host-level TLS and annotations.
+
+## MCP server
+
+The MCP (Model Context Protocol) server is an **optional** component that exposes a structured API for AI-assisted test analysis tooling. It is disabled by default.
+
+### Enabling the MCP server
+
+```yaml
+mcp:
+  enabled: true
+```
+
+### Image
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `mcp.image.repository` | MCP container image | `ghcr.io/mkutlak/alluredeck-mcp` |
+| `mcp.image.tag` | Image tag | `""` (appVersion) |
+| `mcp.image.pullPolicy` | Image pull policy | `Always` |
+
+### MCP Secret
+
+The chart resolves the MCP Secret name using this precedence:
+
+1. **`mcp.security.existingSecret`** is set → MCP reads from that Secret (dedicated MCP secret).
+2. **`api.security.existingSecret`** is set (but `mcp.security.existingSecret` is not) → MCP reads from the API's existing Secret. The chart does **not** generate a separate `<release>-mcp` Secret. The shared Secret must include `mcpSigningKey` in addition to `jwtSecretKey` and `databaseURL`.
+3. **Neither is set** (fully chart-managed) → the chart auto-creates a Secret named `<release>-mcp` containing the following keys:
+
+| Key | Description |
+| --- | ----------- |
+| `mcpSigningKey` | HMAC signing key for MCP request authentication (auto-generated if blank) |
+| `jwtSecretKey` | JWT HMAC signing key shared with the API (auto-generated if blank) |
+| `databaseURL` | PostgreSQL connection string (taken from `api.config.databaseURL`) |
+
+The auto-generated Secret is annotated with `helm.sh/resource-policy: keep` so it survives `helm uninstall`. The signing key is preserved across upgrades via Helm `lookup`.
+
+**Sharing the API's existing Secret with MCP** (recommended when you already use `api.security.existingSecret`):
+
+Add `mcpSigningKey` to your existing Secret, then enable MCP — no extra configuration needed:
+
+```bash
+kubectl patch secret alluredeck-credentials \
+  --namespace <namespace> \
+  --type merge \
+  -p '{"stringData":{"mcpSigningKey":"<64-char-random-string>"}}'
+```
+
+```yaml
+api:
+  security:
+    existingSecret: alluredeck-credentials   # MCP will also read from this
+mcp:
+  enabled: true
+  # mcp.security.existingSecret is NOT set — MCP falls back to the API secret above
+```
+
+**Giving MCP its own dedicated Secret** (for stricter secret isolation):
+
+```bash
+kubectl create secret generic my-mcp-secret \
+  --namespace <namespace> \
+  --from-literal=mcpSigningKey='<64-char-random-string>' \
+  --from-literal=jwtSecretKey='<64-char-random-string>' \
+  --from-literal=databaseURL='postgres://user:password@host:5432/alluredeck?sslmode=require'
+```
+
+```yaml
+mcp:
+  security:
+    existingSecret: my-mcp-secret
+```
+
+### Signing-key rotation
+
+After rotating the `mcpSigningKey` in the Secret, restart the MCP Deployment to pick up the new value:
+
+```bash
+kubectl rollout restart deployment/<release>-mcp -n <namespace>
+```
+
+### MCP values reference
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `mcp.enabled` | Enable the MCP server | `false` |
+| `mcp.replicaCount` | Number of MCP replicas | `1` |
+| `mcp.port` | Container port | `8081` |
+| `mcp.config.enableMcpServer` | Enable MCP server endpoint | `true` |
+| `mcp.config.allowedOrigins` | Allowed CORS origins | `""` |
+| `mcp.config.rateLimitPerMin` | Rate limit (requests per minute) | `60` |
+| `mcp.config.rateLimitBurst` | Rate limit burst size | `10` |
+| `mcp.config.poolMaxConns` | Max database connection pool size | `8` |
+| `mcp.resources` | Resource requests/limits | `{}` |
+| `mcp.serviceAccount.create` | Create a dedicated ServiceAccount | `true` |
+| `mcp.serviceAccount.name` | Override ServiceAccount name | `""` |
+| `mcp.serviceAccount.annotations` | ServiceAccount annotations (e.g. IRSA) | `{}` |
+| `mcp.security.signingKey` | Fixed MCP signing key (auto-generated if empty) | `""` |
+| `mcp.security.existingSecret` | Use a pre-created Secret | `""` |
+| `mcp.service.type` | Service type | `ClusterIP` |
+
+## Verifying image provenance
+
+AllureDeck images are built with SLSA provenance, SBOM attestations, and Sigstore signatures. You can verify any image before deploying:
+
+```bash
+# MCP server image
+gh attestation verify oci://ghcr.io/mkutlak/alluredeck-mcp:<tag> --owner mkutlak
+
+# API image
+gh attestation verify oci://ghcr.io/mkutlak/alluredeck-api:<tag> --owner mkutlak
+
+# UI image
+gh attestation verify oci://ghcr.io/mkutlak/alluredeck-ui:<tag> --owner mkutlak
+```
+
+These commands validate that each image was built by a GitHub Actions workflow in the `mkutlak` organisation and has not been tampered with since publication. Replace `<tag>` with the specific image tag or digest you are deploying (e.g. the value of `Chart.appVersion`).
 
 ## Network policy
 

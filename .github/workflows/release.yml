@@ -103,6 +103,8 @@ jobs:
             dockerfile: docker/Dockerfile.api
           - image: alluredeck-ui
             dockerfile: docker/Dockerfile.ui
+          - image: alluredeck-mcp
+            dockerfile: docker/Dockerfile.mcp
     steps:
       - uses: actions/checkout@v6
         with:

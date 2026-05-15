@@ -230,6 +230,39 @@ app.kubernetes.io/component: mcp
 {{- end }}
 
 {{/*
+MCP Secret name — precedence:
+  1. mcp.security.existingSecret → use it directly
+  2. api.security.existingSecret  → share the API's existing secret
+  3. else                         → chart-managed <release>-mcp Secret
+*/}}
+{{- define "alluredeck.mcp.secretName" -}}
+{{- if .Values.mcp.security.existingSecret }}
+{{- .Values.mcp.security.existingSecret }}
+{{- else if .Values.api.security.existingSecret }}
+{{- .Values.api.security.existingSecret }}
+{{- else }}
+{{- include "alluredeck.mcp.fullname" . }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the MCP service account to use.
+Precedence:
+  1. mcp.serviceAccount.create=true → use mcp.serviceAccount.name or default "<release>-mcp"
+  2. mcp.serviceAccountName (deprecated string) non-empty → use it
+  3. else → default "default"
+*/}}
+{{- define "alluredeck.mcp.serviceAccountName" -}}
+{{- if .Values.mcp.serviceAccount.create }}
+{{- default (printf "%s-mcp" (include "alluredeck.fullname" .)) .Values.mcp.serviceAccount.name }}
+{{- else if .Values.mcp.serviceAccountName }}
+{{- .Values.mcp.serviceAccountName }}
+{{- else }}
+{{- default "default" .Values.mcp.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
 Image pull secrets combining global and component-level secrets.
 */}}
 {{- define "alluredeck.imagePullSecrets" -}}

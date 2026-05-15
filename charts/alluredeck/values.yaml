@@ -122,6 +122,8 @@ api:
     runAsGroup: 1000
     fsGroup: 1000
     runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
 
   securityContext:
     readOnlyRootFilesystem: true
@@ -205,9 +207,9 @@ api:
 mcp:
   enabled: false
   image:
-    repository: ghcr.io/alluredeck/mcp
+    repository: ghcr.io/mkutlak/alluredeck-mcp
     tag: ""  # defaults to Chart.appVersion
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   replicaCount: 1
   port: 8081
   config:
@@ -216,13 +218,12 @@ mcp:
     rateLimitPerMin: 60
     rateLimitBurst: 10
     poolMaxConns: 8
-  resources:
-    limits:
-      cpu: 500m
-      memory: 256Mi
-    requests:
-      cpu: 50m
-      memory: 64Mi
+  resources: {}
+    # requests:
+    #   cpu: 50m
+    #   memory: 64Mi
+    # limits:
+    #   memory: 256Mi
   probes:
     liveness:
       path: /health
@@ -234,15 +235,25 @@ mcp:
       port: 8081
       initialDelaySeconds: 5
       periodSeconds: 10
+    startup:
+      path: /health
+      port: 8081
+      periodSeconds: 5
+      failureThreshold: 12
   # Security credentials for the MCP server.
-  # mcpSigningKey is stored in the API secret (alluredeck.api.secretName) under key "mcpSigningKey"
-  # and injected as the MCP_SIGNING_KEY environment variable.
+  # mcpSigningKey, jwtSecretKey, and databaseURL are stored in the MCP secret
+  # (alluredeck.mcp.secretName) and injected as environment variables.
   security:
     signingKey: ""      # override: set a fixed key; auto-generated (randAlphaNum 64) when blank
-    existingSecret: ""  # use a pre-created Secret instead of the auto-managed API secret
+    existingSecret: ""  # use a pre-created Secret instead of the auto-managed MCP secret
   service:
     type: ClusterIP
-  serviceAccountName: ""  # inherits from .Values.api.serviceAccountName if blank
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+    automountServiceAccountToken: false  # MCP needs no API access; keep false unless a sidecar requires it
+  serviceAccountName: ""  # Deprecated — use mcp.serviceAccount.name
 
 # ---------------------------------------------------------------------------
 # UI (React frontend served by Nginx)
@@ -273,6 +284,8 @@ ui:
     runAsGroup: 101
     fsGroup: 101
     runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
 
   securityContext:
     readOnlyRootFilesystem: true
