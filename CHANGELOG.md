@@ -1,3 +1,15 @@
+## [0.35.0](https://github.com/mkutlak/alluredeck/compare/v0.34.2...v0.35.0) (2026-05-15)
+
+### Features
+
+* **mcp:** add Model Context Protocol server with proposal-mode mutations ([97a5f55](https://github.com/mkutlak/alluredeck/commit/97a5f558d2a08f57891936fa01d94d3ef08e5d46))
+* **mcp:** harden Kubernetes deployment and wire image into release pipeline ([8ae3ab2](https://github.com/mkutlak/alluredeck/commit/8ae3ab251c8f099ca6110f7ec7c5572d2dc83062))
+* **mcp:** single-shot URL resolution, dedupe, and tighter validation ([07b1bb4](https://github.com/mkutlak/alluredeck/commit/07b1bb4989cb9448378528ab2064f3b9c8a9ea70))
+
+### Bug Fixes
+
+* **mcp:** populate TokenInfo.Expiration so auth no longer 401s ([1b80c3c](https://github.com/mkutlak/alluredeck/commit/1b80c3c9efc9a3547e45c0522ab638025e78bffa))
+
 ## [0.34.2](https://github.com/mkutlak/alluredeck/compare/v0.34.1...v0.34.2) (2026-05-10)
 
 ### Bug Fixes
