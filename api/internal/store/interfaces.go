@@ -77,6 +77,14 @@ type BuildStorer interface {
 	ListBuildsPaginatedBranch(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]Build, int, error)
 	ListBuildsInRange(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]Build, int, error)
 	SetHasPlaywrightReport(ctx context.Context, projectID int64, buildNumber int, value bool) error
+	// BuildExists reports whether a build with the given build_id (primary key)
+	// belongs to the given project. Used by MCP tools to fail fast before
+	// performing heavier queries — build_id ≠ build_number (UI URL uses build_number).
+	BuildExists(ctx context.Context, projectID, buildID int64) (bool, error)
+	// GetBuildByID returns the build row for a given project_id + build_id (primary
+	// key). Returns store.ErrBuildNotFound when the build does not exist or belongs
+	// to a different project.
+	GetBuildByID(ctx context.Context, projectID, buildID int64) (Build, error)
 }
 
 // TestResultStorer is the interface for test result operations.

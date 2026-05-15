@@ -199,7 +199,7 @@ describe('PendingProposalsPage', () => {
     await userEvent.click(confirmBtn)
 
     await waitFor(() => {
-      expect(proposalsApi.approveProposal).toHaveBeenCalledWith('defect', 7, expect.anything())
+      expect(proposalsApi.approveProposal).toHaveBeenCalledWith('defect', 7)
     })
   })
 

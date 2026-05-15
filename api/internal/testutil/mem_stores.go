@@ -766,6 +766,28 @@ func (m *MemBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int
 	return nil
 }
 
+func (m *MemBuildStore) BuildExists(_ context.Context, projectID, buildID int64) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, b := range m.builds {
+		if b.ProjectID == projectID && b.ID == buildID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *MemBuildStore) GetBuildByID(_ context.Context, projectID, buildID int64) (store.Build, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, b := range m.builds {
+		if b.ProjectID == projectID && b.ID == buildID {
+			return *b, nil
+		}
+	}
+	return store.Build{}, store.ErrBuildNotFound
+}
+
 // ---------------------------------------------------------------------------
 // MemUserStore
 // ---------------------------------------------------------------------------

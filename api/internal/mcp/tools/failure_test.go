@@ -32,7 +32,7 @@ func setupTestServer(t *testing.T, stores *bootstrap.Stores) *mcpsdk.ClientSessi
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cs.Close() })
+	t.Cleanup(func() { _ = cs.Close() })
 	return cs
 }
 
@@ -149,10 +149,7 @@ func TestListFailingTests_Pagination(t *testing.T) {
 	// We simulate the store returning items [2..4] by adjusting the mock.
 	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, limit int) ([]store.TestResult, error) {
 		offset := 2 // page2 offset
-		end := offset + limit
-		if end > len(allResults) {
-			end = len(allResults)
-		}
+		end := min(offset+limit, len(allResults))
 		return allResults[offset:end], nil
 	}
 	res2, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
@@ -176,10 +173,7 @@ func TestListFailingTests_Pagination(t *testing.T) {
 	// Page 3: last page, expect 1 item + empty cursor.
 	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, limit int) ([]store.TestResult, error) {
 		offset := 4 // page3 offset
-		end := offset + limit
-		if end > len(allResults) {
-			end = len(allResults)
-		}
+		end := min(offset+limit, len(allResults))
 		return allResults[offset:end], nil
 	}
 	res3, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
@@ -287,6 +281,139 @@ func TestListFailingTests_StoreError(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected store error message %q in content, got: %v", storeErr.Error(), res.Content)
+	}
+}
+
+// TestListFailingTests_BuildIDNotInProject verifies that a build_id belonging to
+// a different project returns IsError=true with the hint message.
+func TestListFailingTests_BuildIDNotInProject(t *testing.T) {
+	mocks := testutil.New()
+	// GetBuildByID returns ErrBuildNotFound — build_id=28 not in project=1.
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, _ int64) (store.Build, error) {
+		return store.Build{}, store.ErrBuildNotFound
+	}
+
+	cs := setupTestServer(t, buildStores(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_failing_tests",
+		Arguments: map[string]any{"project_id": 1, "build_id": 28},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true for build_id not in project")
+	}
+	// Hint message must be present.
+	found := false
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcpsdk.TextContent); ok {
+			if contains(tc.Text, "resolve_url") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("want hint about resolve_url in error message")
+	}
+}
+
+// TestListFailingTests_SummaryOnly verifies summary_only=true returns counts without item list.
+func TestListFailingTests_SummaryOnly(t *testing.T) {
+	mocks := testutil.New()
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, projectID int64) (store.Build, error) {
+		return store.Build{ID: 10, ProjectID: projectID, BuildNumber: 3}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{Status: "failed"},
+			{Status: "failed"},
+			{Status: "broken"},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStores(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_failing_tests",
+		Arguments: map[string]any{"project_id": 1, "summary_only": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+
+	out := decodeOutput(t, res)
+	if out.Summary == nil {
+		t.Fatal("want non-nil summary")
+	}
+	if out.Summary.TotalFailed != 3 {
+		t.Errorf("want total_failed=3, got %d", out.Summary.TotalFailed)
+	}
+	if out.Summary.Statuses["failed"] != 2 {
+		t.Errorf("want statuses.failed=2, got %d", out.Summary.Statuses["failed"])
+	}
+	if out.Summary.Statuses["broken"] != 1 {
+		t.Errorf("want statuses.broken=1, got %d", out.Summary.Statuses["broken"])
+	}
+}
+
+// TestListFailingTests_BuildRefForGreenBuild verifies that the top-level
+// `build` hoist is populated even when the failing-tests list is empty, as
+// long as an explicit build_id resolved to a real build. This matches
+// compare_builds' always-hoist behavior and saves the LLM a round-trip.
+func TestListFailingTests_BuildRefForGreenBuild(t *testing.T) {
+	mocks := testutil.New()
+	branch := "main"
+	sha := "abc123"
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, _ int64) (store.Build, error) {
+		return store.Build{
+			ID:          164,
+			ProjectID:   1,
+			BuildNumber: 28,
+			CIBranch:    &branch,
+			CICommitSHA: &sha,
+		}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{}, nil
+	}
+
+	cs := setupTestServer(t, buildStores(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_failing_tests",
+		Arguments: map[string]any{"project_id": 1, "build_id": 164},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+
+	out := decodeOutput(t, res)
+	if out.Build == nil {
+		t.Fatal("want out.Build populated for green build, got nil")
+	}
+	if out.Build.BuildNumber != 28 {
+		t.Errorf("want build_number=28, got %d", out.Build.BuildNumber)
+	}
+	if out.Build.Branch != "main" {
+		t.Errorf("want branch=main, got %q", out.Build.Branch)
+	}
+	if out.Build.CommitSHA != "abc123" {
+		t.Errorf("want commit_sha=abc123, got %q", out.Build.CommitSHA)
+	}
+	if len(out.Items) != 0 {
+		t.Errorf("want empty items, got %d", len(out.Items))
 	}
 }
 

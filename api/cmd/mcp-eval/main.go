@@ -129,7 +129,7 @@ func run() int {
 		}
 		return exitMCPDown
 	}
-	defer cs.Close()
+	defer func() { _ = cs.Close() }()
 
 	llmClient := &http.Client{Timeout: 60 * time.Second}
 
@@ -276,7 +276,7 @@ func classify(ctx context.Context, c *http.Client, apiKey, model, prompt string)
 		MaxTokens: 50,
 		Messages:  []anthropicMessage{{Role: "user", Content: prompt}},
 	}
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		predicted, retry, err := callAnthropic(ctx, c, apiKey, body)
 		if err == nil {
 			return predicted, nil
@@ -307,7 +307,7 @@ func callAnthropic(ctx context.Context, c *http.Client, apiKey string, body anth
 	if err != nil {
 		return "", false, fmt.Errorf("anthropic: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	switch resp.StatusCode {
@@ -359,5 +359,5 @@ func writeReport(path string, r *Report) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }

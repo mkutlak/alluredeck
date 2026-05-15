@@ -23,6 +23,19 @@ func buildStoresDiscovery(mocks *testutil.MockStores) *bootstrap.Stores {
 	}
 }
 
+func decodeResolveURL(t *testing.T, res *mcpsdk.CallToolResult) tools.ResolveURLOutput {
+	t.Helper()
+	b, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out tools.ResolveURLOutput
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal ResolveURLOutput: %v", err)
+	}
+	return out
+}
+
 func decodeListProjects(t *testing.T, res *mcpsdk.CallToolResult) tools.ListProjectsOutput {
 	t.Helper()
 	b, err := json.Marshal(res.StructuredContent)
@@ -199,10 +212,7 @@ func TestListRecentBuilds_Pagination(t *testing.T) {
 		if start >= len(all) {
 			return nil, len(all), nil
 		}
-		end := start + perPage
-		if end > len(all) {
-			end = len(all)
-		}
+		end := min(start+perPage, len(all))
 		return all[start:end], len(all), nil
 	}
 
@@ -322,8 +332,198 @@ func TestFindTestByName_EmptyResults(t *testing.T) {
 	}
 }
 
+// buildStoresResolveURL assembles stores for resolve_url tests using the
+// fine-grained MockProjectStore (not MemProjectStore) so Fn fields can be set.
+func buildStoresResolveURL(projMock *testutil.MockProjectStore, buildMock *testutil.MockBuildStore) *bootstrap.Stores {
+	return &bootstrap.Stores{
+		Project: projMock,
+		Build:   buildMock,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolve_url
+// ---------------------------------------------------------------------------
+
+func TestResolveURL_ByURL_NumericProject(t *testing.T) {
+	branch := "main"
+	sha := "abc123"
+	total := 10
+	passed := 8
+	failed := 1
+	broken := 1
+
+	projMock := &testutil.MockProjectStore{}
+	projMock.GetProjectFn = func(_ context.Context, id int64) (*store.Project, error) {
+		return &store.Project{ID: id, Slug: "my-project", DisplayName: "My Project"}, nil
+	}
+	buildMock := &testutil.MockBuildStore{}
+	buildMock.GetBuildByNumberFn = func(_ context.Context, _ int64, buildNumber int) (store.Build, error) {
+		return store.Build{
+			ID:          164,
+			ProjectID:   1,
+			BuildNumber: buildNumber,
+			CIBranch:    &branch,
+			CICommitSHA: &sha,
+			StatTotal:   &total,
+			StatPassed:  &passed,
+			StatFailed:  &failed,
+			StatBroken:  &broken,
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresResolveURL(projMock, buildMock))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "resolve_url",
+		Arguments: map[string]any{"url": "http://localhost:7474/projects/1/reports/28"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeResolveURL(t, res)
+	if out.ProjectID != 1 {
+		t.Errorf("want project_id=1, got %d", out.ProjectID)
+	}
+	if out.BuildID != 164 {
+		t.Errorf("want build_id=164, got %d", out.BuildID)
+	}
+	if out.BuildNumber != 28 {
+		t.Errorf("want build_number=28, got %d", out.BuildNumber)
+	}
+	if out.Branch != "main" {
+		t.Errorf("want branch=main, got %q", out.Branch)
+	}
+	if out.CommitSHA != "abc123" {
+		t.Errorf("want commit_sha=abc123, got %q", out.CommitSHA)
+	}
+	if !out.HasFailures {
+		t.Error("want has_failures=true")
+	}
+}
+
+func TestResolveURL_ByURL_SlugProject(t *testing.T) {
+	projMock := &testutil.MockProjectStore{}
+	projMock.GetProjectBySlugFn = func(_ context.Context, slug string) (*store.Project, error) {
+		return &store.Project{ID: 7, Slug: slug, DisplayName: "Slug Project"}, nil
+	}
+	buildMock := &testutil.MockBuildStore{}
+	buildMock.GetBuildByNumberFn = func(_ context.Context, _ int64, buildNumber int) (store.Build, error) {
+		return store.Build{ID: 99, ProjectID: 7, BuildNumber: buildNumber}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresResolveURL(projMock, buildMock))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "resolve_url",
+		Arguments: map[string]any{"url": "http://localhost:7474/projects/my-slug/reports/5"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeResolveURL(t, res)
+	if out.ProjectID != 7 {
+		t.Errorf("want project_id=7, got %d", out.ProjectID)
+	}
+	if out.BuildID != 99 {
+		t.Errorf("want build_id=99, got %d", out.BuildID)
+	}
+}
+
+func TestResolveURL_ByComponents(t *testing.T) {
+	projMock := &testutil.MockProjectStore{}
+	projMock.GetProjectFn = func(_ context.Context, id int64) (*store.Project, error) {
+		return &store.Project{ID: id, Slug: "proj", DisplayName: "Proj"}, nil
+	}
+	buildMock := &testutil.MockBuildStore{}
+	buildMock.GetBuildByNumberFn = func(_ context.Context, _ int64, buildNumber int) (store.Build, error) {
+		return store.Build{ID: 55, ProjectID: 3, BuildNumber: buildNumber}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresResolveURL(projMock, buildMock))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "resolve_url",
+		Arguments: map[string]any{"project_ref": "3", "build_number": 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeResolveURL(t, res)
+	if out.BuildID != 55 {
+		t.Errorf("want build_id=55, got %d", out.BuildID)
+	}
+}
+
+func TestResolveURL_InvalidURL(t *testing.T) {
+	mocks := testutil.New()
+	cs := setupTestServer(t, buildStoresDiscovery(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "resolve_url",
+		Arguments: map[string]any{"url": "http://localhost:7474/projects/1/something/else"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true for unrecognised URL path")
+	}
+}
+
+func TestResolveURL_MissingInput(t *testing.T) {
+	mocks := testutil.New()
+	cs := setupTestServer(t, buildStoresDiscovery(mocks))
+	ctx := context.Background()
+
+	// Neither url nor project_ref.
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "resolve_url",
+		Arguments: map[string]any{"build_number": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true when neither url nor project_ref provided")
+	}
+}
+
+// TestResolveURL_SubPathRejected verifies that the anchored regex rejects a URL
+// whose path has a prefix before /projects/…/reports/… (Fix 3).
+func TestResolveURL_SubPathRejected(t *testing.T) {
+	mocks := testutil.New()
+	cs := setupTestServer(t, buildStoresDiscovery(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "resolve_url",
+		Arguments: map[string]any{"url": "http://host/foo/projects/1/reports/28"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true for path /foo/projects/1/reports/28 (not anchored at root)")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-func ptrInt64(v int64) *int64 { return &v }

@@ -125,6 +125,14 @@ func (m *mockAttachmentBuildStore) SetHasPlaywrightReport(_ context.Context, _ i
 	panic("not implemented")
 }
 
+func (m *mockAttachmentBuildStore) BuildExists(_ context.Context, _ int64, _ int64) (bool, error) {
+	return true, nil
+}
+
+func (m *mockAttachmentBuildStore) GetBuildByID(_ context.Context, _ int64, _ int64) (store.Build, error) {
+	return store.Build{}, nil
+}
+
 // ---------------------------------------------------------------------------
 // mockDataStore (minimal — only OpenReportFile used by AttachmentHandler)
 // ---------------------------------------------------------------------------

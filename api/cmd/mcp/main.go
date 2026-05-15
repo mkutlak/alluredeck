@@ -22,12 +22,13 @@ import (
 
 func main() {
 	cfg, encKey, logger := mustLoadConfig()
-	defer func() { _ = logger.Sync() }()
 
 	if !cfg.MCPServerEnabled {
 		logger.Info("MCP server disabled via feature flag", zap.String("env", "ENABLE_MCP_SERVER"))
+		_ = logger.Sync()
 		os.Exit(0)
 	}
+	defer func() { _ = logger.Sync() }()
 
 	if cfg.MCPSigningKey == "" {
 		logger.Fatal("MCP_SIGNING_KEY must be set when ENABLE_MCP_SERVER=true")

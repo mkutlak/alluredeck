@@ -16,11 +16,12 @@ import (
 
 // ListFailingTestsInput holds the parameters for the list_failing_tests tool.
 type ListFailingTestsInput struct {
-	ProjectID int    `json:"project_id"`
-	BuildID   int    `json:"build_id,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
+	ProjectID   int    `json:"project_id"`
+	BuildID     int    `json:"build_id,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+	Cursor      string `json:"cursor,omitempty"`
+	SummaryOnly bool   `json:"summary_only,omitempty"`
 }
 
 // FailingTestItem is one result row returned by the list_failing_tests tool.
@@ -36,17 +37,32 @@ type FailingTestItem struct {
 	KnownIssueID    int64  `json:"known_issue_id,omitempty"`
 }
 
+// FailingSummary is returned when summary_only=true.
+type FailingSummary struct {
+	TotalFailed int            `json:"total_failed"`
+	Statuses    map[string]int `json:"statuses"`
+}
+
+// BuildRef holds lightweight build metadata hoisted to the top-level output.
+type BuildRef struct {
+	BuildNumber int    `json:"build_number"`
+	Branch      string `json:"branch,omitempty"`
+	CommitSHA   string `json:"commit_sha,omitempty"`
+}
+
 // ListFailingTestsOutput is the structured output for the list_failing_tests tool.
 type ListFailingTestsOutput struct {
 	Items      []FailingTestItem `json:"items"`
 	NextCursor string            `json:"next_cursor,omitempty"`
+	Build      *BuildRef         `json:"build,omitempty"`
+	Summary    *FailingSummary   `json:"summary,omitempty"`
 }
 
 // RegisterFailureTools registers the failure-related MCP tools on s.
 func RegisterFailureTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_failing_tests",
-		Description: "List tests that failed in a build. Use this first when debugging a CI failure; combine with get_test_failure for details on a specific test.",
+		Description: "List tests that failed in a build. Use this first when debugging a CI failure; combine with get_test_failure for details on a specific test. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, listFailingTestsHandler(stores, logger))
 }
 
@@ -73,6 +89,7 @@ func listFailingTestsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 
 		// Resolve build ID.
 		buildID := int64(in.BuildID)
+		var resolvedBuild store.Build
 		if buildID == 0 {
 			latest, err := stores.Build.GetLatestBuild(ctx, int64(in.ProjectID))
 			if err != nil {
@@ -82,6 +99,22 @@ func listFailingTestsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 				return nil, ListFailingTestsOutput{}, fmt.Errorf("resolving latest build: %w", err)
 			}
 			buildID = latest.ID
+			resolvedBuild = latest
+		} else {
+			// Fetch the build row — doubles as existence check and source of
+			// CI metadata for the top-level `build` hoist (consistent with
+			// compare_builds, which always returns it for a resolved target).
+			b, err := stores.Build.GetBuildByID(ctx, int64(in.ProjectID), buildID)
+			if err != nil {
+				if errors.Is(err, store.ErrBuildNotFound) {
+					return nil, ListFailingTestsOutput{}, fmt.Errorf(
+						"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map)",
+						buildID, in.ProjectID,
+					)
+				}
+				return nil, ListFailingTestsOutput{}, fmt.Errorf("fetching build: %w", err)
+			}
+			resolvedBuild = b
 		}
 
 		// Fetch limit+1 rows to detect whether a next page exists.
@@ -96,26 +129,55 @@ func listFailingTestsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 			rows = rows[:in.Limit]
 		}
 
-		// Map store rows to output items.
-		items := make([]FailingTestItem, len(rows))
-		for i, r := range rows {
-			items[i] = FailingTestItem{
-				BuildID:   int(r.BuildID),
-				HistoryID: r.HistoryID,
-				FullName:  r.FullName,
-				Status:    r.Status,
-				Retries:   r.Retries,
-				Flaky:     r.Flaky,
+		out := ListFailingTestsOutput{}
+
+		// Hoist build metadata when results are non-empty.
+		if len(rows) > 0 || resolvedBuild.ID != 0 {
+			br := &BuildRef{BuildNumber: resolvedBuild.BuildNumber}
+			if resolvedBuild.CIBranch != nil {
+				br.Branch = *resolvedBuild.CIBranch
+			}
+			if resolvedBuild.CICommitSHA != nil {
+				br.CommitSHA = *resolvedBuild.CICommitSHA
+			}
+			if br.BuildNumber > 0 {
+				out.Build = br
 			}
 		}
 
-		// Build next cursor if more results exist.
-		var nextCursor string
-		if hasMore {
-			nextCursor = encodeCursor(offset + in.Limit)
+		if in.SummaryOnly {
+			statuses := make(map[string]int)
+			for i := range rows {
+				statuses[rows[i].Status]++
+			}
+			out.Summary = &FailingSummary{
+				TotalFailed: len(rows),
+				Statuses:    statuses,
+			}
+			out.Items = []FailingTestItem{}
+			return nil, out, nil
 		}
 
-		return nil, ListFailingTestsOutput{Items: items, NextCursor: nextCursor}, nil
+		// Map store rows to output items.
+		items := make([]FailingTestItem, len(rows))
+		for i := range rows {
+			items[i] = FailingTestItem{
+				BuildID:   int(rows[i].BuildID),
+				HistoryID: rows[i].HistoryID,
+				FullName:  rows[i].FullName,
+				Status:    rows[i].Status,
+				Retries:   rows[i].Retries,
+				Flaky:     rows[i].Flaky,
+			}
+		}
+		out.Items = items
+
+		// Build next cursor if more results exist.
+		if hasMore {
+			out.NextCursor = encodeCursor(offset + in.Limit)
+		}
+
+		return nil, out, nil
 	}
 }
 

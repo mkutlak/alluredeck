@@ -79,5 +79,62 @@ func (ts *TestResultStore) CompareBuildsByHistoryID(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate diff rows: %w", err)
 	}
+
+	// Collapse duplicate-encoding entries: the same logical test ingested under
+	// two different history_id values (e.g. "." vs ":" separator variants in the
+	// MD5 hash) will produce twin "added"/"removed" rows that never join in the
+	// FULL OUTER JOIN. Prefer the row where both status_a and status_b are
+	// non-empty (a real diff) over a row where one side is empty (an unmatched
+	// add/remove). Stable order by first occurrence.
+	//
+	// NOTE: the proper fix is consistent history_id derivation in the parser —
+	// that is a separate change, out of scope here.
+	result = collapseByFullName(result)
+
 	return result, nil
+}
+
+// diffKey is the deduplication key for collapseByFullName.
+type diffKey struct {
+	fullName string
+	testName string
+}
+
+// collapseByFullName deduplicates DiffEntry slices keyed by (full_name,
+// test_name). When two entries share the same key, the one with both StatusA
+// and StatusB non-empty wins (real diff > unmatched add/remove).
+func collapseByFullName(entries []store.DiffEntry) []store.DiffEntry {
+	if len(entries) == 0 {
+		return entries
+	}
+
+	type slot struct {
+		idx   int
+		entry store.DiffEntry
+	}
+
+	seen := make(map[diffKey]slot, len(entries))
+	order := make([]diffKey, 0, len(entries))
+
+	for _, e := range entries {
+		k := diffKey{fullName: e.FullName, testName: e.TestName}
+		existing, ok := seen[k]
+		if !ok {
+			seen[k] = slot{idx: len(order), entry: e}
+			order = append(order, k)
+			continue
+		}
+		// Prefer entries where both sides are populated over one-sided entries.
+		bothNew := e.StatusA != "" && e.StatusB != ""
+		bothOld := existing.entry.StatusA != "" && existing.entry.StatusB != ""
+		if bothNew && !bothOld {
+			seen[k] = slot{idx: existing.idx, entry: e}
+		}
+	}
+
+	out := make([]store.DiffEntry, 0, len(order))
+	for _, k := range order {
+		out = append(out, seen[k].entry)
+	}
+	return out
 }

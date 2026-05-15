@@ -151,15 +151,15 @@ func listDefectsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx contex
 		}
 
 		items := make([]DefectItem, len(rows))
-		for i, r := range rows {
+		for i := range rows {
 			items[i] = DefectItem{
-				ID:                r.ID,
-				FingerprintHash:   r.FingerprintHash,
-				NormalizedMessage: r.NormalizedMessage,
-				Category:          r.Category,
-				Resolution:        r.Resolution,
-				OccurrenceCount:   r.OccurrenceCount,
-				LastSeenBuildID:   r.LastSeenBuildID,
+				ID:                rows[i].ID,
+				FingerprintHash:   rows[i].FingerprintHash,
+				NormalizedMessage: rows[i].NormalizedMessage,
+				Category:          rows[i].Category,
+				Resolution:        rows[i].Resolution,
+				OccurrenceCount:   rows[i].OccurrenceCount,
+				LastSeenBuildID:   rows[i].LastSeenBuildID,
 			}
 		}
 

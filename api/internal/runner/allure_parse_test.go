@@ -77,6 +77,14 @@ func (s *spyBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int
 	return nil
 }
 
+func (s *spyBuildStore) BuildExists(_ context.Context, _ int64, _ int64) (bool, error) {
+	return true, nil
+}
+
+func (s *spyBuildStore) GetBuildByID(_ context.Context, _ int64, _ int64) (store.Build, error) {
+	return store.Build{}, nil
+}
+
 // spyTestResultStore implements store.TestResultStorer and records InsertBatchFull calls.
 type spyTestResultStore struct {
 	insertBatchFullCount int

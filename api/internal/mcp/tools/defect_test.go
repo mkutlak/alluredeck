@@ -248,10 +248,7 @@ func (s *stubDefectStore) ListByProject(_ context.Context, _ int64, f store.Defe
 	if start >= len(s.listRows) {
 		return nil, len(s.listRows), nil
 	}
-	end := start + f.PerPage
-	if end > len(s.listRows) {
-		end = len(s.listRows)
-	}
+	end := min(start+f.PerPage, len(s.listRows))
 	return s.listRows[start:end], len(s.listRows), nil
 }
 func (s *stubDefectStore) ListByBuild(_ context.Context, _ int64, _ int64, _ store.DefectFilter) ([]store.DefectListRow, int, error) {

@@ -814,6 +814,37 @@ func (bs *BuildStore) BatchSyncStats(ctx context.Context, projectID int64, slug 
 	return nil
 }
 
+// BuildExists reports whether a build with the given build_id (primary key)
+// belongs to the given project. Cheap EXISTS query used by MCP tools to
+// distinguish "build not found" from "build has no failures".
+func (bs *BuildStore) BuildExists(ctx context.Context, projectID, buildID int64) (bool, error) {
+	var ok bool
+	err := bs.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM builds WHERE project_id=$1 AND id=$2)`,
+		projectID, buildID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("build exists (project=%d, build=%d): %w", projectID, buildID, err)
+	}
+	return ok, nil
+}
+
+// GetBuildByID returns the build row for a given project_id + build_id (primary
+// key). Same shape as GetBuildByNumber but keyed on id instead of build_order.
+// Returns store.ErrBuildNotFound when the build does not exist or belongs to a
+// different project.
+func (bs *BuildStore) GetBuildByID(ctx context.Context, projectID, buildID int64) (store.Build, error) {
+	row := bs.pool.QueryRow(ctx, buildSelectCols+`
+		WHERE project_id=$1 AND id=$2`, projectID, buildID)
+	b, err := scanBuildRow(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return store.Build{}, fmt.Errorf("%w: project=%d build_id=%d", store.ErrBuildNotFound, projectID, buildID)
+		}
+		return store.Build{}, fmt.Errorf("get build by id: %w", err)
+	}
+	return b, nil
+}
+
 // SetHasPlaywrightReport sets the has_playwright_report flag for the given build.
 func (bs *BuildStore) SetHasPlaywrightReport(ctx context.Context, projectID int64, buildNumber int, value bool) error {
 	tag, err := bs.pool.Exec(ctx,

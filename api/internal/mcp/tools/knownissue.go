@@ -57,8 +57,8 @@ func matchKnownIssuesHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 		}
 
 		matches := make([]KnownIssueMatch, 0)
-		for _, ki := range issues {
-			re, err := regexp.Compile(ki.Pattern)
+		for i := range issues {
+			re, err := regexp.Compile(issues[i].Pattern)
 			if err != nil {
 				// Fail-soft: skip patterns that fail to compile.
 				continue
@@ -68,9 +68,9 @@ func matchKnownIssuesHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 				continue
 			}
 			matches = append(matches, KnownIssueMatch{
-				KnownIssueID:     ki.ID,
-				Name:             ki.TestName,
-				RegexPattern:     ki.Pattern,
+				KnownIssueID:     issues[i].ID,
+				Name:             issues[i].TestName,
+				RegexPattern:     issues[i].Pattern,
 				MatchedSubstring: in.ErrorMessage[loc[0]:loc[1]],
 			})
 		}

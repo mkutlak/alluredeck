@@ -103,21 +103,6 @@ func RegisterMutatingToolsWithURL(s *mcpsdk.Server, stores *bootstrap.Stores, lo
 // RBAC helpers
 // ---------------------------------------------------------------------------
 
-// checkMutatingAuth extracts and validates auth claims from the MCP context.
-// Returns an error if the caller does not have editor-or-above role AND
-// allow_mcp_writes=true on their API key.
-//
-// Design: JWT-authenticated callers always have allow_mcp_writes="false"
-// (set in mcp/auth.go), so they are always rejected here. Only API keys
-// with the flag explicitly set can reach the success path.
-func checkMutatingAuth(ctx context.Context) (userID string, apiKeyID int64, err error) {
-	info := mcpauth.TokenInfoFromContext(ctx)
-	if info == nil {
-		return "", 0, fmt.Errorf("forbidden: unauthenticated request")
-	}
-	return checkMutatingAuthFromInfo(info)
-}
-
 // checkMutatingAuthFromInfo is the testable inner helper that takes an explicit
 // *mcpauth.TokenInfo. Tests call this directly to bypass the context round-trip.
 func checkMutatingAuthFromInfo(info *mcpauth.TokenInfo) (userID string, apiKeyID int64, err error) {

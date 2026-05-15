@@ -237,6 +237,8 @@ type MockBuildStore struct {
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]store.Build, int, error)
 	ListBuildsInRangeFn         func(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
 	SetHasPlaywrightReportFn    func(ctx context.Context, projectID int64, buildNumber int, value bool) error
+	BuildExistsFn               func(ctx context.Context, projectID, buildID int64) (bool, error)
+	GetBuildByIDFn              func(ctx context.Context, projectID, buildID int64) (store.Build, error)
 }
 
 func (m *MockBuildStore) NextBuildNumber(ctx context.Context, projectID int64) (int, error) {
@@ -384,6 +386,20 @@ func (m *MockBuildStore) SetHasPlaywrightReport(ctx context.Context, projectID i
 		return m.SetHasPlaywrightReportFn(ctx, projectID, buildNumber, value)
 	}
 	return nil
+}
+
+func (m *MockBuildStore) BuildExists(ctx context.Context, projectID, buildID int64) (bool, error) {
+	if m.BuildExistsFn != nil {
+		return m.BuildExistsFn(ctx, projectID, buildID)
+	}
+	return true, nil // default: build exists (safe for existing tests)
+}
+
+func (m *MockBuildStore) GetBuildByID(ctx context.Context, projectID, buildID int64) (store.Build, error) {
+	if m.GetBuildByIDFn != nil {
+		return m.GetBuildByIDFn(ctx, projectID, buildID)
+	}
+	return store.Build{}, nil // default: zero build (safe for existing tests)
 }
 
 // ---------------------------------------------------------------------------

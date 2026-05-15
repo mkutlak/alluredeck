@@ -99,24 +99,40 @@ type CompareBuildsInput struct {
 	ProjectID     int   `json:"project_id"`
 	BaseBuildID   int64 `json:"base_build_id"`
 	TargetBuildID int64 `json:"target_build_id"`
+	// Format controls output verbosity:
+	//   "full"    (default) — current shape with all fields
+	//   "compact" — omit history_id and test_name (~50% token reduction)
+	//   "summary" — counts only (~95% token reduction)
+	Format string `json:"format,omitempty"`
 }
 
 // DiffItem is one test in a compare_builds diff list.
 type DiffItem struct {
-	TestName  string `json:"test_name"`
+	TestName  string `json:"test_name,omitempty"`
 	FullName  string `json:"full_name"`
-	HistoryID string `json:"history_id"`
+	HistoryID string `json:"history_id,omitempty"`
 	StatusA   string `json:"status_a,omitempty"`
 	StatusB   string `json:"status_b,omitempty"`
 }
 
+// CompareSummary holds counts-only output for format="summary".
+type CompareSummary struct {
+	Regressed int `json:"regressed"`
+	Fixed     int `json:"fixed"`
+	NewPassed int `json:"new_passed"`
+	NewFailed int `json:"new_failed"`
+	Removed   int `json:"removed"`
+}
+
 // CompareBuildsOutput is the structured output for compare_builds.
 type CompareBuildsOutput struct {
-	Regressed []DiffItem `json:"regressed"`
-	Fixed     []DiffItem `json:"fixed"`
-	NewPassed []DiffItem `json:"new_passed"`
-	NewFailed []DiffItem `json:"new_failed"`
-	Removed   []DiffItem `json:"removed"`
+	Regressed []DiffItem      `json:"regressed,omitempty"`
+	Fixed     []DiffItem      `json:"fixed,omitempty"`
+	NewPassed []DiffItem      `json:"new_passed,omitempty"`
+	NewFailed []DiffItem      `json:"new_failed,omitempty"`
+	Removed   []DiffItem      `json:"removed,omitempty"`
+	Build     *BuildRef       `json:"build,omitempty"`
+	Summary   *CompareSummary `json:"summary,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +144,7 @@ type CompareBuildsOutput struct {
 func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_failure",
-		Description: "Get detailed failure information for a specific test in a build: status, message, stack trace, attachments, CI context, and defect fingerprint.",
+		Description: "Get detailed failure information for a specific test in a build: status, message, stack trace, attachments, CI context, and defect fingerprint. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, getTestFailureHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
@@ -138,7 +154,7 @@ func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *za
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "compare_builds",
-		Description: "Compare two builds for a project. Returns tests that regressed, became fixed, appeared new, or were removed between the base and target builds.",
+		Description: "Compare two builds for a project. Returns tests that regressed, became fixed, appeared new, or were removed between the base and target builds. Supports format=full|compact|summary. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, compareBuildsHandler(stores, logger))
 }
 
@@ -152,6 +168,17 @@ func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 		}
 		if in.HistoryID == "" {
 			return nil, GetTestFailureOutput{}, fmt.Errorf("history_id must not be empty")
+		}
+
+		// Fetch the build row — this serves as both an existence check and the
+		// source of CI metadata. Using GetBuildByID avoids a separate BuildExists
+		// round-trip and works for any build, not just the latest.
+		build, err := stores.Build.GetBuildByID(ctx, int64(in.ProjectID), in.BuildID)
+		if err != nil {
+			return nil, GetTestFailureOutput{}, fmt.Errorf(
+				"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map): %w",
+				in.BuildID, in.ProjectID, err,
+			)
 		}
 
 		// Fetch failing tests for this build and find the one matching history_id.
@@ -182,36 +209,26 @@ func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 			// Non-fatal: continue without attachments.
 			attachments = nil
 		}
+		// attachments are scoped to the build, not per-test result;
+		// allure-store association is not currently tracked at this call site.
 		out.Attachments = make([]AttachmentRef, 0, len(attachments))
 		for _, a := range attachments {
-			if a.TestResultID == matched.BuildID { // best-effort; TestResultID may be 0 for build-level
-				out.Attachments = append(out.Attachments, attachmentToRef(a))
-			}
-		}
-		// If no test-scoped attachments found, fall back to all build attachments.
-		if len(out.Attachments) == 0 && len(attachments) > 0 {
-			// Only include attachments that seem related (no test result ID scoping available from this call).
-			for _, a := range attachments {
-				out.Attachments = append(out.Attachments, attachmentToRef(a))
-			}
+			out.Attachments = append(out.Attachments, attachmentToRef(a))
 		}
 
-		// Fetch build to get CI metadata.
-		build, err := stores.Build.GetLatestBuild(ctx, int64(in.ProjectID))
-		if err == nil && build.ID == in.BuildID {
-			ci := &CIInfo{}
-			if build.CICommitSHA != nil {
-				ci.CommitSHA = *build.CICommitSHA
-			}
-			if build.CIBranch != nil {
-				ci.Branch = *build.CIBranch
-			}
-			if build.CIPipelineURL != nil {
-				ci.PipelineURL = *build.CIPipelineURL
-			}
-			if ci.CommitSHA != "" || ci.Branch != "" || ci.PipelineURL != "" {
-				out.CI = ci
-			}
+		// Populate CI metadata from the already-fetched build row.
+		ci := &CIInfo{}
+		if build.CICommitSHA != nil {
+			ci.CommitSHA = *build.CICommitSHA
+		}
+		if build.CIBranch != nil {
+			ci.Branch = *build.CIBranch
+		}
+		if build.CIPipelineURL != nil {
+			ci.PipelineURL = *build.CIPipelineURL
+		}
+		if ci.CommitSHA != "" || ci.Branch != "" || ci.PipelineURL != "" {
+			out.CI = ci
 		}
 
 		// Fetch defect fingerprint.
@@ -312,12 +329,84 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 			return nil, CompareBuildsOutput{}, fmt.Errorf("target_build_id must be positive")
 		}
 
+		// Validate base build belongs to this project.
+		baseOK, err := stores.Build.BuildExists(ctx, int64(in.ProjectID), in.BaseBuildID)
+		if err != nil {
+			return nil, CompareBuildsOutput{}, fmt.Errorf("checking base build existence: %w", err)
+		}
+		if !baseOK {
+			return nil, CompareBuildsOutput{}, fmt.Errorf(
+				"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map)",
+				in.BaseBuildID, in.ProjectID,
+			)
+		}
+
+		// Fetch the target build row — serves as both existence check and the
+		// source for the Build field in the output (post-state context).
+		// Build is the TARGET because that is what the LLM needs to anchor further
+		// calls (e.g. list_failing_tests for the regressions just found).
+		targetBuild, err := stores.Build.GetBuildByID(ctx, int64(in.ProjectID), in.TargetBuildID)
+		if err != nil {
+			return nil, CompareBuildsOutput{}, fmt.Errorf(
+				"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map): %w",
+				in.TargetBuildID, in.ProjectID, err,
+			)
+		}
+
+		// Build the top-level BuildRef from the target build so the caller has
+		// build_number/branch/commit without a separate list_recent_builds call.
+		targetRef := &BuildRef{BuildNumber: targetBuild.BuildNumber}
+		if targetBuild.CIBranch != nil {
+			targetRef.Branch = *targetBuild.CIBranch
+		}
+		if targetBuild.CICommitSHA != nil {
+			targetRef.CommitSHA = *targetBuild.CICommitSHA
+		}
+
 		diffs, err := stores.TestResult.CompareBuildsByHistoryID(ctx, int64(in.ProjectID), in.BaseBuildID, in.TargetBuildID)
 		if err != nil {
 			return nil, CompareBuildsOutput{}, fmt.Errorf("comparing builds: %w", err)
 		}
 
+		// Normalise format: default is "full".
+		format := in.Format
+		if format == "" {
+			format = "full"
+		}
+
+		// summary mode: counts only, no per-test lists.
+		if format == "summary" {
+			out := CompareBuildsOutput{Build: targetRef}
+			var regressed, fixed, newPassed, newFailed, removed int
+			for _, d := range diffs {
+				switch d.Category {
+				case store.DiffRegressed:
+					regressed++
+				case store.DiffFixed:
+					fixed++
+				case store.DiffAdded:
+					if d.StatusB == string(store.TestStatusPassed) {
+						newPassed++
+					} else {
+						newFailed++
+					}
+				case store.DiffRemoved:
+					removed++
+				}
+			}
+			out.Summary = &CompareSummary{
+				Regressed: regressed,
+				Fixed:     fixed,
+				NewPassed: newPassed,
+				NewFailed: newFailed,
+				Removed:   removed,
+			}
+			return nil, out, nil
+		}
+
+		// full or compact mode: build per-test lists.
 		out := CompareBuildsOutput{
+			Build:     targetRef,
 			Regressed: []DiffItem{},
 			Fixed:     []DiffItem{},
 			NewPassed: []DiffItem{},
@@ -326,13 +415,7 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 		}
 
 		for _, d := range diffs {
-			item := DiffItem{
-				TestName:  d.TestName,
-				FullName:  d.FullName,
-				HistoryID: d.HistoryID,
-				StatusA:   d.StatusA,
-				StatusB:   d.StatusB,
-			}
+			item := diffItemFromEntry(d, format)
 			switch d.Category {
 			case store.DiffRegressed:
 				out.Regressed = append(out.Regressed, item)
@@ -351,4 +434,20 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 
 		return nil, out, nil
 	}
+}
+
+// diffItemFromEntry converts a store.DiffEntry to a DiffItem, honouring the
+// requested format ("full" keeps all fields; "compact" omits history_id and
+// test_name since full_name already contains the test name).
+func diffItemFromEntry(d store.DiffEntry, format string) DiffItem {
+	item := DiffItem{
+		FullName: d.FullName,
+		StatusA:  d.StatusA,
+		StatusB:  d.StatusB,
+	}
+	if format != "compact" {
+		item.TestName = d.TestName
+		item.HistoryID = d.HistoryID
+	}
+	return item
 }

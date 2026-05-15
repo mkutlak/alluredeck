@@ -81,8 +81,11 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 	}
 
 	// Update last_used asynchronously — fire-and-forget (preserves F-3 semantics).
+	// WithoutCancel keeps request-scoped values (trace IDs, etc.) but detaches
+	// from the request's cancellation so the write completes after the response.
+	asyncCtx := context.WithoutCancel(ctx)
 	go func() {
-		_ = v.apiKeyStore.UpdateLastUsed(context.Background(), apiKey.ID)
+		_ = v.apiKeyStore.UpdateLastUsed(asyncCtx, apiKey.ID)
 	}()
 
 	// Populate Expiration: the MCP SDK rejects tokens with a zero Expiration.

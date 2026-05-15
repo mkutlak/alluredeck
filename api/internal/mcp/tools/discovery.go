@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"regexp"
+	"strconv"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
@@ -87,11 +90,46 @@ type FindTestByNameOutput struct {
 }
 
 // ---------------------------------------------------------------------------
+// resolve_url
+// ---------------------------------------------------------------------------
+
+// reURLPath matches the /projects/<proj>/reports/<num> path pattern in the
+// alluredeck UI. <proj> may be a numeric project_id or a slug string.
+// Anchored at ^ so that sub-paths like /foo/projects/x/reports/1 are rejected.
+var reURLPath = regexp.MustCompile(`^/projects/(?P<proj>[^/]+)/reports/(?P<num>\d+)/?$`)
+
+// ResolveURLInput holds parameters for the resolve_url tool.
+// Either url OR (project_ref + build_number) must be provided.
+type ResolveURLInput struct {
+	URL         string `json:"url,omitempty"`          // e.g. "http://host/projects/1/reports/28"
+	ProjectRef  string `json:"project_ref,omitempty"`  // numeric id OR slug; used when URL is absent
+	BuildNumber int    `json:"build_number,omitempty"` // used when URL is absent
+}
+
+// ResolveURLOutput is the structured output for the resolve_url tool.
+type ResolveURLOutput struct {
+	ProjectID   int64  `json:"project_id"`
+	ProjectSlug string `json:"project_slug"`
+	DisplayName string `json:"display_name"`
+	BuildID     int64  `json:"build_id"` // for downstream tool calls
+	BuildNumber int    `json:"build_number"`
+	Branch      string `json:"branch,omitempty"`
+	CommitSHA   string `json:"commit_sha,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	Status      string `json:"status_summary,omitempty"`
+	HasFailures bool   `json:"has_failures"`
+	ReportURL   string `json:"report_url"` // canonical UI link
+}
+
+// numericRe matches a string that is entirely decimal digits.
+var numericRe = regexp.MustCompile(`^\d+$`)
+
+// ---------------------------------------------------------------------------
 // RegisterDiscoveryTools
 // ---------------------------------------------------------------------------
 
-// RegisterDiscoveryTools registers list_projects, list_recent_builds, and
-// find_test_by_name on s.
+// RegisterDiscoveryTools registers list_projects, list_recent_builds,
+// find_test_by_name, and resolve_url on s.
 func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_projects",
@@ -107,6 +145,11 @@ func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *
 		Name:        "find_test_by_name",
 		Description: "Search tests by name substring (case-insensitive). Returns up to 100 matches with their history_id for use in get_test_failure and get_test_history.",
 	}, findTestByNameHandler(stores, logger))
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "resolve_url",
+		Description: "Resolve a UI URL or (project_ref, build_number) pair to the build_id and project context needed by other tools. Call this first when given a URL — the build_number in the URL is NOT the build_id that other tools require.",
+	}, resolveURLHandler(stores, logger))
 }
 
 func listProjectsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListProjectsInput) (*mcpsdk.CallToolResult, ListProjectsOutput, error) {
@@ -184,6 +227,10 @@ func listRecentBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 			br, err := stores.Branch.GetByName(ctx, int64(in.ProjectID), in.Branch)
 			if err != nil {
 				// Branch not found — return empty, not an error.
+				// This is intentional: an unknown branch name is not a user mistake
+				// the same way an unknown build_id is. The caller may be probing
+				// whether a branch exists, and returning an error here would break
+				// scripts that legitimately check for a branch before building.
 				return nil, ListRecentBuildsOutput{Items: nil}, nil
 			}
 			branchID = &br.ID
@@ -201,35 +248,8 @@ func listRecentBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 		}
 
 		items := make([]RecentBuildItem, len(builds))
-		for i, b := range builds {
-			item := RecentBuildItem{
-				BuildID:     b.ID,
-				BuildNumber: b.BuildNumber,
-				CreatedAt:   b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			}
-			if b.CIBranch != nil {
-				item.Branch = *b.CIBranch
-			}
-			if b.CICommitSHA != nil {
-				item.CommitSHA = *b.CICommitSHA
-			}
-			if b.StatTotal != nil {
-				passed := 0
-				if b.StatPassed != nil {
-					passed = *b.StatPassed
-				}
-				failed := 0
-				if b.StatFailed != nil {
-					failed = *b.StatFailed
-				}
-				broken := 0
-				if b.StatBroken != nil {
-					broken = *b.StatBroken
-				}
-				item.StatusSummary = fmt.Sprintf("total=%d passed=%d failed=%d broken=%d",
-					*b.StatTotal, passed, failed, broken)
-			}
-			items[i] = item
+		for i := range builds {
+			items[i] = recentBuildItem(builds[i])
 		}
 
 		var nextCursor string
@@ -239,6 +259,38 @@ func listRecentBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 
 		return nil, ListRecentBuildsOutput{Items: items, NextCursor: nextCursor}, nil
 	}
+}
+
+// recentBuildItem converts a store.Build to a RecentBuildItem.
+func recentBuildItem(b store.Build) RecentBuildItem {
+	item := RecentBuildItem{
+		BuildID:     b.ID,
+		BuildNumber: b.BuildNumber,
+		CreatedAt:   b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+	if b.CIBranch != nil {
+		item.Branch = *b.CIBranch
+	}
+	if b.CICommitSHA != nil {
+		item.CommitSHA = *b.CICommitSHA
+	}
+	if b.StatTotal != nil {
+		passed := 0
+		if b.StatPassed != nil {
+			passed = *b.StatPassed
+		}
+		failed := 0
+		if b.StatFailed != nil {
+			failed = *b.StatFailed
+		}
+		broken := 0
+		if b.StatBroken != nil {
+			broken = *b.StatBroken
+		}
+		item.StatusSummary = fmt.Sprintf("total=%d passed=%d failed=%d broken=%d",
+			*b.StatTotal, passed, failed, broken)
+	}
+	return item
 }
 
 func findTestByNameHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in FindTestByNameInput) (*mcpsdk.CallToolResult, FindTestByNameOutput, error) {
@@ -266,5 +318,98 @@ func findTestByNameHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 		}
 
 		return nil, FindTestByNameOutput{Items: items}, nil
+	}
+}
+
+func resolveURLHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ResolveURLInput) (*mcpsdk.CallToolResult, ResolveURLOutput, error) {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ResolveURLInput) (*mcpsdk.CallToolResult, ResolveURLOutput, error) {
+		var projectRef string
+		var buildNumber int
+
+		if in.URL != "" {
+			// Parse the UI URL: /projects/<proj>/reports/<num>
+			parsed, err := url.Parse(in.URL)
+			if err != nil {
+				return nil, ResolveURLOutput{}, fmt.Errorf("invalid url %q: %w", in.URL, err)
+			}
+			m := reURLPath.FindStringSubmatch(parsed.Path)
+			if m == nil {
+				return nil, ResolveURLOutput{}, fmt.Errorf("url path %q does not match /projects/<proj>/reports/<num>", parsed.Path)
+			}
+			projectRef = m[reURLPath.SubexpIndex("proj")]
+			num, err := strconv.Atoi(m[reURLPath.SubexpIndex("num")])
+			if err != nil {
+				return nil, ResolveURLOutput{}, fmt.Errorf("build_number in url is not an integer: %w", err)
+			}
+			buildNumber = num
+		} else {
+			// Use explicit project_ref + build_number.
+			if in.ProjectRef == "" {
+				return nil, ResolveURLOutput{}, fmt.Errorf("either url or project_ref must be provided")
+			}
+			if in.BuildNumber <= 0 {
+				return nil, ResolveURLOutput{}, fmt.Errorf("build_number must be positive when url is absent")
+			}
+			projectRef = in.ProjectRef
+			buildNumber = in.BuildNumber
+		}
+
+		// Resolve project: numeric id → GetProject, slug → GetProjectBySlug.
+		var proj *store.Project
+		var err error
+		if numericRe.MatchString(projectRef) {
+			id, _ := strconv.ParseInt(projectRef, 10, 64)
+			proj, err = stores.Project.GetProject(ctx, id)
+			if err != nil {
+				return nil, ResolveURLOutput{}, fmt.Errorf("project not found (id=%s): %w", projectRef, err)
+			}
+		} else {
+			proj, err = stores.Project.GetProjectBySlug(ctx, projectRef)
+			if err != nil {
+				return nil, ResolveURLOutput{}, fmt.Errorf("project not found (slug=%q): %w", projectRef, err)
+			}
+		}
+		if proj == nil {
+			return nil, ResolveURLOutput{}, fmt.Errorf("project %q not found", projectRef)
+		}
+
+		// Resolve build_number → build row.
+		b, err := stores.Build.GetBuildByNumber(ctx, proj.ID, buildNumber)
+		if err != nil {
+			return nil, ResolveURLOutput{}, fmt.Errorf("build #%d not found in project %q: %w", buildNumber, proj.Slug, err)
+		}
+
+		out := ResolveURLOutput{
+			ProjectID:   proj.ID,
+			ProjectSlug: proj.Slug,
+			DisplayName: proj.DisplayName,
+			BuildID:     b.ID,
+			BuildNumber: b.BuildNumber,
+			CreatedAt:   b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ReportURL:   fmt.Sprintf("/projects/%d/reports/%d", proj.ID, b.BuildNumber),
+		}
+		if b.CIBranch != nil {
+			out.Branch = *b.CIBranch
+		}
+		if b.CICommitSHA != nil {
+			out.CommitSHA = *b.CICommitSHA
+		}
+		if b.StatTotal != nil && b.StatFailed != nil && b.StatBroken != nil {
+			failed := *b.StatFailed + *b.StatBroken
+			out.HasFailures = failed > 0
+			out.Status = fmt.Sprintf("total=%d passed=%d failed=%d broken=%d",
+				*b.StatTotal,
+				func() int {
+					if b.StatPassed != nil {
+						return *b.StatPassed
+					}
+					return 0
+				}(),
+				*b.StatFailed,
+				*b.StatBroken,
+			)
+		}
+
+		return nil, out, nil
 	}
 }

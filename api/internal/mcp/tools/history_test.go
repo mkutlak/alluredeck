@@ -162,6 +162,98 @@ func TestGetTestFailure_NotFound(t *testing.T) {
 	}
 }
 
+// TestGetTestFailure_BuildIDNotInProject verifies that a build_id not belonging
+// to the project returns IsError=true with the hint message.
+// GetBuildByID is used (not BuildExists) so we inject via GetBuildByIDFn.
+func TestGetTestFailure_BuildIDNotInProject(t *testing.T) {
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, _ int64) (store.Build, error) {
+		return store.Build{}, store.ErrBuildNotFound
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 28, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true for build_id not in project")
+	}
+	found := false
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcpsdk.TextContent); ok {
+			if contains(tc.Text, "resolve_url") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("want hint about resolve_url in error message")
+	}
+}
+
+// TestGetTestFailure_CIMetadataForNonLatestBuild verifies that CI metadata is
+// populated for any build (not just the latest). Previously the code called
+// GetLatestBuild and gated CI on build.ID == in.BuildID, silently dropping CI
+// for non-latest builds.
+func TestGetTestFailure_CIMetadataForNonLatestBuild(t *testing.T) {
+	branch := "main"
+	sha := "abc123"
+	pipeline := "https://ci.example.com/jobs/42"
+
+	mocks := testutil.New()
+	// Return a non-latest build with CI fields set.
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		return store.Build{
+			ID:            buildID,
+			ProjectID:     1,
+			BuildNumber:   5,
+			CIBranch:      &branch,
+			CICommitSHA:   &sha,
+			CIPipelineURL: &pipeline,
+		}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 50, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test", Status: "failed", DurationMs: 100},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 50, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeGetTestFailure(t, res)
+	if out.CI == nil {
+		t.Fatal("want non-nil CI metadata for non-latest build")
+	}
+	if out.CI.Branch != branch {
+		t.Errorf("want branch=%q, got %q", branch, out.CI.Branch)
+	}
+	if out.CI.CommitSHA != sha {
+		t.Errorf("want commit_sha=%q, got %q", sha, out.CI.CommitSHA)
+	}
+	if out.CI.PipelineURL != pipeline {
+		t.Errorf("want pipeline_url=%q, got %q", pipeline, out.CI.PipelineURL)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // get_test_history
 // ---------------------------------------------------------------------------
@@ -315,5 +407,175 @@ func TestCompareBuilds_InvalidInput(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatal("want IsError=true for missing base_build_id")
+	}
+}
+
+// TestCompareBuilds_BaseNotInProject verifies that base_build_id not in project
+// returns IsError=true with hint.
+func TestCompareBuilds_BaseNotInProject(t *testing.T) {
+	mocks := testutil.New()
+	// First call (base) returns false; target would return true but never reached.
+	mocks.Builds.BuildExistsFn = func(_ context.Context, _, buildID int64) (bool, error) {
+		return buildID != 28, nil // 28 is the "wrong" build_id
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 28, "target_build_id": 164},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true for base_build_id not in project")
+	}
+	found := false
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcpsdk.TextContent); ok {
+			if contains(tc.Text, "resolve_url") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("want hint about resolve_url in error message")
+	}
+}
+
+// TestCompareBuilds_FormatSummary verifies that format=summary returns counts only.
+func TestCompareBuilds_FormatSummary(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+			{TestName: "T2", FullName: "pkg.T2", HistoryID: "h2", StatusA: "failed", StatusB: "passed", Category: store.DiffFixed},
+			{TestName: "T3", FullName: "pkg.T3", HistoryID: "h3", StatusA: "", StatusB: "passed", Category: store.DiffAdded},
+			{TestName: "T4", FullName: "pkg.T4", HistoryID: "h4", StatusA: "", StatusB: "passed", Category: store.DiffAdded},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 1, "target_build_id": 2, "format": "summary"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+
+	out := decodeCompareBuilds(t, res)
+	if out.Summary == nil {
+		t.Fatal("want non-nil summary")
+	}
+	if out.Summary.Regressed != 1 {
+		t.Errorf("want regressed=1, got %d", out.Summary.Regressed)
+	}
+	if out.Summary.Fixed != 1 {
+		t.Errorf("want fixed=1, got %d", out.Summary.Fixed)
+	}
+	if out.Summary.NewPassed != 2 {
+		t.Errorf("want new_passed=2, got %d", out.Summary.NewPassed)
+	}
+	// Per-test lists must be absent in summary mode.
+	if len(out.Regressed) != 0 {
+		t.Errorf("want empty regressed list in summary mode, got %d", len(out.Regressed))
+	}
+}
+
+// TestCompareBuilds_BuildRefPopulated verifies that the Build field in the output
+// is non-nil and carries the target build's build_number for all format modes.
+func TestCompareBuilds_BuildRefPopulated(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+		}, nil
+	}
+	// target_build_id=200 → build_number=42
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		if buildID == 200 {
+			return store.Build{ID: 200, BuildNumber: 42}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+
+	for _, format := range []string{"full", "compact", "summary"} {
+		t.Run("format="+format, func(t *testing.T) {
+			cs := setupTestServer(t, buildStoresHistory(mocks))
+			ctx := context.Background()
+
+			res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+				Name: "compare_builds",
+				Arguments: map[string]any{
+					"project_id":      1,
+					"base_build_id":   1,
+					"target_build_id": 200,
+					"format":          format,
+				},
+			})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if res.IsError {
+				t.Fatalf("unexpected error: %v", res.Content)
+			}
+
+			out := decodeCompareBuilds(t, res)
+			if out.Build == nil {
+				t.Fatal("want non-nil Build in output")
+			}
+			if out.Build.BuildNumber != 42 {
+				t.Errorf("want build_number=42, got %d", out.Build.BuildNumber)
+			}
+		})
+	}
+}
+
+// TestCompareBuilds_FormatCompact verifies that format=compact omits history_id and test_name.
+func TestCompareBuilds_FormatCompact(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 1, "target_build_id": 2, "format": "compact"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+
+	out := decodeCompareBuilds(t, res)
+	if len(out.Regressed) != 1 {
+		t.Fatalf("want 1 regressed, got %d", len(out.Regressed))
+	}
+	item := out.Regressed[0]
+	if item.FullName != "pkg.T1" {
+		t.Errorf("want full_name=pkg.T1, got %q", item.FullName)
+	}
+	// compact omits test_name and history_id.
+	if item.TestName != "" {
+		t.Errorf("want empty test_name in compact mode, got %q", item.TestName)
+	}
+	if item.HistoryID != "" {
+		t.Errorf("want empty history_id in compact mode, got %q", item.HistoryID)
 	}
 }

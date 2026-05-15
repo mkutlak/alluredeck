@@ -47,14 +47,12 @@ func RegisterResources(
 	publicURL string,
 	dataStore storage.Store,
 ) {
-	// alluredeck://attachment/{id}
 	s.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		URITemplate: "alluredeck://attachment/{id}",
 		Name:        "attachment",
 		Description: "Retrieve attachment content. Text and small images are inlined; large files return a signed download link as the resource URI.",
 	}, attachmentResourceHandler(stores, logger, signingKey, publicURL, dataStore))
 
-	// alluredeck://project/{project_id}/build/{build_id}/test/{history_id}
 	s.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		URITemplate: "alluredeck://project/{project_id}/build/{build_id}/test/{history_id}",
 		Name:        "test_failure",
