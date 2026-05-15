@@ -1,16 +1,17 @@
 # AllureDeck Helm Chart
 
 [![Release Helm Chart](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml/badge.svg)](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml)
-![Version: 0.18.1](https://img.shields.io/badge/Version-0.18.1-informational?style=flat-square)
-![AppVersion: 0.34.1](https://img.shields.io/badge/AppVersion-0.34.1-informational?style=flat-square)
+![Version: 0.19.0](https://img.shields.io/badge/Version-0.19.0-informational?style=flat-square)
+![AppVersion: 0.35.0](https://img.shields.io/badge/AppVersion-0.35.0-informational?style=flat-square)
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for [AllureDeck](https://github.com/mkutlak/alluredeck) — an Allure Reports Dashboard that provides a centralized UI for viewing and managing Allure test reports.
 
-The chart deploys two components:
+The chart deploys three components:
 
 - **API** — Go backend that stores, parses, and serves Allure test results
 - **UI** — React frontend served by Nginx
+- **MCP** — optional Model Context Protocol server for AI-assisted test analysis (disabled by default; see [MCP server](#mcp-server))
 
 ## Prerequisites
 
