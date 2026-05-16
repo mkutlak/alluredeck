@@ -115,6 +115,56 @@ func TestAPIKeyHandler_List_ReturnsUserKeys(t *testing.T) {
 	}
 }
 
+func TestAPIKeyHandler_List_NumericSub_ReturnsKeys(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
+
+	ctx := context.Background()
+	// Seed a DB user whose JWT sub is the numeric user ID.
+	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", "admin@example.com", "Admin", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	numericSub := strconv.FormatInt(u.ID, 10)
+
+	// Create a key through the handler — Create resolves the numeric sub to the
+	// user's email and stores the row under that email.
+	body, _ := json.Marshal(map[string]any{"name": "ci-key"})
+	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/api-keys", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq = injectClaims(createReq, numericSub, "admin")
+	createRR := httptest.NewRecorder()
+	h.Create(createRR, createReq)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("create: want 201, got %d: %s", createRR.Code, createRR.Body.String())
+	}
+
+	// List with the same numeric sub must find the key.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/api-keys", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = injectClaims(req, numericSub, "admin")
+	rr := httptest.NewRecorder()
+	h.List(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := resp["data"].([]any)
+	if len(data) != 1 {
+		t.Fatalf("expected 1 key for DB user with numeric sub, got %d", len(data))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------
@@ -422,6 +472,55 @@ func TestAPIKeyHandler_Delete_WrongUsername_IDOR(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("want 404 for IDOR attempt, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIKeyHandler_Delete_NumericSub_DeletesKey(t *testing.T) {
+	t.Parallel()
+	mocks := testutil.New()
+	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
+
+	ctx := context.Background()
+	// Seed a DB user whose JWT sub is the numeric user ID.
+	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", "admin@example.com", "Admin", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	numericSub := strconv.FormatInt(u.ID, 10)
+
+	// Create a key through the handler — stored under the resolved email.
+	body, _ := json.Marshal(map[string]any{"name": "ci-key"})
+	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/api-keys", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq = injectClaims(createReq, numericSub, "admin")
+	createRR := httptest.NewRecorder()
+	h.Create(createRR, createReq)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("create: want 201, got %d: %s", createRR.Code, createRR.Body.String())
+	}
+	var createResp map[string]any
+	if err := json.NewDecoder(createRR.Body).Decode(&createResp); err != nil {
+		t.Fatal(err)
+	}
+	createData, _ := createResp["data"].(map[string]any)
+	keyID, _ := createData["id"].(float64)
+
+	// Delete with the same numeric sub must succeed.
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("/api/v1/api-keys/%d", int64(keyID)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetPathValue("id", fmt.Sprintf("%d", int64(keyID)))
+	req = injectClaims(req, numericSub, "admin")
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 

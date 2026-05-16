@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -65,6 +66,22 @@ func keyToResponse(k *store.APIKey) apiKeyResponse {
 	}
 }
 
+// resolveKeyUsername maps a JWT sub claim to the username stored on api_keys
+// rows. DB-backed users have a numeric sub — resolve it to their email so it
+// matches the username persisted at creation. Env users have a non-numeric
+// literal sub — return it unchanged.
+func (h *APIKeyHandler) resolveKeyUsername(ctx context.Context, sub string) (string, error) {
+	id, err := strconv.ParseInt(sub, 10, 64)
+	if err != nil {
+		return sub, nil
+	}
+	u, err := h.userStore.GetByID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return u.Email, nil
+}
+
 // List godoc
 // @Summary      List API keys
 // @Description  Returns all API keys for the authenticated user.
@@ -81,7 +98,12 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "missing claims")
 		return
 	}
-	username, _ := claims["sub"].(string)
+	sub, _ := claims["sub"].(string)
+	username, err := h.resolveKeyUsername(ctx, sub)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error resolving user")
+		return
+	}
 
 	keys, err := h.store.ListByUsername(ctx, username)
 	if err != nil {
@@ -164,14 +186,10 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// is a numeric user ID string; store the user's email instead so F-3 can
 	// look it up via IsActiveByEmail. For env users (non-numeric sub) keep the
 	// literal as-is — IsActiveByAPIKeyUsername handles those at runtime.
-	keyUsername := username
-	if id, parseErr := strconv.ParseInt(username, 10, 64); parseErr == nil {
-		u, lookupErr := h.userStore.GetByID(ctx, id)
-		if lookupErr != nil {
-			writeError(w, http.StatusInternalServerError, "error resolving user")
-			return
-		}
-		keyUsername = u.Email
+	keyUsername, err := h.resolveKeyUsername(ctx, username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error resolving user")
+		return
 	}
 
 	fullKey, err := security.GenerateAPIKey()
@@ -244,7 +262,12 @@ func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "missing claims")
 		return
 	}
-	username, _ := claims["sub"].(string)
+	sub, _ := claims["sub"].(string)
+	keyUsername, err := h.resolveKeyUsername(ctx, sub)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error resolving user")
+		return
+	}
 
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -252,7 +275,7 @@ func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.Delete(ctx, id, username); err != nil {
+	if err := h.store.Delete(ctx, id, keyUsername); err != nil {
 		if errors.Is(err, store.ErrAPIKeyNotFound) {
 			writeError(w, http.StatusNotFound, "API key not found")
 			return
@@ -264,10 +287,10 @@ func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	evt := auditFromRequest(r)
 	evt.Action = store.AuditActionAPIKeyDelete
 	evt.Outcome = store.AuditOutcomeSuccess
-	evt.ActorLabel = username
+	evt.ActorLabel = sub
 	evt.TargetType = store.AuditTargetAPIKey
 	evt.TargetID = strconv.FormatInt(id, 10)
-	if uid, parseErr := strconv.ParseInt(username, 10, 64); parseErr == nil {
+	if uid, parseErr := strconv.ParseInt(sub, 10, 64); parseErr == nil {
 		evt.ActorID = &uid
 	}
 	auditRecord(ctx, h.audit, evt)
