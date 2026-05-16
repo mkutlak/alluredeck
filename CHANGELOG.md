@@ -1,3 +1,9 @@
+## [0.35.1](https://github.com/mkutlak/alluredeck/compare/v0.35.0...v0.35.1) (2026-05-16)
+
+### Bug Fixes
+
+* **api:** resolve numeric JWT sub to email when listing/deleting API keys ([4cb6a7d](https://github.com/mkutlak/alluredeck/commit/4cb6a7dc58d45cd5fd7abf5829dab263abe347c0))
+
 ## [0.35.0](https://github.com/mkutlak/alluredeck/compare/v0.34.2...v0.35.0) (2026-05-15)
 
 ### Features
