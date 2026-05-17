@@ -32,12 +32,12 @@ type compareSummary struct {
 
 // CompareHandler handles HTTP requests for build comparison.
 type CompareHandler struct {
-	testResultStore store.TestResultStorer
+	testResultStore store.TestResultReader
 	projectStore    store.ProjectStorer
 }
 
 // NewCompareHandler creates and returns a new CompareHandler.
-func NewCompareHandler(trs store.TestResultStorer, ps store.ProjectStorer) *CompareHandler {
+func NewCompareHandler(trs store.TestResultReader, ps store.ProjectStorer) *CompareHandler {
 	return &CompareHandler{
 		testResultStore: trs,
 		projectStore:    ps,

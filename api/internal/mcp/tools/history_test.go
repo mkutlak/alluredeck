@@ -254,6 +254,110 @@ func TestGetTestFailure_CIMetadataForNonLatestBuild(t *testing.T) {
 	}
 }
 
+// TestGetTestFailure_Fingerprint verifies that the defect fingerprint is
+// resolved through test_results.defect_fingerprint_id (the FK), not by passing
+// history_id to GetByHash. The fingerprint and its linked known issue must be
+// populated in the output.
+func TestGetTestFailure_Fingerprint(t *testing.T) {
+	const fpUUID = "11111111-1111-1111-1111-111111111111"
+
+	mocks := testutil.New()
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 50},
+		}, nil
+	}
+	// The test row at (project=1, build=10, history=h1) links to fpUUID.
+	mocks.TestResults.GetDefectFingerprintIDFn = func(_ context.Context, projectID int64, buildID int64, historyID string) (*string, error) {
+		if projectID == 1 && buildID == 10 && historyID == "h1" {
+			id := fpUUID
+			return &id, nil
+		}
+		return nil, store.ErrTestResultNotFound
+	}
+	// Seed a known issue so the defect's KnownIssueID resolves.
+	ki, err := mocks.KnownIssues.Create(context.Background(), 1, "flaky-login", ".*", "", "")
+	if err != nil {
+		t.Fatalf("seed known issue: %v", err)
+	}
+	// Seed the defect so GetByID(fpUUID) resolves.
+	mocks.Defects.Seed(store.DefectFingerprint{
+		ID:              fpUUID,
+		ProjectID:       1,
+		FingerprintHash: "deadbeefhash",
+		Category:        store.DefectCategoryProductBug,
+		KnownIssueID:    &ki.ID,
+	})
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 10, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeGetTestFailure(t, res)
+	if out.Fingerprint == nil {
+		t.Fatal("want non-nil Fingerprint resolved via defect_fingerprint_id")
+	}
+	if out.Fingerprint.Hash != "deadbeefhash" {
+		t.Errorf("want fingerprint hash=deadbeefhash, got %q", out.Fingerprint.Hash)
+	}
+	if out.Fingerprint.Category != store.DefectCategoryProductBug {
+		t.Errorf("want category=%q, got %q", store.DefectCategoryProductBug, out.Fingerprint.Category)
+	}
+	if out.KnownIssue == nil {
+		t.Fatal("want non-nil KnownIssue linked from the defect")
+	}
+	if out.KnownIssue.ID != ki.ID {
+		t.Errorf("want known_issue id=%d, got %d", ki.ID, out.KnownIssue.ID)
+	}
+	if out.KnownIssue.Name != "flaky-login" {
+		t.Errorf("want known_issue name=flaky-login, got %q", out.KnownIssue.Name)
+	}
+}
+
+// TestGetTestFailure_NoFingerprint verifies that a test row with a NULL
+// defect_fingerprint_id leaves out.Fingerprint nil without erroring.
+func TestGetTestFailure_NoFingerprint(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 50},
+		}, nil
+	}
+	// Row exists but has no linked fingerprint (nil pointer).
+	mocks.TestResults.GetDefectFingerprintIDFn = func(_ context.Context, _ int64, _ int64, _ string) (*string, error) {
+		return nil, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 10, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeGetTestFailure(t, res)
+	if out.Fingerprint != nil {
+		t.Errorf("want nil Fingerprint for unlinked test, got %+v", out.Fingerprint)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // get_test_history
 // ---------------------------------------------------------------------------

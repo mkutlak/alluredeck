@@ -28,14 +28,14 @@ type analyticsTestEntry struct {
 
 // LowPerformingHandler handles HTTP requests for low-performing test analytics.
 type LowPerformingHandler struct {
-	testResultStore store.TestResultStorer
+	testResultStore store.TestResultReader
 	branchStore     store.BranchStorer
 	projectStore    store.ProjectStorer
 	logger          *zap.Logger
 }
 
 // NewLowPerformingHandler creates and returns a new LowPerformingHandler.
-func NewLowPerformingHandler(trs store.TestResultStorer, brs store.BranchStorer, ps store.ProjectStorer, logger *zap.Logger) *LowPerformingHandler {
+func NewLowPerformingHandler(trs store.TestResultReader, brs store.BranchStorer, ps store.ProjectStorer, logger *zap.Logger) *LowPerformingHandler {
 	return &LowPerformingHandler{
 		testResultStore: trs,
 		branchStore:     brs,

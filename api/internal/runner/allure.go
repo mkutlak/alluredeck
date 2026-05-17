@@ -66,15 +66,22 @@ func GenerateBatchID() string {
 	return hex.EncodeToString(b)
 }
 
+// buildIngestStorer is the build role set used by the report runners: build
+// lifecycle writes plus retention pruning. The runners never read builds back.
+type buildIngestStorer interface {
+	store.BuildWriter
+	store.BuildPruner
+}
+
 // Allure represents the core Allure report generation process
 type Allure struct {
 	cfg             *config.Config
 	store           storage.Store
-	buildStore      store.BuildStorer
+	buildStore      buildIngestStorer
 	lockManager     store.Locker
 	testResultStore store.TestResultStorer
 	branchStore     store.BranchStorer
-	defectStore     store.DefectStorer
+	defectStore     store.DefectFingerprintWriter
 	attachmentStore store.AttachmentStorer
 	logger          *zap.Logger
 
@@ -106,11 +113,11 @@ func (a *Allure) publishProgress(phase JobPhase, done, total int) {
 type AllureDeps struct {
 	Config          *config.Config
 	Store           storage.Store
-	BuildStore      store.BuildStorer
+	BuildStore      buildIngestStorer
 	Locker          store.Locker
 	TestResultStore store.TestResultStorer
 	BranchStore     store.BranchStorer
-	DefectStore     store.DefectStorer
+	DefectStore     store.DefectFingerprintWriter
 	AttachmentStore store.AttachmentStorer
 	Logger          *zap.Logger
 }
@@ -893,6 +900,21 @@ func mimeTypeFromExt(ext string) string {
 	default:
 		return ""
 	}
+}
+
+// BackfillFingerprints recomputes defect fingerprints for a single build,
+// reusing the same path as live ingestion (computeDefectFingerprints). It is
+// intended for the cmd/backfill maintenance command: after the SQL backfill
+// migration has populated previously-blank status_message values, this
+// re-derives fingerprints and relinks defect_fingerprint_id on the affected
+// test_results rows.
+//
+// It is a no-op (returns nil) when no defect store is configured.
+func (a *Allure) BackfillFingerprints(ctx context.Context, projectID int64, slug string, buildID int64) error {
+	if a.defectStore == nil || a.testResultStore == nil {
+		return nil
+	}
+	return a.computeDefectFingerprints(ctx, projectID, slug, buildID, nil)
 }
 
 // computeDefectFingerprints queries failed test results, groups them by

@@ -401,3 +401,162 @@ func TestResolveAttachments_StepAttachments(t *testing.T) {
 		t.Errorf("nested missing attachment Size = %d, want 0", results[0].Steps[0].Steps[0].Attachments[0].Size)
 	}
 }
+
+// writeResultJSON marshals v to a *-result.json file in a temp dir and returns the path.
+func writeResultJSON(t *testing.T, v any) string {
+	t.Helper()
+	tmp, err := os.CreateTemp(t.TempDir(), "*-result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tmp.Close() }()
+	if err := json.NewEncoder(tmp).Encode(v); err != nil {
+		t.Fatal(err)
+	}
+	return tmp.Name()
+}
+
+// TestParseFile_DeriveStatusFromFailedStep verifies the Allure 3 ("awesome")
+// derivation: when the test-level statusDetails is empty, ParseFile adopts the
+// deepest failed (fallback broken) step's message/trace as the result's status.
+func TestParseFile_DeriveStatusFromFailedStep(t *testing.T) {
+	t.Parallel()
+
+	type sd struct {
+		Message string `json:"message,omitempty"`
+		Trace   string `json:"trace,omitempty"`
+	}
+	type step struct {
+		Name          string `json:"name"`
+		Status        string `json:"status"`
+		StatusDetails *sd    `json:"statusDetails,omitempty"`
+		Steps         []any  `json:"steps,omitempty"`
+	}
+
+	tests := []struct {
+		name      string
+		result    map[string]any
+		wantMsg   string
+		wantTrace string
+	}{
+		{
+			name: "deepest failed step wins over shallower failed step",
+			result: map[string]any{
+				"name":   "test-a",
+				"status": "failed",
+				"steps": []any{
+					step{
+						Name:          "outer",
+						Status:        "failed",
+						StatusDetails: &sd{Message: "outer failure"},
+						Steps: []any{
+							step{
+								Name:          "inner",
+								Status:        "failed",
+								StatusDetails: &sd{Message: "deep assertion failed", Trace: "at inner.go:42"},
+							},
+						},
+					},
+				},
+			},
+			wantMsg:   "deep assertion failed",
+			wantTrace: "at inner.go:42",
+		},
+		{
+			name: "broken step used when no failed step exists",
+			result: map[string]any{
+				"name":   "test-b",
+				"status": "broken",
+				"steps": []any{
+					step{
+						Name:          "setup",
+						Status:        "broken",
+						StatusDetails: &sd{Message: "fixture exploded"},
+					},
+				},
+			},
+			wantMsg:   "fixture exploded",
+			wantTrace: "",
+		},
+		{
+			name: "failed step preferred over broken step",
+			result: map[string]any{
+				"name":   "test-c",
+				"status": "failed",
+				"steps": []any{
+					step{Name: "broken-step", Status: "broken", StatusDetails: &sd{Message: "broken msg"}},
+					step{Name: "failed-step", Status: "failed", StatusDetails: &sd{Message: "failed msg"}},
+				},
+			},
+			wantMsg:   "failed msg",
+			wantTrace: "",
+		},
+		{
+			name: "failed step with empty message falls back to step name",
+			result: map[string]any{
+				"name":   "test-d",
+				"status": "failed",
+				"steps": []any{
+					step{Name: "the failing step", Status: "failed"},
+				},
+			},
+			wantMsg:   "the failing step",
+			wantTrace: "",
+		},
+		{
+			name: "no failed/broken step leaves message empty",
+			result: map[string]any{
+				"name":   "test-e",
+				"status": "passed",
+				"steps": []any{
+					step{Name: "ok", Status: "passed"},
+				},
+			},
+			wantMsg:   "",
+			wantTrace: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result, err := parser.ParseFile(writeResultJSON(t, tc.result))
+			if err != nil {
+				t.Fatalf("ParseFile returned unexpected error: %v", err)
+			}
+			if result.StatusMessage != tc.wantMsg {
+				t.Errorf("StatusMessage: got %q, want %q", result.StatusMessage, tc.wantMsg)
+			}
+			if result.StatusTrace != tc.wantTrace {
+				t.Errorf("StatusTrace: got %q, want %q", result.StatusTrace, tc.wantTrace)
+			}
+		})
+	}
+}
+
+// TestParseFile_TestLevelMessageNotOverridden verifies the derivation only
+// fills a blank test-level message; an existing message is left untouched.
+func TestParseFile_TestLevelMessageNotOverridden(t *testing.T) {
+	t.Parallel()
+
+	result := map[string]any{
+		"name":          "test-f",
+		"status":        "failed",
+		"statusDetails": map[string]any{"message": "explicit test message"},
+		"steps": []any{
+			map[string]any{
+				"name":          "step",
+				"status":        "failed",
+				"statusDetails": map[string]any{"message": "step message"},
+			},
+		},
+	}
+
+	r, err := parser.ParseFile(writeResultJSON(t, result))
+	if err != nil {
+		t.Fatalf("ParseFile returned unexpected error: %v", err)
+	}
+	if r.StatusMessage != "explicit test message" {
+		t.Errorf("StatusMessage: got %q, want %q", r.StatusMessage, "explicit test message")
+	}
+}

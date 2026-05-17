@@ -24,7 +24,7 @@ type AuthHandler struct {
 	cfg         *config.Config
 	jwtManager  *security.JWTManager
 	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
-	userStore   store.UserStorer               // optional; nil disables DB-backed local login fallback
+	userStore   store.UserAuthStorer           // optional; nil disables DB-backed local login fallback
 	audit       store.AuditLogger              // optional; nil disables persistent audit emission
 	throttler   *middleware.AccountThrottler   // optional; nil disables per-account brute-force throttle
 }
@@ -40,10 +40,10 @@ func NewAuthHandler(cfg *config.Config, jwtManager *security.JWTManager, familyS
 	}
 }
 
-// WithUserStore wires a UserStorer so Login can fall back to DB-backed local
+// WithUserStore wires a UserAuthStorer so Login can fall back to DB-backed local
 // password authentication when the submitted username is not one of the
 // env-configured admin/viewer users.
-func (h *AuthHandler) WithUserStore(s store.UserStorer) *AuthHandler {
+func (h *AuthHandler) WithUserStore(s store.UserAuthStorer) *AuthHandler {
 	h.userStore = s
 	return h
 }

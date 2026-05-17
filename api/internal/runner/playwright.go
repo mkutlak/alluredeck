@@ -18,11 +18,11 @@ import (
 type PlaywrightRunner struct {
 	cfg             *config.Config
 	store           storage.Store
-	buildStore      store.BuildStorer
+	buildStore      buildIngestStorer
 	lockManager     store.Locker
 	testResultStore store.TestResultStorer
 	branchStore     store.BranchStorer
-	defectStore     store.DefectStorer
+	defectStore     store.DefectFingerprintWriter
 	logger          *zap.Logger
 }
 
@@ -30,11 +30,11 @@ type PlaywrightRunner struct {
 type PlaywrightRunnerDeps struct {
 	Config          *config.Config
 	Store           storage.Store
-	BuildStore      store.BuildStorer
+	BuildStore      buildIngestStorer
 	Locker          store.Locker
 	TestResultStore store.TestResultStorer
 	BranchStore     store.BranchStorer
-	DefectStore     store.DefectStorer
+	DefectStore     store.DefectFingerprintWriter
 	Logger          *zap.Logger
 }
 

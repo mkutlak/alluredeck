@@ -6,10 +6,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"go.uber.org/zap"
 
+	"github.com/mkutlak/alluredeck/api/internal/mcp"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -238,11 +238,9 @@ func (h *AttachmentHandler) ServeAttachment(w http.ResponseWriter, r *http.Reque
 
 	source := r.PathValue("source")
 
-	// Path traversal defense: reject dangerous characters.
-	if strings.Contains(source, "/") ||
-		strings.Contains(source, "\\") ||
-		strings.Contains(source, "..") ||
-		strings.ContainsRune(source, 0) {
+	// Path traversal defense: reject dangerous characters. Shared with the
+	// signed-download handler and the MCP attachment resource.
+	if err := mcp.ValidateAttachmentSource(source); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid attachment source")
 		return
 	}

@@ -14,13 +14,13 @@ import (
 // PipelineHandler serves cross-project pipeline run queries for parent projects.
 type PipelineHandler struct {
 	pipelineStore store.PipelineStorer
-	projectStore  store.ProjectStorer
+	projectStore  store.ProjectHierarchyReader
 	projectsDir   string
 	logger        *zap.Logger
 }
 
 // NewPipelineHandler creates a PipelineHandler.
-func NewPipelineHandler(ps store.PipelineStorer, projStore store.ProjectStorer, projectsDir string, logger *zap.Logger) *PipelineHandler {
+func NewPipelineHandler(ps store.PipelineStorer, projStore store.ProjectHierarchyReader, projectsDir string, logger *zap.Logger) *PipelineHandler {
 	return &PipelineHandler{
 		pipelineStore: ps,
 		projectStore:  projStore,

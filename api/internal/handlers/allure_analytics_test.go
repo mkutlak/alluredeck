@@ -10,32 +10,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
-
-// mockAnalyticsStore implements store.AnalyticsStorer for tests.
-type mockAnalyticsStore struct {
-	topErrors      []store.ErrorCluster
-	suitePassRates []store.SuitePassRate
-	labelCounts    []store.LabelCount
-	trendPoints    []store.TrendPoint
-	errToReturn    error
-}
-
-func (m *mockAnalyticsStore) ListTopErrors(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
-	return m.topErrors, m.errToReturn
-}
-
-func (m *mockAnalyticsStore) ListSuitePassRates(_ context.Context, _ []int64, _ int, _ *int64) ([]store.SuitePassRate, error) {
-	return m.suitePassRates, m.errToReturn
-}
-
-func (m *mockAnalyticsStore) ListLabelBreakdown(_ context.Context, _ []int64, _ string, _ int, _ *int64) ([]store.LabelCount, error) {
-	return m.labelCounts, m.errToReturn
-}
-
-func (m *mockAnalyticsStore) ListTrendPoints(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
-	return m.trendPoints, m.errToReturn
-}
 
 func TestAnalyticsHandler_NilStore_GetTopErrors(t *testing.T) {
 	h := NewAnalyticsHandler(nil, nil, nil, zap.NewNop())
@@ -104,10 +80,12 @@ func TestAnalyticsHandler_NilStore_GetLabelBreakdown(t *testing.T) {
 }
 
 func TestAnalyticsHandler_GetTopErrors_WithData(t *testing.T) {
-	mock := &mockAnalyticsStore{
-		topErrors: []store.ErrorCluster{
-			{Message: "NPE in Foo", Count: 5},
-			{Message: "Timeout in Bar", Count: 3},
+	mock := &testutil.MockAnalyticsStore{
+		ListTopErrorsFn: func(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
+			return []store.ErrorCluster{
+				{Message: "NPE in Foo", Count: 5},
+				{Message: "Timeout in Bar", Count: 3},
+			}, nil
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
@@ -137,9 +115,11 @@ func TestAnalyticsHandler_GetTopErrors_WithData(t *testing.T) {
 }
 
 func TestAnalyticsHandler_GetSuitePassRates_WithData(t *testing.T) {
-	mock := &mockAnalyticsStore{
-		suitePassRates: []store.SuitePassRate{
-			{Suite: "SmokeTests", Total: 10, Passed: 9, PassRate: 90.0},
+	mock := &testutil.MockAnalyticsStore{
+		ListSuitePassRatesFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.SuitePassRate, error) {
+			return []store.SuitePassRate{
+				{Suite: "SmokeTests", Total: 10, Passed: 9, PassRate: 90.0},
+			}, nil
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
@@ -164,10 +144,12 @@ func TestAnalyticsHandler_GetSuitePassRates_WithData(t *testing.T) {
 }
 
 func TestAnalyticsHandler_GetLabelBreakdown_WithData(t *testing.T) {
-	mock := &mockAnalyticsStore{
-		labelCounts: []store.LabelCount{
-			{Value: "critical", Count: 12},
-			{Value: "minor", Count: 3},
+	mock := &testutil.MockAnalyticsStore{
+		ListLabelBreakdownFn: func(_ context.Context, _ []int64, _ string, _ int, _ *int64) ([]store.LabelCount, error) {
+			return []store.LabelCount{
+				{Value: "critical", Count: 12},
+				{Value: "minor", Count: 3},
+			}, nil
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
@@ -194,7 +176,7 @@ func TestAnalyticsHandler_GetLabelBreakdown_WithData(t *testing.T) {
 func TestAnalyticsHandler_QueryParamDefaults(t *testing.T) {
 	called := false
 	var gotBuilds, gotLimit int
-	mock := &mockAnalyticsStore{}
+	mock := &testutil.MockAnalyticsStore{}
 	// We just verify the handler doesn't crash with no query params
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	_ = called
@@ -255,11 +237,13 @@ func TestAnalyticsHandler_NilStore_GetTrends(t *testing.T) {
 }
 
 func TestAnalyticsHandler_GetTrends_WithData(t *testing.T) {
-	mock := &mockAnalyticsStore{
-		trendPoints: []store.TrendPoint{
-			{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
-			{BuildNumber: 2, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
-			{BuildNumber: 3, Passed: 48, Failed: 1, Broken: 0, Skipped: 1, Total: 50, PassRate: 96.0, DurationMs: 50000},
+	mock := &testutil.MockAnalyticsStore{
+		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
+			return []store.TrendPoint{
+				{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
+				{BuildNumber: 2, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
+				{BuildNumber: 3, Passed: 48, Failed: 1, Broken: 0, Skipped: 1, Total: 50, PassRate: 96.0, DurationMs: 50000},
+			}, nil
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
@@ -323,7 +307,11 @@ func TestAnalyticsHandler_GetTrends_KpiComputation(t *testing.T) {
 			DurationMs:  int64(60000 - i*1000),
 		}
 	}
-	mock := &mockAnalyticsStore{trendPoints: points}
+	mock := &testutil.MockAnalyticsStore{
+		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
+			return points, nil
+		},
+	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/4/analytics/trends?builds=15", nil)

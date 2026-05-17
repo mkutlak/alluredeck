@@ -27,10 +27,18 @@ type mockAttachmentStore struct {
 	total       int
 	errToReturn error
 	source      *store.TestAttachment
+	location    *store.AttachmentLocation
 }
+
+// Compile-time interface check.
+var _ store.AttachmentStorer = (*mockAttachmentStore)(nil)
 
 func (m *mockAttachmentStore) ListByBuild(_ context.Context, _ int64, _ int64, _, _ string, _, _ int) ([]store.TestAttachment, int, error) {
 	return m.attachments, m.total, m.errToReturn
+}
+
+func (m *mockAttachmentStore) ListByTestResult(_ context.Context, _ int64, _ int64, _ string, _ int) ([]store.TestAttachment, error) {
+	return m.attachments, m.errToReturn
 }
 
 func (m *mockAttachmentStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
@@ -51,6 +59,16 @@ func (m *mockAttachmentStore) GetByID(_ context.Context, _ int64) (*store.TestAt
 	return m.source, nil
 }
 
+func (m *mockAttachmentStore) GetLocation(_ context.Context, _ int64) (*store.AttachmentLocation, error) {
+	if m.errToReturn != nil {
+		return nil, m.errToReturn
+	}
+	if m.location == nil {
+		return nil, store.ErrAttachmentNotFound
+	}
+	return m.location, nil
+}
+
 // ---------------------------------------------------------------------------
 // mockBuildStore (minimal — only the two methods used by AttachmentHandler)
 // ---------------------------------------------------------------------------
@@ -59,6 +77,11 @@ type mockAttachmentBuildStore struct {
 	build       store.Build
 	errToReturn error
 }
+
+// Compile-time interface check. This is an intentional partial panic-stub —
+// only the methods AttachmentHandler exercises return real values; the rest
+// panic. The assertion still requires the full store.BuildStorer method set.
+var _ store.BuildStorer = (*mockAttachmentBuildStore)(nil)
 
 func (m *mockAttachmentBuildStore) NextBuildNumber(_ context.Context, _ int64) (int, error) {
 	panic("not implemented")
@@ -141,9 +164,11 @@ type mockDataStore struct {
 	content     string
 	mimeType    string
 	errToReturn error
+	openCalls   int // number of times OpenReportFile was invoked
 }
 
 func (m *mockDataStore) OpenReportFile(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
+	m.openCalls++
 	if m.errToReturn != nil {
 		return nil, "", m.errToReturn
 	}
@@ -463,6 +488,9 @@ func TestListAttachments_MissingTestStatusPassesEmptyToStore(t *testing.T) {
 }
 
 // captureMimeStore wraps mockAttachmentStore to capture the mimeFilter argument.
+// Compile-time interface check.
+var _ store.AttachmentStorer = (*captureMimeStore)(nil)
+
 type captureMimeStore struct {
 	inner        *mockAttachmentStore
 	capturedMime *string
@@ -471,6 +499,10 @@ type captureMimeStore struct {
 func (c *captureMimeStore) ListByBuild(_ context.Context, _ int64, _ int64, mimeFilter, _ string, _, _ int) ([]store.TestAttachment, int, error) {
 	*c.capturedMime = mimeFilter
 	return c.inner.attachments, c.inner.total, c.inner.errToReturn
+}
+
+func (c *captureMimeStore) ListByTestResult(ctx context.Context, projectID, buildID int64, historyID string, limit int) ([]store.TestAttachment, error) {
+	return c.inner.ListByTestResult(ctx, projectID, buildID, historyID, limit)
 }
 
 func (c *captureMimeStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
@@ -485,7 +517,14 @@ func (c *captureMimeStore) GetByID(_ context.Context, _ int64) (*store.TestAttac
 	return c.inner.source, c.inner.errToReturn
 }
 
+func (c *captureMimeStore) GetLocation(ctx context.Context, id int64) (*store.AttachmentLocation, error) {
+	return c.inner.GetLocation(ctx, id)
+}
+
 // captureStatusStore wraps mockAttachmentStore to capture the testStatus argument.
+// Compile-time interface check.
+var _ store.AttachmentStorer = (*captureStatusStore)(nil)
+
 type captureStatusStore struct {
 	inner          *mockAttachmentStore
 	capturedStatus *string
@@ -494,6 +533,10 @@ type captureStatusStore struct {
 func (c *captureStatusStore) ListByBuild(_ context.Context, _ int64, _ int64, _, testStatus string, _, _ int) ([]store.TestAttachment, int, error) {
 	*c.capturedStatus = testStatus
 	return c.inner.attachments, c.inner.total, c.inner.errToReturn
+}
+
+func (c *captureStatusStore) ListByTestResult(ctx context.Context, projectID, buildID int64, historyID string, limit int) ([]store.TestAttachment, error) {
+	return c.inner.ListByTestResult(ctx, projectID, buildID, historyID, limit)
 }
 
 func (c *captureStatusStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
@@ -506,6 +549,10 @@ func (c *captureStatusStore) InsertBuildAttachments(_ context.Context, _ int64, 
 
 func (c *captureStatusStore) GetByID(_ context.Context, _ int64) (*store.TestAttachment, error) {
 	return c.inner.source, c.inner.errToReturn
+}
+
+func (c *captureStatusStore) GetLocation(ctx context.Context, id int64) (*store.AttachmentLocation, error) {
+	return c.inner.GetLocation(ctx, id)
 }
 
 // ---------------------------------------------------------------------------

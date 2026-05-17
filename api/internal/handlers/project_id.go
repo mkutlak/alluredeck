@@ -160,7 +160,7 @@ func extractProjectIntID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 
 // resolveProjectIntID resolves a project path value (numeric ID or slug) to its
 // int64 primary key. On failure it writes an error response and returns (0, false).
-func resolveProjectIntID(w http.ResponseWriter, r *http.Request, ps store.ProjectStorer) (int64, bool) {
+func resolveProjectIntID(w http.ResponseWriter, r *http.Request, ps store.ProjectReader) (int64, bool) {
 	pathValue := r.PathValue("project_id")
 	if pathValue == "" {
 		writeError(w, http.StatusBadRequest, "project_id is required")

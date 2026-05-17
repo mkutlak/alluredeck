@@ -28,14 +28,14 @@ type multiTimelineBuild struct {
 
 // ProjectTimelineHandler handles HTTP requests for multi-build project timelines.
 type ProjectTimelineHandler struct {
-	buildStore      store.BuildStorer
-	testResultStore store.TestResultStorer
+	buildStore      store.BuildReader
+	testResultStore store.TestResultReader
 	branchStore     store.BranchStorer
 	projectStore    store.ProjectStorer
 }
 
 // NewProjectTimelineHandler creates and returns a new ProjectTimelineHandler.
-func NewProjectTimelineHandler(bs store.BuildStorer, trs store.TestResultStorer, brs store.BranchStorer, ps store.ProjectStorer) *ProjectTimelineHandler {
+func NewProjectTimelineHandler(bs store.BuildReader, trs store.TestResultReader, brs store.BranchStorer, ps store.ProjectStorer) *ProjectTimelineHandler {
 	return &ProjectTimelineHandler{
 		buildStore:      bs,
 		testResultStore: trs,

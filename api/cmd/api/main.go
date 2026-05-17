@@ -73,6 +73,7 @@ type handlerSet struct {
 	projectTimeline *handlers.ProjectTimelineHandler
 	knownIssue      *handlers.KnownIssueHandler
 	attachment      *handlers.AttachmentHandler
+	attachmentDL    *handlers.AttachmentDownloadHandler // signed-URL download; nil when MCP signing key unset
 	apiKey          *handlers.APIKeyHandler
 	user            *handlers.UserHandler
 	parent          *handlers.ProjectParentHandler
@@ -466,6 +467,7 @@ func wireHandlers(
 		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, s.project),
 		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
+		attachmentDL:    newAttachmentDownloadHandler(cfg, s.attachment, dataStore, logger),
 		apiKey:          handlers.NewAPIKeyHandler(s.apiKey, s.user).WithAuditLogger(s.audit),
 		user: handlers.NewUserHandler(s.user, logger).
 			WithAuditLogger(s.audit).
@@ -480,6 +482,22 @@ func wireHandlers(
 		oidc:        oidcHandler,
 		proposals:   proposalsHandler,
 	}
+}
+
+// newAttachmentDownloadHandler builds the signed-URL attachment download
+// handler. It returns nil when no MCP signing key is configured, in which case
+// the GET /attachments/{id} route is not registered (signed URLs can only be
+// produced by the MCP server, which also requires the key).
+func newAttachmentDownloadHandler(
+	cfg *config.Config,
+	attachmentStore store.AttachmentStorer,
+	dataStore storage.Store,
+	logger *zap.Logger,
+) *handlers.AttachmentDownloadHandler {
+	if cfg.MCPSigningKey == "" {
+		return nil
+	}
+	return handlers.NewAttachmentDownloadHandler(attachmentStore, dataStore, []byte(cfg.MCPSigningKey), logger)
 }
 
 // awaitShutdown waits for the context to be cancelled then drains the HTTP
@@ -811,6 +829,16 @@ func registerRoutes(d routeDeps) {
 	// Attachment viewer endpoints.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(d.h.attachment.ListAttachments)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments/{source}", viewerUp(reportCache(d.h.attachment.ServeAttachment)))
+
+	// Signed attachment download — backs the alluredeck://attachment/{id} MCP
+	// resource links. Authentication is the HMAC signature on the URL itself
+	// (verified inside the handler), so no auth middleware is applied. The path
+	// is intentionally outside the /api/v1 prefix to match the URL the MCP
+	// server signs ({EXTERNAL_URL}/attachments/{id}). Registered only when an
+	// MCP signing key is configured.
+	if d.h.attachmentDL != nil {
+		mux.HandleFunc("GET /attachments/{id}", noStore(d.h.attachmentDL.ServeSignedAttachment))
+	}
 
 	// API Keys (any authenticated user).
 	if d.h.apiKey != nil {

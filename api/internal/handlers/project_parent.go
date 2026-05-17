@@ -12,12 +12,12 @@ import (
 
 // ProjectParentHandler handles HTTP requests for managing parent-child project relationships.
 type ProjectParentHandler struct {
-	projectStore store.ProjectStorer
+	projectStore store.ProjectHierarchyReader
 	logger       *zap.Logger
 }
 
 // NewProjectParentHandler creates a new ProjectParentHandler.
-func NewProjectParentHandler(ps store.ProjectStorer, logger *zap.Logger) *ProjectParentHandler {
+func NewProjectParentHandler(ps store.ProjectHierarchyReader, logger *zap.Logger) *ProjectParentHandler {
 	return &ProjectParentHandler{projectStore: ps, logger: logger}
 }
 

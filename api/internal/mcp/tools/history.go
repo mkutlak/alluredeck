@@ -231,18 +231,23 @@ func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 			out.CI = ci
 		}
 
-		// Fetch defect fingerprint.
-		if defect, err := stores.Defect.GetByHash(ctx, int64(in.ProjectID), in.HistoryID); err == nil && defect != nil {
-			out.Fingerprint = &FingerprintInfo{
-				Hash:     defect.FingerprintHash,
-				Category: defect.Category,
-			}
-			if defect.KnownIssueID != nil {
-				ki, err := stores.KnownIssue.Get(ctx, *defect.KnownIssueID)
-				if err == nil && ki != nil {
-					out.KnownIssue = &KnownIssueRef{
-						ID:   ki.ID,
-						Name: ki.TestName,
+		// Fetch defect fingerprint via the test_results.defect_fingerprint_id FK.
+		// history_id is the cross-build test identifier, NOT a fingerprint hash,
+		// so it must not be passed to GetByHash. Instead resolve the linked
+		// fingerprint UUID from the test row, then load the fingerprint by ID.
+		if fpID, err := stores.TestResult.GetDefectFingerprintID(ctx, int64(in.ProjectID), in.BuildID, in.HistoryID); err == nil && fpID != nil {
+			if defect, err := stores.Defect.GetByID(ctx, *fpID); err == nil && defect != nil {
+				out.Fingerprint = &FingerprintInfo{
+					Hash:     defect.FingerprintHash,
+					Category: defect.Category,
+				}
+				if defect.KnownIssueID != nil {
+					ki, err := stores.KnownIssue.Get(ctx, *defect.KnownIssueID)
+					if err == nil && ki != nil {
+						out.KnownIssue = &KnownIssueRef{
+							ID:   ki.ID,
+							Name: ki.TestName,
+						}
 					}
 				}
 			}

@@ -72,12 +72,12 @@ type dashboardSummaryResp struct {
 
 // DashboardHandler handles HTTP requests for the cross-project dashboard.
 type DashboardHandler struct {
-	buildStore store.BuildStorer
+	buildStore store.BuildDashboardReader
 	logger     *zap.Logger
 }
 
 // NewDashboardHandler creates and returns a new DashboardHandler.
-func NewDashboardHandler(bs store.BuildStorer, logger *zap.Logger) *DashboardHandler {
+func NewDashboardHandler(bs store.BuildDashboardReader, logger *zap.Logger) *DashboardHandler {
 	return &DashboardHandler{
 		buildStore: bs,
 		logger:     logger,

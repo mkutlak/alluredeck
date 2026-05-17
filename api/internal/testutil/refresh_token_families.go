@@ -18,6 +18,9 @@ type MemRefreshTokenFamilyStore struct {
 	families map[string]store.RefreshTokenFamily
 }
 
+// Compile-time interface check.
+var _ store.RefreshTokenFamilyStorer = (*MemRefreshTokenFamilyStore)(nil)
+
 // NewMemRefreshTokenFamilyStore returns a ready-to-use empty store.
 func NewMemRefreshTokenFamilyStore() *MemRefreshTokenFamilyStore {
 	return &MemRefreshTokenFamilyStore{families: make(map[string]store.RefreshTokenFamily)}

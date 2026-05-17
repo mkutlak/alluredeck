@@ -4,15 +4,22 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
 // MemBlacklist is an in-memory implementation of security.BlacklistStore for tests.
 // It does not import the security package to avoid import cycles when used in
 // security_test.go; Go's structural typing satisfies the interface automatically.
+// The store.BlacklistStorer assertion below mirrors that interface's method set,
+// so a signature change to either is caught at compile time.
 type MemBlacklist struct {
 	mu      sync.RWMutex
 	entries map[string]time.Time
 }
+
+// Compile-time interface check.
+var _ store.BlacklistStorer = (*MemBlacklist)(nil)
 
 // NewMemBlacklist returns a ready-to-use MemBlacklist.
 func NewMemBlacklist() *MemBlacklist {

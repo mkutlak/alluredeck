@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -15,75 +14,8 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
-
-// spyBuildStore implements store.BuildStorer with no-op responses.
-type spyBuildStore struct{}
-
-func (s *spyBuildStore) NextBuildNumber(_ context.Context, _ int64) (int, error) {
-	return 0, nil
-}
-func (s *spyBuildStore) InsertBuild(_ context.Context, _ int64, _ int) error { return nil }
-func (s *spyBuildStore) UpdateBuildStats(_ context.Context, _ int64, _ int, _ store.BuildStats) error {
-	return nil
-}
-func (s *spyBuildStore) UpdateBuildCIMetadata(_ context.Context, _ int64, _ int, _ store.CIMetadata) error {
-	return nil
-}
-func (s *spyBuildStore) GetBuildByNumber(_ context.Context, _ int64, _ int) (store.Build, error) {
-	return store.Build{}, nil
-}
-func (s *spyBuildStore) GetPreviousBuild(_ context.Context, _ int64, _ int) (store.Build, error) {
-	return store.Build{}, nil
-}
-func (s *spyBuildStore) GetLatestBuild(_ context.Context, _ int64) (store.Build, error) {
-	return store.Build{}, nil
-}
-func (s *spyBuildStore) ListBuilds(_ context.Context, _ int64) ([]store.Build, error) {
-	return nil, nil
-}
-func (s *spyBuildStore) ListBuildsPaginated(_ context.Context, _ int64, _, _ int) ([]store.Build, int, error) {
-	return nil, 0, nil
-}
-func (s *spyBuildStore) PruneBuilds(_ context.Context, _ int64, _ int) ([]int, error) {
-	return nil, nil
-}
-func (s *spyBuildStore) SetLatest(_ context.Context, _ int64, _ int) error { return nil }
-func (s *spyBuildStore) DeleteAllBuilds(_ context.Context, _ int64) error  { return nil }
-func (s *spyBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
-	return nil, nil
-}
-func (s *spyBuildStore) DeleteBuild(_ context.Context, _ int64, _ int) error { return nil }
-func (s *spyBuildStore) UpdateBuildBranchID(_ context.Context, _ int64, _ int, _ int64) error {
-	return nil
-}
-func (s *spyBuildStore) SetLatestBranch(_ context.Context, _ int64, _ int, _ *int64) error {
-	return nil
-}
-func (s *spyBuildStore) PruneBuildsBranch(_ context.Context, _ int64, _ int, _ *int64) ([]int, error) {
-	return nil, nil
-}
-func (s *spyBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
-	return nil, nil
-}
-func (s *spyBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
-	return nil, 0, nil
-}
-func (s *spyBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
-	return nil, 0, nil
-}
-
-func (s *spyBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int, _ bool) error {
-	return nil
-}
-
-func (s *spyBuildStore) BuildExists(_ context.Context, _ int64, _ int64) (bool, error) {
-	return true, nil
-}
-
-func (s *spyBuildStore) GetBuildByID(_ context.Context, _ int64, _ int64) (store.Build, error) {
-	return store.Build{}, nil
-}
 
 // spyTestResultStore implements store.TestResultStorer and records InsertBatchFull calls.
 type spyTestResultStore struct {
@@ -93,6 +25,9 @@ type spyTestResultStore struct {
 	lastResults          []*parser.Result
 	insertBatchFullErr   error
 }
+
+// Compile-time interface check.
+var _ store.TestResultStorer = (*spyTestResultStore)(nil)
 
 func (s *spyTestResultStore) InsertBatch(_ context.Context, _ []store.TestResult) error {
 	return nil
@@ -145,6 +80,12 @@ func (s *spyTestResultStore) ListRecentMessages(_ context.Context, _ int64, _ in
 func (s *spyTestResultStore) MarkFlakyByHistoryID(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
+func (s *spyTestResultStore) GetDefectFingerprintID(_ context.Context, _ int64, _ int64, _ string) (*string, error) {
+	return nil, nil
+}
+func (s *spyTestResultStore) GetFailedStepPath(_ context.Context, _ int64, _ int64, _ string) ([]string, string, error) {
+	return nil, "", nil
+}
 
 // mockStore returns a storage.MockStore wired for storeAndPruneBuild success:
 // ReadBuildStats returns non-empty stats, ReadDir returns empty (no stability entries).
@@ -189,7 +130,7 @@ func TestStoreAndPruneBuild_CallsInsertBatchFull(t *testing.T) {
 	a := &Allure{
 		cfg:             &config.Config{ProjectsPath: tmpDir},
 		store:           mockStoreForParsing(),
-		buildStore:      &spyBuildStore{},
+		buildStore:      &testutil.MockBuildStore{},
 		testResultStore: spy,
 		logger:          zap.NewNop(),
 	}
@@ -224,7 +165,7 @@ func TestStoreAndPruneBuild_InsertBatchFullFailure_NonFatal(t *testing.T) {
 	a := &Allure{
 		cfg:             &config.Config{ProjectsPath: tmpDir},
 		store:           mockStoreForParsing(),
-		buildStore:      &spyBuildStore{},
+		buildStore:      &testutil.MockBuildStore{},
 		testResultStore: spy,
 		logger:          zap.NewNop(),
 	}
@@ -248,7 +189,7 @@ func TestStoreAndPruneBuild_NoResultFiles_SkipsInsertBatchFull(t *testing.T) {
 	a := &Allure{
 		cfg:             &config.Config{ProjectsPath: tmpDir},
 		store:           mockStoreForParsing(),
-		buildStore:      &spyBuildStore{},
+		buildStore:      &testutil.MockBuildStore{},
 		testResultStore: spy,
 		logger:          zap.NewNop(),
 	}

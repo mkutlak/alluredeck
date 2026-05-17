@@ -109,6 +109,48 @@ func (a *AttachmentStore) ListByBuild(ctx context.Context, projectID int64, buil
 	return result, total, nil
 }
 
+// ListByTestResult returns the attachments belonging to a single test result,
+// identified by (projectID, buildID, historyID). The test_results primary key
+// is resolved inline via the (project_id, build_id, history_id) join columns —
+// mirroring GetFailedStepPath / GetDefectFingerprintID — so attachments are
+// scoped to one test rather than the whole build. An unknown test simply
+// yields an empty slice (no error): callers treat attachments as best-effort
+// context.
+func (a *AttachmentStore) ListByTestResult(ctx context.Context, projectID int64, buildID int64, historyID string, limit int) ([]store.TestAttachment, error) {
+	rows, err := a.pool.Query(ctx, `
+		SELECT ta.id, ta.test_result_id, ta.test_step_id, ta.name, ta.source,
+		       ta.mime_type, ta.size_bytes, tr.test_name, tr.status
+		FROM test_attachments ta
+		JOIN test_results tr ON tr.id = ta.test_result_id
+		WHERE tr.project_id = $1
+		  AND tr.build_id = $2
+		  AND tr.history_id = $3
+		ORDER BY ta.id
+		LIMIT $4`,
+		projectID, buildID, historyID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list attachments by test result: %w", err)
+	}
+	defer rows.Close()
+
+	var result []store.TestAttachment
+	for rows.Next() {
+		var at store.TestAttachment
+		if err := rows.Scan(&at.ID, &at.TestResultID, &at.TestStepID, &at.Name, &at.Source, &at.MimeType, &at.SizeBytes, &at.TestName, &at.TestStatus); err != nil {
+			return nil, fmt.Errorf("scan attachment: %w", err)
+		}
+		result = append(result, at)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate attachments: %w", err)
+	}
+	if result == nil {
+		result = []store.TestAttachment{}
+	}
+	return result, nil
+}
+
 // GetBySource returns the attachment metadata for the given source path within
 // the specified build. Returns store.ErrAttachmentNotFound when no match exists.
 func (a *AttachmentStore) GetBySource(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error) {

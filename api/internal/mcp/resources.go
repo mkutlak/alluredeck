@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +21,33 @@ import (
 )
 
 const attachmentInlineMaxBytes = 2 * 1024 * 1024 // 2 MB
+
+// attachmentURLTTL is how long a signed attachment download URL stays valid.
+const attachmentURLTTL = 10 * time.Minute
+
+// ErrInvalidAttachmentSource indicates an attachment source filename contains
+// path-traversal characters and must not be used to build a storage path.
+var ErrInvalidAttachmentSource = errors.New("invalid attachment source")
+
+// ValidateAttachmentSource rejects attachment source filenames that could be
+// used for path traversal. Attachment sources originate from ingested Allure
+// reports and are therefore attacker-influenced: they must be a bare filename
+// with no path separators, no parent-directory references, and no NUL bytes
+// before being joined onto a storage path.
+//
+// It is the single canonical guard shared by every code path that builds a
+// "data/attachments/{source}" storage path (the REST ServeAttachment handler,
+// the signed-download handler, and the MCP attachment resource).
+func ValidateAttachmentSource(source string) error {
+	if source == "" ||
+		strings.Contains(source, "/") ||
+		strings.Contains(source, "\\") ||
+		strings.Contains(source, "..") ||
+		strings.ContainsRune(source, 0) {
+		return ErrInvalidAttachmentSource
+	}
+	return nil
+}
 
 // isTextMIME reports whether the given MIME type should be served as inline text.
 func isTextMIME(mime string) bool {
@@ -77,7 +104,11 @@ func attachmentResourceHandler(
 			return nil, fmt.Errorf("invalid attachment URI %q", uri)
 		}
 
-		att, err := stores.Attachment.GetByID(ctx, id)
+		// Resolve the attachment's storage location (project storage key, build
+		// number, source filename, MIME type). This single join lets us both
+		// inline content and stream it via the signed download route, without
+		// guessing the storage path.
+		loc, err := stores.Attachment.GetLocation(ctx, id)
 		if err != nil {
 			if errors.Is(err, store.ErrAttachmentNotFound) {
 				return nil, fmt.Errorf("attachment %d not found", id)
@@ -85,55 +116,97 @@ func attachmentResourceHandler(
 			return nil, fmt.Errorf("fetching attachment %d: %w", id, err)
 		}
 
-		// Attempt text inline when storage is available.
-		if isTextMIME(att.MimeType) && dataStore != nil {
-			data, err := dataStore.ReadFile(ctx, "", att.Source)
-			if err == nil {
-				return &mcpsdk.ReadResourceResult{
-					Contents: []*mcpsdk.ResourceContents{
-						{
-							URI:      uri,
-							MIMEType: att.MimeType,
-							Text:     string(data),
-						},
-					},
-				}, nil
-			}
-			logger.Warn("could not read text attachment, falling back to signed URL",
-				zap.Int64("attachment_id", id), zap.Error(err))
+		// loc.Source comes from ingested Allure reports (attacker-influenced).
+		// Reject path-traversal sources before any storage path is built, so a
+		// malicious source can neither be inlined nor handed out as a URL.
+		if err := ValidateAttachmentSource(loc.Source); err != nil {
+			return nil, fmt.Errorf("attachment %d: %w", id, err)
 		}
 
-		// Attempt blob inline for small images when storage is available.
-		if isImageMIME(att.MimeType) && att.SizeBytes <= attachmentInlineMaxBytes && dataStore != nil {
-			data, err := dataStore.ReadFile(ctx, "", att.Source)
-			if err == nil {
-				return &mcpsdk.ReadResourceResult{
-					Contents: []*mcpsdk.ResourceContents{
-						{
-							URI:      uri,
-							MIMEType: att.MimeType,
-							Blob:     []byte(base64.StdEncoding.EncodeToString(data)),
+		// Attempt to inline small text/image content directly when storage is
+		// available, so the MCP client gets the content without a second round
+		// trip. readAttachmentBlob mirrors the storage path used by the REST
+		// ServeAttachment handler.
+		//
+		// Both text and image inlining are bounded by attachmentInlineMaxBytes
+		// so a huge attachment cannot be read fully into memory and blow the
+		// MCP client's context. Oversized attachments fall through to the
+		// signed-download URL below.
+		if dataStore != nil {
+			inlineText := isTextMIME(loc.MimeType) && loc.SizeBytes <= attachmentInlineMaxBytes
+			inlineImage := isImageMIME(loc.MimeType) && loc.SizeBytes <= attachmentInlineMaxBytes
+			if inlineText || inlineImage {
+				data, err := readAttachmentBlob(ctx, dataStore, loc)
+				switch {
+				case err != nil:
+					logger.Warn("could not read attachment content, falling back to signed URL",
+						zap.Int64("attachment_id", id), zap.Error(err))
+				case inlineText:
+					return &mcpsdk.ReadResourceResult{
+						Contents: []*mcpsdk.ResourceContents{
+							{
+								URI:      uri,
+								MIMEType: loc.MimeType,
+								Text:     string(data),
+							},
 						},
-					},
-				}, nil
+					}, nil
+				default: // inlineImage
+					// Blob is []byte; the JSON encoder base64-encodes it
+					// automatically, so the raw bytes are passed here.
+					return &mcpsdk.ReadResourceResult{
+						Contents: []*mcpsdk.ResourceContents{
+							{
+								URI:      uri,
+								MIMEType: loc.MimeType,
+								Blob:     data,
+							},
+						},
+					}, nil
+				}
 			}
-			logger.Warn("could not read image attachment, falling back to signed URL",
-				zap.Int64("attachment_id", id), zap.Error(err))
 		}
 
-		// Fallback: return a resource entry whose URI is the HMAC-signed download URL.
-		// Clients can follow this URL to download the attachment directly.
+		// Fallback: return a resource entry whose URI is the HMAC-signed download
+		// URL. Clients can follow this URL to download the attachment directly
+		// via the GET /attachments/{id} route.
 		signedURL := buildSignedURL(publicURL, id, signingKey)
 		return &mcpsdk.ReadResourceResult{
 			Contents: []*mcpsdk.ResourceContents{
 				{
 					URI:      signedURL,
-					MIMEType: att.MimeType,
+					MIMEType: loc.MimeType,
 					Text:     fmt.Sprintf("Download at: %s", signedURL),
 				},
 			},
 		}, nil
 	}
+}
+
+// readAttachmentBlob streams an attachment's bytes from the file-storage
+// backend. It resolves the same storage path the REST ServeAttachment handler
+// uses: {storageKey}/reports/{buildNumber}/data/attachments/{source}.
+//
+// loc.Source is attacker-influenced data from ingested Allure reports, so it is
+// validated with ValidateAttachmentSource before being joined onto the storage
+// path. The read is bounded at attachmentInlineMaxBytes as a defensive cap even
+// when the caller has already checked loc.SizeBytes.
+func readAttachmentBlob(ctx context.Context, dataStore storage.Store, loc *store.AttachmentLocation) ([]byte, error) {
+	if err := ValidateAttachmentSource(loc.Source); err != nil {
+		return nil, err
+	}
+	filePath := "data/attachments/" + loc.Source
+	reader, _, err := dataStore.OpenReportFile(ctx, loc.StorageKey, strconv.Itoa(loc.BuildNumber), filePath)
+	if err != nil {
+		return nil, fmt.Errorf("opening attachment blob: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(reader, attachmentInlineMaxBytes))
+	if err != nil {
+		return nil, fmt.Errorf("reading attachment blob: %w", err)
+	}
+	return data, nil
 }
 
 func testResourceHandler(
@@ -212,14 +285,46 @@ func parseTestResourceURI(uri string) ([3]string, error) {
 	return [3]string{parts[1], parts[3], parts[5]}, nil
 }
 
+// attachmentSigPayload builds the canonical payload string that is signed for
+// an attachment download URL: "attachment:{id}:exp:{exp_unix}".
+func attachmentSigPayload(id, exp int64) string {
+	return fmt.Sprintf("attachment:%d:exp:%d", id, exp)
+}
+
+// signAttachment computes the HMAC-SHA256 signature (hex-encoded) over the
+// canonical payload for the given attachment id and expiry.
+func signAttachment(signingKey []byte, id, exp int64) string {
+	mac := hmac.New(sha256.New, signingKey)
+	mac.Write([]byte(attachmentSigPayload(id, exp)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// VerifyAttachmentSig validates a signed attachment download request. It checks
+// that exp has not passed and that sig is a constant-time match for the
+// expected HMAC. It returns nil on success, or an error describing the failure.
+//
+// It is the canonical verifier for the GET /attachments/{id} download route and
+// is the inverse of the signing performed by buildSignedURL.
+func VerifyAttachmentSig(signingKey []byte, id, exp int64, sig string, now time.Time) error {
+	if exp <= 0 {
+		return errors.New("missing or invalid exp")
+	}
+	if now.Unix() > exp {
+		return errors.New("signed URL has expired")
+	}
+	want := signAttachment(signingKey, id, exp)
+	// Compare hex strings in constant time to avoid timing side channels.
+	if !hmac.Equal([]byte(want), []byte(sig)) {
+		return errors.New("signature mismatch")
+	}
+	return nil
+}
+
 // buildSignedURL returns a signed URL for direct attachment download.
 // The URL embeds exp (Unix timestamp) and sig (HMAC-SHA256 hex).
 func buildSignedURL(publicURL string, id int64, signingKey []byte) string {
-	exp := time.Now().Add(10 * time.Minute).Unix()
-	payload := fmt.Sprintf("attachment:%d:exp:%d", id, exp)
-	mac := hmac.New(sha256.New, signingKey)
-	mac.Write([]byte(payload))
-	sig := hex.EncodeToString(mac.Sum(nil))
+	exp := time.Now().Add(attachmentURLTTL).Unix()
+	sig := signAttachment(signingKey, id, exp)
 	base := strings.TrimRight(publicURL, "/")
 	return fmt.Sprintf("%s/attachments/%d?exp=%d&sig=%s", base, id, exp, sig)
 }

@@ -10,6 +10,10 @@ import (
 )
 
 // Compile-time interface checks.
+//
+// Every type implementing a store interface — production or test — carries a
+// var _ assertion next to its declaration so an interface change breaks
+// immediately and locally. See api/CLAUDE.md ("Store interface assertions").
 var (
 	_ store.ProjectStorer    = (*MockProjectStore)(nil)
 	_ store.BuildStorer      = (*MockBuildStore)(nil)
@@ -24,6 +28,7 @@ var (
 	_ store.AttachmentStorer = (*MockAttachmentStore)(nil)
 	_ store.PipelineStorer   = (*MockPipelineStore)(nil)
 	_ store.AuditLogger      = (*MockAuditLogger)(nil)
+	_ store.AnalyticsStorer  = (*MockAnalyticsStore)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
@@ -44,6 +49,7 @@ type MockStores struct {
 	Webhooks    *MemWebhookStore // stateful in-memory store for webhook handler tests
 	Pipeline    *MockPipelineStore
 	Audit       *MockAuditLogger // stateful in-memory audit recorder for handler tests
+	Analytics   *MockAnalyticsStore
 }
 
 // New returns a MockStores with all fields initialised.
@@ -67,6 +73,7 @@ func New() *MockStores {
 		Webhooks:    NewMemWebhookStore(),
 		Pipeline:    &MockPipelineStore{},
 		Audit:       NewMockAuditLogger(),
+		Analytics:   &MockAnalyticsStore{},
 	}
 }
 
@@ -408,22 +415,25 @@ func (m *MockBuildStore) GetBuildByID(ctx context.Context, projectID, buildID in
 
 // MockTestResultStore is a test double for store.TestResultStorer.
 type MockTestResultStore struct {
-	InsertBatchFn              func(ctx context.Context, results []store.TestResult) error
-	InsertBatchFullFn          func(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error
-	GetBuildIDFn               func(ctx context.Context, projectID int64, buildNumber int) (int64, error)
-	ListSlowestFn              func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
-	ListLeastReliableFn        func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
-	ListTimelineFn             func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error)
-	ListFailedByBuildFn        func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error)
-	ListStabilityByBuildFn     func(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error)
-	MarkFlakyByHistoryIDFn     func(ctx context.Context, projectID int64, historyID, fullName string) error
-	GetTestHistoryFn           func(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
-	DeleteByBuildFn            func(ctx context.Context, buildID int64) error
-	DeleteByProjectFn          func(ctx context.Context, projectID int64) error
-	CompareBuildsByHistoryIDFn func(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
-	ListTimelineMultiFn        func(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
-	SearchByNameFn             func(ctx context.Context, projectID int64, substring string, limit int) ([]*store.TestResult, error)
-	ListRecentMessagesFn       func(ctx context.Context, projectID int64, limit int) ([]string, error)
+	InsertBatchFn                 func(ctx context.Context, results []store.TestResult) error
+	InsertBatchFullFn             func(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error
+	GetBuildIDFn                  func(ctx context.Context, projectID int64, buildNumber int) (int64, error)
+	ListSlowestFn                 func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
+	ListLeastReliableFn           func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
+	ListTimelineFn                func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error)
+	ListFailedByBuildFn           func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error)
+	ListFailedForFingerprintingFn func(ctx context.Context, projectID int64, buildID int64) ([]store.FailedTestResult, error)
+	ListStabilityByBuildFn        func(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error)
+	MarkFlakyByHistoryIDFn        func(ctx context.Context, projectID int64, historyID, fullName string) error
+	GetTestHistoryFn              func(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
+	DeleteByBuildFn               func(ctx context.Context, buildID int64) error
+	DeleteByProjectFn             func(ctx context.Context, projectID int64) error
+	CompareBuildsByHistoryIDFn    func(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
+	ListTimelineMultiFn           func(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
+	SearchByNameFn                func(ctx context.Context, projectID int64, substring string, limit int) ([]*store.TestResult, error)
+	ListRecentMessagesFn          func(ctx context.Context, projectID int64, limit int) ([]string, error)
+	GetDefectFingerprintIDFn      func(ctx context.Context, projectID int64, buildID int64, historyID string) (*string, error)
+	GetFailedStepPathFn           func(ctx context.Context, projectID int64, buildID int64, historyID string) ([]string, string, error)
 }
 
 func (m *MockTestResultStore) InsertBatch(ctx context.Context, results []store.TestResult) error {
@@ -517,7 +527,10 @@ func (m *MockTestResultStore) ListStabilityByBuild(ctx context.Context, projectI
 	return nil, nil
 }
 
-func (m *MockTestResultStore) ListFailedForFingerprinting(_ context.Context, _ int64, _ int64) ([]store.FailedTestResult, error) {
+func (m *MockTestResultStore) ListFailedForFingerprinting(ctx context.Context, projectID int64, buildID int64) ([]store.FailedTestResult, error) {
+	if m.ListFailedForFingerprintingFn != nil {
+		return m.ListFailedForFingerprintingFn(ctx, projectID, buildID)
+	}
 	return nil, nil
 }
 
@@ -540,6 +553,20 @@ func (m *MockTestResultStore) ListRecentMessages(ctx context.Context, projectID 
 		return m.ListRecentMessagesFn(ctx, projectID, limit)
 	}
 	return nil, nil
+}
+
+func (m *MockTestResultStore) GetDefectFingerprintID(ctx context.Context, projectID int64, buildID int64, historyID string) (*string, error) {
+	if m.GetDefectFingerprintIDFn != nil {
+		return m.GetDefectFingerprintIDFn(ctx, projectID, buildID, historyID)
+	}
+	return nil, nil
+}
+
+func (m *MockTestResultStore) GetFailedStepPath(ctx context.Context, projectID int64, buildID int64, historyID string) ([]string, string, error) {
+	if m.GetFailedStepPathFn != nil {
+		return m.GetFailedStepPathFn(ctx, projectID, buildID, historyID)
+	}
+	return nil, "", nil
 }
 
 // ---------------------------------------------------------------------------
@@ -921,8 +948,10 @@ func (m *MockUserStore) RelinkOIDC(ctx context.Context, id int64, provider, sub 
 // Set function fields to control behaviour; unset fields return zero values.
 type MockAttachmentStore struct {
 	ListByBuildFn            func(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]store.TestAttachment, int, error)
+	ListByTestResultFn       func(ctx context.Context, projectID int64, buildID int64, historyID string, limit int) ([]store.TestAttachment, error)
 	GetBySourceFn            func(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error)
 	GetByIDFn                func(ctx context.Context, id int64) (*store.TestAttachment, error)
+	GetLocationFn            func(ctx context.Context, id int64) (*store.AttachmentLocation, error)
 	InsertBuildAttachmentsFn func(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error
 }
 
@@ -931,6 +960,13 @@ func (m *MockAttachmentStore) ListByBuild(ctx context.Context, projectID int64, 
 		return m.ListByBuildFn(ctx, projectID, buildID, mimeFilter, testStatus, limit, offset)
 	}
 	return nil, 0, nil
+}
+
+func (m *MockAttachmentStore) ListByTestResult(ctx context.Context, projectID int64, buildID int64, historyID string, limit int) ([]store.TestAttachment, error) {
+	if m.ListByTestResultFn != nil {
+		return m.ListByTestResultFn(ctx, projectID, buildID, historyID, limit)
+	}
+	return nil, nil
 }
 
 func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, source string) (*store.TestAttachment, error) {
@@ -943,6 +979,13 @@ func (m *MockAttachmentStore) GetBySource(ctx context.Context, buildID int64, so
 func (m *MockAttachmentStore) GetByID(ctx context.Context, id int64) (*store.TestAttachment, error) {
 	if m.GetByIDFn != nil {
 		return m.GetByIDFn(ctx, id)
+	}
+	return nil, store.ErrAttachmentNotFound
+}
+
+func (m *MockAttachmentStore) GetLocation(ctx context.Context, id int64) (*store.AttachmentLocation, error) {
+	if m.GetLocationFn != nil {
+		return m.GetLocationFn(ctx, id)
 	}
 	return nil, store.ErrAttachmentNotFound
 }
@@ -1054,4 +1097,45 @@ func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID int64
 		return m.ListPipelineRunsFn(ctx, parentID, branch, page, perPage)
 	}
 	return nil, 0, nil
+}
+
+// ---------------------------------------------------------------------------
+// MockAnalyticsStore
+// ---------------------------------------------------------------------------
+
+// MockAnalyticsStore is a test double for store.AnalyticsStorer.
+// Set function fields to control behaviour; unset fields return zero values.
+type MockAnalyticsStore struct {
+	ListTopErrorsFn      func(ctx context.Context, projectIDs []int64, builds, limit int, branchID *int64) ([]store.ErrorCluster, error)
+	ListSuitePassRatesFn func(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.SuitePassRate, error)
+	ListLabelBreakdownFn func(ctx context.Context, projectIDs []int64, labelName string, builds int, branchID *int64) ([]store.LabelCount, error)
+	ListTrendPointsFn    func(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.TrendPoint, error)
+}
+
+func (m *MockAnalyticsStore) ListTopErrors(ctx context.Context, projectIDs []int64, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
+	if m.ListTopErrorsFn != nil {
+		return m.ListTopErrorsFn(ctx, projectIDs, builds, limit, branchID)
+	}
+	return nil, nil
+}
+
+func (m *MockAnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.SuitePassRate, error) {
+	if m.ListSuitePassRatesFn != nil {
+		return m.ListSuitePassRatesFn(ctx, projectIDs, builds, branchID)
+	}
+	return nil, nil
+}
+
+func (m *MockAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectIDs []int64, labelName string, builds int, branchID *int64) ([]store.LabelCount, error) {
+	if m.ListLabelBreakdownFn != nil {
+		return m.ListLabelBreakdownFn(ctx, projectIDs, labelName, builds, branchID)
+	}
+	return nil, nil
+}
+
+func (m *MockAnalyticsStore) ListTrendPoints(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.TrendPoint, error) {
+	if m.ListTrendPointsFn != nil {
+		return m.ListTrendPointsFn(ctx, projectIDs, builds, branchID)
+	}
+	return nil, nil
 }

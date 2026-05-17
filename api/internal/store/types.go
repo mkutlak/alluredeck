@@ -177,6 +177,19 @@ type TestAttachment struct {
 	TestStatus   string // joined from test_results
 }
 
+// AttachmentLocation carries everything needed to resolve an attachment's blob
+// in the file-storage backend: the owning project's storage key, the build
+// order number, the source filename, and the MIME type. It is produced by
+// AttachmentStorer.GetLocation by joining test_attachments → test_results →
+// builds → projects.
+type AttachmentLocation struct {
+	StorageKey  string
+	BuildNumber int
+	Source      string
+	MimeType    string
+	SizeBytes   int64
+}
+
 // LowPerformingTest holds aggregated metrics for a test that performs poorly.
 type LowPerformingTest struct {
 	TestName   string

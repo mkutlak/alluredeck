@@ -23,7 +23,7 @@ type OIDCHandler struct {
 	cfg         *config.Config
 	oidcProv    security.OIDCExchanger
 	jwtManager  *security.JWTManager
-	userStore   store.UserStorer
+	userStore   store.UserAuthStorer
 	familyStore store.RefreshTokenFamilyStorer // optional; nil disables refresh-token rotation
 	audit       store.AuditLogger              // optional; nil disables persistent audit emission
 	logger      *zap.Logger
@@ -31,7 +31,7 @@ type OIDCHandler struct {
 
 // NewOIDCHandler creates and returns a new OIDCHandler. The familyStore parameter
 // is optional — pass nil to disable refresh-token rotation for OIDC sessions.
-func NewOIDCHandler(cfg *config.Config, oidcProv security.OIDCExchanger, jwtManager *security.JWTManager, userStore store.UserStorer, familyStore store.RefreshTokenFamilyStorer, logger *zap.Logger) *OIDCHandler {
+func NewOIDCHandler(cfg *config.Config, oidcProv security.OIDCExchanger, jwtManager *security.JWTManager, userStore store.UserAuthStorer, familyStore store.RefreshTokenFamilyStorer, logger *zap.Logger) *OIDCHandler {
 	return &OIDCHandler{
 		cfg:         cfg,
 		oidcProv:    oidcProv,

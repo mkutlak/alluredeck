@@ -28,6 +28,16 @@ func NewMemDefectStore() *MemDefectStore {
 	}
 }
 
+// Seed inserts a defect fingerprint so GetByID and GetByHash can return it.
+// It is a test-only helper not part of the store.DefectStorer interface.
+func (m *MemDefectStore) Seed(fp store.DefectFingerprint) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := fp
+	m.fingerprints[fp.ID] = &cp
+	m.byHash[fmt.Sprintf("%d\x00%s", fp.ProjectID, fp.FingerprintHash)] = fp.ID
+}
+
 func (m *MemDefectStore) UpsertFingerprints(_ context.Context, _ int64, _ int64, _ []store.DefectFingerprint) error {
 	return nil
 }

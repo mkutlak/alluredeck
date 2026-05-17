@@ -55,6 +55,20 @@ func ParseFile(path string) (*Result, error) {
 	// Convert steps recursively.
 	steps := convertSteps(raw.Steps, 0)
 
+	// Allure 3 ("awesome") reports leave the test-level statusDetails empty;
+	// the real failure message lives on the deepest failed step. When the
+	// test-level message is blank, adopt the deepest failed (or broken) step's
+	// message/trace so failure display, fingerprinting, known-issue matching,
+	// and full-text search all have a non-empty signature to work with.
+	if statusMsg == "" {
+		if dMsg, dTrace, ok := deriveStatusFromSteps(raw.Steps); ok {
+			statusMsg = dMsg
+			if statusTrace == "" {
+				statusTrace = dTrace
+			}
+		}
+	}
+
 	return &Result{
 		Name:          raw.Name,
 		FullName:      raw.FullName,
@@ -126,6 +140,64 @@ func convertSteps(raw []allureStepJSON, order int) []Step {
 		})
 	}
 	return steps
+}
+
+// deriveStatusFromSteps walks the nested step tree to find the failure message
+// and trace for a test whose own statusDetails is empty. This is the Allure 3
+// ("awesome") case: the test-level statusDetails is blank and the real error is
+// recorded on the deepest failed step.
+//
+// It prefers the deepest "failed" step; if none exists it falls back to the
+// deepest "broken" step. When the chosen step carries no message it uses the
+// step name so the result still gets a non-empty, fingerprintable signature.
+// The bool return reports whether any failed/broken step was found.
+func deriveStatusFromSteps(steps []allureStepJSON) (message, trace string, ok bool) {
+	failMsg, failTrace, failDepth := walkFailedStep(steps, "failed", 0)
+	if failDepth >= 0 {
+		return failMsg, failTrace, true
+	}
+	brokenMsg, brokenTrace, brokenDepth := walkFailedStep(steps, "broken", 0)
+	if brokenDepth >= 0 {
+		return brokenMsg, brokenTrace, true
+	}
+	return "", "", false
+}
+
+// walkFailedStep recursively searches for the deepest step whose status equals
+// wantStatus and returns that step's message, trace, and depth. depth is -1 when
+// no matching step is found in the subtree. Ties at equal depth keep the first
+// match in document order.
+func walkFailedStep(steps []allureStepJSON, wantStatus string, depth int) (message, trace string, foundDepth int) {
+	bestDepth := -1
+	var bestMsg, bestTrace string
+
+	for i := range steps {
+		s := &steps[i]
+
+		// Recurse first so deeper matches take precedence over this level.
+		if childMsg, childTrace, childDepth := walkFailedStep(s.Steps, wantStatus, depth+1); childDepth > bestDepth {
+			bestDepth, bestMsg, bestTrace = childDepth, childMsg, childTrace
+		}
+
+		if s.Status == wantStatus && depth > bestDepth {
+			msg, tr := stepStatusDetails(s)
+			if msg == "" {
+				msg = s.Name
+			}
+			bestDepth, bestMsg, bestTrace = depth, msg, tr
+		}
+	}
+
+	return bestMsg, bestTrace, bestDepth
+}
+
+// stepStatusDetails returns the message and trace from a step's statusDetails,
+// nil-safe.
+func stepStatusDetails(s *allureStepJSON) (message, trace string) {
+	if s.StatusDetails == nil {
+		return "", ""
+	}
+	return s.StatusDetails.Message, s.StatusDetails.Trace
 }
 
 // convertAttachments converts raw attachment JSON into Attachment values.
@@ -280,6 +352,7 @@ type allureStepJSON struct {
 	Status        string `json:"status"`
 	StatusDetails *struct {
 		Message string `json:"message"`
+		Trace   string `json:"trace"`
 	} `json:"statusDetails"`
 	Start       int64              `json:"start"`
 	Stop        int64              `json:"stop"`

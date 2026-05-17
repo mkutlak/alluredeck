@@ -24,6 +24,19 @@
 | `testutil`   | Shared test helpers (mock stores, test HTTP helpers) |
 | `version`    | Build metadata (version, date, ref injected at link time) |
 
+## Store interface assertions
+- Every type implementing a `store` interface — production or test — must carry a
+  `var _ store.X = (*T)(nil)` compile-time assertion directly below its type
+  declaration. An interface change then breaks immediately and locally at the
+  offending type rather than silently surfacing later in an unrelated package.
+- Shared mock stores live in `internal/testutil` (`Mock*` function-field doubles,
+  `Mem*` stateful in-memory stores). Reuse these instead of hand-writing mocks.
+- A local mock in a `_test.go` file is acceptable only when it has genuine
+  bespoke behavior the shared mock cannot provide — argument capture, a
+  decorator wrapping another store, or an intentional partial panic-stub. Local
+  mocks still carry the `var _` assertion; decorators assert the interface they
+  wrap.
+
 ## Lint
 golangci-lint v2 — config at `api/.golangci.yml`. Run via `make api-lint`.
 

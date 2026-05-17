@@ -32,12 +32,11 @@ func newBranchStoreForAnalytics() *testutil.MockBranchStore {
 // TestAnalyticsHandler_GetTopErrors_NoBranch verifies the handler returns 200 without a branch param.
 func TestAnalyticsHandler_GetTopErrors_NoBranch(t *testing.T) {
 	var capturedBranchID *int64
-	mock := &mockAnalyticsStore{
-		topErrors: []store.ErrorCluster{{Message: "NPE", Count: 3}},
+	mock := &testutil.MockAnalyticsStore{
+		ListTopErrorsFn: func(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
+			return []store.ErrorCluster{{Message: "NPE", Count: 3}}, nil
+		},
 	}
-	// Wrap to capture branchID.
-	type capturingStore struct{ *mockAnalyticsStore }
-	_ = capturingStore{}
 
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -230,9 +229,11 @@ func TestAnalyticsHandler_GetTopErrors_UnknownBranch(t *testing.T) {
 
 // TestAnalyticsHandler_GetTrends_NoBranch verifies the handler returns 200 without a branch param.
 func TestAnalyticsHandler_GetTrends_NoBranch(t *testing.T) {
-	mock := &mockAnalyticsStore{
-		trendPoints: []store.TrendPoint{
-			{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
+	mock := &testutil.MockAnalyticsStore{
+		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
+			return []store.TrendPoint{
+				{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
+			}, nil
 		},
 	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
@@ -330,6 +331,9 @@ type captureAnalyticsStore struct {
 	onListTrendPoints    func(*int64)
 }
 
+// Compile-time interface check.
+var _ store.AnalyticsStorer = (*captureAnalyticsStore)(nil)
+
 func (c *captureAnalyticsStore) ListTopErrors(_ context.Context, _ []int64, _, _ int, branchID *int64) ([]store.ErrorCluster, error) {
 	if c.onListTopErrors != nil {
 		c.onListTopErrors(branchID)
@@ -363,7 +367,11 @@ func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ []int64, _ 
 // ---------------------------------------------------------------------------
 
 func TestAnalyticsHandler_GetTopErrors_StoreError_Returns500(t *testing.T) {
-	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	mock := &testutil.MockAnalyticsStore{
+		ListTopErrorsFn: func(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
+			return nil, fmt.Errorf("pq: connection refused")
+		},
+	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/1/analytics/errors", nil)
@@ -380,7 +388,11 @@ func TestAnalyticsHandler_GetTopErrors_StoreError_Returns500(t *testing.T) {
 }
 
 func TestAnalyticsHandler_GetSuitePassRates_StoreError_Returns500(t *testing.T) {
-	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	mock := &testutil.MockAnalyticsStore{
+		ListSuitePassRatesFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.SuitePassRate, error) {
+			return nil, fmt.Errorf("pq: connection refused")
+		},
+	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/1/analytics/suites", nil)
@@ -397,7 +409,11 @@ func TestAnalyticsHandler_GetSuitePassRates_StoreError_Returns500(t *testing.T) 
 }
 
 func TestAnalyticsHandler_GetLabelBreakdown_StoreError_Returns500(t *testing.T) {
-	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	mock := &testutil.MockAnalyticsStore{
+		ListLabelBreakdownFn: func(_ context.Context, _ []int64, _ string, _ int, _ *int64) ([]store.LabelCount, error) {
+			return nil, fmt.Errorf("pq: connection refused")
+		},
+	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/1/analytics/labels", nil)
@@ -414,7 +430,11 @@ func TestAnalyticsHandler_GetLabelBreakdown_StoreError_Returns500(t *testing.T) 
 }
 
 func TestAnalyticsHandler_GetTrends_StoreError_Returns500(t *testing.T) {
-	mock := &mockAnalyticsStore{errToReturn: fmt.Errorf("pq: connection refused")}
+	mock := &testutil.MockAnalyticsStore{
+		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
+			return nil, fmt.Errorf("pq: connection refused")
+		},
+	}
 	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/projects/1/analytics/trends", nil)

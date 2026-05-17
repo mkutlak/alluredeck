@@ -23,6 +23,7 @@ var (
 	ErrUserNotFound              = errors.New("user not found")
 	ErrAttachmentNotFound        = errors.New("attachment not found")
 	ErrDefectNotFound            = errors.New("defect fingerprint not found")
+	ErrTestResultNotFound        = errors.New("test result not found")
 	ErrWebhookNotFound           = errors.New("webhook not found")
 	ErrPreferencesNotFound       = errors.New("preferences not found")
 	ErrRefreshFamilyNotFound     = errors.New("refresh token family not found")
@@ -33,50 +34,71 @@ var (
 	ErrEmailAlreadyLinked = errors.New("email already linked to a different identity")
 )
 
-// ProjectStorer is the interface for project operations.
-type ProjectStorer interface {
-	CreateProject(ctx context.Context, slug string) (*Project, error)
-	CreateProjectWithParent(ctx context.Context, slug string, parentID int64) (*Project, error)
+// ProjectReader covers project lookup and listing queries.
+type ProjectReader interface {
 	GetProject(ctx context.Context, id int64) (*Project, error)
 	GetProjectBySlug(ctx context.Context, slug string) (*Project, error)
 	GetProjectBySlugAny(ctx context.Context, slug string) (*Project, error)
 	ListProjects(ctx context.Context) ([]Project, error)
 	ListProjectsPaginated(ctx context.Context, page, perPage int) ([]Project, int, error)
 	ListProjectsPaginatedTopLevel(ctx context.Context, page, perPage int) ([]Project, int, error)
+	ProjectExists(ctx context.Context, id int64) (bool, error)
+}
+
+// ProjectWriter covers project creation, deletion, and mutation.
+type ProjectWriter interface {
+	CreateProject(ctx context.Context, slug string) (*Project, error)
+	CreateProjectWithParent(ctx context.Context, slug string, parentID int64) (*Project, error)
+	DeleteProject(ctx context.Context, id int64) error
+	RenameProject(ctx context.Context, id int64, newSlug string) error
+	SetReportType(ctx context.Context, id int64, reportType string) error
+}
+
+// ProjectHierarchyStorer covers parent/child project relationship operations.
+type ProjectHierarchyStorer interface {
 	ListChildren(ctx context.Context, parentID int64) ([]Project, error)
 	ListChildIDs(ctx context.Context, parentID int64) ([]string, error)
 	HasChildren(ctx context.Context, projectID int64) (bool, error)
 	SetParent(ctx context.Context, projectID, parentID int64) error
 	ClearParent(ctx context.Context, projectID int64) error
-	DeleteProject(ctx context.Context, id int64) error
-	RenameProject(ctx context.Context, id int64, newSlug string) error
-	ProjectExists(ctx context.Context, id int64) (bool, error)
-	SetReportType(ctx context.Context, id int64, reportType string) error
 }
 
-// BuildStorer is the interface for build operations.
-type BuildStorer interface {
+// ProjectHierarchyReader composes project lookup with parent/child hierarchy
+// operations — the role used by handlers that resolve projects and inspect or
+// mutate parent/child relationships but never create, rename, or delete projects.
+type ProjectHierarchyReader interface {
+	ProjectReader
+	ProjectHierarchyStorer
+}
+
+// ProjectStorer is the interface for project operations.
+type ProjectStorer interface {
+	ProjectReader
+	ProjectWriter
+	ProjectHierarchyStorer
+}
+
+// BuildWriter covers build lifecycle and CI ingestion writes.
+type BuildWriter interface {
 	NextBuildNumber(ctx context.Context, projectID int64) (int, error)
 	InsertBuild(ctx context.Context, projectID int64, buildNumber int) error
 	UpdateBuildStats(ctx context.Context, projectID int64, buildNumber int, stats BuildStats) error
 	UpdateBuildCIMetadata(ctx context.Context, projectID int64, buildNumber int, ciMeta CIMetadata) error
+	UpdateBuildBranchID(ctx context.Context, projectID int64, buildNumber int, branchID int64) error
+	SetLatest(ctx context.Context, projectID int64, buildNumber int) error
+	SetLatestBranch(ctx context.Context, projectID int64, buildNumber int, branchID *int64) error
+	SetHasPlaywrightReport(ctx context.Context, projectID int64, buildNumber int, value bool) error
+}
+
+// BuildReader covers build lookup and listing queries.
+type BuildReader interface {
 	GetBuildByNumber(ctx context.Context, projectID int64, buildNumber int) (Build, error)
 	GetPreviousBuild(ctx context.Context, projectID int64, buildNumber int) (Build, error)
 	GetLatestBuild(ctx context.Context, projectID int64) (Build, error)
 	ListBuilds(ctx context.Context, projectID int64) ([]Build, error)
 	ListBuildsPaginated(ctx context.Context, projectID int64, page, perPage int) ([]Build, int, error)
-	PruneBuilds(ctx context.Context, projectID int64, keep int) ([]int, error)
-	SetLatest(ctx context.Context, projectID int64, buildNumber int) error
-	DeleteAllBuilds(ctx context.Context, projectID int64) error
-	GetDashboardData(ctx context.Context, sparklineDepth int) ([]DashboardProject, error)
-	DeleteBuild(ctx context.Context, projectID int64, buildNumber int) error
-	UpdateBuildBranchID(ctx context.Context, projectID int64, buildNumber int, branchID int64) error
-	SetLatestBranch(ctx context.Context, projectID int64, buildNumber int, branchID *int64) error
-	PruneBuildsBranch(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error)
-	PruneBuildsByAge(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error)
 	ListBuildsPaginatedBranch(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]Build, int, error)
 	ListBuildsInRange(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]Build, int, error)
-	SetHasPlaywrightReport(ctx context.Context, projectID int64, buildNumber int, value bool) error
 	// BuildExists reports whether a build with the given build_id (primary key)
 	// belongs to the given project. Used by MCP tools to fail fast before
 	// performing heavier queries — build_id ≠ build_number (UI URL uses build_number).
@@ -87,26 +109,56 @@ type BuildStorer interface {
 	GetBuildByID(ctx context.Context, projectID, buildID int64) (Build, error)
 }
 
-// TestResultStorer is the interface for test result operations.
-type TestResultStorer interface {
+// BuildPruner covers build retention and deletion operations.
+type BuildPruner interface {
+	PruneBuilds(ctx context.Context, projectID int64, keep int) ([]int, error)
+	PruneBuildsBranch(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error)
+	PruneBuildsByAge(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error)
+	DeleteBuild(ctx context.Context, projectID int64, buildNumber int) error
+	DeleteAllBuilds(ctx context.Context, projectID int64) error
+}
+
+// BuildDashboardReader covers cross-project dashboard aggregation queries.
+type BuildDashboardReader interface {
+	GetDashboardData(ctx context.Context, sparklineDepth int) ([]DashboardProject, error)
+}
+
+// BuildStorer is the interface for build operations.
+type BuildStorer interface {
+	BuildWriter
+	BuildReader
+	BuildPruner
+	BuildDashboardReader
+}
+
+// TestResultWriter covers test result ingestion writes.
+type TestResultWriter interface {
 	InsertBatch(ctx context.Context, results []TestResult) error
 	InsertBatchFull(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error
+}
+
+// TestResultPruner covers test result deletion operations.
+type TestResultPruner interface {
+	DeleteByBuild(ctx context.Context, buildID int64) error
+	DeleteByProject(ctx context.Context, projectID int64) error
+}
+
+// TestResultReader covers test result lookup, history, and analytics queries.
+type TestResultReader interface {
 	GetBuildID(ctx context.Context, projectID int64, buildNumber int) (int64, error)
 	ListSlowest(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]LowPerformingTest, error)
 	ListLeastReliable(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]LowPerformingTest, error)
 	ListTimeline(ctx context.Context, projectID int64, buildID int64, limit int) ([]TimelineRow, error)
-	ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]TestResult, error)
-	GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error)
-	DeleteByBuild(ctx context.Context, buildID int64) error
-	DeleteByProject(ctx context.Context, projectID int64) error
-	CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]DiffEntry, error)
 	ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]MultiTimelineRow, error)
-	ListFailedForFingerprinting(ctx context.Context, projectID int64, buildID int64) ([]FailedTestResult, error)
+	ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]TestResult, error)
 	ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]TestResult, error)
-	// MarkFlakyByHistoryID sets flaky=true on the most-recent test_results row
-	// matching (project_id, history_id, full_name). Used by the proposal approval
-	// flow to apply a flaky-proposal without modifying historical rows.
-	MarkFlakyByHistoryID(ctx context.Context, projectID int64, historyID, fullName string) error
+	GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error)
+	CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]DiffEntry, error)
+}
+
+// TestResultDefectReader covers fingerprinting and defect-oriented test result queries.
+type TestResultDefectReader interface {
+	ListFailedForFingerprinting(ctx context.Context, projectID int64, buildID int64) ([]FailedTestResult, error)
 	// SearchByName returns up to limit test results whose full_name matches
 	// the given substring (case-insensitive). Used by the find_test_by_name MCP tool.
 	SearchByName(ctx context.Context, projectID int64, substring string, limit int) ([]*TestResult, error)
@@ -115,6 +167,32 @@ type TestResultStorer interface {
 	// propose_known_issue dry-run to estimate how many recent failures a regex
 	// would match without a full table scan.
 	ListRecentMessages(ctx context.Context, projectID int64, limit int) ([]string, error)
+	// GetDefectFingerprintID returns the defect_fingerprint_id linked to the
+	// test_results row identified by (projectID, buildID, historyID). The
+	// returned pointer is nil when the row exists but has no linked fingerprint.
+	// Returns ErrTestResultNotFound when no matching row exists.
+	GetDefectFingerprintID(ctx context.Context, projectID int64, buildID int64, historyID string) (*string, error)
+	// GetFailedStepPath reconstructs the failed-step trail for the test_results
+	// row identified by (projectID, buildID, historyID). It walks the test_steps
+	// tree, picking failed/broken steps at each level and descending into the
+	// first such child. It returns the ordered list of step names from the root
+	// failed step to the deepest failed step, plus the status_message of that
+	// deepest failed step (the most specific error text available). Both are
+	// empty when the test has no recorded steps or no failed step. Returns
+	// ErrTestResultNotFound when no matching test_results row exists.
+	GetFailedStepPath(ctx context.Context, projectID int64, buildID int64, historyID string) (path []string, errorMessage string, err error)
+	// MarkFlakyByHistoryID sets flaky=true on the most-recent test_results row
+	// matching (project_id, history_id, full_name). Used by the proposal approval
+	// flow to apply a flaky-proposal without modifying historical rows.
+	MarkFlakyByHistoryID(ctx context.Context, projectID int64, historyID, fullName string) error
+}
+
+// TestResultStorer is the interface for test result operations.
+type TestResultStorer interface {
+	TestResultWriter
+	TestResultPruner
+	TestResultReader
+	TestResultDefectReader
 }
 
 // KnownIssueStorer is the interface for known issue operations.
@@ -267,10 +345,24 @@ type PipelineStorer interface {
 // AttachmentStorer provides queries over test attachment metadata.
 type AttachmentStorer interface {
 	ListByBuild(ctx context.Context, projectID int64, buildID int64, mimeFilter, testStatus string, limit, offset int) ([]TestAttachment, int, error)
+	// ListByTestResult returns the attachments belonging to a single test
+	// result, identified by (projectID, buildID, historyID). It resolves the
+	// test_results primary key the same way GetFailedStepPath /
+	// GetDefectFingerprintID do, then scopes test_attachments via
+	// test_result_id so callers receive only that test's own attachments
+	// rather than every attachment in the build.
+	ListByTestResult(ctx context.Context, projectID int64, buildID int64, historyID string, limit int) ([]TestAttachment, error)
 	GetBySource(ctx context.Context, buildID int64, source string) (*TestAttachment, error)
 	// GetByID returns a single attachment row by its primary key. Returns
 	// ErrAttachmentNotFound when no row exists.
 	GetByID(ctx context.Context, id int64) (*TestAttachment, error)
+	// GetLocation resolves the file-storage location of an attachment by joining
+	// test_attachments → test_results → builds → projects. It returns the
+	// owning project's storage key, the build order number, the source
+	// filename and the MIME type. Returns ErrAttachmentNotFound when no row
+	// exists. Used to stream attachment blobs via signed download URLs and to
+	// inline attachment content in MCP resources.
+	GetLocation(ctx context.Context, id int64) (*AttachmentLocation, error)
 	// InsertBuildAttachments inserts build-level attachments (e.g. from Playwright
 	// data/ directory) that are not linked to a specific test result.
 	InsertBuildAttachments(ctx context.Context, buildID int64, projectID int64, attachments []TestAttachment) error
@@ -306,16 +398,31 @@ type ListUsersParams struct {
 	Active *bool
 }
 
-// UserStorer manages user records for authentication and JIT provisioning.
-type UserStorer interface {
+// UserAuthStorer covers user lookup and identity operations used by authentication flows.
+type UserAuthStorer interface {
 	// UpsertByOIDC inserts or updates a user record using the OIDC subject claim as the key.
 	// On conflict (same provider + provider_sub), updates email, name, role, last_login, updated_at.
 	UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*User, error)
+	GetByEmail(ctx context.Context, email string) (*User, error)
+	GetByID(ctx context.Context, id int64) (*User, error)
+	// UpdateLastLogin refreshes the user's last_login (and updated_at) columns to
+	// the current time. Returns ErrUserNotFound if no row exists. Callers should
+	// treat failures as best-effort and not fail the surrounding request.
+	UpdateLastLogin(ctx context.Context, id int64) error
+	// RelinkOIDC rebinds an existing users row to a new (provider, provider_sub)
+	// identity and refreshes last_login. Used by F-5 of SECURITY_REVIEW.md when
+	// OIDC_AUTO_LINK_BY_EMAIL is enabled and the IdP marked the colliding email
+	// as verified — the operator has explicitly opted in to letting a verified
+	// OIDC sign-in take over an existing account. Returns ErrUserNotFound when
+	// no row matches id.
+	RelinkOIDC(ctx context.Context, id int64, provider, sub string) error
+}
+
+// UserAdminStorer covers user administration: creation, listing, and lifecycle.
+type UserAdminStorer interface {
 	// CreateLocal inserts a new local (password-based) user. email is stored as
 	// received; callers should normalise (lowercase/trim) before invoking.
 	CreateLocal(ctx context.Context, email, name, passwordHash, role string) (*User, error)
-	GetByID(ctx context.Context, id int64) (*User, error)
-	GetByEmail(ctx context.Context, email string) (*User, error)
 	// List returns every user ordered by created_at DESC. Retained for
 	// back-compat; new code should prefer ListPaginated.
 	List(ctx context.Context) ([]User, error)
@@ -326,24 +433,24 @@ type UserStorer interface {
 	UpdateRole(ctx context.Context, id int64, role string) error
 	// UpdateActive toggles the user's is_active flag. Returns ErrUserNotFound if no row exists.
 	UpdateActive(ctx context.Context, id int64, active bool) error
+	Deactivate(ctx context.Context, id int64) error
+}
+
+// UserProfileStorer covers self-service user profile and credential updates.
+type UserProfileStorer interface {
 	// UpdateProfile updates the user's display name. Returns ErrUserNotFound if no row exists.
 	UpdateProfile(ctx context.Context, id int64, name string) error
 	// UpdatePasswordHash replaces the user's password_hash (and bumps updated_at).
 	// Returns ErrUserNotFound if no row exists. Callers must already have
 	// generated the bcrypt hash — the store never sees the plaintext password.
 	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
-	// UpdateLastLogin refreshes the user's last_login (and updated_at) columns to
-	// the current time. Returns ErrUserNotFound if no row exists. Callers should
-	// treat failures as best-effort and not fail the surrounding request.
-	UpdateLastLogin(ctx context.Context, id int64) error
-	Deactivate(ctx context.Context, id int64) error
-	// RelinkOIDC rebinds an existing users row to a new (provider, provider_sub)
-	// identity and refreshes last_login. Used by F-5 of SECURITY_REVIEW.md when
-	// OIDC_AUTO_LINK_BY_EMAIL is enabled and the IdP marked the colliding email
-	// as verified — the operator has explicitly opted in to letting a verified
-	// OIDC sign-in take over an existing account. Returns ErrUserNotFound when
-	// no row matches id.
-	RelinkOIDC(ctx context.Context, id int64, provider, sub string) error
+}
+
+// UserStorer manages user records for authentication and JIT provisioning.
+type UserStorer interface {
+	UserAuthStorer
+	UserAdminStorer
+	UserProfileStorer
 }
 
 // Defect category constants — mirror the CHECK constraint values stored in defect_fingerprints.category.
@@ -429,8 +536,8 @@ type FailedTestResult struct {
 	StatusTrace   string
 }
 
-// DefectStorer manages defect fingerprint lifecycle: upsert, linking, resolution, and querying.
-type DefectStorer interface {
+// DefectWriter covers defect fingerprint ingestion: upsert, linking, and lifecycle automation.
+type DefectWriter interface {
 	// UpsertFingerprints inserts new fingerprints or updates existing ones for a build.
 	UpsertFingerprints(ctx context.Context, projectID int64, buildID int64, fingerprints []DefectFingerprint) error
 	// LinkTestResults associates individual test result rows with a fingerprint for a given build.
@@ -441,26 +548,49 @@ type DefectStorer interface {
 	AutoResolveFixed(ctx context.Context, projectID int64, threshold int) (int, error)
 	// DetectRegressions returns fingerprint IDs that were previously fixed but reappeared in this build.
 	DetectRegressions(ctx context.Context, projectID int64, buildID int64) ([]string, error)
+}
+
+// DefectReader covers defect fingerprint lookup, listing, and summary queries.
+type DefectReader interface {
 	// GetByHash retrieves a fingerprint by its project-scoped hash, returning ErrDefectNotFound if absent.
 	GetByHash(ctx context.Context, projectID int64, hash string) (*DefectFingerprint, error)
-
+	// GetByID retrieves a single defect fingerprint by its UUID, returning ErrDefectNotFound if absent.
+	GetByID(ctx context.Context, defectID string) (*DefectFingerprint, error)
 	// ListByProject returns a paginated list of defects for a project with optional filters.
 	ListByProject(ctx context.Context, projectID int64, filter DefectFilter) ([]DefectListRow, int, error)
 	// ListByBuild returns a paginated list of defects observed in a specific build.
 	ListByBuild(ctx context.Context, projectID int64, buildID int64, filter DefectFilter) ([]DefectListRow, int, error)
-	// GetByID retrieves a single defect fingerprint by its UUID, returning ErrDefectNotFound if absent.
-	GetByID(ctx context.Context, defectID string) (*DefectFingerprint, error)
 	// GetTestResults returns paginated test results linked to a defect, optionally scoped to a build.
 	GetTestResults(ctx context.Context, defectID string, buildID *int64, page, perPage int) ([]TestResult, int, error)
 	// GetProjectSummary returns aggregated defect counts for a project.
 	GetProjectSummary(ctx context.Context, projectID int64) (*DefectProjectSummary, error)
 	// GetBuildSummary returns aggregated defect counts for a single build.
 	GetBuildSummary(ctx context.Context, projectID int64, buildID int64) (*DefectBuildSummary, error)
+}
 
+// DefectClassifier covers manual defect reclassification operations.
+type DefectClassifier interface {
 	// UpdateDefect updates the category, resolution, or known-issue link for a single defect.
 	UpdateDefect(ctx context.Context, defectID string, category, resolution *string, knownIssueID *int64) error
 	// BulkUpdate applies category and/or resolution changes to multiple defects atomically.
 	BulkUpdate(ctx context.Context, defectIDs []string, category, resolution *string) error
+}
+
+// DefectFingerprintWriter is the defect role used by the report runners during
+// ingestion: it composes DefectWriter (upsert/link/clean-build/auto-resolve/
+// regression) with the single GetByHash lookup needed to resolve a freshly
+// upserted fingerprint's UUID before linking test results to it.
+type DefectFingerprintWriter interface {
+	DefectWriter
+	// GetByHash retrieves a fingerprint by its project-scoped hash, returning ErrDefectNotFound if absent.
+	GetByHash(ctx context.Context, projectID int64, hash string) (*DefectFingerprint, error)
+}
+
+// DefectStorer manages defect fingerprint lifecycle: upsert, linking, resolution, and querying.
+type DefectStorer interface {
+	DefectWriter
+	DefectReader
+	DefectClassifier
 }
 
 // WebhookStorer manages per-project webhook configurations and delivery logs.

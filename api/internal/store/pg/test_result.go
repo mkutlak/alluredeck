@@ -2,6 +2,7 @@ package pg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -705,6 +706,27 @@ func (ts *TestResultStore) ListRecentMessages(ctx context.Context, projectID int
 		return nil, fmt.Errorf("iterate messages: %w", err)
 	}
 	return out, nil
+}
+
+// GetDefectFingerprintID returns the defect_fingerprint_id linked to the
+// test_results row identified by (projectID, buildID, historyID). The returned
+// pointer is nil when the row exists but has no linked fingerprint (the FK is
+// NULL). Returns store.ErrTestResultNotFound when no matching row exists.
+func (ts *TestResultStore) GetDefectFingerprintID(ctx context.Context, projectID int64, buildID int64, historyID string) (*string, error) {
+	var fingerprintID *string
+	err := ts.pool.QueryRow(ctx, `
+		SELECT defect_fingerprint_id::text
+		FROM test_results
+		WHERE project_id=$1 AND build_id=$2 AND history_id=$3
+		LIMIT 1`, projectID, buildID, historyID,
+	).Scan(&fingerprintID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: build_id=%d history_id=%s", store.ErrTestResultNotFound, buildID, historyID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get defect fingerprint id: %w", err)
+	}
+	return fingerprintID, nil
 }
 
 var _ store.TestResultStorer = (*TestResultStore)(nil)

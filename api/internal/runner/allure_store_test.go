@@ -177,7 +177,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 		t.Fatalf("recordBuild: %v", err)
 	}
 
-	builds, err := a.buildStore.ListBuilds(context.Background(), projectID)
+	builds, err := mocks.Builds.ListBuilds(context.Background(), projectID)
 	if err != nil {
 		t.Fatalf("ListBuilds: %v", err)
 	}

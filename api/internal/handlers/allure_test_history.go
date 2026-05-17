@@ -14,14 +14,14 @@ const maxTestHistoryLimit = 100
 
 // TestHistoryHandler handles HTTP requests for per-test history.
 type TestHistoryHandler struct {
-	testResultStore store.TestResultStorer
-	buildStore      store.BuildStorer
+	testResultStore store.TestResultReader
+	buildStore      store.BuildReader
 	branchStore     store.BranchStorer
 	projectStore    store.ProjectStorer
 }
 
 // NewTestHistoryHandler creates a new TestHistoryHandler.
-func NewTestHistoryHandler(ts store.TestResultStorer, bs store.BuildStorer, brs store.BranchStorer, ps store.ProjectStorer) *TestHistoryHandler {
+func NewTestHistoryHandler(ts store.TestResultReader, bs store.BuildReader, brs store.BranchStorer, ps store.ProjectStorer) *TestHistoryHandler {
 	return &TestHistoryHandler{
 		testResultStore: ts,
 		buildStore:      bs,
