@@ -1,3 +1,9 @@
+## [0.36.0](https://github.com/mkutlak/alluredeck/compare/v0.35.1...v0.36.0) (2026-05-17)
+
+### Features
+
+* **mcp:** add diagnose_failure tool and decompose store interfaces ([653c91e](https://github.com/mkutlak/alluredeck/commit/653c91e401ed9106835c7194ac40d1bad0c006f9))
+
 ## [0.35.1](https://github.com/mkutlak/alluredeck/compare/v0.35.0...v0.35.1) (2026-05-16)
 
 ### Bug Fixes
