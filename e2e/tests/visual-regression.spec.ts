@@ -58,8 +58,12 @@ test.describe('Visual Regression', () => {
 
     await expect(page.getByTestId('allure-iframe')).toBeVisible()
 
+    // The iframe renders third-party HTML generated from the uploaded fixture
+    // report; mask it so this snapshot guards only AllureDeck's viewer chrome
+    // and stays stable when the fixture report's contents change.
     await expect(page).toHaveScreenshot('report-viewer.png', {
       maxDiffPixelRatio: 0.05,
+      mask: [page.getByTestId('allure-iframe')],
     })
   })
 })

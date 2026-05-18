@@ -101,12 +101,15 @@ test.describe('Duplicate child slug across different parents', () => {
     await expect(trigger).toBeVisible()
     await trigger.click()
 
-    // Both same-slug children appear with disambiguating parent prefix
+    // Both same-slug children appear with disambiguating parent prefix in the
+    // "All Projects" group. Scope to that group: the active child is also
+    // echoed under "Recents", which would make a bare option lookup ambiguous.
+    const allProjects = page.getByRole('group', { name: 'All Projects' })
     await expect(
-      page.getByRole('option', { name: `${scenario.parentA.slug}/${scenario.childSlug}` }),
+      allProjects.getByRole('option', { name: `${scenario.parentA.slug}/${scenario.childSlug}` }),
     ).toBeVisible()
     await expect(
-      page.getByRole('option', { name: `${scenario.parentB.slug}/${scenario.childSlug}` }),
+      allProjects.getByRole('option', { name: `${scenario.parentB.slug}/${scenario.childSlug}` }),
     ).toBeVisible()
   })
 
@@ -116,7 +119,12 @@ test.describe('Duplicate child slug across different parents', () => {
     await page.goto(`/projects/${scenario.childUnderA.projectId}`)
     await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
 
-    await page.getByRole('link', { name: scenario.parentA.slug }).click()
+    // The parent is linked from both the breadcrumb and the overview body;
+    // scope to the overview so the locator resolves to a single link.
+    await page
+      .getByTestId('project-overview')
+      .getByRole('link', { name: scenario.parentA.slug })
+      .click()
     await page.waitForURL(new RegExp(`/projects/${scenario.parentA.projectId}`), {
       timeout: 10_000,
     })
