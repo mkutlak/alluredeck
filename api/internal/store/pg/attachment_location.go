@@ -17,7 +17,7 @@ import (
 func (a *AttachmentStore) GetLocation(ctx context.Context, id int64) (*store.AttachmentLocation, error) {
 	var loc store.AttachmentLocation
 	err := a.pool.QueryRow(ctx, `
-		SELECT p.storage_key, b.build_number, ta.source, ta.mime_type, ta.size_bytes
+		SELECT p.storage_key, b.build_order, ta.source, ta.mime_type, ta.size_bytes
 		FROM test_attachments ta
 		JOIN test_results tr ON tr.id = ta.test_result_id
 		JOIN builds b        ON b.id = tr.build_id

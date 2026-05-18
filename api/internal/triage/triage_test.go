@@ -7,9 +7,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/triage"
 )
 
-//go:fix inline
-func ptrI64(v int64) *int64 { return new(v) }
-
 func TestComputeFastFail(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -31,7 +28,7 @@ func TestComputeFastFail(t *testing.T) {
 			},
 			wantFastFail: true,
 			wantDuration: 200,
-			wantLastPass: ptrI64(4000),
+			wantLastPass: new(int64(4000)),
 			wantRatio:    new(0.05),
 		},
 		{
@@ -70,7 +67,7 @@ func TestComputeFastFail(t *testing.T) {
 			},
 			wantFastFail: false,
 			wantDuration: 9000,
-			wantLastPass: ptrI64(60000),
+			wantLastPass: new(int64(60000)),
 			wantRatio:    new(0.15),
 		},
 		{
@@ -84,7 +81,7 @@ func TestComputeFastFail(t *testing.T) {
 			},
 			wantFastFail: false,
 			wantDuration: 3000,
-			wantLastPass: ptrI64(4000),
+			wantLastPass: new(int64(4000)),
 			wantRatio:    new(0.75),
 		},
 		{
@@ -97,7 +94,7 @@ func TestComputeFastFail(t *testing.T) {
 			},
 			wantFastFail: false,
 			wantDuration: 100,
-			wantLastPass: ptrI64(0),
+			wantLastPass: new(int64(0)),
 			wantRatio:    nil,
 		},
 		{
@@ -112,7 +109,7 @@ func TestComputeFastFail(t *testing.T) {
 			},
 			wantFastFail: true,
 			wantDuration: 100,
-			wantLastPass: ptrI64(2000),
+			wantLastPass: new(int64(2000)),
 			wantRatio:    new(0.05),
 		},
 	}

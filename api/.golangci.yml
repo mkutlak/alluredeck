@@ -29,6 +29,7 @@ linters:
         - G110 # decompression bomb (handled by max upload size middleware)
         - G201 # SQL formatting (uses parameterized placeholders, not user input)
         - G304 # file inclusion via variable (paths validated by config/routing)
+        - G124 # cookie Secure attr is bound to cfg.TLS, not a literal true (literal would break local HTTP dev); HttpOnly and SameSite are set
 
   exclusions:
     rules:
