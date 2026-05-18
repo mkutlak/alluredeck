@@ -1,3 +1,9 @@
+## [0.37.2](https://github.com/mkutlak/alluredeck/compare/v0.37.1...v0.37.2) (2026-05-18)
+
+### Bug Fixes
+
+* **mcp:** wire external_url + storage so attachment resources resolve ([da9e447](https://github.com/mkutlak/alluredeck/commit/da9e447ab6dd0cf17a52efe9425c3c9adbbf202f))
+
 ## [0.37.1](https://github.com/mkutlak/alluredeck/compare/v0.37.0...v0.37.1) (2026-05-18)
 
 ### Bug Fixes
