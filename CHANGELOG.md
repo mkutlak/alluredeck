@@ -1,3 +1,9 @@
+## [0.37.0](https://github.com/mkutlak/alluredeck/compare/v0.36.0...v0.37.0) (2026-05-18)
+
+### Features
+
+* **ui:** relocate branch selector to shared breadcrumb bar ([412674f](https://github.com/mkutlak/alluredeck/commit/412674fbfd36e1f1ac2aa1494540c2a85ada066c))
+
 ## [0.36.0](https://github.com/mkutlak/alluredeck/compare/v0.35.1...v0.36.0) (2026-05-17)
 
 ### Features
