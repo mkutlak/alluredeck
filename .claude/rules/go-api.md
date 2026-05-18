@@ -11,4 +11,4 @@ paths:
 - Test files alongside source: `foo_test.go` next to `foo.go`
 - Use `testing` stdlib only; no third-party test frameworks
 - Config via env vars; `CONFIG_FILE` points to optional YAML override
-- Run `make api-check` (fmt + vet + lint + test) before claiming done
+- Run `mise run api:check` (fmt + vet + lint + test) before claiming done

@@ -80,16 +80,16 @@ Key differences from the full stack:
 - Mounts `../.data/alluredeck/allure-results` from the host for easy access
 - Forced to `linux/amd64` platform
 
-### Make Targets
+### mise Tasks
 
 ```bash
-make docker-up        # start full stack (UI + API)
-make docker-down      # stop full stack
-make docker-up-s3     # full stack with MinIO
-make docker-down-s3   # stop MinIO stack
-make docker-up-dev    # API-only dev stack
-make docker-down-dev  # stop dev stack
-make docker-build     # build both Docker images
+mise run docker:up        # start full stack (UI + API)
+mise run docker:down      # stop full stack
+mise run docker:up-s3     # full stack with MinIO
+mise run docker:down-s3   # stop MinIO stack
+mise run docker:up-dev    # API-only dev stack
+mise run docker:down-dev  # stop dev stack
+mise run docker:build     # build both Docker images
 ```
 
 ## Helm (Kubernetes)

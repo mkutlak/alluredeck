@@ -6,7 +6,8 @@ on:
     branches: [main]
     paths:
       - "api/**"
-      - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
       - ".github/workflows/ci-api.yml"
 
 permissions:
@@ -17,24 +18,25 @@ jobs:
     name: API quality gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: api
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v6
+      - uses: jdx/mise-action@v2
+
+      - name: Cache Go build & modules
+        uses: actions/cache@v4
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('api/go.sum') }}
+          restore-keys: go-${{ runner.os }}-
 
       - name: go vet
-        run: go vet ./...
+        run: mise run api:vet
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          working-directory: api
+        run: mise run api:lint
 
       - name: go test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: mise run api:test

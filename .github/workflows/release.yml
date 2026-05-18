@@ -35,14 +35,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v6
+      - uses: jdx/mise-action@v2
+
+      - name: Cache Go build & modules
+        uses: actions/cache@v4
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('api/go.sum') }}
+          restore-keys: go-${{ runner.os }}-
 
       - name: API tests
-        working-directory: api
-        run: go test -race ./...
+        run: mise run api:test
 
   test-ui:
     name: UI tests
@@ -51,19 +56,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: jdx/mise-action@v2
+
+      - name: Cache npm
+        uses: actions/cache@v4
         with:
-          node-version: 25
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
 
       - name: UI install
-        working-directory: ui
-        run: npm ci
+        run: mise run ui:install
 
       - name: UI tests
-        working-directory: ui
-        run: npm run test
+        run: mise run ui:test
 
   release:
     name: Semantic release

@@ -6,10 +6,10 @@ End-to-end tests for the AllureDeck web application using Playwright and TypeScr
 
 ```bash
 cd alluredeck/
-make e2e-test
+mise run e2e:test
 ```
 
-This runs tests in a Dockerized Playwright container against the local dev stack. Prerequisites: the dev stack must be up (`make docker-up-dev` or `make docker-up-s3`).
+This runs tests in a Dockerized Playwright container against the local dev stack. Prerequisites: the dev stack must be up (`mise run docker:up-dev` or `mise run docker:up-s3`).
 
 To view a trace from a test run:
 ```bash
@@ -52,4 +52,4 @@ Renaming or deleting a `data-testid` is a breaking change:
 
 ## Fragility smoke test
 
-To confirm the suite is decoupled from copy: temporarily rename a visible UI string (e.g. `'Overview'` → `'Summary'` in `AppSidebar.tsx`), run `make e2e-test`, and confirm all tests pass. Then revert. A healthy suite passes this test. If any spec fails, it's still gripping copy and needs fixing.
+To confirm the suite is decoupled from copy: temporarily rename a visible UI string (e.g. `'Overview'` → `'Summary'` in `AppSidebar.tsx`), run `mise run e2e:test`, and confirm all tests pass. Then revert. A healthy suite passes this test. If any spec fails, it's still gripping copy and needs fixing.

@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "charts/**"
+      - "mise.toml"
+      - "mise.lock"
 
 permissions:
   contents: write
@@ -18,10 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: azure/setup-helm@v4
-
-      - name: Install yq
-        uses: mikefarah/yq@v4
+      - uses: jdx/mise-action@v2
 
       - name: Read chart version
         id: version
@@ -53,7 +52,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          helm package charts/alluredeck
+          mise run helm:package
           helm push alluredeck-${VERSION}.tgz oci://ghcr.io/mkutlak/charts
 
       - name: Install oras

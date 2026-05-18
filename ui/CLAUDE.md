@@ -31,7 +31,7 @@
 
 ## Dev Server
 
-Runs on port **7474** (`npm run dev` / `make ui-dev`).
+Runs on port **7474** (`npm run dev` / `mise run ui:dev`).
 
 ## Coverage Thresholds
 

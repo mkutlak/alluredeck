@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "charts/**"
+      - "mise.toml"
+      - "mise.lock"
       - ".github/workflows/ci-chart.yml"
 
 permissions:
@@ -18,10 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: azure/setup-helm@v4
+      - uses: jdx/mise-action@v2
 
       - name: Lint chart
-        run: helm lint charts/alluredeck
+        run: mise run helm:lint
 
       - name: Template chart (validate rendering)
-        run: helm template alluredeck charts/alluredeck --debug
+        run: mise run helm:template

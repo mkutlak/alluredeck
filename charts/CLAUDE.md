@@ -46,8 +46,8 @@ charts/alluredeck/
 
 ## Commands
 ```
-make helm-lint        # lint the chart
-make helm-template    # render templates (validate rendering)
-make helm-package     # package chart into .tgz
-make helm-release     # bump chart version (BUMP=patch|minor|major) and commit
+mise run helm:lint        # lint the chart
+mise run helm:template    # render templates (validate rendering)
+mise run helm:package     # package chart into .tgz
+mise run helm:release     # bump chart version (patch|minor|major) and commit
 ```

@@ -1,0 +1,368 @@
+# Alluredeck — task runner & tool versions (https://mise.jdx.dev)
+# List tasks:  mise tasks        Run a task:  mise run <task>
+# Provision the toolchain:  mise install
+
+[settings]
+lockfile = true
+minimum_release_age = "7d"
+
+# ── Tool versions ─────────────────────────────────────────────
+[tools]
+go            = "1.26.2"   # keep in sync with api/go.mod
+node          = "25"
+golangci-lint = "2"
+helm          = "3"
+yq            = "4"
+swag          = "latest"
+
+# ── Build metadata (injected into binaries / images) ──────────
+[env]
+BUILD_DATE    = "{{ exec(command='date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+BUILD_VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || echo dev') }}"
+BUILD_REF     = "{{ exec(command='git rev-parse --short HEAD 2>/dev/null || echo unknown') }}"
+PW_IMAGE      = "mcr.microsoft.com/playwright:v1.59.1-noble"
+
+# ══ Aggregates ════════════════════════════════════════════════
+
+[tasks.check]
+description = "Full quality gate (API + UI)"
+run = ["mise run api:check", "mise run ui:check"]
+
+[tasks.test]
+description = "Run all tests (API + UI)"
+run = ["mise run api:test", "mise run ui:test"]
+
+[tasks.clean]
+description = "Remove all build artifacts (API + UI)"
+run = ["mise run api:clean", "mise run ui:clean"]
+
+# ══ API (Go backend) ══════════════════════════════════════════
+
+[tasks."api:build"]
+description = "Build API binary"
+dir = "api"
+run = "go build -o bin/alluredeck-api ./cmd/api/"
+
+[tasks."api:run"]
+description = "Build and run API locally"
+dir = "api"
+depends = ["api:build"]
+run = "./bin/alluredeck-api"
+
+[tasks."api:build-static"]
+description = "Build static API binary (matches Docker, CGO_ENABLED=0)"
+dir = "api"
+run = '''
+CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+  -ldflags="-s -w \
+    -X github.com/mkutlak/alluredeck/api/internal/version.BuildDate=$BUILD_DATE \
+    -X github.com/mkutlak/alluredeck/api/internal/version.Version=$BUILD_VERSION \
+    -X github.com/mkutlak/alluredeck/api/internal/version.BuildRef=$BUILD_REF" \
+  -o bin/alluredeck-api ./cmd/api/
+'''
+
+[tasks."api:test"]
+description = "Run API tests with race detector"
+dir = "api"
+run = "go test -race -timeout 3m ./..."
+
+[tasks."api:test-race"]
+description = "Run API tests with race detector (alias for api:test)"
+run = "mise run api:test"
+
+[tasks."api:test-cover"]
+description = "Run API tests with HTML coverage report"
+dir = "api"
+run = [
+  "mkdir -p bin",
+  "go test -coverprofile=bin/coverage.out ./...",
+  "go tool cover -html=bin/coverage.out -o bin/coverage.html",
+  "echo 'Coverage report: api/bin/coverage.html'",
+]
+
+[tasks."api:test-leak"]
+description = "Run goroutine-leak detection tests (GOEXPERIMENT=goroutineleakprofile)"
+dir = "api"
+run = "GOEXPERIMENT=goroutineleakprofile go test -tags=leakprofile -count=1 ./..."
+
+[tasks."api:fmt"]
+description = "Format API code"
+dir = "api"
+run = "golangci-lint fmt ./..."
+
+[tasks."api:lint"]
+description = "Lint API code"
+dir = "api"
+run = "golangci-lint run ./..."
+
+[tasks."api:vet"]
+description = "Run go vet on API"
+dir = "api"
+run = "go vet ./..."
+
+[tasks."api:tidy"]
+description = "Tidy API module dependencies"
+dir = "api"
+run = "go mod tidy"
+
+[tasks."api:modernize"]
+description = "Apply Go modernization patterns"
+dir = "api"
+run = "go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./..."
+
+[tasks."api:check"]
+description = "API quality gate (fmt + vet + lint + test)"
+run = ["mise run api:fmt", "mise run api:vet", "mise run api:lint", "mise run api:test"]
+
+[tasks."api:swagger"]
+description = "Regenerate API Swagger docs"
+dir = "api"
+run = "swag init -g cmd/api/main.go -o internal/swagger --parseDependency"
+
+[tasks."api:clean"]
+description = "Remove API build artifacts"
+dir = "api"
+run = "rm -rf bin"
+
+# ══ UI (React frontend) ═══════════════════════════════════════
+
+[tasks."ui:install"]
+description = "Install UI dependencies (npm ci)"
+dir = "ui"
+run = "npm ci"
+
+[tasks."ui:upgrade"]
+description = "Upgrade all UI dependencies to latest versions"
+dir = "ui"
+run = ["npx npm-check-updates -u", "npm install", "npm audit"]
+
+[tasks."ui:dev"]
+description = "Start UI dev server (port 7474)"
+dir = "ui"
+run = "npm run dev"
+
+[tasks."ui:build"]
+description = "Build UI for production"
+dir = "ui"
+run = "VITE_APP_VERSION=$BUILD_VERSION npm run build"
+
+[tasks."ui:preview"]
+description = "Preview UI production build"
+dir = "ui"
+run = "npm run preview"
+
+[tasks."ui:typecheck"]
+description = "Run TypeScript type checking"
+dir = "ui"
+run = "npm run typecheck"
+
+[tasks."ui:lint"]
+description = "Lint UI code"
+dir = "ui"
+run = "npm run lint"
+
+[tasks."ui:format"]
+description = "Format UI source files"
+dir = "ui"
+run = "npm run format"
+
+[tasks."ui:test"]
+description = "Run UI tests (CI mode)"
+dir = "ui"
+run = "npm run test"
+
+[tasks."ui:test-watch"]
+description = "Run UI tests in watch mode"
+dir = "ui"
+run = "npm run test:watch"
+
+[tasks."ui:test-allure"]
+description = "Run UI tests and generate Allure results"
+dir = "ui"
+run = ["rm -rf allure-results", "npm run test:allure"]
+
+[tasks."ui:upload-allure-results"]
+description = "Upload UI Allure results to running Alluredeck"
+dir = "ui"
+run = "../scripts/upload-allure-results.sh"
+
+[tasks."ui:dogfood"]
+description = "Run UI tests and upload results to Alluredeck (uploads even if tests fail)"
+run = ["mise run ui:test-allure || true", "mise run ui:upload-allure-results"]
+
+[tasks."ui:coverage"]
+description = "Run UI tests with coverage report"
+dir = "ui"
+run = "npm run test:coverage"
+
+[tasks."ui:check"]
+description = "UI quality gate (typecheck + lint + test)"
+run = ["mise run ui:typecheck", "mise run ui:lint", "mise run ui:test"]
+
+[tasks."ui:clean"]
+description = "Remove UI build artifacts"
+dir = "ui"
+run = "rm -rf dist coverage node_modules allure-results"
+
+# ══ Docker ════════════════════════════════════════════════════
+
+[tasks."docker:build-api"]
+description = "Build API Docker image"
+run = '''
+docker build \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  --build-arg BUILD_VERSION="$BUILD_VERSION" \
+  --build-arg BUILD_REF="$BUILD_REF" \
+  -f docker/Dockerfile.api -t alluredeck-api:dev .
+'''
+
+[tasks."docker:build-ui"]
+description = "Build UI Docker image"
+run = '''
+docker build \
+  --build-arg VITE_APP_VERSION="$BUILD_VERSION" \
+  -f docker/Dockerfile.ui -t alluredeck-ui:dev .
+'''
+
+[tasks."docker:build-mcp"]
+description = "Build MCP Docker image"
+run = '''
+docker build \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  --build-arg BUILD_VERSION="$BUILD_VERSION" \
+  --build-arg BUILD_REF="$BUILD_REF" \
+  -f docker/Dockerfile.mcp -t alluredeck-mcp:dev .
+'''
+
+[tasks."docker:build"]
+description = "Build all Docker images"
+depends = ["docker:build-api", "docker:build-ui", "docker:build-mcp"]
+
+[tasks."docker:up"]
+description = "Start full stack (UI + API)"
+run = "docker compose -f docker/docker-compose.yml up --build -d"
+
+[tasks."docker:down"]
+description = "Stop full stack"
+run = "docker compose -f docker/docker-compose.yml down"
+
+[tasks."docker:logs"]
+description = "Follow full stack logs"
+run = "docker compose -f docker/docker-compose.yml logs -f"
+
+[tasks."docker:up-dev"]
+description = "Start API-only dev stack"
+run = "docker compose -f docker/docker-compose-dev.yml up --build -d"
+
+[tasks."docker:down-dev"]
+description = "Stop API-only dev stack"
+run = "docker compose -f docker/docker-compose-dev.yml down"
+
+[tasks."docker:logs-dev"]
+description = "Follow API-only dev logs"
+run = "docker compose -f docker/docker-compose-dev.yml logs -f"
+
+[tasks."docker:up-s3"]
+description = "Start full stack with S3 storage"
+run = "docker compose -f docker/docker-compose-s3.yml up --build -d"
+
+[tasks."docker:down-s3"]
+description = "Stop S3 stack"
+run = "docker compose -f docker/docker-compose-s3.yml down"
+
+[tasks."docker:logs-s3"]
+description = "Follow S3 stack logs"
+run = "docker compose -f docker/docker-compose-s3.yml logs -f"
+
+[tasks."docker:clean"]
+description = "Remove all built Docker images"
+run = '''
+docker rmi alluredeck-api:dev 2>/dev/null || true
+docker rmi alluredeck-ui:dev 2>/dev/null || true
+docker rmi alluredeck-mcp:dev 2>/dev/null || true
+'''
+
+# ══ E2E (Playwright) ══════════════════════════════════════════
+
+[tasks."e2e:install"]
+description = "Install E2E dependencies and Playwright browsers"
+dir = "e2e"
+run = ["npm install", "npx playwright install --with-deps chromium"]
+
+[tasks."e2e:test"]
+description = "Run Playwright E2E tests (in Docker) and upload report"
+run = '''
+docker run --rm --network host \
+  -v {{config_root}}/e2e:/work -w /work \
+  -e ALLUREDECK_URL=http://localhost:7474 \
+  -e ALLUREDECK_API_URL=http://localhost:5050/api/v1 \
+  "$PW_IMAGE" \
+  sh -c 'npm install --silent && npx playwright test; STATUS=$?; npx tsx upload-report.ts; chown -R {{exec(command="id -u")}}:{{exec(command="id -g")}} /work/test-results /work/playwright-report 2>/dev/null; exit $STATUS'
+'''
+
+[tasks."e2e:test-local"]
+description = "Run E2E tests locally (requires e2e:install) and upload report"
+dir = "e2e"
+run = "npx playwright test; npx tsx upload-report.ts"
+
+[tasks."e2e:test-headed"]
+description = "Run E2E tests in headed mode (local only)"
+dir = "e2e"
+run = "npx playwright test --headed"
+
+[tasks."e2e:test-ui"]
+description = "Open Playwright UI mode (local only)"
+dir = "e2e"
+run = "npx playwright test --ui"
+
+[tasks."e2e:report"]
+description = "Show Playwright HTML report (served via Docker)"
+run = '''
+docker run --rm -p 9323:9323 \
+  -v {{config_root}}/e2e:/work -w /work \
+  "$PW_IMAGE" \
+  sh -c 'npm install --silent && npx playwright show-report --host 0.0.0.0 --port 9323'
+'''
+
+[tasks."e2e:update-snapshots"]
+description = "Update visual regression baselines (in Docker)"
+run = '''
+docker run --rm --network host \
+  -v {{config_root}}/e2e:/work -w /work \
+  -e ALLUREDECK_URL=http://localhost:7474 \
+  -e ALLUREDECK_API_URL=http://localhost:5050/api/v1 \
+  "$PW_IMAGE" \
+  sh -c 'npm install --silent && npx playwright test --update-snapshots; STATUS=$?; chown -R {{exec(command="id -u")}}:{{exec(command="id -g")}} /work/test-results /work/playwright-report /work/tests 2>/dev/null; exit $STATUS'
+'''
+
+[tasks."e2e:clean"]
+description = "Remove E2E test artifacts (preserves snapshot baselines)"
+run = '''
+docker run --rm -v {{config_root}}/e2e:/work "$PW_IMAGE" \
+  sh -c 'rm -rf /work/test-results /work/playwright-report /work/auth-state.json'
+'''
+
+# ══ Helm ══════════════════════════════════════════════════════
+
+[tasks."helm:lint"]
+description = "Lint Helm chart"
+run = "helm lint charts/alluredeck"
+
+[tasks."helm:template"]
+description = "Render Helm chart templates (validate rendering)"
+run = "helm template alluredeck charts/alluredeck --debug"
+
+[tasks."helm:package"]
+description = "Package Helm chart into .tgz archive"
+run = "helm package charts/alluredeck"
+
+[tasks."helm:release"]
+description = "Bump chart version (append patch|minor|major; default patch) and commit"
+depends = ["helm:lint"]
+run = "bash scripts/helm-release.sh"
+
+# ══ Utilities ═════════════════════════════════════════════════
+
+[tasks.fetch-trace-viewer]
+description = "Fetch Playwright trace viewer static assets for embedding"
+run = "bash scripts/fetch-trace-viewer.sh"

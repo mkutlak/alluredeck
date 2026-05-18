@@ -82,7 +82,7 @@ The Helm chart version is **independent** from the application version. App rele
 yq -i '.appVersion = "X.Y.Z"' charts/alluredeck/Chart.yaml
 
 # Optionally bump the chart version too
-make helm-release              # patch bump
+mise run helm:release              # patch bump
 
 git add charts/ && git commit -m "chore: bump chart appVersion to X.Y.Z"
 git push origin main
@@ -97,9 +97,9 @@ For chart-only changes (templates, values, defaults):
 vim charts/alluredeck/...
 
 # Bump chart version and commit
-make helm-release              # patch: 0.1.0 → 0.1.1
-make helm-release BUMP=minor   # minor: 0.1.0 → 0.2.0
-make helm-release BUMP=major   # major: 0.1.0 → 1.0.0
+mise run helm:release              # patch: 0.1.0 → 0.1.1
+mise run helm:release minor        # minor: 0.1.0 → 0.2.0
+mise run helm:release major        # major: 0.1.0 → 1.0.0
 
 git push origin main
 ```

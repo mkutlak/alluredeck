@@ -52,6 +52,10 @@ e2e/auth-state.json
 # Vite dev cache
 .vite/
 
+# mise local overrides (mise.toml and mise.lock are tracked)
+mise.local.toml
+mise.*.local.toml
+
 # ESLint cache
 .eslintcache
 

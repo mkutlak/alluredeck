@@ -38,8 +38,8 @@
   wrap.
 
 ## Lint
-golangci-lint v2 — config at `api/.golangci.yml`. Run via `make api-lint`.
+golangci-lint v2 — config at `api/.golangci.yml`. Run via `mise run api:lint`.
 
 ## API Docs
-OpenAPI spec generated with `make api-swagger` (runs `swag init -g cmd/api/main.go`).
+OpenAPI spec generated with `mise run api:swagger` (runs `swag init -g cmd/api/main.go`).
 Output written to `internal/swagger/`. Served via Scalar at `/swagger/` when `SWAGGER_ENABLED=true`.

@@ -55,7 +55,7 @@ echo "    Login OK"
 # Validate results directory
 if [ ! -d "$RESULTS_DIR" ]; then
   echo "Error: Results directory not found: ${RESULTS_DIR}"
-  echo "       Run 'make ui-test-allure' first to generate results."
+  echo "       Run 'mise run ui:test-allure' first to generate results."
   exit 1
 fi
 
@@ -65,7 +65,7 @@ RESULTS_DIR="$(cd "${RESULTS_DIR}" && pwd)"
 FILE_COUNT=$(find "$RESULTS_DIR" -maxdepth 1 -name '*-result.json' | wc -l | tr -d ' ')
 if [ "$FILE_COUNT" -eq 0 ]; then
   echo "Error: No *-result.json files found in ${RESULTS_DIR}"
-  echo "       Run 'make ui-test-allure' first."
+  echo "       Run 'mise run ui:test-allure' first."
   exit 1
 fi
 

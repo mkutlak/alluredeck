@@ -4,10 +4,12 @@ This guide covers setting up AllureDeck for local development, running services,
 
 ## Prerequisites
 
-- **Go 1.25.7** or later
-- **Node.js / npm** (check `ui/package.json` for exact version constraints)
-- **golangci-lint v2** (for API linting)
-- **make** (for build orchestration)
+- **mise** — install from <https://mise.jdx.dev>, then run `mise install` at the repo root to provision the pinned toolchain (Go, Node.js, golangci-lint, helm, yq, swag)
+
+The following tools are provisioned automatically by mise (no manual install needed):
+- **Go 1.25.7**
+- **Node.js / npm** (version pinned in `mise.toml`)
+- **golangci-lint v2**
 
 ## Project Structure
 
@@ -51,7 +53,7 @@ alluredeck/
     nginx.conf
     docker-entrypoint.sh
   charts/alluredeck/        # Helm chart
-  Makefile                  # unified build orchestration
+  mise.toml                 # unified build orchestration
   docs/                     # documentation
 ```
 
@@ -62,7 +64,7 @@ alluredeck/
 Build and start the API server on `http://localhost:8080`:
 
 ```bash
-make api-run
+mise run api:run
 ```
 
 **With custom configuration:**
@@ -70,7 +72,7 @@ make api-run
 Point `CONFIG_FILE` to a local YAML configuration file:
 
 ```bash
-CONFIG_FILE=api/config.example.yaml make api-run
+CONFIG_FILE=api/config.example.yaml mise run api:run
 ```
 
 See [configuration.md](configuration.md) for environment variable reference.
@@ -80,13 +82,13 @@ See [configuration.md](configuration.md) for environment variable reference.
 Install dependencies (first time only):
 
 ```bash
-make ui-install
+mise run ui:install
 ```
 
 Start the Vite dev server on `http://localhost:7474`:
 
 ```bash
-make ui-dev
+mise run ui:dev
 ```
 
 **With custom API URL:**
@@ -94,7 +96,7 @@ make ui-dev
 By default, the UI connects to the API at `http://localhost:8080/api/v1`. Override this:
 
 ```bash
-VITE_API_URL=http://localhost:8080/api/v1 make ui-dev
+VITE_API_URL=http://localhost:8080/api/v1 mise run ui:dev
 ```
 
 ### Full Stack (Docker Compose)
@@ -102,110 +104,110 @@ VITE_API_URL=http://localhost:8080/api/v1 make ui-dev
 Start API and UI together:
 
 ```bash
-make docker-up
+mise run docker:up
 ```
 
 Stop the full stack:
 
 ```bash
-make docker-down
+mise run docker:down
 ```
 
 View logs:
 
 ```bash
-make docker-logs
+mise run docker:logs
 ```
 
 **Development stack (API only):**
 
 ```bash
-make docker-up-dev    # start API container
-make docker-down-dev  # stop
-make docker-logs-dev  # follow logs
+mise run docker:up-dev    # start API container
+mise run docker:down-dev  # stop
+mise run docker:logs-dev  # follow logs
 ```
 
 **With S3 storage (MinIO):**
 
 ```bash
-make docker-up-s3     # includes MinIO for local S3 testing
-make docker-down-s3
-make docker-logs-s3
+mise run docker:up-s3     # includes MinIO for local S3 testing
+mise run docker:down-s3
+mise run docker:logs-s3
 ```
 
-## Make Targets
+## mise Tasks
 
-Run `make help` for the full list. Key targets:
+Run `mise tasks` for the full list. Key tasks:
 
-### API Targets
+### API Tasks
 
-| Target | Description |
-|--------|-------------|
-| `make api-build` | Compile binary to `api/bin/alluredeck-api` |
-| `make api-run` | Build and run locally |
-| `make api-test` | Run all tests (`go test ./...`) |
-| `make api-test-race` | Run tests with race detector enabled |
-| `make api-test-cover` | Run tests with coverage report (HTML output to `api/bin/coverage.html`) |
-| `make api-check` | Full quality gate: fmt + vet + lint + test |
-| `make api-lint` | Run golangci-lint |
-| `make api-fmt` | Format code with golangci-lint fmt |
-| `make api-vet` | Run go vet |
-| `make api-tidy` | Tidy module dependencies (`go mod tidy`) |
-| `make api-modernize` | Apply Go modernization patterns |
-| `make api-swagger` | Regenerate Swagger/OpenAPI docs |
-| `make api-clean` | Remove build artifacts |
+| Task | Description |
+|------|-------------|
+| `mise run api:build` | Compile binary to `api/bin/alluredeck-api` |
+| `mise run api:run` | Build and run locally |
+| `mise run api:test` | Run all tests (`go test ./...`) |
+| `mise run api:test-race` | Run tests with race detector enabled |
+| `mise run api:test-cover` | Run tests with coverage report (HTML output to `api/bin/coverage.html`) |
+| `mise run api:check` | Full quality gate: fmt + vet + lint + test |
+| `mise run api:lint` | Run golangci-lint |
+| `mise run api:fmt` | Format code with golangci-lint fmt |
+| `mise run api:vet` | Run go vet |
+| `mise run api:tidy` | Tidy module dependencies (`go mod tidy`) |
+| `mise run api:modernize` | Apply Go modernization patterns |
+| `mise run api:swagger` | Regenerate Swagger/OpenAPI docs |
+| `mise run api:clean` | Remove build artifacts |
 
-### UI Targets
+### UI Tasks
 
-| Target | Description |
-|--------|-------------|
-| `make ui-install` | Install npm dependencies (`npm ci`) |
-| `make ui-dev` | Start Vite dev server |
-| `make ui-build` | Type-check + build to `ui/dist/` |
-| `make ui-preview` | Preview production build locally |
-| `make ui-typecheck` | Run TypeScript type checking |
-| `make ui-test` | Run tests once (Vitest, CI mode) |
-| `make ui-test-watch` | Run tests in watch mode |
-| `make ui-coverage` | Generate test coverage report |
-| `make ui-check` | Full quality gate: typecheck + lint + test |
-| `make ui-lint` | Run ESLint |
-| `make ui-format` | Format source files with Prettier |
-| `make ui-clean` | Remove build artifacts and node_modules |
+| Task | Description |
+|------|-------------|
+| `mise run ui:install` | Install npm dependencies (`npm ci`) |
+| `mise run ui:dev` | Start Vite dev server |
+| `mise run ui:build` | Type-check + build to `ui/dist/` |
+| `mise run ui:preview` | Preview production build locally |
+| `mise run ui:typecheck` | Run TypeScript type checking |
+| `mise run ui:test` | Run tests once (Vitest, CI mode) |
+| `mise run ui:test-watch` | Run tests in watch mode |
+| `mise run ui:coverage` | Generate test coverage report |
+| `mise run ui:check` | Full quality gate: typecheck + lint + test |
+| `mise run ui:lint` | Run ESLint |
+| `mise run ui:format` | Format source files with Prettier |
+| `mise run ui:clean` | Remove build artifacts and node_modules |
 
-### Combined Targets
+### Combined Tasks
 
-| Target | Description |
-|--------|-------------|
-| `make check` | Full quality gate (API + UI) |
-| `make test` | All tests (API + UI) |
-| `make clean` | Remove all build artifacts |
+| Task | Description |
+|------|-------------|
+| `mise run check` | Full quality gate (API + UI) |
+| `mise run test` | All tests (API + UI) |
+| `mise run clean` | Remove all build artifacts |
 
-### Docker Targets
+### Docker Tasks
 
-| Target | Description |
-|--------|-------------|
-| `make docker-build` | Build both Docker images |
-| `make docker-build-api` | Build API image only |
-| `make docker-build-ui` | Build UI image only |
-| `make docker-up` | Start full stack (UI + API) |
-| `make docker-down` | Stop full stack |
-| `make docker-logs` | Follow full stack logs |
-| `make docker-up-dev` | Start API-only dev stack |
-| `make docker-down-dev` | Stop API-only dev |
-| `make docker-logs-dev` | Follow API logs |
-| `make docker-up-s3` | Start full stack with MinIO |
-| `make docker-down-s3` | Stop S3 stack |
-| `make docker-logs-s3` | Follow S3 stack logs |
-| `make docker-clean` | Remove all built images |
+| Task | Description |
+|------|-------------|
+| `mise run docker:build` | Build both Docker images |
+| `mise run docker:build-api` | Build API image only |
+| `mise run docker:build-ui` | Build UI image only |
+| `mise run docker:up` | Start full stack (UI + API) |
+| `mise run docker:down` | Stop full stack |
+| `mise run docker:logs` | Follow full stack logs |
+| `mise run docker:up-dev` | Start API-only dev stack |
+| `mise run docker:down-dev` | Stop API-only dev |
+| `mise run docker:logs-dev` | Follow API logs |
+| `mise run docker:up-s3` | Start full stack with MinIO |
+| `mise run docker:down-s3` | Stop S3 stack |
+| `mise run docker:logs-s3` | Follow S3 stack logs |
+| `mise run docker:clean` | Remove all built images |
 
-### Helm Targets
+### Helm Tasks
 
-| Target | Description |
-|--------|-------------|
-| `make helm-lint` | Lint the Helm chart |
-| `make helm-template` | Render templates (validates output) |
-| `make helm-package` | Package chart as `.tgz` archive |
-| `make helm-release` | Bump version and commit (use `BUMP=patch\|minor\|major`) |
+| Task | Description |
+|------|-------------|
+| `mise run helm:lint` | Lint the Helm chart |
+| `mise run helm:template` | Render templates (validates output) |
+| `mise run helm:package` | Package chart as `.tgz` archive |
+| `mise run helm:release` | Bump version and commit (`mise run helm:release patch\|minor\|major`) |
 
 ## Testing
 
@@ -216,19 +218,19 @@ Tests live alongside source files: `foo_test.go` next to `foo.go`. Uses only Go'
 **Run all tests:**
 
 ```bash
-make api-test
+mise run api:test
 ```
 
 **Run with race detector:**
 
 ```bash
-make api-test-race
+mise run api:test-race
 ```
 
 **Generate coverage report:**
 
 ```bash
-make api-test-cover
+mise run api:test-cover
 # Opens api/bin/coverage.html in browser
 ```
 
@@ -239,19 +241,19 @@ Uses Vitest + Testing Library. Test files live alongside source or in `ui/src/te
 **Run once (CI mode):**
 
 ```bash
-make ui-test
+mise run ui:test
 ```
 
 **Watch mode:**
 
 ```bash
-make ui-test-watch
+mise run ui:test-watch
 ```
 
 **Coverage report:**
 
 ```bash
-make ui-coverage
+mise run ui:coverage
 ```
 
 **Mock API calls:**
@@ -320,10 +322,10 @@ Use `vi.mock('../api/...')` for module mocking or MSW handlers for HTTP mocking.
 
 ```bash
 # Terminal 1: API
-make api-run
+mise run api:run
 
 # Terminal 2: UI
-make ui-dev
+mise run ui:dev
 ```
 
 2. Write tests first (TDD approach). For API, write `*_test.go` files. For UI, write tests in `*.test.ts` or `*.test.tsx`.
@@ -333,28 +335,28 @@ make ui-dev
 4. Before committing, run the quality gates:
 
 ```bash
-make check    # runs fmt + vet + lint + test for both API and UI
+mise run check    # runs fmt + vet + lint + test for both API and UI
 ```
 
 ### Fixing a Bug
 
 1. Write a failing test that reproduces the bug.
 2. Implement the fix to make the test pass.
-3. Run `make check` to ensure no regressions.
+3. Run `mise run check` to ensure no regressions.
 
 ### Building for Production
 
 Build both API and UI:
 
 ```bash
-make docker-build     # builds Docker images
+mise run docker:build     # builds Docker images
 ```
 
 Or individually:
 
 ```bash
-make api-build-static    # API binary (matches Docker)
-make ui-build            # UI dist/
+mise run api:build-static    # API binary (matches Docker)
+mise run ui:build            # UI dist/
 ```
 
 ### Updating Dependencies
@@ -387,15 +389,15 @@ Always ask before downgrading versions or introducing new dependencies.
 
 ### UI dev server won't start
 
-- Clear node_modules and reinstall: `make ui-clean && make ui-install`
+- Clear node_modules and reinstall: `mise run ui:clean && mise run ui:install`
 - Verify Node.js version: `node --version`
 - Check if port 7474 is in use: `lsof -i :7474`
 
 ### Tests fail locally but pass in CI
 
 - Ensure you're using the same Go and Node.js versions as CI
-- Clear build caches: `make clean`
-- Run `make check` to catch all issues
+- Clear build caches: `mise run clean`
+- Run `mise run check` to catch all issues
 
 ### Docker containers won't build
 

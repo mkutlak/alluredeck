@@ -65,7 +65,7 @@ See the [Helm Chart README](charts/alluredeck/README.md) for full configuration 
 - [Configuration Reference](docs/configuration.md) — all environment variables and YAML config
 - [Storage](docs/storage.md) — local filesystem and S3/MinIO setup, IRSA on EKS
 - [Helm Chart Reference](charts/alluredeck/README.md) — installation, PostgreSQL setup, and full `values.yaml` reference
-- [Development Guide](docs/development.md) — local setup, make targets, testing, conventions
+- [Development Guide](docs/development.md) — local setup, mise tasks, testing, conventions
 
 ## Acknowledgements
 

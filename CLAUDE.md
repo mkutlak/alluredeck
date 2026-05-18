@@ -31,31 +31,31 @@ Monorepo for Allure Reports Dashboard — Go API (`api/`), React UI (`ui/`), Hel
 
 ## Essential Commands
 
-Run `make help` for the full target list. Key commands:
+Run `mise tasks` for the full task list. The toolchain (Go, Node, golangci-lint, helm, yq, swag) is provisioned with `mise install`. Key commands:
 
 ```
 # Quality gates
-make api-check          # fmt + vet + lint + test
-make ui-check           # typecheck + lint + test
-make check              # full quality gate (API + UI)
+mise run api:check      # fmt + vet + lint + test
+mise run ui:check       # typecheck + lint + test
+mise run check          # full quality gate (API + UI)
 
 # Dev
-make api-run            # build + run API locally
-make ui-dev             # Vite dev server (port 7474)
-make docker-up          # start full stack (UI + API + Postgres)
-make docker-up-dev      # start API-only dev stack
-make docker-up-s3       # start full stack with S3 (MinIO)
+mise run api:run        # build + run API locally
+mise run ui:dev         # Vite dev server (port 7474)
+mise run docker:up      # start full stack (UI + API + Postgres)
+mise run docker:up-dev  # start API-only dev stack
+mise run docker:up-s3   # start full stack with S3 (MinIO)
 
 # Test
-make api-test-race      # go test -race ./...
-make ui-test            # vitest run
-make ui-coverage        # vitest with coverage report
-make e2e-test           # Playwright tests in Docker + upload report
+mise run api:test-race  # go test -race ./...
+mise run ui:test        # vitest run
+mise run ui:coverage    # vitest with coverage report
+mise run e2e:test       # Playwright tests in Docker + upload report
 
 # Build & Release
-make docker-build       # build both Docker images
-make helm-release       # bump chart version (BUMP=patch|minor|major)
-make api-swagger        # regenerate Swagger docs
+mise run docker:build   # build both Docker images
+mise run helm:release   # bump chart version (patch|minor|major)
+mise run api:swagger    # regenerate Swagger docs
 ```
 
 ## Agent Routing

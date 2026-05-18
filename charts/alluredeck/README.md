@@ -603,14 +603,14 @@ This verifies that both services are reachable within the cluster.
 
 ```bash
 # Lint the chart
-make helm-lint
+mise run helm:lint
 
 # Render templates locally (validate without installing)
-make helm-template
+mise run helm:template
 
 # Package chart into a .tgz archive
-make helm-package
+mise run helm:package
 
 # Bump chart version and commit
-make helm-release BUMP=patch   # or minor, major
+mise run helm:release patch    # or: mise run helm:release minor / mise run helm:release major
 ```
