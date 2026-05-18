@@ -1,3 +1,9 @@
+## [0.37.1](https://github.com/mkutlak/alluredeck/compare/v0.37.0...v0.37.1) (2026-05-18)
+
+### Bug Fixes
+
+* **api:** use builds.build_order in attachment location query ([402075c](https://github.com/mkutlak/alluredeck/commit/402075c3f1b101a7389af69abf20dc261df20efe))
+
 ## [0.37.0](https://github.com/mkutlak/alluredeck/compare/v0.36.0...v0.37.0) (2026-05-18)
 
 ### Features
