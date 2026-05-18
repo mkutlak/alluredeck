@@ -4,6 +4,13 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# External base URL used to sign absolute attachment download URLs (e.g. for
+# Playwright videos, traces, screenshots served by the MCP server).
+# When blank (default), the URL is auto-derived from ingress.host using the
+# scheme implied by ingress.tls. Set explicitly when the public URL differs
+# from the ingress host (e.g. behind a load-balancer or external DNS alias).
+externalUrl: ""
+
 global:
   imagePullSecrets: []
   storageClassName: ""
@@ -203,6 +210,9 @@ api:
 
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol server)
+# Storage config is inherited from api.config.storageType and api.s3.* so the
+# MCP pod can read attachment blobs directly and inline them in responses.
+# S3 credentials are taken from api.s3.existingSecret when set.
 # ---------------------------------------------------------------------------
 mcp:
   enabled: false

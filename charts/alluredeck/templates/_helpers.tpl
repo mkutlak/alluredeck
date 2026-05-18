@@ -170,6 +170,10 @@ s3:
   path_style: {{ .Values.api.s3.pathStyle }}
   concurrency: {{ .Values.api.s3.concurrency | int }}
 {{- end }}
+{{- $extURL := include "alluredeck.externalURL" . }}
+{{- if $extURL }}
+external_url: {{ $extURL | quote }}
+{{- end }}
 {{- if .Values.api.oidc.enabled }}
 oidc:
   enabled: true
@@ -202,6 +206,22 @@ Priority:
 {{- print "/api/v1" }}
 {{- else }}
 {{- printf "http://%s.%s.svc.cluster.local:%d/api/v1" (include "alluredeck.api.fullname" .) .Release.Namespace (.Values.api.service.port | int) }}
+{{- end }}
+{{- end }}
+
+{{/*
+External base URL used to sign absolute attachment download URLs.
+Priority:
+  1. .Values.externalUrl explicitly set → use it as-is.
+  2. Ingress enabled with a host → derive {scheme}://{host}.
+  3. Neither available → return empty string (relative URLs, existing behaviour).
+*/}}
+{{- define "alluredeck.externalURL" -}}
+{{- if .Values.externalUrl }}
+{{- .Values.externalUrl }}
+{{- else if and .Values.ingress.enabled .Values.ingress.host }}
+{{- $scheme := ternary "https" "http" (not (empty .Values.ingress.tls)) }}
+{{- printf "%s://%s" $scheme .Values.ingress.host }}
 {{- end }}
 {{- end }}
 
@@ -259,6 +279,28 @@ Precedence:
 {{- .Values.mcp.serviceAccountName }}
 {{- else }}
 {{- default "default" .Values.mcp.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Render the MCP config.yaml content for the ConfigMap.
+Contains storage settings so the MCP pod can read attachment blobs directly,
+and external_url so it signs absolute download URLs.
+*/}}
+{{- define "alluredeck.mcp.configYAML" -}}
+storage_type: {{ .Values.api.config.storageType | quote }}
+{{- $extURL := include "alluredeck.externalURL" . }}
+{{- if $extURL }}
+external_url: {{ $extURL | quote }}
+{{- end }}
+{{- if eq .Values.api.config.storageType "s3" }}
+s3:
+  endpoint: {{ .Values.api.s3.endpoint | quote }}
+  bucket: {{ .Values.api.s3.bucket | quote }}
+  region: {{ .Values.api.s3.region | quote }}
+  tls_insecureskipverify: {{ .Values.api.s3.tlsInsecureSkipVerify }}
+  path_style: {{ .Values.api.s3.pathStyle }}
+  concurrency: {{ .Values.api.s3.concurrency | int }}
 {{- end }}
 {{- end }}
 

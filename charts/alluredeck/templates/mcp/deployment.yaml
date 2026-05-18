@@ -13,6 +13,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/configmap: {{ include (print $.Template.BasePath "/mcp/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/mcp/secret.yaml") . | sha256sum }}
       labels:
         {{- include "alluredeck.mcp.labels" . | nindent 8 }}
@@ -36,6 +37,8 @@ spec:
               containerPort: {{ .Values.mcp.port | int }}
               protocol: TCP
           env:
+            - name: CONFIG_FILE
+              value: /app/alluredeck/config.yaml
             - name: ENABLE_MCP_SERVER
               value: {{ .Values.mcp.config.enableMcpServer | quote }}
             - name: MCP_ALLOWED_ORIGINS
@@ -62,6 +65,18 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: mcpSigningKey
+            {{- if and (eq .Values.api.config.storageType "s3") .Values.api.s3.existingSecret }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.api.s3.existingSecret }}
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.api.s3.existingSecret }}
+                  key: S3_SECRET_KEY
+            {{- end }}
             {{- if .Values.observability.enabled }}
             {{- with .Values.observability }}
             - name: OBSERVABILITY_ENABLED
@@ -113,9 +128,16 @@ spec:
               drop:
                 - ALL
           volumeMounts:
+            - name: mcp-config
+              mountPath: /app/alluredeck/config.yaml
+              subPath: config.yaml
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: mcp-config
+          configMap:
+            name: {{ include "alluredeck.mcp.fullname" . }}
         - name: tmp
           emptyDir: {}
 {{- end }}

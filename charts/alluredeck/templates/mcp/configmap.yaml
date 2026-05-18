@@ -1,0 +1,11 @@
+{{- if .Values.mcp.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alluredeck.mcp.fullname" . }}
+  labels:
+    {{- include "alluredeck.mcp.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+{{ include "alluredeck.mcp.configYAML" . | indent 4 }}
+{{- end }}

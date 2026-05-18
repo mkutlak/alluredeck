@@ -301,6 +301,9 @@ var ErrOIDCStateCookieSecretRequired = errors.New("OIDC_STATE_COOKIE_SECRET is r
 // ErrOIDCStateCookieSecretLength is returned when OIDC StateCookieSecret is not 16, 24, or 32 bytes.
 var ErrOIDCStateCookieSecretLength = errors.New("OIDC_STATE_COOKIE_SECRET must be exactly 16, 24, or 32 bytes for AES-128/192/256")
 
+// ErrExternalURLRequired is returned when MCPServerEnabled is true but ExternalURL is not set.
+var ErrExternalURLRequired = errors.New("EXTERNAL_URL is required when ENABLE_MCP_SERVER=true")
+
 // Validate checks that the configuration is safe to run in production.
 // Returns an error if security is enabled but the insecure default JWT secret is used,
 // or if S3 storage is selected but required fields are missing.
@@ -315,6 +318,9 @@ func (c *Config) Validate() error {
 		if c.S3.Bucket == "" {
 			return ErrS3BucketRequired
 		}
+	}
+	if c.MCPServerEnabled && c.ExternalURL == "" {
+		return ErrExternalURLRequired
 	}
 	if c.OIDC.Enabled {
 		if c.OIDC.IssuerURL == "" {

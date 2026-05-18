@@ -740,6 +740,31 @@ func TestOIDCConfig_Validate_ValidConfig(t *testing.T) {
 	}
 }
 
+func TestValidateMCPServerRequiresExternalURL(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret:        "some-safe-secret",
+		MCPServerEnabled: true,
+		ExternalURL:      "",
+	}
+	err := cfg.Validate()
+	if !errors.Is(err, ErrExternalURLRequired) {
+		t.Errorf("expected ErrExternalURLRequired, got %v", err)
+	}
+}
+
+func TestValidateMCPServerWithExternalURLPasses(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		JWTSecret:        "some-safe-secret",
+		MCPServerEnabled: true,
+		ExternalURL:      "https://alluredeck.example.com",
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error for valid MCP config with ExternalURL, got %v", err)
+	}
+}
+
 func TestDurationSeconds_IntegerSeconds(t *testing.T) {
 	t.Parallel()
 	var d DurationSeconds

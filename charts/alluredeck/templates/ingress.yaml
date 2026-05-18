@@ -59,6 +59,16 @@ spec:
                 name: {{ include "alluredeck.mcp.fullname" . }}
                 port:
                   name: http-mcp
+          {{- /* Signed attachment downloads handed out by the MCP server.
+                 Served by the API binary (route registered when an MCP signing
+                 key is set), so this is gated on mcp.enabled alongside /mcp. */}}
+          - path: /attachments
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "alluredeck.api.fullname" . }}
+                port:
+                  name: http-api
           {{- end }}
           {{- range .Values.ingress.extraPaths }}
           - path: {{ .path }}
