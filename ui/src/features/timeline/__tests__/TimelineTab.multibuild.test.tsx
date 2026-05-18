@@ -15,25 +15,6 @@ vi.mock('@/api/branches', () => ({
   fetchBranches: vi.fn().mockResolvedValue([]),
 }))
 
-// Mock BranchSelector
-vi.mock('@/features/projects/BranchSelector', () => ({
-  BranchSelector: ({
-    onBranchChange,
-  }: {
-    projectId: string
-    selectedBranch: string | undefined
-    onBranchChange: (b: string | undefined) => void
-  }) => (
-    <select
-      data-testid="mock-branch-selector"
-      onChange={(e) => onBranchChange(e.target.value || undefined)}
-    >
-      <option value="">All branches</option>
-      <option value="main">main</option>
-    </select>
-  ),
-}))
-
 // Mock TimelineChart for unit testing
 vi.mock('../TimelineChart', () => ({
   TimelineChart: (props: Record<string, unknown>) => (
@@ -135,13 +116,6 @@ describe('TimelineTab (multi-build)', () => {
     renderTab('proj1')
     await screen.findByTestId('timeline-chart')
     expect(fetchProjectTimeline).toHaveBeenCalledWith('proj1', expect.objectContaining({}))
-  })
-
-  it('renders BranchSelector', async () => {
-    vi.mocked(fetchProjectTimeline).mockResolvedValue(mockMultiTimeline)
-    renderTab()
-    await screen.findByTestId('timeline-chart')
-    expect(screen.getByTestId('mock-branch-selector')).toBeInTheDocument()
   })
 
   it('renders DateRangePicker', async () => {

@@ -4,6 +4,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { SearchCommand } from '@/features/search'
 import { usePreferencesSync } from '@/hooks/usePreferencesSync'
 import { AppSidebar } from './AppSidebar'
+import { BreadcrumbBar } from './BreadcrumbBar'
 import { TopBar } from './TopBar'
 
 export function Layout() {
@@ -14,6 +15,7 @@ export function Layout() {
       <SearchCommand>
         <SidebarProvider className="h-svh min-h-0 flex-col overflow-hidden">
           <TopBar />
+          <BreadcrumbBar />
           <div className="flex min-h-0 flex-1">
             <AppSidebar />
             <SidebarInset>

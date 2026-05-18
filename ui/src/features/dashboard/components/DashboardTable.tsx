@@ -1,3 +1,4 @@
+import React from 'react'
 import {
   Table,
   TableBody,
@@ -12,7 +13,7 @@ import type { DndProject } from '@/features/projects/hooks/useProjectDnd'
 import type { DashboardProjectEntry } from '@/types/api'
 import { DashboardProjectRow } from './DashboardProjectRow'
 import { SortableHeader } from './DashboardSortControls'
-import type { SortField } from './sort'
+import type { SortField, ViewMode } from './sort'
 
 interface DashboardTableProps {
   rows: DashboardProjectEntry[]
@@ -22,6 +23,9 @@ interface DashboardTableProps {
   onSort: (field: SortField) => void
   onDrillDown: (projectId: number) => void
   allProjects?: readonly DashboardProjectEntry[]
+  viewMode?: ViewMode
+  expandedGroups?: Set<number>
+  onToggleExpand?: (projectId: number) => void
 }
 
 export function DashboardTable({
@@ -32,7 +36,12 @@ export function DashboardTable({
   onSort,
   onDrillDown,
   allProjects,
+  viewMode,
+  expandedGroups,
+  onToggleExpand,
 }: DashboardTableProps) {
+  const isGrouped = viewMode === 'grouped'
+
   return (
     <DndProjectProvider projects={dndProjects}>
       <NoGroupDropZone />
@@ -53,15 +62,38 @@ export function DashboardTable({
               </TableCell>
             </TableRow>
           ) : (
-            rows.map((project) => (
-              <DashboardProjectRow
-                key={project.project_id}
-                project={project}
-                isAdmin={isAdmin}
-                onDrillDown={project.is_group ? () => onDrillDown(project.project_id) : undefined}
-                allProjects={allProjects}
-              />
-            ))
+            rows.map((project) => {
+              const isExpanded = isGrouped && !!expandedGroups?.has(project.project_id)
+              const children = isGrouped && isExpanded && project.is_group ? (project.children ?? []) : []
+
+              return (
+                <React.Fragment key={project.project_id}>
+                  <DashboardProjectRow
+                    project={project}
+                    isAdmin={isAdmin}
+                    onDrillDown={project.is_group ? () => onDrillDown(project.project_id) : undefined}
+                    allProjects={allProjects}
+                    showChevron={isGrouped && !!project.is_group}
+                    isExpanded={isExpanded}
+                    onToggleExpand={
+                      isGrouped && project.is_group && onToggleExpand
+                        ? () => onToggleExpand(project.project_id)
+                        : undefined
+                    }
+                  />
+                  {children.map((child) => (
+                    <DashboardProjectRow
+                      key={child.project_id}
+                      project={child}
+                      isAdmin={isAdmin}
+                      onDrillDown={undefined}
+                      allProjects={allProjects}
+                      isChild
+                    />
+                  ))}
+                </React.Fragment>
+              )
+            })
           )}
         </TableBody>
       </Table>

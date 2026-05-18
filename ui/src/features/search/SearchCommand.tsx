@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { FolderOpen, FlaskConical } from 'lucide-react'
+import { Folder, FileText, FlaskConical } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   CommandDialog,
@@ -15,6 +15,7 @@ import {
 import { useDebounce } from '@/hooks/useDebounce'
 import { search } from '@/api/search'
 import { queryKeys } from '@/lib/query-keys'
+import { projectIndexOptions } from '@/lib/queries'
 
 type SearchCommandContextValue = {
   open: boolean
@@ -70,6 +71,14 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
     if (!value) setQuery('')
   }
 
+  const { data: projectIndex } = useQuery(projectIndexOptions())
+
+  const groupIds = new Set<number>(
+    (projectIndex?.data ?? [])
+      .filter((p) => (p.children?.length ?? 0) > 0)
+      .map((p) => p.project_id),
+  )
+
   const projects = data?.data.projects ?? []
   const tests = data?.data.tests ?? []
   const hasQuery = debouncedQuery.length >= 2
@@ -99,7 +108,17 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                   value={`project-${p.slug}`}
                   onSelect={() => handleSelect(`/projects/${p.project_id}`)}
                 >
-                  <FolderOpen className="text-muted-foreground size-4 shrink-0" />
+                  {groupIds.has(p.project_id) ? (
+                    <Folder
+                      className="text-muted-foreground size-4 shrink-0"
+                      data-testid="icon-folder"
+                    />
+                  ) : (
+                    <FileText
+                      className="text-muted-foreground size-4 shrink-0"
+                      data-testid="icon-file-text"
+                    />
+                  )}
                   <span>{p.slug}</span>
                 </CommandItem>
               ))}

@@ -168,13 +168,13 @@ describe('ComparePage', () => {
     })
   })
 
-  it('has a back navigation link', async () => {
+  it('has a back navigation button', async () => {
     vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
     renderPage()
 
     await waitFor(() => {
-      const backLink = screen.getByRole('link', { name: /back/i })
-      expect(backLink).toBeInTheDocument()
+      const backButton = screen.getByRole('button', { name: /back/i })
+      expect(backButton).toBeInTheDocument()
     })
   })
 

@@ -14,14 +14,18 @@ export function useActiveProject(): ActiveProjectResult {
   const { id: urlProjectId } = useParams<{ id: string }>()
   const lastProjectId = useUIStore((s) => s.lastProjectId)
   const setLastProjectId = useUIStore((s) => s.setLastProjectId)
+  const recordProjectVisit = useUIStore((s) => s.recordProjectVisit)
 
   const { data, isLoading } = useQuery({ ...projectIndexOptions(), enabled: !urlProjectId })
 
   useEffect(() => {
     if (urlProjectId) {
       setLastProjectId(urlProjectId)
+      if (/^\d+$/.test(urlProjectId)) {
+        recordProjectVisit(Number(urlProjectId))
+      }
     }
-  }, [urlProjectId, setLastProjectId])
+  }, [urlProjectId, setLastProjectId, recordProjectVisit])
 
   if (urlProjectId) {
     return { projectId: urlProjectId, isFromUrl: true, isLoading: false }

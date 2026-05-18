@@ -9,7 +9,6 @@ import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
-import { BranchSelector } from '@/features/projects/BranchSelector'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { PipelineRunCard } from './PipelineRunCard'
 
@@ -23,7 +22,6 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
   const [page, setPage] = useState(1)
 
   const selectedBranch = useUIStore((s) => s.selectedBranch)
-  const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
 
   // Branches are listed against the parent: the API derives the union
   // across the parent and all children from builds.ci_branch, matching
@@ -38,6 +36,13 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
     selectedBranch && branchesData?.some((b) => b.name === selectedBranch)
       ? selectedBranch
       : undefined
+
+  // Reset to page 1 when branch filter changes
+  const [prevBranch, setPrevBranch] = useState(selectedBranch)
+  if (prevBranch !== selectedBranch) {
+    setPrevBranch(selectedBranch)
+    setPage(1)
+  }
 
   const { data, isLoading } = useQuery({
     ...pipelineRunsOptions(projectId, page, effectiveBranch),
@@ -57,19 +62,6 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
           <Layers size={14} />
           Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}
         </p>
-      </div>
-
-      {/* Branch filter */}
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-xs">Choose branch:</span>
-        <BranchSelector
-          projectId={projectId}
-          selectedBranch={selectedBranch}
-          onBranchChange={(branch) => {
-            setSelectedBranch(branch)
-            setPage(1)
-          }}
-        />
       </div>
 
       {/* Run cards */}

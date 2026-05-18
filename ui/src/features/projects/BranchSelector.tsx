@@ -39,14 +39,17 @@ export function BranchSelector({
   // While loading, show a disabled placeholder trigger so tests can find the combobox
   if (isLoading) {
     return (
-      <Select disabled value={ALL_BRANCHES_VALUE}>
-        <SelectTrigger className="w-48" aria-label="Filter by branch">
-          <SelectValue placeholder="All branches" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL_BRANCHES_VALUE}>All branches</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="flex items-center gap-1.5">
+        <span className="text-muted-foreground text-xs">Branch:</span>
+        <Select disabled value={ALL_BRANCHES_VALUE}>
+          <SelectTrigger className="h-7 min-w-28 w-auto text-xs" aria-label="Filter by branch">
+            <SelectValue placeholder="All branches" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_BRANCHES_VALUE}>All branches</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     )
   }
 
@@ -54,18 +57,21 @@ export function BranchSelector({
   if (!branches || branches.length === 0) return null
 
   return (
-    <Select value={displayValue} onValueChange={handleValueChange}>
-      <SelectTrigger className="w-48" aria-label="Filter by branch">
-        <SelectValue placeholder="All branches" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ALL_BRANCHES_VALUE}>All branches</SelectItem>
-        {branches.map((b) => (
-          <SelectItem key={b.name} value={b.name}>
-            {b.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-1.5">
+      <span className="text-muted-foreground text-xs">Branch:</span>
+      <Select value={displayValue} onValueChange={handleValueChange}>
+        <SelectTrigger className="h-7 min-w-28 w-auto text-xs" aria-label="Filter by branch">
+          <SelectValue placeholder="All branches" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_BRANCHES_VALUE}>All branches</SelectItem>
+          {branches.map((b) => (
+            <SelectItem key={b.name} value={b.name}>
+              {b.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   )
 }

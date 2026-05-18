@@ -1,4 +1,4 @@
-import { useParams, useSearchParams, useNavigate, Link } from 'react-router'
+import { useParams, useSearchParams, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Download, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -6,8 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { env } from '@/lib/env'
 import { queryKeys } from '@/lib/query-keys'
 import { fetchAttachments, attachmentFileUrl } from '@/api/attachments'
-import { useProjectFromParam } from '@/lib/resolveProject'
-import { formatProjectLabel } from '@/lib/projectLabel'
 import { isPlaywrightTrace } from './utils'
 import type { AttachmentEntry } from '@/types/api'
 
@@ -30,9 +28,6 @@ export default function TraceViewerPage() {
 
   const reportId = searchParams.get('reportId') ?? 'latest'
   const pid = projectId ?? ''
-
-  const { project, projects } = useProjectFromParam(projectId)
-  const projectLabel = formatProjectLabel(project, projects) || (projectId ?? '')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: queryKeys.attachments(pid, reportId),
@@ -70,18 +65,9 @@ export default function TraceViewerPage() {
     currentIndex >= 0 && currentIndex < allTraces.length - 1 ? allTraces[currentIndex + 1] : null
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="-m-6 flex h-[calc(100vh-6rem)] flex-col">
       {/* Context header */}
       <div className="bg-background flex shrink-0 items-center gap-2 border-b px-4 py-2">
-        {/* Back link */}
-        <Button asChild variant="ghost" size="sm">
-          <Link to={`/projects/${projectId}/attachments`} title={projectLabel}>
-            <ChevronLeft size={14} />
-            <span className="max-w-[16rem] truncate">{projectLabel}</span>
-          </Link>
-        </Button>
-        <span className="text-muted-foreground text-sm">/</span>
-
         {isLoading ? (
           <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
         ) : ownerGroup ? (

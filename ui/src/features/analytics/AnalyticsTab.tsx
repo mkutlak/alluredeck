@@ -9,13 +9,6 @@ import { toStatusPieData, toCategoryBreakdownData } from '@/lib/chart-utils'
 import type { KpiData } from '@/lib/chart-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { StatusTrendChart } from './StatusTrendChart'
 import { PassRateTrendChart } from './PassRateTrendChart'
 import { DurationTrendChart } from './DurationTrendChart'
@@ -29,15 +22,13 @@ import { AnalyticsSection } from './AnalyticsSection'
 import { KpiSummaryRow } from './KpiSummaryRow'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { useUIStore } from '@/store/ui'
-import type { Branch } from '@/types/api'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
   const displayName = useProjectDisplay(projectId)
   const branch = useUIStore((s) => s.selectedBranch)
-  const setBranch = useUIStore((s) => s.setSelectedBranch)
 
-  // Fetch branches for the selector
+  // Fetch branches to validate the stored selection against this project's branch list
   const { data: branchesData } = useQuery({
     queryKey: queryKeys.branches.list(projectId ?? ''),
     queryFn: () => fetchBranches(projectId ?? ''),
@@ -139,14 +130,9 @@ export function AnalyticsTab() {
   if (statusTrend.length === 0 && pieData.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-            <p className="text-muted-foreground text-sm">Analytics</p>
-          </div>
-          {branchesData && branchesData.length > 0 && (
-            <BranchSelector branches={branchesData} value={branch} onChange={setBranch} />
-          )}
+        <div>
+          <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
+          <p className="text-muted-foreground text-sm">Analytics</p>
         </div>
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No report data yet</p>
@@ -160,15 +146,10 @@ export function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Header with branch selector */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-          <p className="text-muted-foreground text-sm">Analytics</p>
-        </div>
-        {branchesData && branchesData.length > 0 && (
-          <BranchSelector branches={branchesData} value={branch} onChange={setBranch} />
-        )}
+      {/* Header */}
+      <div>
+        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
+        <p className="text-muted-foreground text-sm">Analytics</p>
       </div>
 
       {/* KPI Summary Row */}
@@ -243,32 +224,3 @@ export function AnalyticsTab() {
   )
 }
 
-// Branch selector helper component
-function BranchSelector({
-  branches,
-  value,
-  onChange,
-}: {
-  branches: Branch[]
-  value: string | undefined
-  onChange: (value: string | undefined) => void
-}) {
-  return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? undefined : v)}
-    >
-      <SelectTrigger className="h-8 w-[180px] text-sm">
-        <SelectValue placeholder="All branches" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">All branches</SelectItem>
-        {branches.map((b) => (
-          <SelectItem key={b.id} value={b.name}>
-            {b.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}

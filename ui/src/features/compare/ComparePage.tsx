@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchBuildComparison } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
@@ -62,6 +62,7 @@ export function ComparePage() {
   const { id: projectId } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all')
+  const navigate = useNavigate()
 
   const rawA = searchParams.get('a') ?? ''
   const rawB = searchParams.get('b') ?? ''
@@ -88,8 +89,8 @@ export function ComparePage() {
         <p className="text-muted-foreground text-sm">
           Both <code>a</code> and <code>b</code> query parameters must be positive integers.
         </p>
-        <Button asChild variant="outline" size="sm">
-          <Link to={`/projects/${projectId}`}>Back to project</Link>
+        <Button variant="outline" size="sm" onClick={() => void navigate(-1)}>
+          Back to project
         </Button>
       </div>
     )
@@ -120,8 +121,8 @@ export function ComparePage() {
       <div className="space-y-6 p-6">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm">
-            <Link to={`/projects/${projectId}`}>← Back</Link>
+          <Button variant="ghost" size="sm" onClick={() => void navigate(-1)}>
+            ← Back
           </Button>
           <div>
             <h1 className="text-xl font-semibold">

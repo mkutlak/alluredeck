@@ -14,6 +14,7 @@ interface ActiveProjectResult {
 }
 
 const mockSetLastProjectId = vi.fn()
+const mockRecordProjectVisit = vi.fn()
 
 vi.mock('@/api/projects', () => ({
   getProjects: vi.fn(),
@@ -40,6 +41,13 @@ vi.mock('@/store/ui', () => ({
       setSyncedAt: vi.fn(),
       setTimezone: vi.fn(),
       setTimeFormat: vi.fn(),
+      pinnedProjectIds: [],
+      recentProjectIds: [],
+      lastTabPerProject: {},
+      pinProject: vi.fn(),
+      unpinProject: vi.fn(),
+      recordProjectVisit: mockRecordProjectVisit,
+      setLastTabForProject: vi.fn(),
     }),
   ),
 }))
@@ -136,6 +144,13 @@ describe('useActiveProject', () => {
         setSyncedAt: vi.fn(),
         setTimezone: vi.fn(),
         setTimeFormat: vi.fn(),
+        pinnedProjectIds: [],
+        recentProjectIds: [],
+        lastTabPerProject: {},
+        pinProject: vi.fn(),
+        unpinProject: vi.fn(),
+        recordProjectVisit: mockRecordProjectVisit,
+        setLastTabForProject: vi.fn(),
       }),
     )
   })
@@ -176,6 +191,13 @@ describe('useActiveProject', () => {
         setSyncedAt: vi.fn(),
         setTimezone: vi.fn(),
         setTimeFormat: vi.fn(),
+        pinnedProjectIds: [],
+        recentProjectIds: [],
+        lastTabPerProject: {},
+        pinProject: vi.fn(),
+        unpinProject: vi.fn(),
+        recordProjectVisit: mockRecordProjectVisit,
+        setLastTabForProject: vi.fn(),
       }),
     )
 

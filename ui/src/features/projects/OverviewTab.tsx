@@ -26,7 +26,6 @@ import { toast } from '@/components/ui/use-toast'
 import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
 import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
-import { BranchSelector } from '@/features/projects/BranchSelector'
 import { ActionBar } from '@/components/app/ActionBar'
 import { PipelineRunsTab } from '@/features/pipeline'
 import { Badge } from '@/components/ui/badge'
@@ -44,7 +43,6 @@ export function OverviewTab() {
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const selectedBranch = useUIStore((s) => s.selectedBranch)
-  const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
   const [selectedBuilds, setSelectedBuilds] = useState<Set<string>>(new Set())
   const reportsPerPage = useUIStore((s) => s.reportsPerPage)
   const setReportsPerPage = useUIStore((s) => s.setReportsPerPage)
@@ -85,6 +83,13 @@ export function OverviewTab() {
   const [prevProjectId, setPrevProjectId] = useState(projectId)
   if (prevProjectId !== projectId) {
     setPrevProjectId(projectId)
+    setPage(1)
+  }
+
+  // Reset to page 1 when branch filter changes
+  const [prevBranch, setPrevBranch] = useState(selectedBranch)
+  if (prevBranch !== selectedBranch) {
+    setPrevBranch(selectedBranch)
     setPage(1)
   }
 
@@ -216,43 +221,33 @@ export function OverviewTab() {
       {/* Compare Selected bar */}
       {compareBarContent}
 
-      {/* Branch filter + Group by toolbar */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground text-xs">Choose branch:</span>
-          <BranchSelector
-            projectId={projectId}
-            selectedBranch={selectedBranch}
-            onBranchChange={setSelectedBranch}
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-muted-foreground text-xs">Group by:</span>
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant={groupBy === 'none' ? 'secondary' : 'outline'}
-              onClick={() => setGroupBy('none')}
-            >
-              None
-            </Button>
-            <Button
-              size="sm"
-              variant={groupBy === 'commit' ? 'secondary' : 'outline'}
-              onClick={() => setGroupBy('commit')}
-            >
-              <GitCommitHorizontal size={12} />
-              Commit
-            </Button>
-            <Button
-              size="sm"
-              variant={groupBy === 'branch' ? 'secondary' : 'outline'}
-              onClick={() => setGroupBy('branch')}
-            >
-              <GitBranch size={12} />
-              Branch
-            </Button>
-          </div>
+      {/* Group by toolbar */}
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">Group by:</span>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={groupBy === 'none' ? 'secondary' : 'outline'}
+            onClick={() => setGroupBy('none')}
+          >
+            None
+          </Button>
+          <Button
+            size="sm"
+            variant={groupBy === 'commit' ? 'secondary' : 'outline'}
+            onClick={() => setGroupBy('commit')}
+          >
+            <GitCommitHorizontal size={12} />
+            Commit
+          </Button>
+          <Button
+            size="sm"
+            variant={groupBy === 'branch' ? 'secondary' : 'outline'}
+            onClick={() => setGroupBy('branch')}
+          >
+            <GitBranch size={12} />
+            Branch
+          </Button>
         </div>
       </div>
 

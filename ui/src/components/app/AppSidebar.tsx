@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useActiveProject } from '@/hooks/useActiveProject'
+import { useTrackActiveTab } from '@/hooks/useTrackActiveTab'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { projectIndexOptions } from '@/lib/queries'
 import { resolveProjectFromParam } from '@/lib/resolveProject'
@@ -42,6 +43,7 @@ const navItems = [
 
 export function AppSidebar() {
   const { projectId } = useActiveProject()
+  useTrackActiveTab(projectId)
   const isAdmin = useAuthStore(selectIsAdmin)
   const isEditor = useAuthStore(selectIsEditor)
 

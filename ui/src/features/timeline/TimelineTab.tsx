@@ -7,7 +7,6 @@ import { queryKeys } from '@/lib/query-keys'
 import { useUIStore } from '@/store/ui'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { BranchSelector } from '@/features/projects/BranchSelector'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { TimelineChart } from './TimelineChart'
 import { DateRangePicker } from './DateRangePicker'
@@ -18,7 +17,6 @@ export function TimelineTab() {
   const displayName = useProjectDisplay(projectId)
 
   const branch = useUIStore((s) => s.selectedBranch)
-  const setBranch = useUIStore((s) => s.setSelectedBranch)
 
   const { data: branchesData } = useQuery({
     queryKey: queryKeys.branches.list(projectId ?? ''),
@@ -94,11 +92,6 @@ export function TimelineTab() {
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
-          <BranchSelector
-            projectId={projectId}
-            selectedBranch={branch}
-            onBranchChange={setBranch}
-          />
           <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
           {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
         </div>
@@ -126,7 +119,6 @@ export function TimelineTab() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
-        <BranchSelector projectId={projectId} selectedBranch={branch} onBranchChange={setBranch} />
         <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
         {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
       </div>

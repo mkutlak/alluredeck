@@ -75,6 +75,13 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
     setSyncedAt: vi.fn(),
     setTimezone: vi.fn(),
     setTimeFormat: vi.fn(),
+    pinnedProjectIds: [],
+    recentProjectIds: [],
+    lastTabPerProject: {},
+    pinProject: vi.fn(),
+    unpinProject: vi.fn(),
+    recordProjectVisit: vi.fn(),
+    setLastTabForProject: vi.fn(),
     ...overrides,
   }
 }

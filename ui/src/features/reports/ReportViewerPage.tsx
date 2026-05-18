@@ -1,14 +1,13 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router'
-import { ChevronLeft, ExternalLink } from 'lucide-react'
+import { useParams } from 'react-router'
+import { ExternalLink } from 'lucide-react'
 import { env } from '@/lib/env'
 import { Button } from '@/components/ui/button'
 import { useProjectFromParam } from '@/lib/resolveProject'
-import { formatProjectLabel } from '@/lib/projectLabel'
 
 export function ReportViewerPage() {
   const { id: projectId, reportId } = useParams<{ id: string; reportId: string }>()
-  const { project, projects } = useProjectFromParam(projectId)
+  const { project } = useProjectFromParam(projectId)
   const reportType = project?.report_type ?? 'allure'
 
   const defaultMode: 'playwright' | 'allure' = reportType === 'playwright' ? 'playwright' : 'allure'
@@ -29,16 +28,9 @@ export function ReportViewerPage() {
       : `Allure report #${reportId} — ${projectId}`
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="-m-6 flex h-[calc(100vh-6rem)] flex-col">
       {/* Toolbar */}
       <div className="bg-background flex shrink-0 items-center gap-3 border-b px-4 py-2">
-        <Button asChild variant="ghost" size="sm">
-          <Link to={`/projects/${projectId}`}>
-            <ChevronLeft size={14} />
-            {project ? formatProjectLabel(project, projects) : projectId}
-          </Link>
-        </Button>
-        <span className="text-muted-foreground text-sm">/</span>
         <Button
           variant="ghost"
           size="sm"

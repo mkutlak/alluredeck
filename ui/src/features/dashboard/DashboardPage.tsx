@@ -20,12 +20,25 @@ export function DashboardPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
   const [searchParams, setSearchParams] = useSearchParams()
   const groupIdRaw = searchParams.get('group')
   const groupId = groupIdRaw != null ? parseInt(groupIdRaw, 10) : null
   const isAdmin = useAuthStore(selectIsAdmin)
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery(dashboardOptions())
+
+  const handleToggleExpand = (projectId: number) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -212,6 +225,9 @@ export function DashboardPage() {
         onSort={handleSort}
         onDrillDown={(projectId) => setSearchParams({ group: String(projectId) })}
         allProjects={allFlatProjects}
+        viewMode={viewMode}
+        expandedGroups={expandedGroups}
+        onToggleExpand={handleToggleExpand}
       />
 
       <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />

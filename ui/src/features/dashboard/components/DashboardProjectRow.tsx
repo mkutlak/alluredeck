@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { Folder, FolderInput, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Folder, FolderInput, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,9 +27,26 @@ interface DashboardProjectRowProps {
   isAdmin: boolean
   onDrillDown?: () => void
   allProjects?: readonly DashboardProjectEntry[]
+  /** Grouped-mode only: render a chevron expand/collapse button */
+  showChevron?: boolean
+  /** Whether this group row is currently expanded */
+  isExpanded?: boolean
+  /** Called when the chevron is clicked */
+  onToggleExpand?: () => void
+  /** Render this row as an indented child row */
+  isChild?: boolean
 }
 
-export function DashboardProjectRow({ project, isAdmin, onDrillDown, allProjects }: DashboardProjectRowProps) {
+export function DashboardProjectRow({
+  project,
+  isAdmin,
+  onDrillDown,
+  allProjects,
+  showChevron,
+  isExpanded,
+  onToggleExpand,
+  isChild,
+}: DashboardProjectRowProps) {
   const [cleanMode, setCleanMode] = useState<'results' | 'history' | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
@@ -70,14 +87,36 @@ export function DashboardProjectRow({ project, isAdmin, onDrillDown, allProjects
         className={cn(
           onDrillDown ? 'cursor-pointer' : '',
           isDragging && 'opacity-40',
-          isOver && dropTarget && 'ring-2 ring-blue-500 scale-[1.02]',
+          isOver && dropTarget && 'scale-[1.02] ring-2 ring-blue-500',
           draggable && !onDrillDown && 'cursor-grab',
+          isChild && 'text-muted-foreground',
         )}
         onClick={onDrillDown}
       >
-        <TableCell className="font-medium">
+        <TableCell className={cn('font-medium', isChild && 'pl-8')}>
           <div className="flex items-center gap-2">
-            {project.is_group && <Folder className="text-muted-foreground h-4 w-4 shrink-0" />}
+            {showChevron && (
+              <button
+                type="button"
+                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${project.slug}`}
+                className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleExpand?.()
+                }}
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </button>
+            )}
+            {project.is_group ? (
+              <Folder data-testid="icon-folder" className="text-muted-foreground h-4 w-4 shrink-0" />
+            ) : (
+              <FileText data-testid="icon-file-text" className="text-muted-foreground h-4 w-4 shrink-0" />
+            )}
             {project.is_group ? (
               <span>{project.slug}</span>
             ) : (

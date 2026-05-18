@@ -14,11 +14,6 @@ vi.mock('@/api/branches', () => ({
   fetchBranches: vi.fn().mockResolvedValue([]),
 }))
 
-// Mock BranchSelector
-vi.mock('@/features/projects/BranchSelector', () => ({
-  BranchSelector: () => <div data-testid="mock-branch-selector" />,
-}))
-
 // Mock DateRangePicker
 vi.mock('../DateRangePicker', () => ({
   DateRangePicker: () => <div data-testid="mock-date-range-picker" />,
