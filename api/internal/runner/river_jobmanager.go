@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	pgx "github.com/jackc/pgx/v5"
@@ -72,7 +71,6 @@ type GenerateReportWorker struct {
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
-	reportIDs    *sync.Map
 	jobTimeout   time.Duration
 	progress     riverProgressWriter
 	logger       *zap.Logger
@@ -106,9 +104,7 @@ func (w *GenerateReportWorker) Work(ctx context.Context, job *river.Job[Generate
 		}
 		return err
 	}
-	if reportID != "" {
-		w.reportIDs.Store(job.ID, reportID)
-	}
+	recordReportID(ctx, w.logger, job.ID, reportID)
 	if w.progress != nil {
 		w.progress.upsertJobProgress(ctx, job.ID, JobPhaseCompleted, 0, 0)
 	}
@@ -147,7 +143,6 @@ type PlaywrightIngestWorker struct {
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
-	reportIDs    *sync.Map
 	jobTimeout   time.Duration
 	logger       *zap.Logger
 }
@@ -165,9 +160,7 @@ func (w *PlaywrightIngestWorker) Work(ctx context.Context, job *river.Job[Playwr
 		)
 		return err
 	}
-	if reportID != "" {
-		w.reportIDs.Store(job.ID, reportID)
-	}
+	recordReportID(ctx, w.logger, job.ID, reportID)
 	w.logger.Info("river: playwright ingest completed",
 		zap.Int64("job_id", job.ID),
 		zap.Int64("project_id", a.ProjectID),
@@ -301,10 +294,9 @@ func derefStr(p *string) string {
 // RiverJobManager implements JobQueuer using River backed by PostgreSQL.
 // It is safe for concurrent use across multiple instances (pods).
 type RiverJobManager struct {
-	client    *river.Client[pgx.Tx]
-	pool      *pgxpool.Pool
-	reportIDs sync.Map // river job ID (int64) -> report ID (string)
-	logger    *zap.Logger
+	client *river.Client[pgx.Tx]
+	pool   *pgxpool.Pool
+	logger *zap.Logger
 }
 
 // upsertJobProgress writes the latest phase/progress for a job using last-write-wins
@@ -372,7 +364,6 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		buildStore:   buildStore,
 		webhookStore: webhookStore,
 		externalURL:  externalURL,
-		reportIDs:    &jm.reportIDs,
 		jobTimeout:   jobTimeout,
 		progress:     jm,
 		logger:       logger,
@@ -392,7 +383,6 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 			buildStore:   buildStore,
 			webhookStore: webhookStore,
 			externalURL:  externalURL,
-			reportIDs:    &jm.reportIDs,
 			jobTimeout:   jobTimeout,
 			logger:       logger,
 		}
@@ -408,7 +398,6 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 			buildStore:   buildStore,
 			webhookStore: webhookStore,
 			externalURL:  externalURL,
-			reportIDs:    &jm.reportIDs,
 			jobTimeout:   jobTimeout,
 			progress:     jm,
 			logger:       logger,
@@ -575,9 +564,6 @@ func (jm *RiverJobManager) Get(ctx context.Context, jobID string) *Job {
 		return nil
 	}
 	j := riverRowToJob(row)
-	if v, ok := jm.reportIDs.Load(row.ID); ok {
-		j.ReportID = v.(string)
-	}
 	if phase, done, total, ok := jm.readJobProgress(ctx, id); ok {
 		j.Phase = phase
 		if done > 0 || total > 0 {
@@ -602,9 +588,6 @@ func (jm *RiverJobManager) ListJobs(ctx context.Context) []*Job {
 	jobs := make([]*Job, 0, len(res.Jobs))
 	for _, r := range res.Jobs {
 		j := riverRowToJob(r)
-		if v, ok := jm.reportIDs.Load(r.ID); ok {
-			j.ReportID = v.(string)
-		}
 		if phase, done, total, ok := jm.readJobProgress(ctx, r.ID); ok {
 			j.Phase = phase
 			if done > 0 || total > 0 {
@@ -663,6 +646,44 @@ func (jm *RiverJobManager) Cancel(ctx context.Context, jobID string) error {
 	return nil
 }
 
+// recordReportID durably persists the report id onto the River job via
+// RecordOutput, so the job-status endpoint can surface it from any pod (the
+// previous in-memory map was lost across replicas and restarts). A record
+// failure is logged but deliberately not fatal: RecordOutput can only fail on a
+// JSON-marshal error (impossible for a string) or when called outside a worker
+// context, and failing the job here would force a costly re-run of report
+// generation. Do not change this to return the error.
+func recordReportID(ctx context.Context, logger *zap.Logger, jobID int64, reportID string) {
+	if reportID == "" {
+		return
+	}
+	if err := river.RecordOutput(ctx, reportID); err != nil {
+		logger.Warn("river: failed to record report id", zap.Int64("job_id", jobID), zap.Error(err))
+	}
+}
+
+// reportIDFromMetadata extracts the report ID stored by river.RecordOutput
+// from River job metadata. The value lives under the "output" key and is a
+// JSON-encoded string. Returns "" for any missing or malformed input.
+func reportIDFromMetadata(meta []byte) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(meta, &m) != nil {
+		return ""
+	}
+	raw, ok := m[rivertype.MetadataKeyOutput]
+	if !ok {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
+}
+
 // riverRowToJob converts a rivertype.JobRow to our Job struct.
 func riverRowToJob(r *rivertype.JobRow) *Job {
 	j := &Job{
@@ -706,6 +727,7 @@ func riverRowToJob(r *rivertype.JobRow) *Job {
 	if len(r.Errors) > 0 {
 		j.Error = r.Errors[len(r.Errors)-1].Error
 	}
+	j.ReportID = reportIDFromMetadata(r.Metadata)
 	return j
 }
 

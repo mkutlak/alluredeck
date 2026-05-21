@@ -250,7 +250,6 @@ func TestParseStagedTarGzWorker_Success(t *testing.T) {
 		store:     store,
 		generator: gen,
 		progress:  progress,
-		reportIDs: &sync.Map{},
 		logger:    zap.NewNop(),
 	}
 
@@ -297,7 +296,6 @@ func TestParseStagedTarGzWorker_LeavesBlobOnExtractError(t *testing.T) {
 		store:     store,
 		generator: gen,
 		progress:  progress,
-		reportIDs: &sync.Map{},
 		logger:    zap.NewNop(),
 	}
 
@@ -328,7 +326,6 @@ func TestParseStagedTarGzWorker_OpenBlobError(t *testing.T) {
 		store:     store,
 		generator: gen,
 		progress:  &captureWriter{},
-		reportIDs: &sync.Map{},
 		logger:    zap.NewNop(),
 	}
 	args := ParseStagedTarGzArgs{ProjectID: 1, Slug: "p", StorageKey: "p", BatchID: "b1", StagingKey: "staging/b1.tar.gz"}

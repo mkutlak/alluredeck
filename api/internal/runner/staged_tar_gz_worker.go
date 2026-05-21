@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	pgx "github.com/jackc/pgx/v5"
@@ -54,7 +53,6 @@ type ParseStagedTarGzWorker struct {
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
-	reportIDs    *sync.Map
 	jobTimeout   time.Duration
 	progress     riverProgressWriter
 	logger       *zap.Logger
@@ -200,9 +198,7 @@ func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseS
 		}
 		return err
 	}
-	if reportID != "" && w.reportIDs != nil {
-		w.reportIDs.Store(job.ID, reportID)
-	}
+	recordReportID(ctx, w.logger, job.ID, reportID)
 
 	// Successful extract + generate — drop the staging blob.
 	if delErr := w.store.DeleteBlob(ctx, a.StagingKey); delErr != nil {
