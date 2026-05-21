@@ -1,3 +1,9 @@
+## [0.37.3](https://github.com/mkutlak/alluredeck/compare/v0.37.2...v0.37.3) (2026-05-21)
+
+### Bug Fixes
+
+* **api:** persist job report_id durably via River output ([c0517a7](https://github.com/mkutlak/alluredeck/commit/c0517a7246ed2bd6165f0b9b1590016f8445cfa8))
+
 ## [0.37.2](https://github.com/mkutlak/alluredeck/compare/v0.37.1...v0.37.2) (2026-05-18)
 
 ### Bug Fixes
