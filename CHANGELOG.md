@@ -1,3 +1,9 @@
+## [0.38.0](https://github.com/mkutlak/alluredeck/compare/v0.37.3...v0.38.0) (2026-05-22)
+
+### Features
+
+* **api:** expose Allure environment.properties via MCP ([4c73eef](https://github.com/mkutlak/alluredeck/commit/4c73eef45d5ffae4c3e5438435178d9f6998ffeb))
+
 ## [0.37.3](https://github.com/mkutlak/alluredeck/compare/v0.37.2...v0.37.3) (2026-05-21)
 
 ### Bug Fixes
