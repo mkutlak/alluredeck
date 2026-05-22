@@ -52,14 +52,15 @@ type KnownIssueRef struct {
 
 // GetTestFailureOutput is the structured output for get_test_failure.
 type GetTestFailureOutput struct {
-	Status        string           `json:"status"`
-	StatusMessage string           `json:"status_message,omitempty"`
-	StatusTrace   string           `json:"status_trace,omitempty"`
-	DurationMs    int64            `json:"duration_ms"`
-	Attachments   []AttachmentRef  `json:"attachments"`
-	CI            *CIInfo          `json:"ci,omitempty"`
-	Fingerprint   *FingerprintInfo `json:"fingerprint,omitempty"`
-	KnownIssue    *KnownIssueRef   `json:"known_issue,omitempty"`
+	Status        string            `json:"status"`
+	StatusMessage string            `json:"status_message,omitempty"`
+	StatusTrace   string            `json:"status_trace,omitempty"`
+	DurationMs    int64             `json:"duration_ms"`
+	Attachments   []AttachmentRef   `json:"attachments"`
+	CI            *CIInfo           `json:"ci,omitempty"`
+	Fingerprint   *FingerprintInfo  `json:"fingerprint,omitempty"`
+	KnownIssue    *KnownIssueRef    `json:"known_issue,omitempty"`
+	Environment   map[string]string `json:"environment,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,7 @@ type CompareBuildsOutput struct {
 func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_failure",
-		Description: "Get detailed failure information for a specific test in a build: status, message, stack trace, attachments, CI context, and defect fingerprint. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
+		Description: "Get detailed failure information for a specific test in a build: status, message, stack trace, attachments, CI context, defect fingerprint, and the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, getTestFailureHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
@@ -230,6 +231,9 @@ func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 		if ci.CommitSHA != "" || ci.Branch != "" || ci.PipelineURL != "" {
 			out.CI = ci
 		}
+
+		// Populate environment metadata from the already-fetched build row.
+		out.Environment = build.Environment
 
 		// Fetch defect fingerprint via the test_results.defect_fingerprint_id FK.
 		// history_id is the cross-build test identifier, NOT a fingerprint hash,

@@ -9,8 +9,8 @@ func TestNamespacedProjectID(t *testing.T) {
 		want     string
 	}{
 		{"", "api-licences", "api-licences"},
-		{"roger-api-tests", "api-licences", "roger-api-tests--api-licences"},
-		{"roger-ui-tests", "api-exports", "roger-ui-tests--api-exports"},
+		{"acme-api-tests", "api-licences", "acme-api-tests--api-licences"},
+		{"acme-ui-tests", "api-exports", "acme-ui-tests--api-exports"},
 	}
 	for _, tt := range tests {
 		got := NamespacedProjectID(tt.parentID, tt.shortID)
@@ -26,8 +26,8 @@ func TestShortProjectName(t *testing.T) {
 		want  string
 	}{
 		{"api-licences", "api-licences"},
-		{"roger-api-tests--api-licences", "api-licences"},
-		{"roger-ui-tests--api-exports", "api-exports"},
+		{"acme-api-tests--api-licences", "api-licences"},
+		{"acme-ui-tests--api-exports", "api-exports"},
 		{"no-namespace-here", "no-namespace-here"},
 	}
 	for _, tt := range tests {

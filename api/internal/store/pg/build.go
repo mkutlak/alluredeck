@@ -2,6 +2,7 @@ package pg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -101,6 +102,25 @@ func (bs *BuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID int64
 	return nil
 }
 
+// UpdateBuildEnvironment stores the Allure environment.properties key/value
+// map for the given build as JSONB. Mirrors UpdateBuildCIMetadata.
+func (bs *BuildStore) UpdateBuildEnvironment(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return fmt.Errorf("marshal build environment: %w", err)
+	}
+	tag, err := bs.pool.Exec(ctx,
+		"UPDATE builds SET environment=$1 WHERE project_id=$2 AND build_order=$3",
+		data, projectID, buildNumber)
+	if err != nil {
+		return fmt.Errorf("update build environment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: project=%d build=%d", store.ErrBuildNotFound, projectID, buildNumber)
+	}
+	return nil
+}
+
 const buildSelectCols = `
 	SELECT id, project_id, build_order, created_at,
 	       stat_passed, stat_failed, stat_broken, stat_skipped, stat_unknown, stat_total,
@@ -108,7 +128,8 @@ const buildSelectCols = `
 	       flaky_count, retried_count, new_failed_count, new_passed_count,
 	       ci_provider, ci_build_url, ci_branch, ci_commit_sha,
 	       ci_pipeline_id, ci_pipeline_url,
-	       has_playwright_report
+	       has_playwright_report,
+	       environment
 	FROM builds`
 
 // buildRowScanner is satisfied by both pgx.Row and pgx.Rows.
@@ -124,6 +145,7 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 	var flakyCount, retriedCount, newFailedCount, newPassedCount int
 	var ciProvider, ciBuildURL, ciBranch, ciCommitSHA *string
 	var ciPipelineID, ciPipelineURL *string
+	var envJSON []byte
 
 	if err := row.Scan(
 		&b.ID, &b.ProjectID, &b.BuildNumber, &b.CreatedAt,
@@ -133,12 +155,18 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 		&ciProvider, &ciBuildURL, &ciBranch, &ciCommitSHA,
 		&ciPipelineID, &ciPipelineURL,
 		&b.HasPlaywrightReport,
+		&envJSON,
 	); err != nil {
 		return store.Build{}, err
 	}
 	assignBuildStats(&b, statPassed, statFailed, statBroken, statSkipped, statUnknown, statTotal, durationMs,
 		flakyCount, retriedCount, newFailedCount, newPassedCount,
 		ciProvider, ciBuildURL, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL)
+	if len(envJSON) > 0 {
+		if err := json.Unmarshal(envJSON, &b.Environment); err != nil {
+			b.Environment = nil // tolerate corrupt JSONB rather than hard-failing
+		}
+	}
 	return b, nil
 }
 

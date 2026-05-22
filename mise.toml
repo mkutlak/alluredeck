@@ -20,7 +20,7 @@ swag          = "latest"
 BUILD_DATE    = "{{ exec(command='date -u +%Y-%m-%dT%H:%M:%SZ') }}"
 BUILD_VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || echo dev') }}"
 BUILD_REF     = "{{ exec(command='git rev-parse --short HEAD 2>/dev/null || echo unknown') }}"
-PW_IMAGE      = "mcr.microsoft.com/playwright:v1.59.1-noble"
+PW_IMAGE      = "mcr.microsoft.com/playwright:v1.60.0-noble"
 
 # ══ Aggregates ════════════════════════════════════════════════
 

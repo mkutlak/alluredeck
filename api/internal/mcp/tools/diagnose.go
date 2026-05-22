@@ -67,19 +67,20 @@ type DiagnoseFailureInput struct {
 
 // DiagnoseBuildSummary is the build-level header of a diagnose_failure result.
 type DiagnoseBuildSummary struct {
-	ProjectID   int64  `json:"project_id"`
-	ProjectSlug string `json:"project_slug"`
-	DisplayName string `json:"display_name"`
-	BuildID     int64  `json:"build_id"`
-	BuildNumber int    `json:"build_number"`
-	Branch      string `json:"branch,omitempty"`
-	CommitSHA   string `json:"commit_sha,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	TotalTests  int    `json:"total_tests"`
-	PassedTests int    `json:"passed_tests"`
-	FailedTests int    `json:"failed_tests"`
-	BrokenTests int    `json:"broken_tests"`
-	ReportURL   string `json:"report_url"`
+	ProjectID   int64             `json:"project_id"`
+	ProjectSlug string            `json:"project_slug"`
+	DisplayName string            `json:"display_name"`
+	BuildID     int64             `json:"build_id"`
+	BuildNumber int               `json:"build_number"`
+	Branch      string            `json:"branch,omitempty"`
+	CommitSHA   string            `json:"commit_sha,omitempty"`
+	CreatedAt   string            `json:"created_at"`
+	TotalTests  int               `json:"total_tests"`
+	PassedTests int               `json:"passed_tests"`
+	FailedTests int               `json:"failed_tests"`
+	BrokenTests int               `json:"broken_tests"`
+	ReportURL   string            `json:"report_url"`
+	Environment map[string]string `json:"environment,omitempty"`
 }
 
 // DiagnoseTest is one failing test with its diagnosis attached.
@@ -120,7 +121,7 @@ type DiagnoseFailureOutput struct {
 func RegisterDiagnoseTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "diagnose_failure",
-		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20).",
+		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20).",
 	}, diagnoseFailureHandler(stores, logger))
 }
 
@@ -283,6 +284,7 @@ func diagnoseBuildSummary(proj *store.Project, build *store.Build) DiagnoseBuild
 	if build.StatBroken != nil {
 		s.BrokenTests = *build.StatBroken
 	}
+	s.Environment = build.Environment
 	return s
 }
 

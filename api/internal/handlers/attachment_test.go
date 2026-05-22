@@ -95,6 +95,9 @@ func (m *mockAttachmentBuildStore) UpdateBuildStats(_ context.Context, _ int64, 
 func (m *mockAttachmentBuildStore) UpdateBuildCIMetadata(_ context.Context, _ int64, _ int, _ store.CIMetadata) error {
 	panic("not implemented")
 }
+func (m *mockAttachmentBuildStore) UpdateBuildEnvironment(_ context.Context, _ int64, _ int, _ map[string]string) error {
+	panic("not implemented")
+}
 func (m *mockAttachmentBuildStore) GetBuildByNumber(_ context.Context, _ int64, _ int) (store.Build, error) {
 	return m.build, m.errToReturn
 }

@@ -653,6 +653,21 @@ func (m *MemBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID int
 	return store.ErrBuildNotFound
 }
 
+func (m *MemBuildStore) UpdateBuildEnvironment(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, b := range m.builds {
+		if b.ProjectID == projectID && b.BuildNumber == buildNumber {
+			b.Environment = env
+			return nil
+		}
+	}
+	return store.ErrBuildNotFound
+}
+
 func (m *MemBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID int64, page, perPage int, _ *int64) ([]store.Build, int, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err

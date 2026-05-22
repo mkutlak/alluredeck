@@ -227,6 +227,7 @@ type MockBuildStore struct {
 	InsertBuildFn               func(ctx context.Context, projectID int64, buildNumber int) error
 	UpdateBuildStatsFn          func(ctx context.Context, projectID int64, buildNumber int, stats store.BuildStats) error
 	UpdateBuildCIMetadataFn     func(ctx context.Context, projectID int64, buildNumber int, ciMeta store.CIMetadata) error
+	UpdateBuildEnvironmentFn    func(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error
 	GetBuildByNumberFn          func(ctx context.Context, projectID int64, buildNumber int) (store.Build, error)
 	GetPreviousBuildFn          func(ctx context.Context, projectID int64, buildNumber int) (store.Build, error)
 	GetLatestBuildFn            func(ctx context.Context, projectID int64) (store.Build, error)
@@ -272,6 +273,13 @@ func (m *MockBuildStore) UpdateBuildStats(ctx context.Context, projectID int64, 
 func (m *MockBuildStore) UpdateBuildCIMetadata(ctx context.Context, projectID int64, buildNumber int, ciMeta store.CIMetadata) error {
 	if m.UpdateBuildCIMetadataFn != nil {
 		return m.UpdateBuildCIMetadataFn(ctx, projectID, buildNumber, ciMeta)
+	}
+	return nil
+}
+
+func (m *MockBuildStore) UpdateBuildEnvironment(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error {
+	if m.UpdateBuildEnvironmentFn != nil {
+		return m.UpdateBuildEnvironmentFn(ctx, projectID, buildNumber, env)
 	}
 	return nil
 }

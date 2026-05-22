@@ -84,6 +84,7 @@ type BuildWriter interface {
 	InsertBuild(ctx context.Context, projectID int64, buildNumber int) error
 	UpdateBuildStats(ctx context.Context, projectID int64, buildNumber int, stats BuildStats) error
 	UpdateBuildCIMetadata(ctx context.Context, projectID int64, buildNumber int, ciMeta CIMetadata) error
+	UpdateBuildEnvironment(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error
 	UpdateBuildBranchID(ctx context.Context, projectID int64, buildNumber int, branchID int64) error
 	SetLatest(ctx context.Context, projectID int64, buildNumber int) error
 	SetLatestBranch(ctx context.Context, projectID int64, buildNumber int, branchID *int64) error

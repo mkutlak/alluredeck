@@ -694,7 +694,7 @@ func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
 func TestSendResults_ForceProjectCreation_AutoCreatesMissingParentSlug(t *testing.T) {
 	projectsDir := t.TempDir()
 	childSlug := "api-users"
-	parentSlug := "roger-api-tests-api"
+	parentSlug := "acme-api-tests-api"
 
 	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 10}
 	st := storage.NewLocalStore(cfg)

@@ -14,7 +14,7 @@ func NamespacedProjectID(parentID, shortID string) string {
 }
 
 // ShortProjectName extracts the display name from a namespaced project ID.
-// For "roger-api-tests--api-licences" it returns "api-licences".
+// For "acme-api-tests--api-licences" it returns "api-licences".
 // For non-namespaced IDs it returns the ID unchanged.
 func ShortProjectName(projectID string) string {
 	if _, after, ok := strings.Cut(projectID, namespaceSep); ok {

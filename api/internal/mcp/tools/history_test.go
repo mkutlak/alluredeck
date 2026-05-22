@@ -683,3 +683,82 @@ func TestCompareBuilds_FormatCompact(t *testing.T) {
 		t.Errorf("want empty history_id in compact mode, got %q", item.HistoryID)
 	}
 }
+
+// TestGetTestFailure_EnvironmentPropagated verifies that when the build row has
+// an Environment map, it is propagated verbatim to get_test_failure output.
+func TestGetTestFailure_EnvironmentPropagated(t *testing.T) {
+	mocks := testutil.New()
+	env := map[string]string{
+		"Grafana.Drilldown.URL": "https://example/x",
+		"Loki.Query":            `{k8s_namespace_name="ns-x"}`,
+	}
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, _ int64) (store.Build, error) {
+		return store.Build{
+			ID:          10,
+			ProjectID:   1,
+			BuildNumber: 3,
+			Environment: env,
+		}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 100},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 10, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeGetTestFailure(t, res)
+	if len(out.Environment) != 2 {
+		t.Fatalf("want 2 environment entries, got %d: %v", len(out.Environment), out.Environment)
+	}
+	if out.Environment["Grafana.Drilldown.URL"] != "https://example/x" {
+		t.Errorf("Grafana.Drilldown.URL: got %q", out.Environment["Grafana.Drilldown.URL"])
+	}
+	if out.Environment["Loki.Query"] != `{k8s_namespace_name="ns-x"}` {
+		t.Errorf("Loki.Query: got %q", out.Environment["Loki.Query"])
+	}
+}
+
+// TestGetTestFailure_EnvironmentAbsent verifies that when the build has no
+// environment, the environment field is absent (nil) in the output.
+func TestGetTestFailure_EnvironmentAbsent(t *testing.T) {
+	mocks := testutil.New()
+	// Default GetBuildByIDFn returns zero Build (no Environment).
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 100},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 10, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeGetTestFailure(t, res)
+	if out.Environment != nil {
+		t.Errorf("want nil environment when absent, got %v", out.Environment)
+	}
+}

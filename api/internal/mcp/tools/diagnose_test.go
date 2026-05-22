@@ -440,3 +440,95 @@ func TestDiagnoseFailure_BuildNotFound(t *testing.T) {
 		t.Fatal("want IsError=true for unknown build_id")
 	}
 }
+
+// TestDiagnoseFailure_EnvironmentPropagated verifies that when the build has an
+// Environment map, it is propagated verbatim to the build summary output.
+func TestDiagnoseFailure_EnvironmentPropagated(t *testing.T) {
+	mocks := testutil.New()
+
+	branch := "main"
+	sha := "abc123"
+	total, passed, failed, broken := 10, 7, 2, 1
+	env := map[string]string{
+		"Grafana.Drilldown.URL": "https://example/x",
+		"Loki.Query":            `{k8s_namespace_name="ns-x"}`,
+	}
+	const buildID int64 = 200
+	mocks.Projects.CreateProject(context.Background(), "env-proj") //nolint:errcheck
+	proj, _ := mocks.Projects.GetProjectBySlug(context.Background(), "env-proj")
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
+		if id != buildID {
+			return store.Build{}, store.ErrBuildNotFound
+		}
+		return store.Build{
+			ID:          buildID,
+			ProjectID:   proj.ID,
+			BuildNumber: 5,
+			CIBranch:    &branch,
+			CICommitSHA: &sha,
+			StatTotal:   &total,
+			StatPassed:  &passed,
+			StatFailed:  &failed,
+			StatBroken:  &broken,
+			Environment: env,
+		}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return nil, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": proj.ID, "build_id": buildID},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+
+	if len(out.Build.Environment) != 2 {
+		t.Fatalf("want 2 environment entries, got %d: %v", len(out.Build.Environment), out.Build.Environment)
+	}
+	if out.Build.Environment["Grafana.Drilldown.URL"] != "https://example/x" {
+		t.Errorf("Grafana.Drilldown.URL: got %q", out.Build.Environment["Grafana.Drilldown.URL"])
+	}
+	if out.Build.Environment["Loki.Query"] != `{k8s_namespace_name="ns-x"}` {
+		t.Errorf("Loki.Query: got %q", out.Build.Environment["Loki.Query"])
+	}
+}
+
+// TestDiagnoseFailure_EnvironmentAbsent verifies that when the build has no
+// environment, the environment field is omitted from the JSON output.
+func TestDiagnoseFailure_EnvironmentAbsent(t *testing.T) {
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 300, 1)
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return nil, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 300},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if out.Build.Environment != nil {
+		t.Errorf("want nil environment when absent, got %v", out.Build.Environment)
+	}
+}

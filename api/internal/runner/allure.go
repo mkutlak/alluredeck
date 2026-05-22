@@ -356,6 +356,17 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 		}
 	}
 
+	resultsDir := filepath.Join(localProjectDir, "results", batchID)
+	if env, envErr := parser.ParseEnvironment(resultsDir); envErr != nil {
+		a.logger.Warn("failed to parse environment.properties",
+			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(envErr))
+	} else if len(env) > 0 {
+		if err := a.buildStore.UpdateBuildEnvironment(ctx, projectID, buildNumber, env); err != nil {
+			a.logger.Warn("failed to store build environment",
+				zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
+		}
+	}
+
 	// Copy any pending Playwright report from latest/ to the numbered build directory.
 	a.copyPlaywrightReport(ctx, projectID, slug, storageKey, buildNumber)
 
