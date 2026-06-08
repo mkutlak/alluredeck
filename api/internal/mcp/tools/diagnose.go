@@ -121,7 +121,7 @@ type DiagnoseFailureOutput struct {
 func RegisterDiagnoseTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "diagnose_failure",
-		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20).",
+		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Triage signals (builds-since-pass, last-status, fast-fail baseline) are scoped to the build's branch when available, so comparisons reflect only the same line of development. Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20).",
 	}, diagnoseFailureHandler(stores, logger))
 }
 
@@ -357,8 +357,9 @@ func diagnoseTest(ctx context.Context, stores *bootstrap.Stores, logger *zap.Log
 	}
 
 	// Build history for this test → feeds triage (builds-since-pass,
-	// last-status, fast-fail baseline).
-	history := diagnoseTestHistory(ctx, stores, logger, projectID, tr.HistoryID, build.ID)
+	// last-status, fast-fail baseline). Scoped to the build's branch when
+	// available; nil falls back to cross-branch behavior.
+	history := diagnoseTestHistory(ctx, stores, logger, projectID, tr.HistoryID, build.ID, build.BranchID)
 
 	// Run triage to attach objective signals.
 	d.Signals = triage.Analyze(triage.Input{
@@ -389,9 +390,10 @@ type diagnoseHistory struct {
 // diagnoseTestHistory fetches a test's recent build history and converts it to
 // the triage view. The current (failing) build is excluded from `entries` so
 // builds-since-pass counts only prior builds; its predecessor's status is
-// surfaced as previousStatus.
-func diagnoseTestHistory(ctx context.Context, stores *bootstrap.Stores, logger *zap.Logger, projectID int64, historyID string, currentBuildID int64) diagnoseHistory {
-	rows, err := stores.TestResult.GetTestHistory(ctx, projectID, historyID, nil, diagnoseHistoryDepth)
+// surfaced as previousStatus. When branchID is non-nil, history is scoped to
+// that branch; nil falls back to cross-branch behavior.
+func diagnoseTestHistory(ctx context.Context, stores *bootstrap.Stores, logger *zap.Logger, projectID int64, historyID string, currentBuildID int64, branchID *int64) diagnoseHistory {
+	rows, err := stores.TestResult.GetTestHistory(ctx, projectID, historyID, branchID, diagnoseHistoryDepth)
 	if err != nil {
 		logger.Warn("diagnose_failure: test history fetch failed",
 			zap.Int64("project_id", projectID),

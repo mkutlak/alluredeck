@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -73,6 +74,7 @@ type GetTestHistoryInput struct {
 	HistoryID string `json:"history_id"`
 	Limit     int    `json:"limit,omitempty"`
 	Cursor    string `json:"cursor,omitempty"`
+	Branch    string `json:"branch,omitempty"`
 }
 
 // TestHistoryItem is one entry in the get_test_history response.
@@ -125,15 +127,25 @@ type CompareSummary struct {
 	Removed   int `json:"removed"`
 }
 
+// BranchMismatchWarning is populated in compare_builds output when the base and
+// target builds belong to different branches. The diff is still returned; the
+// warning exists so callers know regressions may reflect branch differences.
+type BranchMismatchWarning struct {
+	BaseBranch   string `json:"base_branch"`
+	TargetBranch string `json:"target_branch"`
+	Message      string `json:"message"`
+}
+
 // CompareBuildsOutput is the structured output for compare_builds.
 type CompareBuildsOutput struct {
-	Regressed []DiffItem      `json:"regressed,omitempty"`
-	Fixed     []DiffItem      `json:"fixed,omitempty"`
-	NewPassed []DiffItem      `json:"new_passed,omitempty"`
-	NewFailed []DiffItem      `json:"new_failed,omitempty"`
-	Removed   []DiffItem      `json:"removed,omitempty"`
-	Build     *BuildRef       `json:"build,omitempty"`
-	Summary   *CompareSummary `json:"summary,omitempty"`
+	Regressed      []DiffItem             `json:"regressed,omitempty"`
+	Fixed          []DiffItem             `json:"fixed,omitempty"`
+	NewPassed      []DiffItem             `json:"new_passed,omitempty"`
+	NewFailed      []DiffItem             `json:"new_failed,omitempty"`
+	Removed        []DiffItem             `json:"removed,omitempty"`
+	Build          *BuildRef              `json:"build,omitempty"`
+	Summary        *CompareSummary        `json:"summary,omitempty"`
+	BranchMismatch *BranchMismatchWarning `json:"branch_mismatch,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -150,12 +162,12 @@ func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *za
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_history",
-		Description: "Get the run history of a test across builds. Shows status trends, duration, and commit SHA per build.",
+		Description: "Get the run history of a test across builds. Shows status trends, duration, and commit SHA per build. Optional branch parameter filters history to a single branch (unknown branch names return empty results, not an error).",
 	}, getTestHistoryHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "compare_builds",
-		Description: "Compare two builds for a project. Returns tests that regressed, became fixed, appeared new, or were removed between the base and target builds. Supports format=full|compact|summary. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
+		Description: "Compare two builds for a project. Returns tests that regressed, became fixed, appeared new, or were removed between the base and target builds. Supports format=full|compact|summary. When the two builds are from different branches, a branch_mismatch warning is included in the output — the diff is still returned but regressions may reflect branch differences rather than true regressions. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, compareBuildsHandler(stores, logger))
 }
 
@@ -292,7 +304,23 @@ func getTestHistoryHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 		}
 		_ = offset // history store does not support offset pagination; cursor is for future use
 
-		entries, err := stores.TestResult.GetTestHistory(ctx, int64(in.ProjectID), in.HistoryID, nil, in.Limit+1)
+		var branchID *int64
+		if in.Branch != "" {
+			br, err := stores.Branch.GetByName(ctx, int64(in.ProjectID), in.Branch)
+			if err != nil {
+				// A genuinely absent branch is not a user mistake (the caller may
+				// be probing) — return empty, not an error. Any other error is an
+				// infrastructure failure and must surface, otherwise a transient DB
+				// fault masquerades as "no history on this branch".
+				if errors.Is(err, store.ErrBranchNotFound) {
+					return nil, GetTestHistoryOutput{Items: nil}, nil
+				}
+				return nil, GetTestHistoryOutput{}, fmt.Errorf("resolving branch %q: %w", in.Branch, err)
+			}
+			branchID = &br.ID
+		}
+
+		entries, err := stores.TestResult.GetTestHistory(ctx, int64(in.ProjectID), in.HistoryID, branchID, in.Limit+1)
 		if err != nil {
 			return nil, GetTestHistoryOutput{}, fmt.Errorf("fetching test history: %w", err)
 		}
@@ -338,16 +366,17 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 			return nil, CompareBuildsOutput{}, fmt.Errorf("target_build_id must be positive")
 		}
 
-		// Validate base build belongs to this project.
-		baseOK, err := stores.Build.BuildExists(ctx, int64(in.ProjectID), in.BaseBuildID)
+		// Fetch base build row — serves as both existence check and source of
+		// branch info for the cross-branch warning.
+		baseBuild, err := stores.Build.GetBuildByID(ctx, int64(in.ProjectID), in.BaseBuildID)
 		if err != nil {
-			return nil, CompareBuildsOutput{}, fmt.Errorf("checking base build existence: %w", err)
-		}
-		if !baseOK {
-			return nil, CompareBuildsOutput{}, fmt.Errorf(
-				"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map)",
-				in.BaseBuildID, in.ProjectID,
-			)
+			if errors.Is(err, store.ErrBuildNotFound) {
+				return nil, CompareBuildsOutput{}, fmt.Errorf(
+					"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map)",
+					in.BaseBuildID, in.ProjectID,
+				)
+			}
+			return nil, CompareBuildsOutput{}, fmt.Errorf("fetching base build %d: %w", in.BaseBuildID, err)
 		}
 
 		// Fetch the target build row — serves as both existence check and the
@@ -356,10 +385,13 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 		// calls (e.g. list_failing_tests for the regressions just found).
 		targetBuild, err := stores.Build.GetBuildByID(ctx, int64(in.ProjectID), in.TargetBuildID)
 		if err != nil {
-			return nil, CompareBuildsOutput{}, fmt.Errorf(
-				"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map): %w",
-				in.TargetBuildID, in.ProjectID, err,
-			)
+			if errors.Is(err, store.ErrBuildNotFound) {
+				return nil, CompareBuildsOutput{}, fmt.Errorf(
+					"build_id %d not found in project %d (hint: build_number from the UI URL is not build_id; use resolve_url to map)",
+					in.TargetBuildID, in.ProjectID,
+				)
+			}
+			return nil, CompareBuildsOutput{}, fmt.Errorf("fetching target build %d: %w", in.TargetBuildID, err)
 		}
 
 		// Build the top-level BuildRef from the target build so the caller has
@@ -370,6 +402,28 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 		}
 		if targetBuild.CICommitSHA != nil {
 			targetRef.CommitSHA = *targetBuild.CICommitSHA
+		}
+
+		// Warn only when BOTH branches are known and differ. A NULL branch_id
+		// (builds predating branch tracking, or CI that supplied no branch) is
+		// deliberately treated as "no mismatch" rather than warning on every
+		// comparison that touches a legacy build — those warnings would be noise,
+		// not signal. The mismatch warning fires only when we are certain.
+		var branchMismatch *BranchMismatchWarning
+		if baseBuild.BranchID != nil && targetBuild.BranchID != nil && *baseBuild.BranchID != *targetBuild.BranchID {
+			baseBranch := ""
+			if baseBuild.CIBranch != nil {
+				baseBranch = *baseBuild.CIBranch
+			}
+			targetBranch := ""
+			if targetBuild.CIBranch != nil {
+				targetBranch = *targetBuild.CIBranch
+			}
+			branchMismatch = &BranchMismatchWarning{
+				BaseBranch:   baseBranch,
+				TargetBranch: targetBranch,
+				Message:      "Builds are from different branches; regressions may reflect branch differences rather than true regressions.",
+			}
 		}
 
 		diffs, err := stores.TestResult.CompareBuildsByHistoryID(ctx, int64(in.ProjectID), in.BaseBuildID, in.TargetBuildID)
@@ -385,7 +439,7 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 
 		// summary mode: counts only, no per-test lists.
 		if format == "summary" {
-			out := CompareBuildsOutput{Build: targetRef}
+			out := CompareBuildsOutput{Build: targetRef, BranchMismatch: branchMismatch}
 			var regressed, fixed, newPassed, newFailed, removed int
 			for _, d := range diffs {
 				switch d.Category {
@@ -415,12 +469,13 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 
 		// full or compact mode: build per-test lists.
 		out := CompareBuildsOutput{
-			Build:     targetRef,
-			Regressed: []DiffItem{},
-			Fixed:     []DiffItem{},
-			NewPassed: []DiffItem{},
-			NewFailed: []DiffItem{},
-			Removed:   []DiffItem{},
+			Build:          targetRef,
+			BranchMismatch: branchMismatch,
+			Regressed:      []DiffItem{},
+			Fixed:          []DiffItem{},
+			NewPassed:      []DiffItem{},
+			NewFailed:      []DiffItem{},
+			Removed:        []DiffItem{},
 		}
 
 		for _, d := range diffs {

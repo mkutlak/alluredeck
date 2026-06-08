@@ -106,6 +106,7 @@ type Build struct {
 	CIPipelineURL       *string
 	HasPlaywrightReport bool
 	Environment         map[string]string
+	BranchID            *int64
 }
 
 // SparklinePoint holds pass-rate data for a single build in a trend sparkline.

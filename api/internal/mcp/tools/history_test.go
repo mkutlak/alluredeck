@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ func buildStoresHistory(mocks *testutil.MockStores) *bootstrap.Stores {
 		Attachment: mocks.Attachments,
 		Defect:     mocks.Defects,
 		KnownIssue: mocks.KnownIssues,
+		Branch:     mocks.Branches,
 	}
 }
 
@@ -515,12 +517,15 @@ func TestCompareBuilds_InvalidInput(t *testing.T) {
 }
 
 // TestCompareBuilds_BaseNotInProject verifies that base_build_id not in project
-// returns IsError=true with hint.
+// returns IsError=true with hint. Base path now uses GetBuildByID (not BuildExists).
 func TestCompareBuilds_BaseNotInProject(t *testing.T) {
 	mocks := testutil.New()
-	// First call (base) returns false; target would return true but never reached.
-	mocks.Builds.BuildExistsFn = func(_ context.Context, _, buildID int64) (bool, error) {
-		return buildID != 28, nil // 28 is the "wrong" build_id
+	// base build (28) returns not-found; target never reached.
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		if buildID == 28 {
+			return store.Build{}, store.ErrBuildNotFound
+		}
+		return store.Build{ID: buildID}, nil
 	}
 
 	cs := setupTestServer(t, buildStoresHistory(mocks))
@@ -604,12 +609,13 @@ func TestCompareBuilds_BuildRefPopulated(t *testing.T) {
 			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
 		}, nil
 	}
-	// target_build_id=200 → build_number=42
+	// base_build_id=1 → zero build (no branch); target_build_id=200 → build_number=42.
 	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
 		if buildID == 200 {
 			return store.Build{ID: 200, BuildNumber: 42}, nil
 		}
-		return store.Build{}, store.ErrBuildNotFound
+		// base build (id=1) returns a zero build — exists, no branch set.
+		return store.Build{ID: buildID}, nil
 	}
 
 	for _, format := range []string{"full", "compact", "summary"} {
@@ -729,6 +735,348 @@ func TestGetTestFailure_EnvironmentPropagated(t *testing.T) {
 	}
 	if out.Environment["Loki.Query"] != `{k8s_namespace_name="ns-x"}` {
 		t.Errorf("Loki.Query: got %q", out.Environment["Loki.Query"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// compare_builds — branch mismatch warning (Change 3)
+// ---------------------------------------------------------------------------
+
+// TestCompareBuilds_SameBranch verifies that no branch_mismatch is set when
+// both builds share the same branch_id.
+func TestCompareBuilds_SameBranch(t *testing.T) {
+	branchID := int64(7)
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		return store.Build{ID: buildID, BranchID: &branchID}, nil
+	}
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 10, "target_build_id": 20},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeCompareBuilds(t, res)
+	if out.BranchMismatch != nil {
+		t.Errorf("want nil BranchMismatch for same-branch builds, got %+v", out.BranchMismatch)
+	}
+	// Diff is still present.
+	if len(out.Regressed) != 1 {
+		t.Errorf("want 1 regressed, got %d", len(out.Regressed))
+	}
+}
+
+// TestCompareBuilds_DifferentBranch verifies that branch_mismatch is populated
+// when the two builds have different branch_ids, and that the diff is still returned.
+func TestCompareBuilds_DifferentBranch(t *testing.T) {
+	branchA := int64(1)
+	branchB := int64(2)
+	branchNameA := "main"
+	branchNameB := "feature/x"
+
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		switch buildID {
+		case 10:
+			return store.Build{ID: 10, BranchID: &branchA, CIBranch: &branchNameA}, nil
+		case 20:
+			return store.Build{ID: 20, BranchID: &branchB, CIBranch: &branchNameB}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 10, "target_build_id": 20},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeCompareBuilds(t, res)
+	if out.BranchMismatch == nil {
+		t.Fatal("want non-nil BranchMismatch for different-branch builds")
+	}
+	if out.BranchMismatch.BaseBranch != branchNameA {
+		t.Errorf("want base_branch=%q, got %q", branchNameA, out.BranchMismatch.BaseBranch)
+	}
+	if out.BranchMismatch.TargetBranch != branchNameB {
+		t.Errorf("want target_branch=%q, got %q", branchNameB, out.BranchMismatch.TargetBranch)
+	}
+	if out.BranchMismatch.Message == "" {
+		t.Error("want non-empty Message in BranchMismatch")
+	}
+	// Diff is still present despite the mismatch.
+	if len(out.Regressed) != 1 {
+		t.Errorf("want 1 regressed even with branch mismatch, got %d", len(out.Regressed))
+	}
+}
+
+// TestCompareBuilds_DifferentBranch_Summary verifies that branch_mismatch is also
+// present in format=summary output.
+func TestCompareBuilds_DifferentBranch_Summary(t *testing.T) {
+	branchA := int64(1)
+	branchB := int64(2)
+	branchNameA := "main"
+	branchNameB := "feature/x"
+
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		switch buildID {
+		case 10:
+			return store.Build{ID: 10, BranchID: &branchA, CIBranch: &branchNameA}, nil
+		case 20:
+			return store.Build{ID: 20, BranchID: &branchB, CIBranch: &branchNameB}, nil
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 10, "target_build_id": 20, "format": "summary"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeCompareBuilds(t, res)
+	if out.BranchMismatch == nil {
+		t.Fatal("want non-nil BranchMismatch in summary format for different-branch builds")
+	}
+	if out.BranchMismatch.BaseBranch != branchNameA {
+		t.Errorf("want base_branch=%q, got %q", branchNameA, out.BranchMismatch.BaseBranch)
+	}
+	if out.Summary == nil {
+		t.Fatal("want non-nil Summary in summary format")
+	}
+	if out.Summary.Regressed != 1 {
+		t.Errorf("want regressed=1, got %d", out.Summary.Regressed)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// get_test_history — optional branch param (Change 4)
+// ---------------------------------------------------------------------------
+
+// TestGetTestHistory_BranchResolved verifies that when branch is set, the resolved
+// branch ID is passed to GetTestHistory (non-nil branchID).
+func TestGetTestHistory_BranchResolved(t *testing.T) {
+	const wantBranchID = int64(42)
+	var receivedBranchID *int64
+
+	mocks := testutil.New()
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, name string) (*store.Branch, error) {
+		if name == "main" {
+			return &store.Branch{ID: wantBranchID, Name: "main"}, nil
+		}
+		return nil, store.ErrBranchNotFound
+	}
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, branchID *int64, _ int) ([]store.TestHistoryEntry, error) {
+		receivedBranchID = branchID
+		return []store.TestHistoryEntry{
+			{BuildNumber: 5, BuildID: 50, Status: "passed", DurationMs: 100, CreatedAt: time.Now()},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_history",
+		Arguments: map[string]any{"project_id": 1, "history_id": "h1", "branch": "main"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	if receivedBranchID == nil {
+		t.Fatal("want non-nil branchID passed to GetTestHistory when branch is set")
+	}
+	if *receivedBranchID != wantBranchID {
+		t.Errorf("want branchID=%d, got %d", wantBranchID, *receivedBranchID)
+	}
+
+	out := decodeGetTestHistory(t, res)
+	if len(out.Items) != 1 {
+		t.Errorf("want 1 item, got %d", len(out.Items))
+	}
+}
+
+// TestGetTestHistory_UnknownBranch verifies that an unknown branch name returns
+// empty items and no error (branch not found is not a user mistake).
+func TestGetTestHistory_UnknownBranch(t *testing.T) {
+	mocks := testutil.New()
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, _ string) (*store.Branch, error) {
+		return nil, store.ErrBranchNotFound
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_history",
+		Arguments: map[string]any{"project_id": 1, "history_id": "h1", "branch": "no-such-branch"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("want no error for unknown branch, got: %v", res.Content)
+	}
+
+	out := decodeGetTestHistory(t, res)
+	if len(out.Items) != 0 {
+		t.Errorf("want 0 items for unknown branch, got %d", len(out.Items))
+	}
+}
+
+// TestGetTestHistory_NoBranch verifies that omitting branch passes nil branchID
+// to GetTestHistory (unchanged cross-branch behavior).
+func TestGetTestHistory_NoBranch(t *testing.T) {
+	var receivedBranchID *int64
+
+	mocks := testutil.New()
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, branchID *int64, _ int) ([]store.TestHistoryEntry, error) {
+		receivedBranchID = branchID
+		return []store.TestHistoryEntry{
+			{BuildNumber: 3, BuildID: 30, Status: "failed", DurationMs: 200, CreatedAt: time.Now()},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_history",
+		Arguments: map[string]any{"project_id": 1, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	if receivedBranchID != nil {
+		t.Errorf("want nil branchID when branch is not set, got %d", *receivedBranchID)
+	}
+}
+
+// TestGetTestHistory_BranchLookupError verifies that a non-sentinel error from
+// branch resolution (e.g. a DB failure) surfaces as a tool error rather than
+// being masked as an empty "no history on this branch" result.
+func TestGetTestHistory_BranchLookupError(t *testing.T) {
+	var historyCalled bool
+
+	mocks := testutil.New()
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, _ string) (*store.Branch, error) {
+		return nil, fmt.Errorf("get branch by name: %w", context.DeadlineExceeded)
+	}
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+		historyCalled = true
+		return nil, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "get_test_history",
+		Arguments: map[string]any{"project_id": 1, "history_id": "h1", "branch": "main"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want tool error when branch resolution fails with a non-sentinel error")
+	}
+	if historyCalled {
+		t.Error("GetTestHistory must not be called when branch resolution errors")
+	}
+}
+
+// TestCompareBuilds_OneBranchUnknown verifies the conservative mismatch rule:
+// when one build has a known branch and the other has none (NULL branch_id),
+// no branch_mismatch is emitted and the diff is still returned.
+func TestCompareBuilds_OneBranchUnknown(t *testing.T) {
+	branchA := int64(1)
+	branchNameA := "main"
+
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		switch buildID {
+		case 10:
+			return store.Build{ID: 10, BranchID: &branchA, CIBranch: &branchNameA}, nil
+		case 20:
+			return store.Build{ID: 20}, nil // no branch_id (legacy build)
+		}
+		return store.Build{}, store.ErrBuildNotFound
+	}
+	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+		return []store.DiffEntry{
+			{TestName: "T1", FullName: "pkg.T1", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "compare_builds",
+		Arguments: map[string]any{"project_id": 1, "base_build_id": 10, "target_build_id": 20},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeCompareBuilds(t, res)
+	if out.BranchMismatch != nil {
+		t.Errorf("want nil BranchMismatch when one branch is unknown, got %+v", out.BranchMismatch)
+	}
+	if len(out.Regressed) != 1 {
+		t.Errorf("want 1 regressed, got %d", len(out.Regressed))
 	}
 }
 

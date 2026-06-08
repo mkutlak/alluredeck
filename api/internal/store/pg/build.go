@@ -129,7 +129,8 @@ const buildSelectCols = `
 	       ci_provider, ci_build_url, ci_branch, ci_commit_sha,
 	       ci_pipeline_id, ci_pipeline_url,
 	       has_playwright_report,
-	       environment
+	       environment,
+	       branch_id
 	FROM builds`
 
 // buildRowScanner is satisfied by both pgx.Row and pgx.Rows.
@@ -146,6 +147,7 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 	var ciProvider, ciBuildURL, ciBranch, ciCommitSHA *string
 	var ciPipelineID, ciPipelineURL *string
 	var envJSON []byte
+	var branchID *int64
 
 	if err := row.Scan(
 		&b.ID, &b.ProjectID, &b.BuildNumber, &b.CreatedAt,
@@ -156,12 +158,14 @@ func scanBuild(row buildRowScanner) (store.Build, error) {
 		&ciPipelineID, &ciPipelineURL,
 		&b.HasPlaywrightReport,
 		&envJSON,
+		&branchID,
 	); err != nil {
 		return store.Build{}, err
 	}
 	assignBuildStats(&b, statPassed, statFailed, statBroken, statSkipped, statUnknown, statTotal, durationMs,
 		flakyCount, retriedCount, newFailedCount, newPassedCount,
 		ciProvider, ciBuildURL, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL)
+	b.BranchID = branchID
 	if len(envJSON) > 0 {
 		if err := json.Unmarshal(envJSON, &b.Environment); err != nil {
 			b.Environment = nil // tolerate corrupt JSONB rather than hard-failing

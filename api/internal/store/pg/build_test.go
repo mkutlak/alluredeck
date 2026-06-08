@@ -192,6 +192,79 @@ func TestPruneBuildsByAge_FutureCutoffPrunesAllNonLatest(t *testing.T) {
 	}
 }
 
+// TestScanBuild_BranchIDNonNull verifies that when a build row has a non-NULL
+// branch_id, the scanned Build.BranchID field is populated with that value.
+func TestScanBuild_BranchIDNonNull(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	branchStore := pg.NewBranchStore(s)
+
+	slug := fmt.Sprintf("test-scan-branchid-nonnull-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), proj.ID) })
+
+	branch, _, err := branchStore.GetOrCreate(ctx, proj.ID, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate branch: %v", err)
+	}
+
+	if err := buildStore.InsertBuild(ctx, proj.ID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	if err := buildStore.UpdateBuildBranchID(ctx, proj.ID, 1, branch.ID); err != nil {
+		t.Fatalf("UpdateBuildBranchID: %v", err)
+	}
+
+	b, err := buildStore.GetBuildByNumber(ctx, proj.ID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildByNumber: %v", err)
+	}
+	if b.BranchID == nil {
+		t.Fatal("BranchID: got nil, want non-nil")
+	}
+	if *b.BranchID != branch.ID {
+		t.Errorf("BranchID: got %d, want %d", *b.BranchID, branch.ID)
+	}
+}
+
+// TestScanBuild_BranchIDNull verifies that when a build row has a NULL
+// branch_id (no branch association), the scanned Build.BranchID field is nil.
+func TestScanBuild_BranchIDNull(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+
+	slug := fmt.Sprintf("test-scan-branchid-null-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), proj.ID) })
+
+	// InsertBuild does not set branch_id — it defaults to NULL.
+	if err := buildStore.InsertBuild(ctx, proj.ID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+
+	b, err := buildStore.GetBuildByNumber(ctx, proj.ID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildByNumber: %v", err)
+	}
+	if b.BranchID != nil {
+		t.Errorf("BranchID: got %d, want nil", *b.BranchID)
+	}
+}
+
 // TestGetDashboardData_MultiBranch_ReturnsOneProjectEntry verifies that a project
 // with builds on multiple branches (each with is_latest=TRUE) appears exactly once
 // in the dashboard result, with the most recent build (highest build_order) as Latest.

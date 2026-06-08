@@ -532,3 +532,185 @@ func TestDiagnoseFailure_EnvironmentAbsent(t *testing.T) {
 		t.Errorf("want nil environment when absent, got %v", out.Build.Environment)
 	}
 }
+
+// TestDiagnoseFailure_BranchScopedTriage verifies that when the diagnosed build
+// has a BranchID set, the triage signals (builds_since_pass, last_status) reflect
+// only branch-scoped history. The test seeds history spanning two branches: the
+// test passes on branch A but fails repeatedly on branch B. When the diagnosed
+// build is on branch B, signals must reflect only branch B history.
+func TestDiagnoseFailure_BranchScopedTriage(t *testing.T) {
+	const buildID int64 = 500
+	const branchBID int64 = 2
+
+	mocks := testutil.New()
+	proj, err := mocks.Projects.CreateProject(context.Background(), "branch-scope-proj")
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	branchStr := "feature-b"
+	sha := "def456"
+	total, passed, failed, broken := 5, 3, 1, 1
+	branchBIDVal := branchBID
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
+		if id != buildID {
+			return store.Build{}, store.ErrBuildNotFound
+		}
+		return store.Build{
+			ID:          buildID,
+			ProjectID:   proj.ID,
+			BuildNumber: 10,
+			CIBranch:    &branchStr,
+			CICommitSHA: &sha,
+			StatTotal:   &total,
+			StatPassed:  &passed,
+			StatFailed:  &failed,
+			StatBroken:  &broken,
+			BranchID:    &branchBIDVal,
+		}, nil
+	}
+
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: buildID, ProjectID: proj.ID, HistoryID: "hX", FullName: "pkg.BranchTest", Status: "failed", DurationMs: 500},
+		}, nil
+	}
+
+	// GetTestHistory captures the branchID argument and returns branch-B-only
+	// history: two consecutive failures (no pass), so builds_since_pass > 1.
+	var capturedBranchID *int64
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, branchID *int64, _ int) ([]store.TestHistoryEntry, error) {
+		capturedBranchID = branchID
+		// Branch B history: current build (500) + two prior failures on branch B.
+		return []store.TestHistoryEntry{
+			{BuildID: 500, BuildNumber: 10, Status: "failed", DurationMs: 500},
+			{BuildID: 490, BuildNumber: 9, Status: "failed", DurationMs: 480},
+			{BuildID: 480, BuildNumber: 8, Status: "failed", DurationMs: 460},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": proj.ID, "build_id": buildID},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	// Verify GetTestHistory was called with the build's branch ID.
+	if capturedBranchID == nil {
+		t.Fatal("GetTestHistory must be called with non-nil branchID when build.BranchID is set")
+	}
+	if *capturedBranchID != branchBID {
+		t.Errorf("GetTestHistory branchID: got %d, want %d", *capturedBranchID, branchBID)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if len(out.FailingTests) != 1 {
+		t.Fatalf("want 1 failing test, got %d", len(out.FailingTests))
+	}
+	sig := out.FailingTests[0].Signals
+
+	// Prior branch-B history after dropping current build: [failed(9), failed(8)].
+	// No pass in history → builds_since_pass = 2.
+	if sig.BuildsSincePass != 2 {
+		t.Errorf("builds_since_pass: got %d, want 2", sig.BuildsSincePass)
+	}
+	// last_status is the immediately preceding build: failed.
+	if sig.LastStatus != triage.StatusFailed {
+		t.Errorf("last_status: got %q, want %q", sig.LastStatus, triage.StatusFailed)
+	}
+}
+
+// TestDiagnoseFailure_NilBranchCrossBranchFallback verifies that when the
+// diagnosed build has no BranchID (nil), GetTestHistory is called with nil and
+// cross-branch behavior is unchanged.
+func TestDiagnoseFailure_NilBranchCrossBranchFallback(t *testing.T) {
+	const buildID int64 = 600
+
+	mocks := testutil.New()
+	proj, err := mocks.Projects.CreateProject(context.Background(), "nil-branch-proj")
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	sha := "ghi789"
+	total, passed, failed, broken := 5, 3, 1, 1
+	// BranchID deliberately left nil — simulates an older build with no branch_id.
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
+		if id != buildID {
+			return store.Build{}, store.ErrBuildNotFound
+		}
+		return store.Build{
+			ID:          buildID,
+			ProjectID:   proj.ID,
+			BuildNumber: 20,
+			CICommitSHA: &sha,
+			StatTotal:   &total,
+			StatPassed:  &passed,
+			StatFailed:  &failed,
+			StatBroken:  &broken,
+			BranchID:    nil, // no branch
+		}, nil
+	}
+
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: buildID, ProjectID: proj.ID, HistoryID: "hY", FullName: "pkg.CrossTest", Status: "failed", DurationMs: 300},
+		}, nil
+	}
+
+	var capturedBranchID *int64
+	called := false
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, branchID *int64, _ int) ([]store.TestHistoryEntry, error) {
+		called = true
+		capturedBranchID = branchID
+		return []store.TestHistoryEntry{
+			{BuildID: 600, BuildNumber: 20, Status: "failed", DurationMs: 300},
+			{BuildID: 590, BuildNumber: 19, Status: "passed", DurationMs: 250},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": proj.ID, "build_id": buildID},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	// GetTestHistory must be called with nil branchID for cross-branch fallback.
+	if !called {
+		t.Fatal("GetTestHistory was not called")
+	}
+	if capturedBranchID != nil {
+		t.Errorf("GetTestHistory branchID: got %d, want nil (cross-branch fallback)", *capturedBranchID)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if len(out.FailingTests) != 1 {
+		t.Fatalf("want 1 failing test, got %d", len(out.FailingTests))
+	}
+	sig := out.FailingTests[0].Signals
+
+	// Cross-branch prior history: [passed(19)] after dropping current build (600).
+	// builds_since_pass = 0 (immediately preceded by a pass).
+	if sig.BuildsSincePass != 0 {
+		t.Errorf("builds_since_pass: got %d, want 0", sig.BuildsSincePass)
+	}
+	if sig.LastStatus != triage.StatusPassed {
+		t.Errorf("last_status: got %q, want %q", sig.LastStatus, triage.StatusPassed)
+	}
+}
