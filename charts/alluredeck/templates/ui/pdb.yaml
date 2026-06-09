@@ -1,0 +1,24 @@
+{{- /*
+UI PodDisruptionBudget.
+Rendered only when podDisruptionBudget.enabled=true AND the workload will run
+more than one replica — i.e. either:
+  - ui.replicaCount > 1, OR
+  - autoscaling.enabled=true AND autoscaling.ui.minReplicas > 1
+A PDB with minAvailable=1 on a single-replica workload would block ALL voluntary
+disruptions (node drains, rolling upgrades), which is a footgun.
+*/}}
+{{- $multiReplica := or (gt (int .Values.ui.replicaCount) 1) (and .Values.autoscaling.enabled (gt (int .Values.autoscaling.ui.minReplicas) 1)) }}
+{{- if and .Values.podDisruptionBudget.enabled $multiReplica }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "alluredeck.ui.fullname" . }}
+  labels:
+    {{- include "alluredeck.ui.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.ui.minAvailable }}
+  # maxUnavailable: 1  # alternative — comment out minAvailable above and use this instead
+  selector:
+    matchLabels:
+      {{- include "alluredeck.ui.selectorLabels" . | nindent 6 }}
+{{- end }}

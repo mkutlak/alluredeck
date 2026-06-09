@@ -6,12 +6,21 @@ metadata:
   labels:
     {{- include "alluredeck.api.labels" . | nindent 4 }}
 spec:
+  {{- /* HPA owns replicas when autoscaling is enabled and storage is s3 (API HPA condition). */}}
+  {{- $apiHpaActive := and .Values.autoscaling.enabled (eq .Values.api.config.storageType "s3") }}
+  {{- if not $apiHpaActive }}
   replicas: {{ .Values.api.replicaCount }}
+  {{- end }}
   revisionHistoryLimit: {{ .Values.api.revisionHistoryLimit }}
   {{- if eq $kind "Deployment" }}
-  {{- with .Values.api.strategy }}
+  {{- if .Values.api.strategy }}
   strategy:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml .Values.api.strategy | nindent 4 }}
+  {{- else if ne .Values.api.config.storageType "s3" }}
+  {{- /* Auto-emit Recreate for local storage Deployments: RWO PVCs can only bind to one node.
+       Recreate prevents a new pod from scheduling before the old one releases the PVC. */}}
+  strategy:
+    type: Recreate
   {{- end }}
   {{- end }}
   {{- if eq $kind "StatefulSet" }}

@@ -526,7 +526,7 @@ kubectl rollout restart deployment/<release>-mcp -n <namespace>
 | `mcp.config.rateLimitPerMin` | Rate limit (requests per minute) | `60` |
 | `mcp.config.rateLimitBurst` | Rate limit burst size | `10` |
 | `mcp.config.poolMaxConns` | Max database connection pool size | `8` |
-| `mcp.resources` | Resource requests/limits | `{}` |
+| `mcp.resources` | Resource requests/limits | `requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}` |
 | `mcp.serviceAccount.create` | Create a dedicated ServiceAccount | `true` |
 | `mcp.serviceAccount.name` | Override ServiceAccount name | `""` |
 | `mcp.serviceAccount.annotations` | ServiceAccount annotations (e.g. IRSA) | `{}` |

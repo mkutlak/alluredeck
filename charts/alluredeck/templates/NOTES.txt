@@ -34,6 +34,23 @@ Access via port-forward:
 Run Helm tests:
   helm test {{ .Release.Name }}
 
+{{- if and (eq (.Values.api.kind | default "Deployment") "Deployment") (ne .Values.api.config.storageType "s3") }}
+
+⚠  WARNING — Local storage with Deployment detected (api.kind=Deployment, storageType=local).
+   The projects PVC uses ReadWriteOnce access mode, which can only bind to a single node.
+   The chart automatically sets strategy.type=Recreate to avoid a multi-attach deadlock
+   during rolling updates, but only ONE replica can run at a time.
+
+   For zero-downtime deployments or high availability, switch to StatefulSet:
+     api:
+       kind: StatefulSet
+
+   Or use S3/MinIO storage, which allows multiple replicas and enables autoscaling:
+     api:
+       config:
+         storageType: s3
+{{- end }}
+
 {{- if not .Values.api.security.existingSecret }}
 {{- if not .Values.api.security.jwtSecretKey }}
 

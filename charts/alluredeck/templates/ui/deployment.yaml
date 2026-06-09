@@ -5,7 +5,10 @@ metadata:
   labels:
     {{- include "alluredeck.ui.labels" . | nindent 4 }}
 spec:
+  {{- /* HPA owns replicas when autoscaling is enabled (UI HPA always renders when autoscaling.enabled=true). */}}
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.ui.replicaCount }}
+  {{- end }}
   revisionHistoryLimit: {{ .Values.ui.revisionHistoryLimit }}
   {{- with .Values.ui.strategy }}
   strategy:

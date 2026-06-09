@@ -1,0 +1,25 @@
+{{- /*
+API PodDisruptionBudget.
+Rendered only when podDisruptionBudget.enabled=true AND the workload will run
+more than one replica — i.e. either:
+  - api.replicaCount > 1, OR
+  - autoscaling.enabled=true AND autoscaling.api.minReplicas > 1 AND storageType=s3
+A PDB with minAvailable=1 on a single-replica workload would block ALL voluntary
+disruptions (node drains, rolling upgrades), which is a footgun.
+*/}}
+{{- $apiHpaActive := and .Values.autoscaling.enabled (eq .Values.api.config.storageType "s3") }}
+{{- $multiReplica := or (gt (int .Values.api.replicaCount) 1) (and $apiHpaActive (gt (int .Values.autoscaling.api.minReplicas) 1)) }}
+{{- if and .Values.podDisruptionBudget.enabled $multiReplica }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.api.minAvailable }}
+  # maxUnavailable: 1  # alternative — comment out minAvailable above and use this instead
+  selector:
+    matchLabels:
+      {{- include "alluredeck.api.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -117,12 +117,13 @@ api:
   replicaCount: 1
   revisionHistoryLimit: 3
 
-  resources: {}
-    # requests:
-    #   cpu: 100m
-    #   memory: 256Mi
-    # limits:
-    #   memory: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      # No cpu limit — Go GC benefits from burst CPU; a cpu limit causes unnecessary throttling.
+      memory: 1Gi  # GOMEMLIMIT=768MiB is ~75% of this limit, giving GC headroom before OOM kill
 
   podSecurityContext:
     runAsUser: 1000
@@ -228,12 +229,12 @@ mcp:
     rateLimitPerMin: 60
     rateLimitBurst: 10
     poolMaxConns: 8
-  resources: {}
-    # requests:
-    #   cpu: 50m
-    #   memory: 64Mi
-    # limits:
-    #   memory: 256Mi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
   probes:
     liveness:
       path: /health
@@ -282,12 +283,12 @@ ui:
   replicaCount: 1
   revisionHistoryLimit: 3
 
-  resources: {}
-    # requests:
-    #   cpu: 50m
-    #   memory: 64Mi
-    # limits:
-    #   memory: 128Mi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
 
   podSecurityContext:
     runAsUser: 101
@@ -403,6 +404,47 @@ networkPolicy:
     podSelector:
       app.kubernetes.io/name: ingress-nginx
     namespaceSelector: {}
+
+# ---------------------------------------------------------------------------
+# HorizontalPodAutoscaler (opt-in — disabled by default)
+# ---------------------------------------------------------------------------
+# Set autoscaling.enabled=true to create HPA resources.
+# IMPORTANT: when enabled, the corresponding Deployment omits the replicas field
+# (HPA owns the replica count). The API HPA only renders when storageType=s3;
+# local (RWO) storage must never autoscale because the PVC can only bind to one node.
+autoscaling:
+  enabled: false
+
+  ui:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80  # uncomment to add a memory metric
+
+  api:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80  # uncomment to add a memory metric
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget (opt-in — disabled by default)
+# ---------------------------------------------------------------------------
+# Set podDisruptionBudget.enabled=true to create PDB resources.
+# Safety guard: a PDB is only rendered when the workload will run >1 replica
+# (either replicaCount>1 or HPA minReplicas>1 with autoscaling.enabled=true).
+# With the defaults (replicaCount=1, autoscaling off) no PDB object is created
+# even when this is enabled, preventing a footgun that blocks all disruptions.
+podDisruptionBudget:
+  enabled: false
+
+  ui:
+    minAvailable: 1
+    # maxUnavailable: 1  # alternative to minAvailable; comment minAvailable out if using this
+
+  api:
+    minAvailable: 1
+    # maxUnavailable: 1  # alternative to minAvailable; comment minAvailable out if using this
 
 # ---------------------------------------------------------------------------
 # Observability (OpenTelemetry traces + Prometheus metrics)

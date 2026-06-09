@@ -1,0 +1,28 @@
+{{- /*
+API HorizontalPodAutoscaler.
+Rendered ONLY when autoscaling.enabled=true AND api.config.storageType=s3.
+Local (RWO) storage must never autoscale: a ReadWriteOnce PVC can only bind to
+one node and a second replica would fail to schedule until the first releases it.
+*/}}
+{{- if and .Values.autoscaling.enabled (eq .Values.api.config.storageType "s3") }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: {{ .Values.api.kind | default "Deployment" }}
+    name: {{ include "alluredeck.api.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.api.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.api.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.api.targetCPUUtilizationPercentage }}
+{{- end }}
