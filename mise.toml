@@ -70,6 +70,11 @@ run = "go test -race -timeout 3m ./..."
 description = "Run API tests with race detector (alias for api:test)"
 run = "mise run api:test"
 
+[tasks."api:test-integration"]
+description = "Run API integration tests (requires TEST_POSTGRES_URL)"
+dir = "api"
+run = "go test -race -tags=integration -timeout 5m ./..."
+
 [tasks."api:test-cover"]
 description = "Run API tests with HTML coverage report"
 dir = "api"
@@ -196,8 +201,8 @@ dir = "ui"
 run = "npm run test:coverage"
 
 [tasks."ui:check"]
-description = "UI quality gate (typecheck + lint + test)"
-run = ["mise run ui:typecheck", "mise run ui:lint", "mise run ui:test"]
+description = "UI quality gate (typecheck + lint + coverage)"
+run = ["mise run ui:typecheck", "mise run ui:lint", "mise run ui:coverage"]
 
 [tasks."ui:clean"]
 description = "Remove UI build artifacts"

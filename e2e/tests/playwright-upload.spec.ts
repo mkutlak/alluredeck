@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { AllureDeckClient } from '../fixtures/alluredeck-client'
+import { USERNAME, PASSWORD } from '../fixtures/credentials'
 
 const API_URL = process.env.ALLUREDECK_API_URL ?? 'http://localhost:5050/api/v1'
 
@@ -11,7 +12,7 @@ test.describe('Playwright Upload API', () => {
 
   test.beforeAll(async () => {
     client = new AllureDeckClient()
-    await client.login('admin', 'admin')
+    await client.login(USERNAME, PASSWORD)
   })
 
   test('standalone Playwright upload with CI metadata creates a build', async () => {

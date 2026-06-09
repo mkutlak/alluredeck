@@ -1,0 +1,91 @@
+name: CI — E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - "api/**"
+      - "e2e/**"
+      - "docker/**"
+      - ".github/workflows/ci-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      ALLUREDECK_URL: http://localhost:7474
+      ALLUREDECK_API_URL: http://localhost:5050/api/v1
+      ALLUREDECK_USER: ${{ vars.ALLUREDECK_USER || 'admin' }}
+      ALLUREDECK_PASS: ${{ secrets.ALLUREDECK_PASS || 'admin' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build and start stack
+        run: docker compose -f docker/docker-compose.yml up -d --build
+
+      - name: Wait for API to be ready
+        run: |
+          echo "Waiting for API (http://localhost:5050/healthz)..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5050/healthz > /dev/null 2>&1; then
+              echo "API ready."
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "API did not become ready in time."
+              docker compose -f docker/docker-compose.yml logs
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Wait for UI to be ready
+        run: |
+          echo "Waiting for UI (http://localhost:7474)..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:7474 > /dev/null 2>&1; then
+              echo "UI ready."
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "UI did not become ready in time."
+              docker compose -f docker/docker-compose.yml logs
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Install E2E dependencies
+        run: mise run e2e:install
+
+      - name: Run E2E tests (non-visual)
+        working-directory: e2e
+        run: >
+          npx playwright test
+          dashboard-navigation
+          playwright-upload
+          duplicate-child-slug
+        env:
+          ALLUREDECK_URL: ${{ env.ALLUREDECK_URL }}
+          ALLUREDECK_API_URL: ${{ env.ALLUREDECK_API_URL }}
+          ALLUREDECK_USER: ${{ env.ALLUREDECK_USER }}
+          ALLUREDECK_PASS: ${{ env.ALLUREDECK_PASS }}
+
+      - name: Dump stack logs on failure
+        if: failure()
+        run: docker compose -f docker/docker-compose.yml logs
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker/docker-compose.yml down

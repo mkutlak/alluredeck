@@ -40,4 +40,4 @@ jobs:
         run: mise run ui:lint
 
       - name: Test
-        run: mise run ui:test
+        run: mise run ui:coverage

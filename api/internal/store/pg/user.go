@@ -36,12 +36,15 @@ func scanUser(row pgx.Row, u *store.User) error {
 // UpsertByOIDC inserts a new user or updates email, name, role, and last_login on conflict.
 // The conflict target is (provider, provider_sub) filtered by provider_sub != ”.
 //
-// F-5: when the new partial-unique index idx_users_email_global rejects the
-// insert (a different identity already owns this email), the underlying 23505
-// surfaces with ConstraintName="idx_users_email_global". We translate that into
-// store.ErrEmailAlreadyLinked so callers can distinguish "same email, different
-// provider/sub" from generic upsert failures and decide to either reject the
-// login or rebind the existing row via RelinkOIDC.
+// F-5: when a partial-unique index rejects the insert because a different
+// identity already owns this email, the underlying 23505 surfaces as one of:
+//   - idx_users_email_active  (0037) — active-row uniqueness fires first
+//   - idx_users_email_global  (0039) — inactive-row / cross-provider uniqueness
+//
+// Both are translated into store.ErrEmailAlreadyLinked so callers can
+// distinguish "same email, different provider/sub" from generic upsert
+// failures and decide to either reject the login or rebind the existing row
+// via RelinkOIDC.
 func (s *UserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name, role string) (*store.User, error) {
 	var u store.User
 	err := scanUser(s.pool.QueryRow(ctx, `
@@ -58,7 +61,8 @@ func (s *UserStore) UpsertByOIDC(ctx context.Context, provider, sub, email, name
 		email, name, provider, sub, role,
 	), &u)
 	if err != nil {
-		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_users_email_global" {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" &&
+			(pgErr.ConstraintName == "idx_users_email_global" || pgErr.ConstraintName == "idx_users_email_active") {
 			return nil, fmt.Errorf("%w: email=%s", store.ErrEmailAlreadyLinked, email)
 		}
 		return nil, fmt.Errorf("upsert user by oidc: %w", err)

@@ -149,7 +149,9 @@ func TestPGSearchStore_SearchTests_OnlyFromLatestBuild(t *testing.T) {
 	searchStore := pg.NewSearchStore(s, logger)
 
 	// "OldBuildOnlyTest" must not appear — build 1 is not latest.
-	oldResults, err := searchStore.SearchTests(ctx, "OldBuildOnly", 10)
+	// Postgres FTS matches whole lexemes, not substrings, and does not split
+	// camelCase, so search with the full token (not a prefix).
+	oldResults, err := searchStore.SearchTests(ctx, "OldBuildOnlyTest", 10)
 	if err != nil {
 		t.Fatalf("SearchTests old: %v", err)
 	}
@@ -160,7 +162,7 @@ func TestPGSearchStore_SearchTests_OnlyFromLatestBuild(t *testing.T) {
 	}
 
 	// "LatestBuildTest" must appear — build 2 is latest.
-	latestResults, err := searchStore.SearchTests(ctx, "LatestBuild", 10)
+	latestResults, err := searchStore.SearchTests(ctx, "LatestBuildTest", 10)
 	if err != nil {
 		t.Fatalf("SearchTests latest: %v", err)
 	}

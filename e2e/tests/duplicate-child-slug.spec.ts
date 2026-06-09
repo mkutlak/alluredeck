@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/auth'
 import { AllureDeckClient } from '../fixtures/alluredeck-client'
+import { USERNAME, PASSWORD } from '../fixtures/credentials'
 
 interface CreatedProject {
   slug: string
@@ -16,7 +17,7 @@ interface ScenarioProjects {
 
 async function setupScenario(): Promise<ScenarioProjects> {
   const client = new AllureDeckClient()
-  await client.login('admin', 'admin')
+  await client.login(USERNAME, PASSWORD)
 
   const stamp = Date.now()
   const parentASlug = `e2e-parent-a-${stamp}`
@@ -39,7 +40,7 @@ async function setupScenario(): Promise<ScenarioProjects> {
 
 async function cleanupScenario(scenario: ScenarioProjects): Promise<void> {
   const client = new AllureDeckClient()
-  await client.login('admin', 'admin')
+  await client.login(USERNAME, PASSWORD)
   // Delete children first, then parents — endpoint takes numeric project_id.
   for (const id of [
     scenario.childUnderA.projectId,

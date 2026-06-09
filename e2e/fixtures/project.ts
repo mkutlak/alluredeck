@@ -2,6 +2,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { test as authTest } from './auth'
 import { AllureDeckClient } from './alluredeck-client'
+import { USERNAME, PASSWORD } from './credentials'
 
 interface FreshProject {
   projectSlug: string
@@ -19,7 +20,7 @@ export const test = authTest.extend<{ freshProject: FreshProject }>({
       Date.now()
 
     const client = new AllureDeckClient()
-    await client.login('admin', 'admin')
+    await client.login(USERNAME, PASSWORD)
 
     const fixturesDir = path.join(process.cwd(), 'fixtures')
     const tmpDir = os.tmpdir()

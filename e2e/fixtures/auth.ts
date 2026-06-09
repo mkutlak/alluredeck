@@ -1,10 +1,11 @@
 import { test as base, type Page } from '@playwright/test'
+import { USERNAME, PASSWORD } from './credentials'
 
 export const test = base.extend<{ authenticatedPage: Page }>({
   authenticatedPage: async ({ page }, use) => {
     await page.goto('/login')
-    await page.getByLabel('Username').fill('admin')
-    await page.getByLabel('Password').fill('admin')
+    await page.getByLabel('Username').fill(USERNAME)
+    await page.getByLabel('Password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
     await page.waitForURL('/')
     await use(page)

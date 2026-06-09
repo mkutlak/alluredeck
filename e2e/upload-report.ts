@@ -2,6 +2,7 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { AllureDeckClient } from './fixtures/alluredeck-client'
+import { USERNAME, PASSWORD } from './fixtures/credentials'
 
 async function main() {
   const cwd = process.cwd()
@@ -16,7 +17,7 @@ async function main() {
   console.log('[upload] Uploading report to AllureDeck...')
 
   const client = new AllureDeckClient()
-  await client.login('admin', 'admin')
+  await client.login(USERNAME, PASSWORD)
 
   // 1. Upload Allure results FIRST — creates the build
   if (fs.existsSync(allureDir)) {

@@ -19,23 +19,22 @@ import (
 // testEncKey is a fixed 32-byte key for integration tests.
 var testEncKey = security.DeriveEncryptionKey("test-encryption-secret")
 
-// webhookProjectID returns a unique project ID string for each test run.
-func webhookProjectID() string {
-	return fmt.Sprintf("wh-test-%d", time.Now().UnixNano())
-}
-
-// ensureProject inserts a project row so FK constraints are satisfied.
-func ensureProject(t *testing.T, s *pg.Store, projectID string) {
+// createWebhookTestProject inserts a project row via ProjectStore and returns its int64 ID.
+// The project is deleted on test cleanup.
+func createWebhookTestProject(t *testing.T, s *pg.PGStore) int64 {
 	t.Helper()
 	ctx := context.Background()
-	_, err := s.Pool().Exec(ctx,
-		"INSERT INTO projects (id) VALUES ($1) ON CONFLICT DO NOTHING", projectID)
+	slug := fmt.Sprintf("wh-test-%d", time.Now().UnixNano())
+	ps := pg.NewProjectStore(s, zap.NewNop())
+	proj, err := ps.CreateProject(ctx, slug)
 	if err != nil {
-		t.Fatalf("ensureProject %s: %v", projectID, err)
+		t.Fatalf("createWebhookTestProject: %v", err)
 	}
+	t.Cleanup(func() { _ = ps.DeleteProject(context.Background(), proj.ID) })
+	return proj.ID
 }
 
-func newTestWebhook(projectID string) *store.Webhook {
+func newTestWebhook(projectID int64) *store.Webhook {
 	secret := "s3cr3t"
 	return &store.Webhook{
 		ProjectID:  projectID,
@@ -61,8 +60,7 @@ func TestPGWebhookStore_CreateAndGetByID(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	wh := newTestWebhook(projectID)
 	created, err := ws.Create(ctx, wh)
@@ -117,8 +115,7 @@ func TestPGWebhookStore_Create_NoSecret(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	wh := &store.Webhook{
 		ProjectID:  projectID,
@@ -152,8 +149,7 @@ func TestPGWebhookStore_List(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	for i := range 3 {
 		wh := newTestWebhook(projectID)
@@ -186,8 +182,7 @@ func TestPGWebhookStore_List_Empty(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	list, err := ws.List(ctx, projectID)
 	if err != nil {
@@ -207,8 +202,7 @@ func TestPGWebhookStore_Update(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	wh := newTestWebhook(projectID)
 	created, err := ws.Create(ctx, wh)
@@ -251,7 +245,7 @@ func TestPGWebhookStore_Update_NotFound(t *testing.T) {
 
 	wh := &store.Webhook{
 		ID:         "00000000-0000-0000-0000-000000000000",
-		ProjectID:  "nonexistent",
+		ProjectID:  0, // no such project
 		Name:       "ghost",
 		TargetType: "generic",
 		URL:        "https://example.com",
@@ -272,8 +266,8 @@ func TestPGWebhookStore_Delete(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
+	otherProjectID := createWebhookTestProject(t, s)
 
 	wh := newTestWebhook(projectID)
 	created, err := ws.Create(ctx, wh)
@@ -282,7 +276,7 @@ func TestPGWebhookStore_Delete(t *testing.T) {
 	}
 
 	// Wrong project → not found.
-	if err := ws.Delete(ctx, created.ID, "other-project"); !isWebhookNotFound(err) {
+	if err := ws.Delete(ctx, created.ID, otherProjectID); !isWebhookNotFound(err) {
 		t.Errorf("expected ErrWebhookNotFound for wrong project, got %v", err)
 	}
 
@@ -311,8 +305,7 @@ func TestPGWebhookStore_ListActiveForEvent(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	// Active webhook for report_completed.
 	active := newTestWebhook(projectID)
@@ -359,8 +352,7 @@ func TestPGWebhookStore_DeliveryLifecycle(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	wh := newTestWebhook(projectID)
 	created, err := ws.Create(ctx, wh)
@@ -458,8 +450,7 @@ func TestPGWebhookStore_ListDeliveries_Empty(t *testing.T) {
 	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
 	ctx := context.Background()
 
-	projectID := webhookProjectID()
-	ensureProject(t, s, projectID)
+	projectID := createWebhookTestProject(t, s)
 
 	wh := newTestWebhook(projectID)
 	created, err := ws.Create(ctx, wh)

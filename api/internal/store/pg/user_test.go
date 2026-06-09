@@ -93,10 +93,13 @@ func TestPGUserStore_UpdateActive(t *testing.T) {
 	if got.IsActive {
 		t.Error("expected is_active=false after UpdateActive")
 	}
-	// Deactivating freed the partial-unique slot; creating again with the
-	// same email must now succeed.
-	if _, err := us.CreateLocal(ctx, u.Email, "Replacement", "hash2", "viewer"); err != nil {
-		t.Errorf("CreateLocal after deactivation: %v", err)
+	// Migration 0039 (idx_users_email_global) extended email uniqueness to
+	// inactive rows: a deactivated user's email cannot be re-stolen by a new
+	// account. Re-onboarding must go through re-activation of the existing row,
+	// not creation of a new one. CreateLocal with the same email must therefore
+	// fail with ErrDuplicateEntry even after deactivation.
+	if _, err := us.CreateLocal(ctx, u.Email, "Replacement", "hash2", "viewer"); !errors.Is(err, store.ErrDuplicateEntry) {
+		t.Errorf("CreateLocal after deactivation err = %v, want ErrDuplicateEntry", err)
 	}
 
 	if err := us.UpdateActive(ctx, 9999999, true); !errors.Is(err, store.ErrUserNotFound) {
@@ -279,12 +282,15 @@ func TestPGUserStore_RelinkOIDC(t *testing.T) {
 	us := pg.NewUserStore(s)
 
 	email := testEmail(t, "relink")
-	u, err := us.UpsertByOIDC(ctx, "okta", "okta|relink", email, "Relink User", "viewer")
+	// Unique provider_sub per run so the test is re-runnable against a
+	// persistent DB without colliding on idx_users_provider_sub.
+	sub := fmt.Sprintf("relink-%d", time.Now().UnixNano())
+	u, err := us.UpsertByOIDC(ctx, "okta", "okta|"+sub, email, "Relink User", "viewer")
 	if err != nil {
 		t.Fatalf("UpsertByOIDC: %v", err)
 	}
 
-	if err := us.RelinkOIDC(ctx, u.ID, "keycloak", "kc|relink"); err != nil {
+	if err := us.RelinkOIDC(ctx, u.ID, "keycloak", "kc|"+sub); err != nil {
 		t.Fatalf("RelinkOIDC: %v", err)
 	}
 	got, err := us.GetByID(ctx, u.ID)
@@ -294,8 +300,8 @@ func TestPGUserStore_RelinkOIDC(t *testing.T) {
 	if got.Provider != "keycloak" {
 		t.Errorf("Provider = %q, want keycloak", got.Provider)
 	}
-	if got.ProviderSub != "kc|relink" {
-		t.Errorf("ProviderSub = %q, want kc|relink", got.ProviderSub)
+	if got.ProviderSub != "kc|"+sub {
+		t.Errorf("ProviderSub = %q, want kc|%s", got.ProviderSub, sub)
 	}
 
 	if err := us.RelinkOIDC(ctx, 9999999, "x", "y"); !errors.Is(err, store.ErrUserNotFound) {
@@ -314,7 +320,7 @@ func TestPGUserStore_GetByEmail_CaseInsensitive(t *testing.T) {
 		t.Fatalf("CreateLocal: %v", err)
 	}
 
-	got, err := us.GetByEmail(ctx, "CASEMIX"+email[len(local):])
+	got, err := us.GetByEmail(ctx, "CASEMIX"+email[len("CaseMix"):])
 	if err != nil {
 		t.Fatalf("GetByEmail upper: %v", err)
 	}
