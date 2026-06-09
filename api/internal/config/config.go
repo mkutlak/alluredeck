@@ -105,9 +105,10 @@ type TracesConfig struct {
 
 // MetricsConfig holds Prometheus metrics server configuration.
 type MetricsConfig struct {
-	Enabled bool   `yaml:"enabled" envconfig:"OBSERVABILITY_METRICS_ENABLED"`
-	Addr    string `yaml:"addr" envconfig:"OBSERVABILITY_METRICS_ADDR"`
-	Path    string `yaml:"path" envconfig:"OBSERVABILITY_METRICS_PATH"`
+	Enabled         bool   `yaml:"enabled" envconfig:"OBSERVABILITY_METRICS_ENABLED"`
+	Addr            string `yaml:"addr" envconfig:"OBSERVABILITY_METRICS_ADDR"`
+	Path            string `yaml:"path" envconfig:"OBSERVABILITY_METRICS_PATH"`
+	EnableProfiling bool   `yaml:"enable_profiling" envconfig:"OBSERVABILITY_METRICS_ENABLE_PROFILING"`
 }
 
 // ObservabilityConfig holds OpenTelemetry observability configuration.
@@ -152,9 +153,14 @@ type Config struct {
 	// PostgreSQL connection URL
 	DatabaseURL string `yaml:"database_url" envconfig:"DATABASE_URL"`
 	// PostgreSQL connection pool settings
-	DBMaxOpenConns      int           `yaml:"db_max_open_conns" envconfig:"DB_MAX_OPEN_CONNS"`
-	DBMaxIdleConns      int           `yaml:"db_max_idle_conns" envconfig:"DB_MAX_IDLE_CONNS"`
-	DBConnMaxLifetime   time.Duration `yaml:"db_conn_max_lifetime" envconfig:"DB_CONN_MAX_LIFETIME"`
+	DBMaxOpenConns    int           `yaml:"db_max_open_conns" envconfig:"DB_MAX_OPEN_CONNS"`
+	DBMaxIdleConns    int           `yaml:"db_max_idle_conns" envconfig:"DB_MAX_IDLE_CONNS"`
+	DBConnMaxLifetime time.Duration `yaml:"db_conn_max_lifetime" envconfig:"DB_CONN_MAX_LIFETIME"`
+	// PostgreSQL runtime timeout GUCs. A zero value means "do not set" (disables the GUC).
+	// Durations are converted to milliseconds when sent to Postgres.
+	DBStatementTimeout  time.Duration `yaml:"db_statement_timeout" envconfig:"DB_STATEMENT_TIMEOUT"`
+	DBLockTimeout       time.Duration `yaml:"db_lock_timeout" envconfig:"DB_LOCK_TIMEOUT"`
+	DBIdleInTxTimeout   time.Duration `yaml:"db_idle_in_tx_timeout" envconfig:"DB_IDLE_IN_TX_TIMEOUT"`
 	StorageType         string        `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
 	S3                  S3Config      `yaml:"s3"`
 	OIDC                OIDCConfig    `yaml:"oidc"`
@@ -214,6 +220,9 @@ func LoadConfig() (*Config, error) {
 		DBMaxOpenConns:           25,
 		DBMaxIdleConns:           5,
 		DBConnMaxLifetime:        5 * time.Minute,
+		DBStatementTimeout:       30 * time.Second,
+		DBLockTimeout:            5 * time.Second,
+		DBIdleInTxTimeout:        15 * time.Second,
 		StorageType:              "local",
 		LogLevel:                 "info",
 		MaxUploadSizeMB:          100,
@@ -304,10 +313,25 @@ var ErrOIDCStateCookieSecretLength = errors.New("OIDC_STATE_COOKIE_SECRET must b
 // ErrExternalURLRequired is returned when MCPServerEnabled is true but ExternalURL is not set.
 var ErrExternalURLRequired = errors.New("EXTERNAL_URL is required when ENABLE_MCP_SERVER=true")
 
+// ErrDatabaseURLRequired is returned when DatabaseURL is empty.
+var ErrDatabaseURLRequired = errors.New("DATABASE_URL is required")
+
+// ErrDatabaseURLInvalid is returned when DatabaseURL does not look like a Postgres DSN.
+var ErrDatabaseURLInvalid = errors.New("DATABASE_URL must be a valid Postgres DSN (postgres://... or keyword form with host= and dbname=)")
+
 // Validate checks that the configuration is safe to run in production.
 // Returns an error if security is enabled but the insecure default JWT secret is used,
 // or if S3 storage is selected but required fields are missing.
 func (c *Config) Validate() error {
+	if c.DatabaseURL == "" {
+		return ErrDatabaseURLRequired
+	}
+	if !strings.HasPrefix(c.DatabaseURL, "postgres://") &&
+		!strings.HasPrefix(c.DatabaseURL, "postgresql://") &&
+		!strings.Contains(c.DatabaseURL, "host=") &&
+		!strings.Contains(c.DatabaseURL, "dbname=") {
+		return ErrDatabaseURLInvalid
+	}
 	if c.SecurityEnabled && c.JWTSecret == defaultJWTSecret {
 		return ErrInsecureJWTSecret
 	}

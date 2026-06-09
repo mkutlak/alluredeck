@@ -1,8 +1,12 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
+	"runtime/debug"
 
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
@@ -36,13 +40,22 @@ func SecurityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 	}
 }
 
-// Recovery catches panics in downstream handlers, logs them, and returns a 500
-// response instead of crashing the server process.
+// Recovery catches panics in downstream handlers, logs them with a stack trace,
+// annotates the active OTel span, and returns a 500 response instead of crashing
+// the server process.
 func Recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			if err := recover(); err != nil {
-				logging.FromContext(r.Context()).Error("panic recovered", zap.Any("error", err))
+			if rec := recover(); rec != nil {
+				stack := debug.Stack()
+				panicErr := fmt.Errorf("panic: %v", rec)
+				logging.FromContext(r.Context()).Error("panic recovered",
+					zap.Any("error", rec),
+					zap.ByteString("stack", stack),
+				)
+				span := trace.SpanFromContext(r.Context())
+				span.RecordError(panicErr)
+				span.SetStatus(codes.Error, "panic recovered")
 				writeMiddlewareError(w, http.StatusInternalServerError, "internal server error")
 			}
 		}()

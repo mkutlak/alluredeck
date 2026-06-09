@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -44,6 +46,25 @@ func Open(ctx context.Context, cfg *config.Config) (*PGStore, error) {
 		poolCfg.MaxConnLifetime = 5 * time.Minute
 	}
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
+
+	// Build SET statements for any non-zero runtime timeout GUCs.
+	var timeoutSETs []string
+	if cfg.DBStatementTimeout > 0 {
+		timeoutSETs = append(timeoutSETs, fmt.Sprintf("SET statement_timeout = %d", cfg.DBStatementTimeout.Milliseconds()))
+	}
+	if cfg.DBLockTimeout > 0 {
+		timeoutSETs = append(timeoutSETs, fmt.Sprintf("SET lock_timeout = %d", cfg.DBLockTimeout.Milliseconds()))
+	}
+	if cfg.DBIdleInTxTimeout > 0 {
+		timeoutSETs = append(timeoutSETs, fmt.Sprintf("SET idle_in_transaction_session_timeout = %d", cfg.DBIdleInTxTimeout.Milliseconds()))
+	}
+	if len(timeoutSETs) > 0 {
+		setSQL := strings.Join(timeoutSETs, "; ")
+		poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, err := conn.Exec(ctx, setSQL)
+			return err
+		}
+	}
 
 	// Wire OTel pgx tracer so every SQL query emits a trace span.
 	applyOTelTracer(poolCfg)

@@ -305,6 +305,7 @@ func TestS3ConfigFromEnv(t *testing.T) {
 func TestValidateS3RequiresEndpoint(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
+		DatabaseURL: "postgres://localhost/test",
 		StorageType: "s3",
 		S3:          S3Config{Bucket: "my-bucket"},
 		JWTSecret:   "some-safe-secret",
@@ -318,6 +319,7 @@ func TestValidateS3RequiresEndpoint(t *testing.T) {
 func TestValidateS3RequiresBucket(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
+		DatabaseURL: "postgres://localhost/test",
 		StorageType: "s3",
 		S3:          S3Config{Endpoint: "http://minio:9000"},
 		JWTSecret:   "some-safe-secret",
@@ -331,6 +333,7 @@ func TestValidateS3RequiresBucket(t *testing.T) {
 func TestValidateS3WithFullConfig(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
+		DatabaseURL: "postgres://localhost/test",
 		StorageType: "s3",
 		S3: S3Config{
 			Endpoint: "http://minio:9000",
@@ -346,6 +349,7 @@ func TestValidateS3WithFullConfig(t *testing.T) {
 func TestValidateLocalStorageNoS3Required(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
+		DatabaseURL: "postgres://localhost/test",
 		StorageType: "local",
 		JWTSecret:   "some-safe-secret",
 	}
@@ -621,8 +625,9 @@ func TestOIDCConfig_EnvVars(t *testing.T) {
 func TestOIDCConfig_Validate_Disabled(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
-		OIDC:      OIDCConfig{Enabled: false},
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
+		OIDC:        OIDCConfig{Enabled: false},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("expected no error when OIDC disabled, got %v", err)
@@ -632,7 +637,8 @@ func TestOIDCConfig_Validate_Disabled(t *testing.T) {
 func TestOIDCConfig_Validate_MissingIssuer(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled: true,
 		},
@@ -645,7 +651,8 @@ func TestOIDCConfig_Validate_MissingIssuer(t *testing.T) {
 func TestOIDCConfig_Validate_MissingClientID(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled:   true,
 			IssuerURL: "https://idp.example.com",
@@ -659,7 +666,8 @@ func TestOIDCConfig_Validate_MissingClientID(t *testing.T) {
 func TestOIDCConfig_Validate_MissingClientSecret(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled:   true,
 			IssuerURL: "https://idp.example.com",
@@ -674,7 +682,8 @@ func TestOIDCConfig_Validate_MissingClientSecret(t *testing.T) {
 func TestOIDCConfig_Validate_MissingRedirectURL(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled:      true,
 			IssuerURL:    "https://idp.example.com",
@@ -690,7 +699,8 @@ func TestOIDCConfig_Validate_MissingRedirectURL(t *testing.T) {
 func TestOIDCConfig_Validate_MissingStateCookieSecret(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled:      true,
 			IssuerURL:    "https://idp.example.com",
@@ -707,7 +717,8 @@ func TestOIDCConfig_Validate_MissingStateCookieSecret(t *testing.T) {
 func TestOIDCConfig_Validate_BadSecretLength(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled:           true,
 			IssuerURL:         "https://idp.example.com",
@@ -725,7 +736,8 @@ func TestOIDCConfig_Validate_BadSecretLength(t *testing.T) {
 func TestOIDCConfig_Validate_ValidConfig(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
-		JWTSecret: "some-safe-secret",
+		DatabaseURL: "postgres://localhost/test",
+		JWTSecret:   "some-safe-secret",
 		OIDC: OIDCConfig{
 			Enabled:           true,
 			IssuerURL:         "https://idp.example.com",
@@ -743,6 +755,7 @@ func TestOIDCConfig_Validate_ValidConfig(t *testing.T) {
 func TestValidateMCPServerRequiresExternalURL(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
+		DatabaseURL:      "postgres://localhost/test",
 		JWTSecret:        "some-safe-secret",
 		MCPServerEnabled: true,
 		ExternalURL:      "",
@@ -756,6 +769,7 @@ func TestValidateMCPServerRequiresExternalURL(t *testing.T) {
 func TestValidateMCPServerWithExternalURLPasses(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
+		DatabaseURL:      "postgres://localhost/test",
 		JWTSecret:        "some-safe-secret",
 		MCPServerEnabled: true,
 		ExternalURL:      "https://alluredeck.example.com",
@@ -795,5 +809,85 @@ func TestDurationSeconds_InvalidValue(t *testing.T) {
 	var d DurationSeconds
 	if err := d.Decode("invalid"); err == nil {
 		t.Error("expected error for invalid duration, got nil")
+	}
+}
+
+// --- DatabaseURL validation tests ---
+
+func TestValidateDatabaseURLEmpty(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{DatabaseURL: "", JWTSecret: "some-safe-secret"}
+	if err := cfg.Validate(); !errors.Is(err, ErrDatabaseURLRequired) {
+		t.Errorf("expected ErrDatabaseURLRequired, got %v", err)
+	}
+}
+
+func TestValidateDatabaseURLInvalid(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{DatabaseURL: "not-a-dsn", JWTSecret: "some-safe-secret"}
+	if err := cfg.Validate(); !errors.Is(err, ErrDatabaseURLInvalid) {
+		t.Errorf("expected ErrDatabaseURLInvalid, got %v", err)
+	}
+}
+
+func TestValidateDatabaseURLPostgresScheme(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{DatabaseURL: "postgres://localhost/mydb", JWTSecret: "some-safe-secret"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error for postgres:// DSN, got %v", err)
+	}
+}
+
+func TestValidateDatabaseURLPostgresqlScheme(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{DatabaseURL: "postgresql://user:pass@host/db", JWTSecret: "some-safe-secret"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error for postgresql:// DSN, got %v", err)
+	}
+}
+
+func TestValidateDatabaseURLKeywordForm(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{DatabaseURL: "host=localhost dbname=mydb user=app", JWTSecret: "some-safe-secret"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error for keyword-form DSN, got %v", err)
+	}
+}
+
+// --- DB timeout defaults tests ---
+
+func TestDBTimeoutDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.DBStatementTimeout != 30*time.Second {
+		t.Errorf("default DBStatementTimeout: want 30s, got %v", cfg.DBStatementTimeout)
+	}
+	if cfg.DBLockTimeout != 5*time.Second {
+		t.Errorf("default DBLockTimeout: want 5s, got %v", cfg.DBLockTimeout)
+	}
+	if cfg.DBIdleInTxTimeout != 15*time.Second {
+		t.Errorf("default DBIdleInTxTimeout: want 15s, got %v", cfg.DBIdleInTxTimeout)
+	}
+}
+
+func TestDBTimeoutFromEnv(t *testing.T) {
+	t.Setenv("DB_STATEMENT_TIMEOUT", "1m")
+	t.Setenv("DB_LOCK_TIMEOUT", "10s")
+	t.Setenv("DB_IDLE_IN_TX_TIMEOUT", "0s")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.DBStatementTimeout != time.Minute {
+		t.Errorf("DBStatementTimeout from env: want 1m, got %v", cfg.DBStatementTimeout)
+	}
+	if cfg.DBLockTimeout != 10*time.Second {
+		t.Errorf("DBLockTimeout from env: want 10s, got %v", cfg.DBLockTimeout)
+	}
+	if cfg.DBIdleInTxTimeout != 0 {
+		t.Errorf("DBIdleInTxTimeout zero: want 0, got %v", cfg.DBIdleInTxTimeout)
 	}
 }

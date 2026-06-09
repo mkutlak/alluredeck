@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -46,6 +47,14 @@ func newMeterProvider(ctx context.Context, cfg config.ObservabilityConfig, res *
 
 	mux := http.NewServeMux()
 	mux.Handle(cfg.Metrics.Path, promhttp.Handler())
+
+	if cfg.Metrics.EnableProfiling {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Metrics.Addr,
