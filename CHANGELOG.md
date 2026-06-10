@@ -1,3 +1,19 @@
+## [0.39.0](https://github.com/mkutlak/alluredeck/compare/v0.38.0...v0.39.0) (2026-06-10)
+
+### Features
+
+* **api,chart:** serialize migrations with advisory lock + optional pre-upgrade Job ([da79076](https://github.com/mkutlak/alluredeck/commit/da7907673f5ab66574a132d4a856d9bd4f4015b2))
+* **api,ui:** invert notifications + add job retry ([e1e1539](https://github.com/mkutlak/alluredeck/commit/e1e1539ee8947f3dbec7ba5af2f5f85982921225))
+* **api:** DB timeout GUCs, panic stack traces, opt-in pprof, DSN validation ([8ace09b](https://github.com/mkutlak/alluredeck/commit/8ace09bd38f7f71d679528feb8e1acf0473cc076))
+* **api:** readiness probe reports per-dependency health ([fabe16d](https://github.com/mkutlak/alluredeck/commit/fabe16dc53349fe4550b76f666700a3ad50aa74e))
+* **api:** webhook SSRF delivery pinning + API-key project scope ([0ad1441](https://github.com/mkutlak/alluredeck/commit/0ad1441a2fe85835bba8de529e17d6c6dd47f9df))
+* **chart:** add HPA, PDB, resource defaults, local-storage rollout safety ([a8a4b14](https://github.com/mkutlak/alluredeck/commit/a8a4b1482e70a671cb0bd60b013549c7e918d9b0))
+* **ui:** surface backend degradation instead of hiding it ([2f8ab88](https://github.com/mkutlak/alluredeck/commit/2f8ab887aacc34bb3b72b4f16bfe8157a3134301))
+
+### Performance Improvements
+
+* **api:** batch job-progress, set-based pruning, analytics indexes, bounded S3 reads ([54a1cde](https://github.com/mkutlak/alluredeck/commit/54a1cde5f80cf6cbe39218de75a7c393a8d8eb73))
+
 ## [0.38.0](https://github.com/mkutlak/alluredeck/compare/v0.37.3...v0.38.0) (2026-05-22)
 
 ### Features
