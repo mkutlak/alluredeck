@@ -195,6 +195,16 @@ type Config struct {
 	// download URLs returned by the alluredeck://attachment/{id} MCP resource.
 	// Required when MCPServerEnabled=true. Set via MCP_SIGNING_KEY env var.
 	MCPSigningKey string `yaml:"mcp_signing_key" envconfig:"MCP_SIGNING_KEY"`
+	// RunMigrations controls whether pg.Open() runs goose + River migrations on
+	// startup. Default true preserves the current on-boot behaviour. Set
+	// RUN_MIGRATIONS=false on API/MCP Deployments when a dedicated migration Job
+	// (migrationJob.enabled=true in the Helm chart) is the single authority.
+	RunMigrations bool `yaml:"run_migrations" envconfig:"RUN_MIGRATIONS"`
+	// MigrationTimeout bounds the total wall-clock time allowed for the advisory-
+	// locked migration block (goose + River). A zero value disables the deadline
+	// so operators can opt out for large or long-running migrations (e.g.
+	// cmd/backfill). Default 5m is generous for normal incremental migrations.
+	MigrationTimeout time.Duration `yaml:"migration_timeout" envconfig:"MIGRATION_TIMEOUT"`
 }
 
 const defaultJWTSecret = "super-secret-key-for-dev"
@@ -232,6 +242,8 @@ func LoadConfig() (*Config, error) {
 		MCPRateLimitPerMin:       60,
 		MCPRateLimitBurst:        10,
 		MCPPoolMaxConns:          8,
+		RunMigrations:            true,
+		MigrationTimeout:         5 * time.Minute,
 		S3: S3Config{
 			Region:      "us-east-1",
 			Concurrency: 10,

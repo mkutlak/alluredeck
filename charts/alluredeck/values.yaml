@@ -447,6 +447,42 @@ podDisruptionBudget:
     # maxUnavailable: 1  # alternative to minAvailable; comment minAvailable out if using this
 
 # ---------------------------------------------------------------------------
+# Pre-upgrade migration Job (opt-in — disabled by default)
+# ---------------------------------------------------------------------------
+# When enabled, a Helm hook Job runs the API image with RUN_MIGRATIONS=true
+# before any Deployment pods start (helm.sh/hook: pre-install,pre-upgrade).
+# This moves migrations out of the per-replica boot path and into a single
+# authority, eliminating the concurrent-migrator race entirely.
+#
+# ROLLBACK RUNBOOK (read before enabling on a live cluster):
+#   1. Take a database backup BEFORE every `helm upgrade` when this is enabled.
+#      The 0031_surrogate_pk.sql migration has a poison-pill Down (SELECT 1/0;)
+#      so schema rollback requires restoring from backup, not running goose down.
+#   2. To roll back an application version after a destructive migration:
+#      a. Restore the database from the pre-upgrade backup.
+#      b. Pin api.image.tag to the previous version in your values override.
+#      c. Run `helm upgrade` — the Job will apply the old migration set.
+#   3. Keep at least one full DB backup per release in your backup store.
+#
+# When migrationJob.enabled=true the api Deployment (and mcp if enabled) render
+# RUN_MIGRATIONS=false so only the Job migrates; replicas start migration-free.
+# When disabled (default) each replica runs migrations on boot, now safely
+# serialised by the Postgres advisory lock added in pg.Open().
+migrationJob:
+  enabled: false
+  # Wall-clock deadline for the migration Job container. Must be a Go duration
+  # string or integer seconds. "0" disables the deadline (useful for very large
+  # migrations such as 0031_surrogate_pk). Defaults to 10m for the Job since it
+  # runs once with no concurrency pressure; the per-replica default is 5m.
+  migrationTimeout: "10m"
+  # Kubernetes Job backoffLimit: retries on transient failures (network blip,
+  # Postgres not yet ready). Keep low — repeated migration attempts on a
+  # non-idempotent migration can be dangerous.
+  backoffLimit: 2
+  # activeDeadlineSeconds caps the total Job wall-clock time including retries.
+  activeDeadlineSeconds: 900
+
+# ---------------------------------------------------------------------------
 # Observability (OpenTelemetry traces + Prometheus metrics)
 # ---------------------------------------------------------------------------
 # Master switch. When false (default), no OTEL_* env vars are injected and the

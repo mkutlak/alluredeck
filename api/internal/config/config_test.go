@@ -891,3 +891,60 @@ func TestDBTimeoutFromEnv(t *testing.T) {
 		t.Errorf("DBIdleInTxTimeout zero: want 0, got %v", cfg.DBIdleInTxTimeout)
 	}
 }
+
+// --- Migration config defaults tests ---
+
+func TestRunMigrationsDefaultTrue(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.RunMigrations {
+		t.Errorf("default RunMigrations: want true, got false")
+	}
+}
+
+func TestMigrationTimeoutDefault(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.MigrationTimeout != 5*time.Minute {
+		t.Errorf("default MigrationTimeout: want 5m, got %v", cfg.MigrationTimeout)
+	}
+}
+
+func TestRunMigrationsFromEnv(t *testing.T) {
+	t.Setenv("RUN_MIGRATIONS", "false")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.RunMigrations {
+		t.Errorf("RUN_MIGRATIONS=false: want false, got true")
+	}
+}
+
+func TestMigrationTimeoutFromEnv(t *testing.T) {
+	t.Setenv("MIGRATION_TIMEOUT", "10m")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.MigrationTimeout != 10*time.Minute {
+		t.Errorf("MIGRATION_TIMEOUT from env: want 10m, got %v", cfg.MigrationTimeout)
+	}
+}
+
+func TestMigrationTimeoutZeroDisablesDeadline(t *testing.T) {
+	t.Setenv("MIGRATION_TIMEOUT", "0")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.MigrationTimeout != 0 {
+		t.Errorf("MIGRATION_TIMEOUT=0: want 0, got %v", cfg.MigrationTimeout)
+	}
+}

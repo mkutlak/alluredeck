@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -103,8 +104,20 @@ type routeDeps struct {
 // @host            localhost:8080
 // @BasePath        /api/v1
 func main() {
+	migrateOnly := flag.Bool("migrate-only", false, "apply pending database migrations then exit (used by the Helm pre-upgrade migration Job)")
+	flag.Parse()
+
 	cfg, encKey, logger := mustLoadConfig()
 	defer func() { _ = logger.Sync() }()
+
+	// Migrate-and-exit mode: open the store (which applies pending goose + River
+	// migrations under the schema-migration advisory lock) and return. Lets a
+	// single pre-upgrade Job be the migration authority while replicas start
+	// with RUN_MIGRATIONS=false.
+	if *migrateOnly {
+		runMigrateOnly(cfg, encKey, logger)
+		return
+	}
 
 	// Initialise observability (OTel SDK) right after config and logger are
 	// ready. When cfg.Observability.Enabled is false this is a fast no-op.
@@ -359,6 +372,20 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 // webhook store. Returns the populated stores struct, the *sql.DB handle needed
 // by SystemHandler, the Locker interface, and the raw *pg.PGStore so the caller
 // can pass its pool to the job manager and register a deferred close.
+// runMigrateOnly applies pending migrations and exits. cfg.RunMigrations is
+// forced true since applying migrations is the entire purpose of this mode.
+func runMigrateOnly(cfg *config.Config, encKey []byte, logger *zap.Logger) {
+	cfg.RunMigrations = true
+	bs, err := bootstrap.InitStores(context.Background(), cfg, bootstrap.DefaultPoolConfig(), encKey, nil, logger)
+	if err != nil {
+		logger.Fatal("migrate-only: migrations failed", zap.Error(err))
+	}
+	if err := bs.Close(); err != nil {
+		logger.Warn("migrate-only: error closing stores", zap.Error(err))
+	}
+	logger.Info("migrate-only: migrations applied successfully")
+}
+
 func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
 	initCtx := context.Background()
 

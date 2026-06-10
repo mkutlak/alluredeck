@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -82,17 +83,55 @@ func Open(ctx context.Context, cfg *config.Config) (*PGStore, error) {
 	sqlDB := stdlib.OpenDBFromPool(pool)
 
 	s := &PGStore{pool: pool, sqlDB: sqlDB}
-	if err := s.applyMigrations(); err != nil {
+	if err := s.runMigrations(ctx, cfg); err != nil {
 		_ = sqlDB.Close()
 		pool.Close()
-		return nil, fmt.Errorf("apply migrations: %w", err)
-	}
-	if err := s.applyRiverMigrations(ctx); err != nil {
-		_ = sqlDB.Close()
-		pool.Close()
-		return nil, fmt.Errorf("apply River migrations: %w", err)
+		return nil, err
 	}
 	return s, nil
+}
+
+// runMigrations applies goose and River migrations under a Postgres advisory
+// lock so concurrent replicas or binaries cannot race the schema version table.
+// When cfg.RunMigrations is false both migrators are skipped entirely.
+// When cfg.MigrationTimeout is non-zero the whole block runs under a bounded
+// context; a exceeded deadline is surfaced as a clear error message.
+func (s *PGStore) runMigrations(ctx context.Context, cfg *config.Config) error {
+	if !cfg.RunMigrations {
+		slog.Info("schema migrations skipped (RUN_MIGRATIONS=false)")
+		return nil
+	}
+
+	// Build a migration-scoped context with an optional deadline.
+	migCtx := ctx
+	if cfg.MigrationTimeout > 0 {
+		var cancel context.CancelFunc
+		migCtx, cancel = context.WithTimeout(ctx, cfg.MigrationTimeout)
+		defer cancel()
+	}
+
+	// Serialise all concurrent migrators (replicas, api + mcp + backfill) with a
+	// Postgres session-level advisory lock.  The lock is held until migrations
+	// complete; the unlock func releases the connection back to the pool.
+	unlock, err := s.AcquireLock(migCtx, "alluredeck:schema-migrations")
+	if err != nil {
+		if migCtx.Err() != nil {
+			return fmt.Errorf("schema migration exceeded deadline waiting for advisory lock: %w", migCtx.Err())
+		}
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	defer unlock()
+
+	if err := s.applyMigrations(); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+	if err := s.applyRiverMigrations(migCtx); err != nil {
+		if migCtx.Err() != nil {
+			return fmt.Errorf("schema migration exceeded deadline: %w", migCtx.Err())
+		}
+		return fmt.Errorf("apply River migrations: %w", err)
+	}
+	return nil
 }
 
 // Pool returns the underlying *pgxpool.Pool for sub-stores.

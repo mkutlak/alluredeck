@@ -21,7 +21,7 @@ func TestMigrationIdempotency(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	cfg := &config.Config{DatabaseURL: url}
+	cfg := &config.Config{DatabaseURL: url, RunMigrations: true}
 
 	// First open: applies all pending goose + River migrations.
 	s1, err := pg.Open(ctx, cfg)

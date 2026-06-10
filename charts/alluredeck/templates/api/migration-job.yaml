@@ -1,0 +1,124 @@
+{{- if .Values.migrationJob.enabled }}
+{{- /*
+Pre-upgrade migration Job.
+
+Runs the API binary (alluredeck-api) with RUN_MIGRATIONS=true before any
+Deployment pods start. This makes the Job the single migration authority,
+eliminating the concurrent-migrator race between replicas.
+
+Helm hook annotations:
+  pre-install,pre-upgrade  — runs before any workload pods start.
+  hook-weight: "-5"        — runs before other pre-upgrade hooks (lower = earlier).
+  before-hook-creation     — delete the old Job before creating a new one.
+  hook-succeeded           — delete the Job after it succeeds (keeps the namespace clean).
+
+Entrypoint: the API binary with the --migrate-only flag. It applies pending
+goose + River migrations under the schema-migration advisory lock and then
+EXITS 0 — it does not start the HTTP server, so the Job completes as soon as
+migrations finish (seconds). The advisory lock keeps it idempotent if the Job
+is retried (backoffLimit); activeDeadlineSeconds is only a safety cap.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "alluredeck.api.fullname" . }}-migrate
+  labels:
+    {{- include "alluredeck.api.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "alluredeck.api.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      {{- include "alluredeck.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "alluredeck.api.serviceAccountName" . }}
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command: ["/sbin/tini", "--"]
+          args:
+            - /app/alluredeck-api
+            - --migrate-only
+          env:
+            - name: RUN_MIGRATIONS
+              value: "true"
+            - name: MIGRATION_TIMEOUT
+              value: {{ .Values.migrationJob.migrationTimeout | quote }}
+            {{- $secretName := include "alluredeck.api.secretName" . }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: databaseURL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: jwtSecretKey
+            - name: JWT_ACCESS_TOKEN_EXPIRES
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: jwtAccessTokenExpires
+            - name: JWT_REFRESH_TOKEN_EXPIRES
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: jwtRefreshTokenExpires
+            - name: ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: adminUser
+            - name: ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: adminPassword
+            - name: VIEWER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: viewerUser
+            - name: VIEWER_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: viewerPassword
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.api.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.api.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: api-config
+              mountPath: /app/alluredeck/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: api-config
+          configMap:
+            name: {{ include "alluredeck.api.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

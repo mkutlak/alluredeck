@@ -174,6 +174,12 @@ s3:
 {{- if $extURL }}
 external_url: {{ $extURL | quote }}
 {{- end }}
+{{- /* Migration settings: when the pre-upgrade Job is enabled, replicas must not
+     run migrations themselves — set run_migrations: false so only the Job migrates. */}}
+run_migrations: {{ not .Values.migrationJob.enabled }}
+{{- if .Values.migrationJob.enabled }}
+migration_timeout: {{ .Values.migrationJob.migrationTimeout | quote }}
+{{- end }}
 {{- if .Values.api.oidc.enabled }}
 oidc:
   enabled: true

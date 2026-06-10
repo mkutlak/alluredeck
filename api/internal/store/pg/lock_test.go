@@ -18,7 +18,7 @@ func openLockTestStore(t *testing.T) *pg.PGStore {
 	if url == "" {
 		t.Skip("TEST_POSTGRES_URL not set; skipping advisory lock integration test")
 	}
-	s, err := pg.Open(context.Background(), &config.Config{DatabaseURL: url})
+	s, err := pg.Open(context.Background(), &config.Config{DatabaseURL: url, RunMigrations: true})
 	if err != nil {
 		t.Fatalf("pg.Open: %v", err)
 	}
