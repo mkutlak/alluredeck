@@ -44,6 +44,7 @@ type apiKeyResponse struct {
 	LastUsed       *time.Time `json:"last_used"`
 	CreatedAt      time.Time  `json:"created_at"`
 	AllowMCPWrites bool       `json:"allow_mcp_writes"`
+	ProjectIDs     []int64    `json:"project_ids,omitempty"`
 }
 
 // apiKeyCreateResponse extends apiKeyResponse with the full key shown once at creation.
@@ -63,6 +64,7 @@ func keyToResponse(k *store.APIKey) apiKeyResponse {
 		LastUsed:       k.LastUsed,
 		CreatedAt:      k.CreatedAt,
 		AllowMCPWrites: k.AllowMCPWrites,
+		ProjectIDs:     k.ProjectIDs,
 	}
 }
 
@@ -154,6 +156,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name           string  `json:"name"`
 		ExpiresAt      *string `json:"expires_at"`
 		AllowMCPWrites bool    `json:"allow_mcp_writes"`
+		ProjectIDs     []int64 `json:"project_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -166,6 +169,16 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(req.Name) > 64 {
 		writeError(w, http.StatusBadRequest, "name must not exceed 64 characters")
 		return
+	}
+	if len(req.ProjectIDs) > 100 {
+		writeError(w, http.StatusBadRequest, "project_ids must not exceed 100 entries")
+		return
+	}
+	for _, pid := range req.ProjectIDs {
+		if pid <= 0 {
+			writeError(w, http.StatusBadRequest, "each project_id must be a positive integer")
+			return
+		}
 	}
 
 	var expiresAt *time.Time
@@ -208,6 +221,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Role:           role,
 		ExpiresAt:      expiresAt,
 		AllowMCPWrites: req.AllowMCPWrites,
+		ProjectIDs:     req.ProjectIDs,
 	}
 
 	created, err := h.store.Create(ctx, key)

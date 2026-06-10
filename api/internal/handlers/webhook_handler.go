@@ -111,7 +111,14 @@ func isPrivateIP(host string) bool {
 		return false
 	}
 	for _, addr := range ips {
-		if addr.IP.IsLoopback() || addr.IP.IsPrivate() || addr.IP.IsLinkLocalUnicast() || addr.IP.IsLinkLocalMulticast() {
+		// Unwrap IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1) so the IPv4 checks
+		// apply. Mirrors the delivery-time isDisallowedIP in the runner package.
+		ip := addr.IP
+		if v4 := ip.To4(); v4 != nil {
+			ip = v4
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 			return true
 		}
 	}

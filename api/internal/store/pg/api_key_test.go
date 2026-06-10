@@ -192,6 +192,61 @@ func isAPIKeyNotFound(err error) bool {
 	return errors.Is(err, store.ErrAPIKeyNotFound)
 }
 
+// TestPGAPIKeyStore_ProjectScope verifies that project_ids round-trips correctly
+// through Create+GetByHash for both scoped and unscoped keys.
+func TestPGAPIKeyStore_ProjectScope(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	ks := pg.NewAPIKeyStore(s)
+
+	t.Run("scoped key preserves project_ids", func(t *testing.T) {
+		key := &store.APIKey{
+			Name:       fmt.Sprintf("scope-key-%d", time.Now().UnixNano()),
+			Prefix:     "ald_a1b2c3d4",
+			KeyHash:    fmt.Sprintf("scope-hash-%d", time.Now().UnixNano()),
+			Username:   "testuser",
+			Role:       "editor",
+			ProjectIDs: []int64{1, 2},
+		}
+		created, err := ks.Create(ctx, key)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		got, err := ks.GetByHash(ctx, key.KeyHash)
+		if err != nil {
+			t.Fatalf("GetByHash: %v", err)
+		}
+		if len(got.ProjectIDs) != 2 {
+			t.Fatalf("ProjectIDs len = %d, want 2; full: %v", len(got.ProjectIDs), got.ProjectIDs)
+		}
+		if got.ProjectIDs[0] != 1 || got.ProjectIDs[1] != 2 {
+			t.Errorf("ProjectIDs = %v, want [1 2]", got.ProjectIDs)
+		}
+		_ = created
+	})
+
+	t.Run("unscoped key returns empty project_ids", func(t *testing.T) {
+		key := &store.APIKey{
+			Name:     fmt.Sprintf("unscoped-key-%d", time.Now().UnixNano()),
+			Prefix:   "ald_a1b2c3d4",
+			KeyHash:  fmt.Sprintf("unscoped-hash-%d", time.Now().UnixNano()),
+			Username: "testuser",
+			Role:     "viewer",
+			// ProjectIDs intentionally nil/empty
+		}
+		if _, err := ks.Create(ctx, key); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		got, err := ks.GetByHash(ctx, key.KeyHash)
+		if err != nil {
+			t.Fatalf("GetByHash: %v", err)
+		}
+		if len(got.ProjectIDs) != 0 {
+			t.Errorf("unscoped key ProjectIDs = %v, want empty", got.ProjectIDs)
+		}
+	})
+}
+
 // TestPGAPIKeyStore_DeleteAllForUser verifies the bulk-delete invariants used
 // by F-2: every key owned by the target user is removed, the count matches,
 // and keys owned by other users are untouched.

@@ -42,6 +42,9 @@ type APIKey struct {
 	LastUsed       *time.Time `json:"last_used"`
 	CreatedAt      time.Time  `json:"created_at"`
 	AllowMCPWrites bool       `json:"allow_mcp_writes"`
+	// ProjectIDs is an optional allow-list of project IDs this key may access.
+	// An empty slice means the key is instance-wide (unrestricted).
+	ProjectIDs []int64 `json:"project_ids,omitempty"`
 }
 
 // Project represents a registered allure project.

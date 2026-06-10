@@ -43,7 +43,11 @@ func (h *AnalyticsHandler) resolveProjectIDs(ctx context.Context, projectID int6
 		return ids
 	}
 	for _, c := range children {
-		ids = append(ids, c.ID)
+		// A scoped API key only fans out to children it is also authorized for,
+		// so a parent-scoped key cannot read analytics of unlisted children.
+		if apiKeyProjectAllowed(ctx, c.ID) {
+			ids = append(ids, c.ID)
+		}
 	}
 	return ids
 }

@@ -25,22 +25,27 @@ var _ store.APIKeyStorer = (*APIKeyStore)(nil)
 
 // Create inserts a new API key record and returns it with ID and created_at populated.
 func (s *APIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.APIKey, error) {
+	projectIDs := key.ProjectIDs
+	if projectIDs == nil {
+		projectIDs = []int64{}
+	}
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO api_keys (name, prefix, key_hash, username, role, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO api_keys (name, prefix, key_hash, username, role, expires_at, project_ids)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at`,
-		key.Name, key.Prefix, key.KeyHash, key.Username, key.Role, key.ExpiresAt,
+		key.Name, key.Prefix, key.KeyHash, key.Username, key.Role, key.ExpiresAt, projectIDs,
 	).Scan(&key.ID, &key.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
+	key.ProjectIDs = projectIDs
 	return key, nil
 }
 
 // ListByUsername returns all API keys for the given username, newest first.
 func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]store.APIKey, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at, allow_mcp_writes
+		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at, allow_mcp_writes, project_ids
 		FROM api_keys
 		WHERE username = $1
 		ORDER BY created_at DESC`,
@@ -55,7 +60,7 @@ func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]st
 	for rows.Next() {
 		var k store.APIKey
 		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.KeyHash, &k.Username,
-			&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt, &k.AllowMCPWrites); err != nil {
+			&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt, &k.AllowMCPWrites, &k.ProjectIDs); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
 		keys = append(keys, k)
@@ -71,12 +76,12 @@ func (s *APIKeyStore) ListByUsername(ctx context.Context, username string) ([]st
 func (s *APIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.APIKey, error) {
 	var k store.APIKey
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at, allow_mcp_writes
+		SELECT id, name, prefix, key_hash, username, role, expires_at, last_used, created_at, allow_mcp_writes, project_ids
 		FROM api_keys
 		WHERE key_hash = $1`,
 		keyHash,
 	).Scan(&k.ID, &k.Name, &k.Prefix, &k.KeyHash, &k.Username,
-		&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt, &k.AllowMCPWrites)
+		&k.Role, &k.ExpiresAt, &k.LastUsed, &k.CreatedAt, &k.AllowMCPWrites, &k.ProjectIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: hash=%s", store.ErrAPIKeyNotFound, keyHash)
 	}

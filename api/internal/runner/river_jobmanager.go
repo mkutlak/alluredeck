@@ -586,7 +586,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	river.AddWorker(workers, reportWorker)
 	river.AddWorker(workers, &SendWebhookWorker{
 		webhookStore: webhookStore,
-		httpClient:   newOTelHTTPClient(10 * time.Second),
+		httpClient:   newWebhookHTTPClient(10 * time.Second),
 		encKey:       encKey,
 		logger:       logger,
 	})

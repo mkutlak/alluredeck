@@ -189,4 +189,4 @@ Key items specific to this guide:
 - [ ] Configure `TRUST_FORWARDED_FOR=true` when running behind a reverse proxy
 - [ ] Review `audit_log` table periodically; implement a retention policy appropriate for your compliance requirements
 - [ ] If rotating `JWT_SECRET_KEY`, re-encrypt webhook secrets before deploying the new key
-- [ ] Use [API keys](features.md#api-keys-for-cicd) rather than user credentials for CI/CD pipelines — API keys are scoped, audited, and revocable without affecting the user's session
+- [ ] Use [API keys](features.md#api-keys-for-cicd) rather than user credentials for CI/CD pipelines — API keys are role-scoped, audited, and revocable without affecting the user's session. Keys are **instance-wide by default**; set an optional `project_ids` allow-list at creation to restrict a key to specific projects (enforced on project routes — a scoped key cannot read, modify, delete, or create projects outside its list).

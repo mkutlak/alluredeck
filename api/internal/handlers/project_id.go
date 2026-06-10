@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
@@ -158,6 +161,42 @@ func extractProjectIntID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
+// apiKeyProjectAllowed returns false when the request context carries API-key
+// claims with a non-empty project_ids allow-list that does not include id.
+// It returns true (allowed) for JWT-authenticated users (no project_ids claim),
+// for unscoped API keys (empty project_ids), and for scoped keys whose allow-list
+// contains id. This is a pure predicate — callers write the 403 on false.
+func apiKeyProjectAllowed(ctx context.Context, id int64) bool {
+	claims, ok := middleware.ClaimsFromContext(ctx)
+	if !ok {
+		return true // no claims means security is disabled; pass through
+	}
+	authType, _ := claims["auth_type"].(string)
+	if authType != "api_key" {
+		return true // JWT user — unrestricted
+	}
+	projectIDs, _ := claims["project_ids"].([]int64)
+	if len(projectIDs) == 0 {
+		return true // unscoped key — instance-wide
+	}
+	return slices.Contains(projectIDs, id)
+}
+
+// apiKeyIsScoped reports whether the request is authenticated with an API key
+// that carries a non-empty project_ids allow-list. Such keys are restricted to
+// their listed projects and must not create new ones.
+func apiKeyIsScoped(ctx context.Context) bool {
+	claims, ok := middleware.ClaimsFromContext(ctx)
+	if !ok {
+		return false
+	}
+	if at, _ := claims["auth_type"].(string); at != "api_key" {
+		return false
+	}
+	ids, _ := claims["project_ids"].([]int64)
+	return len(ids) > 0
+}
+
 // resolveProjectIntID resolves a project path value (numeric ID or slug) to its
 // int64 primary key. On failure it writes an error response and returns (0, false).
 func resolveProjectIntID(w http.ResponseWriter, r *http.Request, ps store.ProjectReader) (int64, bool) {
@@ -169,11 +208,23 @@ func resolveProjectIntID(w http.ResponseWriter, r *http.Request, ps store.Projec
 
 	// Fallback to numeric-only parsing when no project store is available.
 	if ps == nil {
-		return extractProjectIntID(w, r)
+		id, ok := extractProjectIntID(w, r)
+		if !ok {
+			return 0, false
+		}
+		if !apiKeyProjectAllowed(r.Context(), id) {
+			writeError(w, http.StatusForbidden, "api key is not authorized for this project")
+			return 0, false
+		}
+		return id, true
 	}
 
 	// Numeric ID — accept directly without a DB round-trip.
 	if id, parseErr := strconv.ParseInt(pathValue, 10, 64); parseErr == nil {
+		if !apiKeyProjectAllowed(r.Context(), id) {
+			writeError(w, http.StatusForbidden, "api key is not authorized for this project")
+			return 0, false
+		}
 		return id, true
 	}
 
@@ -190,6 +241,10 @@ func resolveProjectIntID(w http.ResponseWriter, r *http.Request, ps store.Projec
 	// Fall back to slug lookup (includes child projects).
 	project, err := ps.GetProjectBySlugAny(r.Context(), pathValue)
 	if err == nil {
+		if !apiKeyProjectAllowed(r.Context(), project.ID) {
+			writeError(w, http.StatusForbidden, "api key is not authorized for this project")
+			return 0, false
+		}
 		return project.ID, true
 	}
 	if errors.Is(err, store.ErrProjectNotFound) {

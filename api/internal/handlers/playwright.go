@@ -79,6 +79,10 @@ func (h *PlaywrightHandler) resolveProjectID(ctx context.Context, pathValue stri
 func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request) {
 	pathValue := r.PathValue("project_id")
 	projectID, slug, storageKey, found := h.resolveProjectID(r.Context(), pathValue)
+	if found && !apiKeyProjectAllowed(r.Context(), projectID) {
+		writeError(w, http.StatusForbidden, "api key is not authorized for this project")
+		return
+	}
 
 	// Extend HTTP deadlines — Playwright archives can contain hundreds of files,
 	// each requiring an S3 round-trip during extraction.
@@ -90,6 +94,10 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 
 	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
+			if apiKeyIsScoped(r.Context()) {
+				writeError(w, http.StatusForbidden, "scoped api key cannot create new projects")
+				return
+			}
 			slug = pathValue
 			storageKey = slug
 			if err := h.store.CreateProject(r.Context(), storageKey); err != nil {

@@ -98,11 +98,15 @@ func AuthMiddleware(
 				go func() {
 					_ = apiKeyStore.UpdateLastUsed(reqCtx, apiKey.ID)
 				}()
-				// Inject claims compatible with existing JWT claims structure
+				// Inject claims compatible with existing JWT claims structure.
+				// project_ids is stored as []int64 (in-process, not JSON-round-tripped)
+				// so downstream enforcement can type-assert directly. JWT-authenticated
+				// users do not receive this claim and are therefore unrestricted.
 				claims := jwt.MapClaims{
-					"sub":       apiKey.Username,
-					"role":      apiKey.Role,
-					"auth_type": "api_key",
+					"sub":         apiKey.Username,
+					"role":        apiKey.Role,
+					"auth_type":   "api_key",
+					"project_ids": apiKey.ProjectIDs,
 				}
 				ctx := context.WithValue(r.Context(), ClaimsKey, claims)
 				next(w, r.WithContext(ctx))

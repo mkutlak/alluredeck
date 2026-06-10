@@ -51,7 +51,26 @@ func (w *SendWebhookWorker) Work(ctx context.Context, job *river.Job[SendWebhook
 		return nil
 	}
 
-	// 2. Render the message body using the template engine.
+	// 2. Defense-in-depth: re-validate the URL before dialling.  The safe
+	// dialer is the primary enforcement layer; this catches scheme/host
+	// regressions (e.g. a URL stored before SSRF hardening was deployed)
+	// and produces a clear recorded error without a network round-trip.
+	if err := validateWebhookURLRunner(wh.URL); err != nil {
+		errMsg := err.Error()
+		delivery := &store.WebhookDelivery{
+			WebhookID:   a.WebhookID,
+			Event:       a.Payload.Event,
+			Attempt:     job.Attempt,
+			DeliveredAt: time.Now(),
+			Error:       &errMsg,
+		}
+		_ = w.webhookStore.InsertDelivery(ctx, delivery)
+		w.logger.Warn("webhook worker: delivery blocked by URL validation",
+			zap.String("webhook_id", a.WebhookID), zap.Error(err))
+		return err // retry / surface the error
+	}
+
+	// 3. Render the message body using the template engine.
 	body, contentType, err := RenderWebhookPayload(string(wh.TargetType), wh.Template, a.Payload)
 	if err != nil {
 		w.logger.Error("webhook worker: template render failed",
@@ -59,7 +78,7 @@ func (w *SendWebhookWorker) Work(ctx context.Context, job *river.Job[SendWebhook
 		return err // retry
 	}
 
-	// 3. Build HTTP request.
+	// 4. Build HTTP request.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, wh.URL, bytes.NewReader(body))
 	if err != nil {
 		w.logger.Error("webhook worker: create request failed",
@@ -69,7 +88,7 @@ func (w *SendWebhookWorker) Work(ctx context.Context, job *river.Job[SendWebhook
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "AllureDeck-Webhook/1.0")
 
-	// 4. HMAC signature for webhooks with a secret.
+	// 5. HMAC signature for webhooks with a secret.
 	if wh.Secret != nil && *wh.Secret != "" {
 		mac := hmac.New(sha256.New, []byte(*wh.Secret))
 		mac.Write(body)
@@ -77,10 +96,10 @@ func (w *SendWebhookWorker) Work(ctx context.Context, job *river.Job[SendWebhook
 		req.Header.Set("X-AllureDeck-Signature", "sha256="+sig)
 	}
 
-	// 5. Execute HTTP POST.
+	// 6. Execute HTTP POST.
 	resp, err := w.httpClient.Do(req)
 
-	// 6. Record delivery.
+	// 7. Record delivery.
 	delivery := &store.WebhookDelivery{
 		WebhookID:   a.WebhookID,
 		Event:       a.Payload.Event,

@@ -75,6 +75,10 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusNotFound, fmt.Sprintf("project '%s' not found", pathValue))
 		return
 	}
+	if !apiKeyProjectAllowed(r.Context(), projectID) {
+		writeError(w, http.StatusForbidden, "api key is not authorized for this project")
+		return
+	}
 	_ = projectID // DB operations would use this
 
 	if err := h.runner.CleanResults(r.Context(), storageKey); err != nil {
@@ -111,6 +115,10 @@ func (h *ResultUploadHandler) CleanResults(w http.ResponseWriter, r *http.Reques
 func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request) {
 	pathValue := r.PathValue("project_id")
 	projectID, slug, storageKey, found := h.resolveProjectID(r.Context(), pathValue)
+	if found && !apiKeyProjectAllowed(r.Context(), projectID) {
+		writeError(w, http.StatusForbidden, "api key is not authorized for this project")
+		return
+	}
 
 	batchID := runner.GenerateBatchID()
 
@@ -126,6 +134,10 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 
 	if !found {
 		if r.URL.Query().Get("force_project_creation") == "true" {
+			if apiKeyIsScoped(r.Context()) {
+				writeError(w, http.StatusForbidden, "scoped api key cannot create new projects")
+				return
+			}
 			slug = pathValue // use path value as slug for new project
 			storageKey = slug
 			// Create filesystem project via runner.
