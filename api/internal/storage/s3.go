@@ -27,6 +27,14 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
 
+// maxGetObjectBytes is the upper bound for a single getObjectBytes call.
+// Callers retrieve config files, JSON result manifests, and small attachments —
+// none of which should approach this limit under normal operation. The cap
+// protects the worker process against a runaway or corrupted object consuming
+// unbounded memory; it is NOT a constraint on legitimate report content, which
+// is streamed or handled in parts elsewhere.
+const maxGetObjectBytes = 256 * 1024 * 1024 // 256 MiB
+
 // defaultSizeWarnBytes is the cumulative download threshold above which PrepareLocal
 // emits a warning log. 1 GiB is large enough to be unusual for Allure result sets.
 const defaultSizeWarnBytes int64 = 1 << 30
@@ -719,6 +727,10 @@ func (s *S3Store) ResultsDirHash(_ context.Context, _ string) (string, error) {
 }
 
 // getObjectBytes is a helper that downloads a full S3 object to memory.
+// It rejects objects whose ContentLength (when reported by S3) exceeds
+// maxGetObjectBytes, and falls back to a LimitReader guard for objects
+// whose size is unknown. Either check produces an explicit error rather
+// than silently truncating data — the caller must treat an error as fatal.
 func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
@@ -728,9 +740,20 @@ func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error
 		return nil, fmt.Errorf("get object %q: %w", key, err)
 	}
 	defer func() { _ = out.Body.Close() }()
-	data, err := io.ReadAll(out.Body)
+
+	// Reject early when S3 reports a known content length.
+	if out.ContentLength != nil && *out.ContentLength > maxGetObjectBytes {
+		return nil, fmt.Errorf("s3 object %q exceeds max read size (%d bytes)", key, *out.ContentLength)
+	}
+
+	// Read one extra byte so we can detect a body that exceeds the cap even
+	// when ContentLength was absent or misreported.
+	data, err := io.ReadAll(io.LimitReader(out.Body, maxGetObjectBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read object %q: %w", key, err)
+	}
+	if int64(len(data)) > maxGetObjectBytes {
+		return nil, fmt.Errorf("s3 object %q exceeds max read size", key)
 	}
 	return data, nil
 }

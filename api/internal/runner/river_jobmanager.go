@@ -485,6 +485,54 @@ func (jm *RiverJobManager) upsertJobProgress(ctx context.Context, jobID int64, p
 	}
 }
 
+// readJobProgressBatch fetches phase/progress for a batch of jobs in a single
+// query. Jobs with no progress row are simply absent from the returned map.
+// Errors are logged and an empty (non-nil) map is returned so callers can
+// proceed without progress data rather than failing.
+func (jm *RiverJobManager) readJobProgressBatch(ctx context.Context, jobIDs []int64) map[int64]struct {
+	phase JobPhase
+	done  int
+	total int
+} {
+	result := make(map[int64]struct {
+		phase JobPhase
+		done  int
+		total int
+	}, len(jobIDs))
+	if len(jobIDs) == 0 {
+		return result
+	}
+	rows, err := jm.pool.Query(ctx,
+		`SELECT job_id, phase, progress_done, progress_total FROM job_progress WHERE job_id = ANY($1)`,
+		jobIDs)
+	if err != nil {
+		jm.logger.Warn("failed to batch-read job_progress", zap.Error(err))
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			id    int64
+			phase string
+			done  int
+			total int
+		)
+		if err := rows.Scan(&id, &phase, &done, &total); err != nil {
+			jm.logger.Warn("failed to scan job_progress row", zap.Error(err))
+			continue
+		}
+		result[id] = struct {
+			phase JobPhase
+			done  int
+			total int
+		}{JobPhase(phase), done, total}
+	}
+	if err := rows.Err(); err != nil {
+		jm.logger.Warn("failed to iterate job_progress rows", zap.Error(err))
+	}
+	return result
+}
+
 // readJobProgress fetches the most recent phase/progress for a job. Returns
 // ("", 0, 0, false) when no row exists. Errors other than no-rows are logged.
 func (jm *RiverJobManager) readJobProgress(ctx context.Context, jobID int64) (JobPhase, int, int, bool) {
@@ -789,13 +837,20 @@ func (jm *RiverJobManager) ListJobs(ctx context.Context) []*Job {
 		return []*Job{}
 	}
 
+	// Collect all River IDs for a single batch progress query (avoids N+1).
+	ids := make([]int64, 0, len(res.Jobs))
+	for _, r := range res.Jobs {
+		ids = append(ids, r.ID)
+	}
+	progressByID := jm.readJobProgressBatch(ctx, ids)
+
 	jobs := make([]*Job, 0, len(res.Jobs))
 	for _, r := range res.Jobs {
 		j := riverRowToJob(r)
-		if phase, done, total, ok := jm.readJobProgress(ctx, r.ID); ok {
-			j.Phase = phase
-			if done > 0 || total > 0 {
-				j.Progress = &JobProgress{Done: done, Total: total}
+		if p, ok := progressByID[r.ID]; ok {
+			j.Phase = p.phase
+			if p.done > 0 || p.total > 0 {
+				j.Progress = &JobProgress{Done: p.done, Total: p.total}
 			}
 		}
 		jobs = append(jobs, j)

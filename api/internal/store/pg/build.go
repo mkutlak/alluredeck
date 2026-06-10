@@ -567,10 +567,10 @@ func (bs *BuildStore) PruneBuildsBranch(ctx context.Context, projectID int64, ke
 		return nil, fmt.Errorf("iterate prune branch rows: %w", err)
 	}
 
-	for _, bo := range toRemove {
+	if len(toRemove) > 0 {
 		if _, err := bs.pool.Exec(ctx,
-			"DELETE FROM builds WHERE project_id=$1 AND build_order=$2", projectID, bo); err != nil {
-			return nil, fmt.Errorf("delete build %d: %w", bo, err)
+			"DELETE FROM builds WHERE project_id=$1 AND build_order = ANY($2)", projectID, toRemove); err != nil {
+			return nil, fmt.Errorf("delete builds branch: %w", err)
 		}
 	}
 	return toRemove, nil
@@ -600,10 +600,10 @@ func (bs *BuildStore) PruneBuildsByAge(ctx context.Context, projectID int64, old
 		return nil, fmt.Errorf("iterate prune age rows: %w", err)
 	}
 
-	for _, bo := range toRemove {
+	if len(toRemove) > 0 {
 		if _, err := bs.pool.Exec(ctx,
-			"DELETE FROM builds WHERE project_id=$1 AND build_order=$2", projectID, bo); err != nil {
-			return nil, fmt.Errorf("delete build %d: %w", bo, err)
+			"DELETE FROM builds WHERE project_id=$1 AND build_order = ANY($2)", projectID, toRemove); err != nil {
+			return nil, fmt.Errorf("delete builds by age: %w", err)
 		}
 	}
 	return toRemove, nil
