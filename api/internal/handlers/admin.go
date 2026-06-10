@@ -345,6 +345,39 @@ func (h *AdminHandler) CleanBulkResults(w http.ResponseWriter, r *http.Request) 
 	writeSuccess(w, http.StatusOK, map[string]any{"cleaned": cleaned}, fmt.Sprintf("results cleaned for %d project(s)", cleaned))
 }
 
+// RetryJob godoc
+// @Summary      Retry a failed job
+// @Description  Makes a failed or discarded async job immediately available for re-execution.
+// @Tags         admin
+// @Produce      json
+// @Param        job_id  path  string  true  "Job ID"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  map[string]any
+// @Failure      404  {object}  map[string]any
+// @Failure      500  {object}  map[string]any
+// @Router       /admin/jobs/{job_id}/retry [post]
+func (h *AdminHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("job_id")
+	if jobID == "" {
+		writeError(w, http.StatusBadRequest, "job_id is required")
+		return
+	}
+
+	err := h.jobManager.Retry(r.Context(), jobID)
+	if err == nil {
+		writeSuccess(w, http.StatusOK, map[string]any{}, "job queued for retry")
+		return
+	}
+
+	if errors.Is(err, runner.ErrJobNotFound) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	h.logger.Error("admin: retry job failed", zap.String("job_id", jobID), zap.Error(err))
+	writeError(w, http.StatusInternalServerError, "internal error")
+}
+
 // DeleteJob godoc
 // @Summary      Delete a terminal job
 // @Description  Permanently removes a completed, failed, or cancelled job record.

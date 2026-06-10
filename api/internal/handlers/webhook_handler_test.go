@@ -292,6 +292,34 @@ func TestWebhookHandler_Create_InvalidTargetType(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_Create_InvalidEvent(t *testing.T) {
+	t.Parallel()
+	h, _ := newTestWebhookHandler(t)
+
+	body := map[string]any{
+		"name":        "wh",
+		"target_type": "slack",
+		"url":         "https://example.com/hook",
+		"events":      []string{"report_completed", "bogus_event"},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/projects/proj-1/webhooks", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("project_id", "1")
+
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for unknown event, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestWebhookHandler_Create_InvalidURL_NonHTTPS(t *testing.T) {
 	t.Parallel()
 	h, _ := newTestWebhookHandler(t)

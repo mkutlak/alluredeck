@@ -115,6 +115,9 @@ type JobQueuer interface {
 	ListJobs(ctx context.Context) []*Job
 	Cancel(ctx context.Context, jobID string) error
 	Delete(ctx context.Context, jobID string) error
+	// Retry makes a failed or discarded job immediately available for re-execution.
+	// Returns ErrJobNotFound if no job with that ID exists.
+	Retry(ctx context.Context, jobID string) error
 	Get(ctx context.Context, jobID string) *Job
 	Start(ctx context.Context)
 	Shutdown()

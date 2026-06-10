@@ -15,6 +15,9 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
@@ -185,27 +188,29 @@ func (w *PlaywrightIngestWorker) enqueueWebhooks(ctx context.Context, projectID 
 	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.webhookStore, w.riverClient, w.externalURL, w.logger)
 }
 
-// enqueueWebhooksForProject constructs a WebhookPayload from the latest build
-// and enqueues delivery jobs for all active webhooks.
-func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore store.BuildStorer, webhookStore store.WebhookStorer, riverClient *river.Client[pgx.Tx], externalURL string, logger *zap.Logger) error {
-	// Get active webhooks for this project
-	webhooks, err := webhookStore.ListActiveForEvent(ctx, projectID, "report_completed")
-	if err != nil {
-		return fmt.Errorf("list active webhooks: %w", err)
-	}
-	if len(webhooks) == 0 {
-		return nil
-	}
+// webhookEventPriority defines the specificity order for event selection.
+// Higher index = more specific. Used to pick the most specific triggered event
+// that a webhook subscribes to.
+var webhookEventPriority = []string{
+	store.WebhookEventReportCompleted,
+	store.WebhookEventReportFailed,
+	store.WebhookEventRegressionDetected,
+}
 
+// enqueueWebhooksForProject constructs a WebhookPayload from the latest build,
+// derives the set of triggered events, and enqueues ONE delivery per active
+// webhook whose subscribed events intersect the triggered set. Each webhook
+// receives the most specific triggered event it subscribes to.
+func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore store.BuildStorer, webhookStore store.WebhookStorer, riverClient *river.Client[pgx.Tx], externalURL string, logger *zap.Logger) error {
 	// Get latest build for stats
 	build, err := buildStore.GetLatestBuild(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("get latest build: %w", err)
 	}
 
-	// Construct payload
+	// Construct base payload
 	payload := WebhookPayload{
-		Event:       "report_completed",
+		Event:       store.WebhookEventReportCompleted,
 		ProjectID:   projectID,
 		BuildNumber: build.BuildNumber,
 		Timestamp:   time.Now(),
@@ -255,25 +260,123 @@ func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore 
 		}
 	}
 
-	// Enqueue one job per webhook
-	for i := range webhooks {
+	// Derive the set of triggered events for this build.
+	triggeredSet := map[string]bool{
+		store.WebhookEventReportCompleted: true,
+	}
+	if derefInt(build.StatFailed) > 0 {
+		triggeredSet[store.WebhookEventReportFailed] = true
+	}
+	if payload.Delta != nil && payload.Delta.NewFailures > 0 {
+		triggeredSet[store.WebhookEventRegressionDetected] = true
+	}
+
+	// Collect all active webhooks for this project from each triggered event,
+	// deduplicating by webhook ID so a webhook subscribed to multiple triggered
+	// events is only delivered once.
+	seen := make(map[string]bool)
+	type webhookWithEvent struct {
+		id    string
+		event string
+	}
+	var deliveries []webhookWithEvent
+
+	// Iterate priority order (least→most specific) so the last assignment wins,
+	// giving us the most specific event when a webhook subscribes to several.
+	for _, event := range webhookEventPriority {
+		if !triggeredSet[event] {
+			continue
+		}
+		whs, err := webhookStore.ListActiveForEvent(ctx, projectID, event)
+		if err != nil {
+			logger.Warn("river: list active webhooks failed",
+				zap.Int64("project_id", projectID), zap.String("event", event), zap.Error(err))
+			continue
+		}
+		for i := range whs {
+			id := whs[i].ID
+			// Overwrite: most specific event seen last wins.
+			seen[id] = true
+			deliveries = append(deliveries, webhookWithEvent{id: id, event: event})
+		}
+	}
+
+	// Deduplicate: keep only the last entry per webhook ID (most specific event).
+	finalDeliveries := make(map[string]string) // webhookID → event
+	for _, d := range deliveries {
+		finalDeliveries[d.id] = d.event
+	}
+
+	if len(finalDeliveries) == 0 {
+		return nil
+	}
+
+	// Enqueue one job per webhook with its most specific event.
+	count := 0
+	for whID, event := range finalDeliveries {
+		p := payload
+		p.Event = event
 		_, err := riverClient.Insert(ctx, SendWebhookArgs{
-			WebhookID: webhooks[i].ID,
-			Payload:   payload,
+			WebhookID: whID,
+			Payload:   p,
 		}, &river.InsertOpts{
 			Queue:       "webhooks",
 			MaxAttempts: 5,
 		})
 		if err != nil {
 			logger.Warn("river: failed to enqueue webhook",
-				zap.String("webhook_id", webhooks[i].ID), zap.Error(err))
+				zap.String("webhook_id", whID), zap.Error(err))
+			continue
 		}
+		count++
 	}
 
 	logger.Info("river: enqueued webhook notifications",
 		zap.Int64("project_id", projectID),
-		zap.Int("count", len(webhooks)))
+		zap.Int("count", count))
 	return nil
+}
+
+// enqueueFailureWebhook enqueues a minimal report_failed webhook delivery for
+// all webhooks in the project that subscribe to report_failed or report_completed.
+// Best-effort: errors are logged and not returned.
+func enqueueFailureWebhook(ctx context.Context, projectID int64, webhookStore store.WebhookStorer, riverClient *river.Client[pgx.Tx], logger *zap.Logger) {
+	payload := WebhookPayload{
+		Event:     store.WebhookEventReportFailed,
+		ProjectID: projectID,
+		Timestamp: time.Now(),
+	}
+
+	// Collect webhooks subscribed to report_failed or report_completed (fallback).
+	seen := make(map[string]bool)
+
+	for _, event := range []string{store.WebhookEventReportCompleted, store.WebhookEventReportFailed} {
+		whs, err := webhookStore.ListActiveForEvent(ctx, projectID, event)
+		if err != nil {
+			logger.Warn("river: enqueueFailureWebhook: list failed",
+				zap.Int64("project_id", projectID), zap.String("event", event), zap.Error(err))
+			continue
+		}
+		for i := range whs {
+			id := whs[i].ID
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			p := payload
+			_, err := riverClient.Insert(ctx, SendWebhookArgs{
+				WebhookID: id,
+				Payload:   p,
+			}, &river.InsertOpts{
+				Queue:       "webhooks",
+				MaxAttempts: 5,
+			})
+			if err != nil {
+				logger.Warn("river: enqueueFailureWebhook: insert failed",
+					zap.String("webhook_id", id), zap.Error(err))
+			}
+		}
+	}
 }
 
 // derefInt safely dereferences an *int, returning 0 if nil.
@@ -290,6 +393,68 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// jobFailedErrorHandler is a River ErrorHandler that increments the
+// aldeck_jobs_failed_total counter and fires a report_failed webhook when a
+// job exhausts all its retry attempts (final discard).
+type jobFailedErrorHandler struct {
+	counter      metric.Int64Counter
+	webhookStore store.WebhookStorer
+	riverClient  *river.Client[pgx.Tx]
+	logger       *zap.Logger
+}
+
+// compile-time check
+var _ river.ErrorHandler = (*jobFailedErrorHandler)(nil)
+
+// HandleError is called by River after each failed attempt. We only act when
+// the job has exhausted all attempts (Attempt >= MaxAttempts) — that is the
+// final discard that operators need to know about.
+func (h *jobFailedErrorHandler) HandleError(ctx context.Context, job *rivertype.JobRow, err error) *river.ErrorHandlerResult {
+	if job.Attempt < job.MaxAttempts {
+		return nil // still has retries remaining
+	}
+	h.recordFailure(ctx, job)
+	return nil
+}
+
+// HandlePanic is called by River when a job panics. Treat a panic on the final
+// attempt the same as a hard failure.
+func (h *jobFailedErrorHandler) HandlePanic(ctx context.Context, job *rivertype.JobRow, _ any, _ string) *river.ErrorHandlerResult {
+	if job.Attempt < job.MaxAttempts {
+		return nil
+	}
+	h.recordFailure(ctx, job)
+	return nil
+}
+
+// recordFailure increments the counter and fires a failure webhook.
+func (h *jobFailedErrorHandler) recordFailure(ctx context.Context, job *rivertype.JobRow) {
+	h.counter.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", job.Kind)))
+
+	projectID := projectIDFromJobRow(job)
+	if projectID == 0 || h.webhookStore == nil || h.riverClient == nil {
+		return
+	}
+	// Fire-and-forget: use a background context so River's cancellation of the
+	// job context doesn't prevent the webhook insert.
+	bgCtx := context.WithoutCancel(ctx)
+	go func() {
+		enqueueFailureWebhook(bgCtx, projectID, h.webhookStore, h.riverClient, h.logger)
+	}()
+}
+
+// projectIDFromJobRow decodes the project_id from any known job arg type.
+// Returns 0 if the job kind is unknown or the field is absent.
+func projectIDFromJobRow(job *rivertype.JobRow) int64 {
+	var args struct {
+		ProjectID int64 `json:"project_id"`
+	}
+	if json.Unmarshal(job.EncodedArgs, &args) == nil && args.ProjectID != 0 {
+		return args.ProjectID
+	}
+	return 0
 }
 
 // RiverJobManager implements JobQueuer using River backed by PostgreSQL.
@@ -422,6 +587,24 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		))
 	}
 
+	// Register the aldeck_jobs_failed_total counter via the global OTel meter.
+	meter := otel.GetMeterProvider().Meter("aldeck")
+	jobsFailedCounter, err := meter.Int64Counter(
+		"aldeck_jobs_failed_total",
+		metric.WithDescription("Total number of River jobs that have exhausted all retry attempts"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create jobs_failed counter: %w", err)
+	}
+
+	// The ErrorHandler references the River client — we wire it back after
+	// client construction below.
+	errHandler := &jobFailedErrorHandler{
+		counter:      jobsFailedCounter,
+		webhookStore: webhookStore,
+		logger:       logger,
+	}
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: maxWorkers},
@@ -431,6 +614,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		WorkerMiddleware: []rivertype.WorkerMiddleware{
 			NewOTelWorkerMiddleware(),
 		},
+		ErrorHandler: errHandler,
 		PeriodicJobs: periodicJobs,
 	})
 	if err != nil {
@@ -445,6 +629,8 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	if stagedWorker != nil {
 		stagedWorker.riverClient = client
 	}
+	// Wire client into the error handler so it can enqueue failure webhooks.
+	errHandler.riverClient = client
 
 	jm.client = client
 	return jm, nil
@@ -644,6 +830,23 @@ func (jm *RiverJobManager) Delete(ctx context.Context, jobID string) error {
 	}
 	// Best-effort progress cleanup; failures are logged inside the helper.
 	jm.deleteJobProgress(ctx, id)
+	return nil
+}
+
+// Retry makes a failed or discarded River job immediately available for
+// re-execution. Returns ErrJobNotFound if no job with that ID exists.
+func (jm *RiverJobManager) Retry(ctx context.Context, jobID string) error {
+	id, err := strconv.ParseInt(jobID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
+	}
+	_, err = jm.client.JobRetry(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
+			return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
+		}
+		return fmt.Errorf("retry job %q: %w", jobID, err)
+	}
 	return nil
 }
 

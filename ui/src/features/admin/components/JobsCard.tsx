@@ -31,7 +31,7 @@ export function JobsCard() {
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(20)
 
-  const { data, isLoading, doCancel } = useAdminJobs(page, perPage)
+  const { data, isLoading, doCancel, doRetry } = useAdminJobs(page, perPage)
   const jobs = data?.data ?? []
   const pagination = data?.pagination
   const totalPages = Math.max(1, pagination?.total_pages ?? 1)
@@ -119,6 +119,11 @@ export function JobsCard() {
         {(job.status === 'pending' || job.status === 'running' || job.status === 'retrying') && (
           <Button size="sm" variant="outline" onClick={() => doCancel(job.job_id)}>
             Cancel
+          </Button>
+        )}
+        {job.status === 'failed' && (
+          <Button size="sm" variant="outline" onClick={() => doRetry(job.job_id)}>
+            Retry
           </Button>
         )}
       </TableCell>

@@ -399,6 +399,23 @@ func TestAdminCancelJob_NotFound(t *testing.T) {
 	}
 }
 
+func TestAdminRetryJob_NotFound(t *testing.T) {
+	gen := newBlockingGen()
+	defer close(gen.ch)
+
+	jm := newAdminTestJobManager(t, gen, 2)
+	h := newTestAdminHandler(t, jm, &storage.MockStore{})
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/jobs/bogus-id/retry", nil)
+	req.SetPathValue("job_id", "bogus-id")
+	rr := httptest.NewRecorder()
+	h.RetryJob(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("want 404 for unknown job, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
 	gen := newBlockingGen()
 

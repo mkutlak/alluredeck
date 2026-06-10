@@ -20,6 +20,10 @@ export async function cancelJob(jobId: string): Promise<void> {
   await apiClient.post(`/admin/jobs/${encodeURIComponent(jobId)}/cancel`)
 }
 
+export async function retryJob(jobId: string): Promise<void> {
+  await apiClient.post(`/admin/jobs/${encodeURIComponent(jobId)}/retry`)
+}
+
 export async function cleanAdminResults(projectId: string): Promise<void> {
   await apiClient.delete(`/admin/results/${encodeURIComponent(projectId)}`)
 }

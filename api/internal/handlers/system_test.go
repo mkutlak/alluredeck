@@ -156,6 +156,7 @@ func (s *stubQueue) SubmitStagedTarGz(context.Context, int64, string, runner.Sta
 func (s *stubQueue) ListJobs(context.Context) []*runner.Job  { return nil }
 func (s *stubQueue) Cancel(context.Context, string) error    { return nil }
 func (s *stubQueue) Delete(context.Context, string) error    { return nil }
+func (s *stubQueue) Retry(context.Context, string) error     { return nil }
 func (s *stubQueue) Get(context.Context, string) *runner.Job { return nil }
 func (s *stubQueue) Start(context.Context)                   {}
 func (s *stubQueue) Shutdown()                               {}

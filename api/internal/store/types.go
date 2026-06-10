@@ -305,6 +305,15 @@ const (
 	WebhookTargetGeneric WebhookTargetType = "generic"
 )
 
+// Webhook event name constants. These are the only values accepted in
+// Webhook.Events and in the event filtering logic. Keep backwards-compatible:
+// "report_completed" was the original implicit default.
+const (
+	WebhookEventReportCompleted    = "report_completed"
+	WebhookEventReportFailed       = "report_failed"
+	WebhookEventRegressionDetected = "regression_detected"
+)
+
 // DiffEntry represents a single test in a build comparison result.
 type DiffEntry struct {
 	TestName  string

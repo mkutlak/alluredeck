@@ -830,6 +830,7 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(d.h.admin.ListJobs)))
 	mux.HandleFunc("GET "+prefix+"/admin/results", adminOnly(noStore(d.h.admin.ListPendingResults)))
 	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/cancel", adminOnly(noStore(d.h.admin.CancelJob)))
+	mux.HandleFunc("POST "+prefix+"/admin/jobs/{job_id}/retry", adminOnly(noStore(d.h.admin.RetryJob)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/jobs/{job_id}", adminOnly(noStore(d.h.admin.DeleteJob)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/results", adminOnly(noStore(d.h.admin.CleanBulkResults)))
 	mux.HandleFunc("DELETE "+prefix+"/admin/results/{project_id}", adminOnly(noStore(d.h.admin.CleanProjectResults)))

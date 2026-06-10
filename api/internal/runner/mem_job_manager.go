@@ -180,6 +180,18 @@ func (m *MemJobManager) Cancel(_ context.Context, jobID string) error {
 	return nil
 }
 
+// Retry is not supported by MemJobManager — it has no persistent job store to
+// re-activate from. Returns a clear error that callers can surface to the user.
+func (m *MemJobManager) Retry(_ context.Context, jobID string) error {
+	m.mu.Lock()
+	_, ok := m.jobs[jobID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("job %q: %w", jobID, ErrJobNotFound)
+	}
+	return fmt.Errorf("retry not supported in memory mode")
+}
+
 // Delete removes a terminal job (completed, failed, or cancelled) by ID.
 // Returns an error ending with "not found" if the job does not exist,
 // or ending with "not in a terminal state" if the job is still active.

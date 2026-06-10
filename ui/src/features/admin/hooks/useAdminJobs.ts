@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-keys'
-import { fetchAdminJobs, cancelJob, deleteJob } from '@/api/admin'
+import { fetchAdminJobs, cancelJob, deleteJob, retryJob } from '@/api/admin'
 import { toast } from '@/components/ui/use-toast'
 import { extractErrorMessage } from '@/api/client'
 
@@ -42,5 +42,20 @@ export function useAdminJobs(page: number, perPage: number) {
     },
   })
 
-  return { ...query, doCancel, doDelete }
+  const { mutate: doRetry } = useMutation({
+    mutationFn: retryJob,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-jobs'] })
+      toast({ title: 'Job queued for retry' })
+    },
+    onError: (err) => {
+      toast({
+        title: 'Failed to retry job',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
+    },
+  })
+
+  return { ...query, doCancel, doDelete, doRetry }
 }

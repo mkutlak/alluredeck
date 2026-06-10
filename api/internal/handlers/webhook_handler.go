@@ -142,6 +142,23 @@ var validTargetTypes = map[store.WebhookTargetType]bool{
 	store.WebhookTargetTeams: true, store.WebhookTargetGeneric: true,
 }
 
+// validWebhookEvents is the allowed set of webhook event names.
+var validWebhookEvents = map[string]bool{
+	store.WebhookEventReportCompleted:    true,
+	store.WebhookEventReportFailed:       true,
+	store.WebhookEventRegressionDetected: true,
+}
+
+// validateWebhookEvents returns an error if any event in the slice is unknown.
+func validateWebhookEvents(events []string) error {
+	for _, e := range events {
+		if !validWebhookEvents[e] {
+			return fmt.Errorf("unknown event %q: must be one of report_completed, report_failed, regression_detected", e)
+		}
+	}
+	return nil
+}
+
 // maxWebhooksPerProject is the maximum number of webhooks allowed per project.
 const maxWebhooksPerProject = 10
 
@@ -242,10 +259,16 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate event names before applying defaults.
+	if err := validateWebhookEvents(req.Events); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Apply defaults.
 	events := req.Events
 	if len(events) == 0 {
-		events = []string{"report_completed"}
+		events = []string{store.WebhookEventReportCompleted}
 	}
 	isActive := true
 	if req.IsActive != nil {
@@ -395,6 +418,10 @@ func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
 		wh.Template = req.Template
 	}
 	if len(req.Events) > 0 {
+		if err := validateWebhookEvents(req.Events); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		wh.Events = req.Events
 	}
 	if req.IsActive != nil {
