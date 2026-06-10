@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchLowPerformingTests } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { CardState } from '@/components/ui/CardState'
 import { LineChart, Line } from 'recharts'
 
 interface Props {
@@ -36,7 +36,7 @@ const MiniSparkline = React.memo(function MiniSparkline({ data }: { data: number
 export function LowPerformingCard({ projectId, branch }: Props) {
   const [sort, setSort] = useState<SortMode>('duration')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.lowPerforming(projectId, sort, branch),
     queryFn: () => fetchLowPerformingTests(projectId, sort, 20, 20, branch),
     staleTime: 60_000,
@@ -70,17 +70,14 @@ export function LowPerformingCard({ projectId, branch }: Props) {
         </div>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </div>
-        ) : tests.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No data yet — generate some reports to see trends.
-          </p>
-        ) : (
+        <CardState
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          isEmpty={tests.length === 0}
+          refetch={refetch}
+          emptyMessage="No data yet — generate some reports to see trends."
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -115,7 +112,7 @@ export function LowPerformingCard({ projectId, branch }: Props) {
               </tbody>
             </table>
           </div>
-        )}
+        </CardState>
       </CardContent>
     </Card>
   )

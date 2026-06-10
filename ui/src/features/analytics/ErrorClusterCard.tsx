@@ -2,9 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchTopErrors } from '@/api/analytics'
 import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { CardState } from '@/components/ui/CardState'
 
 interface Props {
   projectId: string
@@ -23,7 +23,7 @@ function truncateMessage(message: string): { text: string; truncated: boolean } 
 }
 
 export function ErrorClusterCard({ projectId, branch }: Props) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.topErrors(projectId, BUILDS, branch),
     queryFn: () => fetchTopErrors(projectId, BUILDS, LIMIT, branch),
     staleTime: 60_000,
@@ -37,17 +37,14 @@ export function ErrorClusterCard({ projectId, branch }: Props) {
         <CardTitle className="text-sm font-medium">Top Failure Messages</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </div>
-        ) : errors.length === 0 ? (
-          <p className="text-muted-foreground py-4 text-center text-sm">
-            No failure data available
-          </p>
-        ) : (
+        <CardState
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          isEmpty={errors.length === 0}
+          refetch={refetch}
+          emptyMessage="No failure data available"
+        >
           <TooltipProvider>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -86,7 +83,7 @@ export function ErrorClusterCard({ projectId, branch }: Props) {
               </table>
             </div>
           </TooltipProvider>
-        )}
+        </CardState>
       </CardContent>
     </Card>
   )

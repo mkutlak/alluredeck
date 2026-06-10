@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { FormError } from '@/components/ui/FormError'
 import { toast } from '@/components/ui/use-toast'
 import { useState } from 'react'
 
@@ -103,7 +104,7 @@ export function CleanDialog({ projectId, mode, open, onOpenChange, groupMode }: 
           </AlertDialogTitle>
           <AlertDialogDescription>{msg.description} This cannot be undone.</AlertDialogDescription>
         </AlertDialogHeader>
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        <FormError message={error} />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button

@@ -5,6 +5,8 @@ import {
   cleanAdminResults,
   cleanAdminResultsBulk,
 } from '@/api/admin'
+import { toast } from '@/components/ui/use-toast'
+import { extractErrorMessage } from '@/api/client'
 
 export function useAdminResults() {
   const queryClient = useQueryClient()
@@ -20,12 +22,26 @@ export function useAdminResults() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.adminResults })
     },
+    onError: (err) => {
+      toast({
+        title: 'Failed to clean results',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
+    },
   })
 
   const { mutate: doCleanBulk } = useMutation({
     mutationFn: cleanAdminResultsBulk,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.adminResults })
+    },
+    onError: (err) => {
+      toast({
+        title: 'Failed to clean results',
+        description: extractErrorMessage(err),
+        variant: 'destructive',
+      })
     },
   })
 

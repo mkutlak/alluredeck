@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { reportError } from '@/lib/errorReporter'
 
 interface Props {
   children: ReactNode
@@ -22,7 +23,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info.componentStack)
-    // Error reporting is intentionally not wired up yet; revisit when we pick an observability vendor.
+    reportError(error, {
+      source: 'react',
+      meta: { componentStack: info.componentStack ?? undefined },
+    })
   }
 
   handleReset = () => {

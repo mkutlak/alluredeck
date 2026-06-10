@@ -15,6 +15,21 @@ export class ApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// NetworkError — wraps fetch-level failures (network down, timeout, DNS)
+// ---------------------------------------------------------------------------
+export class NetworkError extends Error {
+  cause?: unknown
+
+  constructor(message: string, cause?: unknown) {
+    super(message)
+    this.name = 'NetworkError'
+    this.cause = cause
+  }
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 interface RequestConfig {
@@ -93,6 +108,31 @@ function isRefreshResponseBody(value: unknown): value is RefreshResponseBody {
   )
 }
 
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new NetworkError(
+        `Request timed out after ${timeoutMs / 1000}s — the server may be overloaded.`,
+        err,
+      )
+    }
+    throw new NetworkError(
+      'Cannot reach AllureDeck API — check your connection or the server.',
+      err,
+    )
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function performRefresh(): Promise<boolean> {
   try {
     const headers: Record<string, string> = {
@@ -102,7 +142,7 @@ async function performRefresh(): Promise<boolean> {
     if (csrfToken) {
       headers['X-CSRF-Token'] = csrfToken
     }
-    const response = await fetch(`${BASE_URL}/auth/refresh`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -237,8 +277,8 @@ async function request<T>(
 ): Promise<FetchResponse<T>> {
   const built = buildRequest(method, url, body, config)
 
-  // Execute fetch
-  const response = await fetch(built.fullUrl, built.init)
+  // Execute fetch with timeout
+  const response = await fetchWithTimeout(built.fullUrl, built.init)
 
   // Handle non-ok responses
   if (!response.ok) {
@@ -249,7 +289,7 @@ async function request<T>(
         if (refreshed) {
           // Rebuild the request so the rotated csrf_token cookie is picked up.
           const retryBuilt = buildRequest(method, url, body, config)
-          const retryResponse = await fetch(retryBuilt.fullUrl, retryBuilt.init)
+          const retryResponse = await fetchWithTimeout(retryBuilt.fullUrl, retryBuilt.init)
           if (retryResponse.ok) {
             return parseSuccess<T>(retryResponse)
           }
@@ -327,6 +367,9 @@ export function extractErrorMessage(error: unknown): string {
     const body = error.response?.data as { metadata?: { message?: string } } | undefined
     if (body?.metadata?.message) return body.metadata.message
     return error.message
+  }
+  if (error instanceof NetworkError) {
+    return 'Cannot reach AllureDeck API — check your connection or the server.'
   }
   if (error instanceof Error) return error.message
   return 'An unexpected error occurred'

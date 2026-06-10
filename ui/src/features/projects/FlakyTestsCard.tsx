@@ -3,14 +3,14 @@ import { fetchReportStability } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
+import { CardState } from '@/components/ui/CardState'
 
 interface Props {
   projectId: string
 }
 
 export function FlakyTestsCard({ projectId }: Props) {
-  const { data: stability, isLoading } = useQuery({
+  const { data: stability, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.reportStability(projectId),
     queryFn: () => fetchReportStability(projectId),
     staleTime: 30_000,
@@ -19,7 +19,9 @@ export function FlakyTestsCard({ projectId }: Props) {
   const flakyTests = stability?.flaky_tests ?? []
   const summary = stability?.summary
 
-  if (!isLoading && flakyTests.length === 0) {
+  // Hide the card entirely when there are no flaky tests and no error — don't
+  // show an empty card that would confuse users.
+  if (!isLoading && !isError && flakyTests.length === 0) {
     return null
   }
 
@@ -36,13 +38,15 @@ export function FlakyTestsCard({ projectId }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </div>
-        ) : (
+        <CardState
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          isEmpty={flakyTests.length === 0}
+          refetch={refetch}
+          skeletonRows={3}
+          emptyMessage="No flaky tests detected"
+        >
           <div className="space-y-2">
             {flakyTests.map((test) => (
               <div key={test.full_name} className="flex items-center justify-between gap-2">
@@ -65,7 +69,7 @@ export function FlakyTestsCard({ projectId }: Props) {
               </div>
             ))}
           </div>
-        )}
+        </CardState>
       </CardContent>
     </Card>
   )
