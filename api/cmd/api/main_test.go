@@ -43,7 +43,7 @@ func TestRegisterRoutes(t *testing.T) {
 		loginLimiter: loginLimiter,
 		apiKeyStore:  mocks.APIKeys,
 		h: handlerSet{
-			system:       handlers.NewSystemHandler(cfg, nil),
+			system:       handlers.NewSystemHandler(cfg, nil, nil, nil),
 			auth:         handlers.NewAuthHandler(cfg, jwtManager, nil),
 			project:      handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop()),
 			resultUpload: handlers.NewResultUploadHandler(localStore, mocks.Projects, runner.NewMemJobManager(nil, 0, zap.NewNop()), allureCore, cfg, zap.NewNop()),
@@ -107,7 +107,7 @@ func TestBareRoutes_Return404(t *testing.T) {
 		loginLimiter: loginLimiter,
 		apiKeyStore:  mocks.APIKeys,
 		h: handlerSet{
-			system:       handlers.NewSystemHandler(cfg, nil),
+			system:       handlers.NewSystemHandler(cfg, nil, nil, nil),
 			auth:         handlers.NewAuthHandler(cfg, jwtManager, nil),
 			project:      handlers.NewProjectHandler(mocks.Projects, allureCore, localStore, cfg, zap.NewNop()),
 			resultUpload: handlers.NewResultUploadHandler(localStore, mocks.Projects, runner.NewMemJobManager(nil, 0, zap.NewNop()), allureCore, cfg, zap.NewNop()),

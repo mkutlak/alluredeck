@@ -178,6 +178,7 @@ func (m *mockDataStore) OpenReportFile(_ context.Context, _, _, _ string) (io.Re
 	return io.NopCloser(strings.NewReader(m.content)), m.mimeType, nil
 }
 
+func (m *mockDataStore) HealthCheck(_ context.Context) error             { return nil }
 func (m *mockDataStore) CreateProject(_ context.Context, _ string) error { panic("not implemented") }
 func (m *mockDataStore) DeleteProject(_ context.Context, _ string) error { panic("not implemented") }
 func (m *mockDataStore) RenameProject(_ context.Context, _, _ string) error {

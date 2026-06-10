@@ -7,19 +7,24 @@ import (
 	"strings"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/runner"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/version"
 )
 
 // SystemHandler handles HTTP requests for system-level endpoints (version, config, health).
 type SystemHandler struct {
-	cfg *config.Config
-	db  *sql.DB
+	cfg       *config.Config
+	db        *sql.DB
+	dataStore storage.Store
+	queue     runner.JobQueuer
 }
 
-// NewSystemHandler creates and returns a new SystemHandler.
-// The db parameter is used by the readiness probe; pass nil if not needed.
-func NewSystemHandler(cfg *config.Config, db *sql.DB) *SystemHandler {
-	return &SystemHandler{cfg: cfg, db: db}
+// NewSystemHandler creates and returns a new SystemHandler. The db, dataStore,
+// and queue dependencies are probed by the readiness endpoint; pass nil for any
+// that should be skipped (a nil dependency never fails readiness).
+func NewSystemHandler(cfg *config.Config, db *sql.DB, dataStore storage.Store, queue runner.JobQueuer) *SystemHandler {
+	return &SystemHandler{cfg: cfg, db: db, dataStore: dataStore, queue: queue}
 }
 
 // Health godoc
@@ -35,19 +40,45 @@ func (h *SystemHandler) Health(w http.ResponseWriter, _ *http.Request) {
 
 // Ready godoc
 // @Summary      Readiness probe
-// @Description  Returns 200 when the database is reachable, 503 otherwise.
+// @Description  Probes each backing dependency (database, storage backend, job
+// @Description  queue) and returns 200 only when all wired dependencies are
+// @Description  healthy, 503 otherwise. The JSON body reports per-dependency
+// @Description  status ("ok"/"error"/"skipped") so an operator can see which
+// @Description  dependency is degraded. A nil (unwired) dependency is "skipped"
+// @Description  and never fails readiness.
 // @Tags         infrastructure
 // @Produce      json
 // @Success      200  {object}  map[string]string
 // @Failure      503  {object}  map[string]string
 // @Router       /ready [get]
 func (h *SystemHandler) Ready(w http.ResponseWriter, r *http.Request) {
-	if h.db == nil || h.db.PingContext(r.Context()) != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "db": "error"})
-		return
+	ctx := r.Context()
+	statuses := map[string]string{}
+	healthy := true
+
+	check := func(name string, present bool, probe func() error) {
+		switch {
+		case !present:
+			statuses[name] = "skipped"
+		case probe() != nil:
+			statuses[name] = "error"
+			healthy = false
+		default:
+			statuses[name] = "ok"
+		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "db": "ok"})
+	check("db", h.db != nil, func() error { return h.db.PingContext(ctx) })
+	check("storage", h.dataStore != nil, func() error { return h.dataStore.HealthCheck(ctx) })
+	check("queue", h.queue != nil, func() error { return h.queue.Healthy(ctx) })
+
+	if healthy {
+		statuses["status"] = "ok"
+		writeJSON(w, http.StatusOK, statuses)
+		return
+	}
+	statuses["status"] = "unavailable"
+	writeJSON(w, http.StatusServiceUnavailable, statuses)
 }
 
 // VersionResponse structures

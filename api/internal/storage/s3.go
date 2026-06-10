@@ -995,5 +995,16 @@ func (s *S3Store) ListStagingBlobs(ctx context.Context, olderThan time.Duration)
 	return keys, nil
 }
 
+// HealthCheck returns nil when the configured S3 bucket is reachable.
+// It issues a HeadBucket call which is cheap and does not list or read objects.
+func (s *S3Store) HealthCheck(ctx context.Context) error {
+	if _, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	}); err != nil {
+		return fmt.Errorf("s3 bucket %q: %w", s.bucket, err)
+	}
+	return nil
+}
+
 // Ensure S3Store implements Store at compile time.
 var _ Store = (*S3Store)(nil)

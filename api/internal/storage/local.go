@@ -51,6 +51,15 @@ func NewLocalStore(cfg *config.Config) *LocalStore {
 	return &LocalStore{cfg: cfg}
 }
 
+// HealthCheck returns nil when the projects directory is accessible.
+// A non-nil error (e.g. unmounted volume) signals that storage is unhealthy.
+func (ls *LocalStore) HealthCheck(_ context.Context) error {
+	if _, err := os.Stat(ls.cfg.ProjectsPath); err != nil {
+		return fmt.Errorf("projects dir %q: %w", ls.cfg.ProjectsPath, err)
+	}
+	return nil
+}
+
 // CreateProject creates the project directory with results/ and reports/ subdirs.
 // It is idempotent — calling on an existing project is not an error.
 func (ls *LocalStore) CreateProject(_ context.Context, projectID string) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/runner"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
 
 // openTestDB opens a *sql.DB for use in handler tests that require DB connectivity.
@@ -38,7 +41,7 @@ func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 		CheckResultsEverySeconds: "5",
 	}
 
-	handler := NewSystemHandler(cfg, nil)
+	handler := NewSystemHandler(cfg, nil, nil, nil)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
 	if err != nil {
@@ -78,7 +81,7 @@ func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 }
 
 func TestSystemHandler_Health(t *testing.T) {
-	handler := NewSystemHandler(&config.Config{}, nil)
+	handler := NewSystemHandler(&config.Config{}, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -99,7 +102,7 @@ func TestSystemHandler_Health(t *testing.T) {
 
 func TestSystemHandler_Ready_OK(t *testing.T) {
 	db := openTestDB(t)
-	handler := NewSystemHandler(&config.Config{}, db)
+	handler := NewSystemHandler(&config.Config{}, db, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rr := httptest.NewRecorder()
@@ -126,7 +129,7 @@ func TestSystemHandler_Ready_DBDown(t *testing.T) {
 	// Close the DB to simulate failure
 	_ = db.Close()
 
-	handler := NewSystemHandler(&config.Config{}, db)
+	handler := NewSystemHandler(&config.Config{}, db, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rr := httptest.NewRecorder()
@@ -134,5 +137,92 @@ func TestSystemHandler_Ready_DBDown(t *testing.T) {
 
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// stubQueue is a minimal runner.JobQueuer for readiness tests; only Healthy is
+// meaningful, the rest are no-op stubs.
+type stubQueue struct{ healthErr error }
+
+var _ runner.JobQueuer = (*stubQueue)(nil)
+
+func (s *stubQueue) Submit(context.Context, int64, string, runner.JobParams) *runner.Job { return nil }
+func (s *stubQueue) SubmitPlaywright(context.Context, int64, string, string, string, string, string, string, string, string) *runner.Job {
+	return nil
+}
+func (s *stubQueue) SubmitStagedTarGz(context.Context, int64, string, runner.StagedTarGzParams) *runner.Job {
+	return nil
+}
+func (s *stubQueue) ListJobs(context.Context) []*runner.Job  { return nil }
+func (s *stubQueue) Cancel(context.Context, string) error    { return nil }
+func (s *stubQueue) Delete(context.Context, string) error    { return nil }
+func (s *stubQueue) Get(context.Context, string) *runner.Job { return nil }
+func (s *stubQueue) Start(context.Context)                   {}
+func (s *stubQueue) Shutdown()                               {}
+func (s *stubQueue) Healthy(context.Context) error           { return s.healthErr }
+
+// readyBody runs the readiness probe and returns the decoded status map.
+func readyBody(t *testing.T, h *SystemHandler) (int, map[string]string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rr := httptest.NewRecorder()
+	h.Ready(rr, req)
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	return rr.Code, resp
+}
+
+func TestSystemHandler_Ready_DependenciesHealthy_NoDB(t *testing.T) {
+	// db nil → skipped; healthy storage + queue → 200.
+	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{}, &stubQueue{})
+
+	code, resp := readyBody(t, handler)
+	if code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %v", code, resp)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status=ok, got %q", resp["status"])
+	}
+	if resp["db"] != "skipped" {
+		t.Errorf("expected db=skipped, got %q", resp["db"])
+	}
+	if resp["storage"] != "ok" {
+		t.Errorf("expected storage=ok, got %q", resp["storage"])
+	}
+	if resp["queue"] != "ok" {
+		t.Errorf("expected queue=ok, got %q", resp["queue"])
+	}
+}
+
+func TestSystemHandler_Ready_StorageDown(t *testing.T) {
+	storageDown := &storage.MockStore{
+		HealthCheckFn: func(context.Context) error { return errors.New("bucket unreachable") },
+	}
+	handler := NewSystemHandler(&config.Config{}, nil, storageDown, &stubQueue{})
+
+	code, resp := readyBody(t, handler)
+	if code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d: %v", code, resp)
+	}
+	if resp["storage"] != "error" {
+		t.Errorf("expected storage=error, got %q", resp["storage"])
+	}
+	if resp["queue"] != "ok" {
+		t.Errorf("expected queue=ok, got %q", resp["queue"])
+	}
+}
+
+func TestSystemHandler_Ready_QueueDown(t *testing.T) {
+	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{},
+		&stubQueue{healthErr: errors.New("queue not running")})
+
+	code, resp := readyBody(t, handler)
+	if code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d: %v", code, resp)
+	}
+	if resp["queue"] != "error" {
+		t.Errorf("expected queue=error, got %q", resp["queue"])
 	}
 }

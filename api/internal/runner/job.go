@@ -118,4 +118,7 @@ type JobQueuer interface {
 	Get(ctx context.Context, jobID string) *Job
 	Start(ctx context.Context)
 	Shutdown()
+	// Healthy returns nil when the job queue is operational. Used by the
+	// readiness probe to surface job-queue unavailability.
+	Healthy(ctx context.Context) error
 }

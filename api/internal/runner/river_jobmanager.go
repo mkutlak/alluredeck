@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	pgx "github.com/jackc/pgx/v5"
@@ -294,9 +295,10 @@ func derefStr(p *string) string {
 // RiverJobManager implements JobQueuer using River backed by PostgreSQL.
 // It is safe for concurrent use across multiple instances (pods).
 type RiverJobManager struct {
-	client *river.Client[pgx.Tx]
-	pool   *pgxpool.Pool
-	logger *zap.Logger
+	client  *river.Client[pgx.Tx]
+	pool    *pgxpool.Pool
+	logger  *zap.Logger
+	running atomic.Bool // true after Start, false after Shutdown
 }
 
 // upsertJobProgress writes the latest phase/progress for a job using last-write-wins
@@ -452,16 +454,32 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 func (jm *RiverJobManager) Start(ctx context.Context) {
 	if err := jm.client.Start(ctx); err != nil {
 		jm.logger.Error("river client start failed", zap.Error(err))
+		return
 	}
+	jm.running.Store(true)
 }
 
 // Shutdown gracefully stops the River client, waiting for running jobs to complete.
 func (jm *RiverJobManager) Shutdown() {
+	jm.running.Store(false)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := jm.client.Stop(ctx); err != nil {
 		jm.logger.Error("river client stop failed", zap.Error(err))
 	}
+}
+
+// Healthy returns nil when the job queue is operational.
+// It returns an error if the manager has not been started or has been shut
+// down, or if the underlying connection pool cannot be pinged.
+func (jm *RiverJobManager) Healthy(ctx context.Context) error {
+	if !jm.running.Load() {
+		return errors.New("job queue not running")
+	}
+	if err := jm.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("job queue pool ping: %w", err)
+	}
+	return nil
 }
 
 // Submit enqueues a new report generation job via River and returns its initial state.

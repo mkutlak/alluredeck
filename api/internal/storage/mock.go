@@ -9,6 +9,7 @@ import (
 // MockStore is a test double for Store. Set function fields to control behavior.
 // Unset fields return zero values with no error.
 type MockStore struct {
+	HealthCheckFn                 func(ctx context.Context) error
 	CreateProjectFn               func(ctx context.Context, projectID string) error
 	DeleteProjectFn               func(ctx context.Context, projectID string) error
 	RenameProjectFn               func(ctx context.Context, oldID, newID string) error
@@ -47,6 +48,14 @@ type MockStore struct {
 
 // Ensure MockStore implements Store at compile time.
 var _ Store = (*MockStore)(nil)
+
+// HealthCheck implements Store.
+func (m *MockStore) HealthCheck(ctx context.Context) error {
+	if m.HealthCheckFn != nil {
+		return m.HealthCheckFn(ctx)
+	}
+	return nil
+}
 
 // CreateProject implements Store.
 func (m *MockStore) CreateProject(ctx context.Context, projectID string) error {

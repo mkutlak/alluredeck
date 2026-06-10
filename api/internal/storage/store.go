@@ -44,6 +44,11 @@ type ProgressFn func(done, total int)
 // LocalStore implements this for local filesystem.
 // S3Store implements this for S3/MinIO (added later).
 type Store interface {
+	// HealthCheck returns nil when the storage backend is reachable and
+	// operational. For LocalStore it stats the projects directory; for
+	// S3Store it issues a HeadBucket call. Used by the readiness probe.
+	HealthCheck(ctx context.Context) error
+
 	// Project lifecycle
 	CreateProject(ctx context.Context, projectID string) error
 	DeleteProject(ctx context.Context, projectID string) error

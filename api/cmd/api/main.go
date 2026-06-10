@@ -436,7 +436,7 @@ func wireHandlers(
 	}
 
 	return handlerSet{
-		system: handlers.NewSystemHandler(cfg, sqlDB),
+		system: handlers.NewSystemHandler(cfg, sqlDB, dataStore, jobManager),
 		auth: handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily).
 			WithUserStore(s.user).
 			WithAuditLogger(s.audit).

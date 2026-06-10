@@ -47,6 +47,11 @@ func (m *MemJobManager) Shutdown() {
 	m.wg.Wait()
 }
 
+// Healthy always returns nil for MemJobManager — it is always considered operational.
+func (m *MemJobManager) Healthy(_ context.Context) error {
+	return nil
+}
+
 // Submit enqueues a new job and returns it immediately with Pending status.
 // If ctx is cancelled before the job can be enqueued, it returns a failed job.
 func (m *MemJobManager) Submit(ctx context.Context, projectID int64, slug string, params JobParams) *Job {
