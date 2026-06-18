@@ -4,11 +4,11 @@
     "allure": "3"
   },
   "overrides": {
-    "axios": "^1.15.0",
+    "axios": "^1.18.0",
     "underscore": "^1.13.8",
     "picomatch": "^4.0.4",
-    "dompurify": "^3.4.0",
+    "dompurify": "^3.4.11",
     "follow-redirects": "^1.16.0",
-    "brace-expansion": "^5.0.5"
+    "brace-expansion": "^5.0.6"
   }
 }

@@ -10,8 +10,8 @@
     "update-snapshots": "playwright test --update-snapshots"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0",
-    "allure-playwright": "^3.2.0",
-    "tsx": "^4.0.0"
+    "@playwright/test": "1.61.0",
+    "allure-playwright": "^3.10.0",
+    "tsx": "^4.22.4"
   }
 }
