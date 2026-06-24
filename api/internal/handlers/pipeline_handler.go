@@ -126,8 +126,10 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 	}
 
 	type runAccum struct {
-		resp  pipelineRunResp
-		maxTS time.Time
+		resp      pipelineRunResp
+		maxTS     time.Time
+		effPassed int // sum of stat_passed across suites (for aggregate pass rate)
+		effDenom  int // sum of (stat_total - stat_skipped) across suites (for aggregate pass rate)
 	}
 
 	order := []string{}
@@ -166,11 +168,13 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 		total := derefInt(r.StatTotal)
 		failed := derefInt(r.StatFailed) + derefInt(r.StatBroken)
 		passed := derefInt(r.StatPassed)
+		skipped := derefInt(r.StatSkipped)
 		dur := derefInt64(r.DurationMs)
 
+		denom := total - skipped
 		passRate := 0.0
-		if total > 0 {
-			passRate = math.Round(float64(passed)/float64(total)*1000) / 10
+		if denom > 0 {
+			passRate = math.Round(float64(passed)/float64(denom)*1000) / 10
 		}
 
 		status := "failed"
@@ -179,6 +183,9 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 		} else if passRate >= 70 {
 			status = "degraded"
 		}
+
+		acc.effPassed += passed
+		acc.effDenom += denom
 
 		acc.resp.Suites = append(acc.resp.Suites, pipelineSuiteResp{
 			ProjectID:   strconv.FormatInt(r.ProjectID, 10),
@@ -207,8 +214,8 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 				agg.SuitesPassed++
 			}
 		}
-		if agg.TestsTotal > 0 {
-			agg.PassRate = math.Round(float64(agg.TestsPassed)/float64(agg.TestsTotal)*1000) / 10
+		if acc.effDenom > 0 {
+			agg.PassRate = math.Round(float64(acc.effPassed)/float64(acc.effDenom)*1000) / 10
 		}
 		acc.resp.Aggregate = agg
 		result = append(result, acc.resp)

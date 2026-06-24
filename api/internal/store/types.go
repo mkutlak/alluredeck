@@ -146,6 +146,7 @@ type PipelineRunRow struct {
 	StatPassed  *int
 	StatFailed  *int
 	StatBroken  *int
+	StatSkipped *int
 	StatTotal   *int
 	DurationMs  *int64
 }

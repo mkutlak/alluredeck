@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { formatDate, formatDuration, formatPassRate } from '@/lib/utils'
+import { formatDate, formatDuration, formatPassRate, calcPassRate } from '@/lib/utils'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { PassRateSparkline } from './PassRateSparkline'
 import { DeleteProjectDialog } from '@/features/projects/DeleteProjectDialog'
@@ -120,7 +120,14 @@ interface Props {
 export function ProjectStatusCard({ project }: Props) {
   const isAdmin = useAuthStore(selectIsAdmin)
   const { latest_build, sparkline } = project
-  const passRate = latest_build?.pass_rate ?? 0
+  // Compute from counts (skipped excluded) so an all-skipped build is null → neutral badge, not red 0%.
+  const passRate = latest_build
+    ? calcPassRate(
+        latest_build.statistics.passed,
+        latest_build.statistics.total,
+        latest_build.statistics.skipped,
+      )
+    : null
   // Show "Remove from group" only for child projects (not group nodes themselves)
   const showRemoveFromGroup = !project.is_group && project.children === undefined
 
@@ -140,11 +147,17 @@ export function ProjectStatusCard({ project }: Props) {
               {latest_build ? (
                 <Badge
                   variant={
-                    passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'
+                    passRate == null
+                      ? 'secondary'
+                      : passRate >= 90
+                        ? 'default'
+                        : passRate >= 70
+                          ? 'secondary'
+                          : 'destructive'
                   }
-                  className={getPassRateBadgeClass(passRate)}
+                  className={passRate == null ? undefined : getPassRateBadgeClass(passRate)}
                 >
-                  {formatPassRate(latest_build.statistics.passed, latest_build.statistics.total)}
+                  {formatPassRate(latest_build.statistics.passed, latest_build.statistics.total, latest_build.statistics.skipped)}
                 </Badge>
               ) : (
                 <Badge variant="secondary">No builds</Badge>

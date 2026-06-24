@@ -429,9 +429,9 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 
 	// Sparkline: recent N builds per project using window function.
 	spRows, err := bs.pool.Query(ctx, `
-		SELECT project_id, build_order, created_at, stat_passed, stat_total
+		SELECT project_id, build_order, created_at, stat_passed, stat_total, stat_skipped
 		FROM (
-		    SELECT project_id, build_order, created_at, stat_passed, stat_total,
+		    SELECT project_id, build_order, created_at, stat_passed, stat_total, stat_skipped,
 		           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY build_order DESC) AS rn
 		    FROM builds
 		    WHERE stat_total IS NOT NULL AND stat_total > 0
@@ -447,8 +447,8 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		var spProjID int64
 		var spBuildNumber int
 		var spCreatedAt time.Time
-		var spPassed, spTotal *int32
-		if err := spRows.Scan(&spProjID, &spBuildNumber, &spCreatedAt, &spPassed, &spTotal); err != nil {
+		var spPassed, spTotal, spSkipped *int32
+		if err := spRows.Scan(&spProjID, &spBuildNumber, &spCreatedAt, &spPassed, &spTotal, &spSkipped); err != nil {
 			return nil, fmt.Errorf("scan sparkline row: %w", err)
 		}
 
@@ -458,8 +458,16 @@ func (bs *BuildStore) GetDashboardData(ctx context.Context, sparklineDepth int) 
 		}
 
 		var passRate float64
-		if spTotal != nil && *spTotal > 0 && spPassed != nil {
-			passRate = float64(*spPassed) / float64(*spTotal) * 100
+		if spTotal != nil && spPassed != nil {
+			total := int(*spTotal)
+			skipped := 0
+			if spSkipped != nil {
+				skipped = int(*spSkipped)
+			}
+			denom := total - skipped
+			if denom > 0 {
+				passRate = float64(*spPassed) / float64(denom) * 100
+			}
 		}
 		dp.Sparkline = append(dp.Sparkline, store.SparklinePoint{
 			BuildNumber: spBuildNumber,

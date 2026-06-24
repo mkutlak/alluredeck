@@ -26,7 +26,8 @@ describe('toKpiData', () => {
   it('extracts KPI values from latest entry', () => {
     const result = toKpiData([makeEntry()])
     expect(result).not.toBeNull()
-    expect(result!.passRate).toBe(90)
+    // passed=90, total=100, skipped=2 → denom=98 → 90/98*100 ≈ 91.836...
+    expect(result!.passRate).toBeCloseTo((90 / 98) * 100, 5)
     expect(result!.totalTests).toBe(100)
     expect(result!.avgDuration).toBe(5000)
     expect(result!.failedCount).toBe(8) // 5 failed + 3 broken

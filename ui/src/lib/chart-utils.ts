@@ -128,7 +128,7 @@ export function toAllTrendData(entries: ReportHistoryEntry[]): AllTrendData {
         broken: e.statistic!.broken,
         skipped: e.statistic!.skipped,
       })
-      passRate.push({ name, passRate: calcPassRate(e.statistic!.passed, e.statistic!.total) })
+      passRate.push({ name, passRate: calcPassRate(e.statistic!.passed, e.statistic!.total, e.statistic!.skipped) ?? 0 })
     }
     if (e.duration_ms !== null) {
       duration.push({ name, durationSec: Math.round(e.duration_ms! / 1000) })
@@ -153,7 +153,7 @@ export function toKpiData(entries: ReportHistoryEntry[]): KpiData | null {
 
   const passRateTrend = sparklineEntries
     .filter((e) => e.statistic)
-    .map((e) => calcPassRate(e.statistic!.passed, e.statistic!.total))
+    .map((e) => calcPassRate(e.statistic!.passed, e.statistic!.total, e.statistic!.skipped) ?? 0)
 
   const totalTestsTrend = sparklineEntries.filter((e) => e.statistic).map((e) => e.statistic!.total)
 
@@ -166,7 +166,7 @@ export function toKpiData(entries: ReportHistoryEntry[]): KpiData | null {
     .map((e) => e.statistic!.failed + e.statistic!.broken)
 
   return {
-    passRate: calcPassRate(latest.statistic.passed, latest.statistic.total),
+    passRate: calcPassRate(latest.statistic.passed, latest.statistic.total, latest.statistic.skipped) ?? 0,
     passRateTrend,
     totalTests: latest.statistic.total,
     totalTestsTrend,

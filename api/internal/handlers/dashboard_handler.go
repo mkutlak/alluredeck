@@ -170,6 +170,7 @@ func (h *DashboardHandler) GetDashboard(w http.ResponseWriter, r *http.Request) 
 func buildLatestResp(b *store.Build) *latestBuildResp {
 	passed := derefInt(b.StatPassed)
 	total := derefInt(b.StatTotal)
+	skipped := derefInt(b.StatSkipped)
 	return &latestBuildResp{
 		BuildNumber: b.BuildNumber,
 		CreatedAt:   b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
@@ -177,11 +178,11 @@ func buildLatestResp(b *store.Build) *latestBuildResp {
 			Passed:  passed,
 			Failed:  derefInt(b.StatFailed),
 			Broken:  derefInt(b.StatBroken),
-			Skipped: derefInt(b.StatSkipped),
+			Skipped: skipped,
 			Unknown: derefInt(b.StatUnknown),
 			Total:   total,
 		},
-		PassRate:       pct(passed, total),
+		PassRate:       passRateExclSkipped(passed, total, skipped),
 		DurationMs:     derefInt64(b.DurationMs),
 		FlakyCount:     derefInt(b.FlakyCount),
 		NewFailedCount: derefInt(b.NewFailedCount),
@@ -229,7 +230,7 @@ func computeAggregate(children []dashboardProjectResp) *aggregateStats {
 		agg.Skipped += s.Skipped
 		agg.Total += s.Total
 	}
-	agg.PassRate = pct(agg.Passed, agg.Total)
+	agg.PassRate = passRateExclSkipped(agg.Passed, agg.Total, agg.Skipped)
 	return agg
 }
 

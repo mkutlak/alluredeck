@@ -125,7 +125,7 @@ export function OverviewTab() {
     const latest = reports.find((r) => r.is_latest)
     const tableReports = reports.filter((r) => r.report_id !== 'latest')
     const stat = latest?.statistic
-    const passRate = stat && stat.total > 0 ? calcPassRate(stat.passed, stat.total) : null
+    const passRate = stat ? calcPassRate(stat.passed, stat.total, stat.skipped) : null
     return { latest, tableReports, passRate }
   }, [reports])
 
@@ -185,7 +185,7 @@ export function OverviewTab() {
               variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
               className={getPassRateBadgeClass(passRate)}
             >
-              Pass rate: {formatPassRate(stat.passed, stat.total)}
+              Pass rate: {formatPassRate(stat.passed, stat.total, stat.skipped)}
             </Badge>
             <Badge variant="outline">Tests: {stat.total}</Badge>
             {stat.failed + stat.broken > 0 && (

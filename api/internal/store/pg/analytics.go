@@ -75,7 +75,8 @@ func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []in
 		WITH recent AS (%s)
 		SELECT tl.value AS suite,
 		       COUNT(*) AS total,
-		       SUM(CASE WHEN tr.status='passed' THEN 1 ELSE 0 END) AS passed
+		       SUM(CASE WHEN tr.status='passed' THEN 1 ELSE 0 END) AS passed,
+		       SUM(CASE WHEN tr.status='skipped' THEN 1 ELSE 0 END) AS skipped
 		FROM test_results tr
 		JOIN test_labels tl ON tl.test_result_id = tr.id
 		WHERE tr.project_id = ANY($3)
@@ -93,11 +94,13 @@ func (a *AnalyticsStore) ListSuitePassRates(ctx context.Context, projectIDs []in
 	var result []store.SuitePassRate
 	for rows.Next() {
 		var spr store.SuitePassRate
-		if err := rows.Scan(&spr.Suite, &spr.Total, &spr.Passed); err != nil {
+		var skipped int
+		if err := rows.Scan(&spr.Suite, &spr.Total, &spr.Passed, &skipped); err != nil {
 			return nil, fmt.Errorf("scan suite pass rate: %w", err)
 		}
-		if spr.Total > 0 {
-			spr.PassRate = math.Round(float64(spr.Passed)/float64(spr.Total)*10000) / 100
+		denom := spr.Total - skipped
+		if denom > 0 {
+			spr.PassRate = math.Round(float64(spr.Passed)/float64(denom)*10000) / 100
 		}
 		result = append(result, spr)
 	}
@@ -182,8 +185,9 @@ WHERE project_id = ANY($1)`
 		if err := rows.Scan(&tp.BuildNumber, &tp.Passed, &tp.Failed, &tp.Broken, &tp.Skipped, &tp.Total, &tp.DurationMs); err != nil {
 			return nil, fmt.Errorf("scan trend point: %w", err)
 		}
-		if tp.Total > 0 {
-			tp.PassRate = math.Round(float64(tp.Passed)/float64(tp.Total)*10000) / 100
+		denom := tp.Total - tp.Skipped
+		if denom > 0 {
+			tp.PassRate = math.Round(float64(tp.Passed)/float64(denom)*10000) / 100
 		}
 		result = append(result, tp)
 	}

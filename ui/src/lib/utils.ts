@@ -53,25 +53,27 @@ export function formatDuration(ms: number): string {
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`
 }
 
-export function calcPassRate(passed: number, total: number): number {
-  if (total <= 0) return 0
-  return (passed / total) * 100
+export function calcPassRate(passed: number, total: number, skipped = 0): number | null {
+  const denom = total - skipped
+  if (denom <= 0) return null
+  return (passed / denom) * 100
 }
 
-export function formatPassRate(passed: number, total: number): string
+export function formatPassRate(passed: number, total: number, skipped?: number): string
 export function formatPassRate(rate: number): string
-export function formatPassRate(passedOrRate: number, total?: number): string {
+export function formatPassRate(passedOrRate: number, total?: number, skipped = 0): string {
   let rate: number
   if (total === undefined) {
     rate = passedOrRate
     if (!Number.isFinite(rate) || rate <= 0) return '0%'
     if (rate >= 100) return '100%'
   } else {
-    if (total <= 0) return '0%'
+    const denom = total - skipped
+    if (denom <= 0) return '—'
     const passed = passedOrRate
     if (passed <= 0) return '0%'
-    if (passed >= total) return '100%'
-    rate = (passed / total) * 100
+    if (passed >= denom) return '100%'
+    rate = (passed / denom) * 100
   }
   return `${(Math.floor(rate * 100) / 100).toFixed(2)}%`
 }

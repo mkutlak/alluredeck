@@ -51,7 +51,7 @@ function ReportRow({
   onToggleBuild: (id: string) => void
 }) {
   const rStat = r.statistic
-  const rPassRate = rStat ? calcPassRate(rStat.passed, rStat.total) : null
+  const rPassRate = rStat ? calcPassRate(rStat.passed, rStat.total, rStat.skipped) : null
   const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
 
   return (
@@ -106,7 +106,7 @@ function ReportRow({
       <TableCell className="text-center">
         {rStat && rPassRate !== null ? (
           <span className={`font-semibold ${getPassRateColorClass(rPassRate)}`}>
-            {formatPassRate(rStat.passed, rStat.total)}
+            {formatPassRate(rStat.passed, rStat.total, rStat.skipped)}
           </span>
         ) : (
           '—'

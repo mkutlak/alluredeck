@@ -223,20 +223,33 @@ func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore 
 
 	// Stats
 	if build.StatTotal != nil && *build.StatTotal > 0 {
+		total := derefInt(build.StatTotal)
+		passed := derefInt(build.StatPassed)
+		skipped := derefInt(build.StatSkipped)
 		payload.Stats = WebhookStats{
-			Total:   derefInt(build.StatTotal),
-			Passed:  derefInt(build.StatPassed),
+			Total:   total,
+			Passed:  passed,
 			Failed:  derefInt(build.StatFailed),
 			Broken:  derefInt(build.StatBroken),
-			Skipped: derefInt(build.StatSkipped),
+			Skipped: skipped,
 		}
-		payload.Stats.PassRate = float64(payload.Stats.Passed) / float64(payload.Stats.Total) * 100
+		denom := total - skipped
+		if denom > 0 {
+			payload.Stats.PassRate = float64(passed) / float64(denom) * 100
+		}
 	}
 
 	// Delta vs previous build
 	prev, err := buildStore.GetPreviousBuild(ctx, projectID, build.BuildNumber)
 	if err == nil && prev.StatTotal != nil && *prev.StatTotal > 0 {
-		prevPassRate := float64(derefInt(prev.StatPassed)) / float64(derefInt(prev.StatTotal)) * 100
+		prevPassed := derefInt(prev.StatPassed)
+		prevTotal := derefInt(prev.StatTotal)
+		prevSkipped := derefInt(prev.StatSkipped)
+		prevDenom := prevTotal - prevSkipped
+		prevPassRate := 0.0
+		if prevDenom > 0 {
+			prevPassRate = float64(prevPassed) / float64(prevDenom) * 100
+		}
 		payload.Delta = &WebhookDelta{
 			PassRateChange: payload.Stats.PassRate - prevPassRate,
 			NewFailures:    derefInt(build.StatFailed) - derefInt(prev.StatFailed),

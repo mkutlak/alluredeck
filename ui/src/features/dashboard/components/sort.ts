@@ -1,4 +1,5 @@
 import type { DashboardProjectEntry } from '@/types/api'
+import { calcPassRate } from '@/lib/utils'
 
 export type SortField = 'name' | 'type' | 'pass_rate'
 export type SortDir = 'asc' | 'desc'
@@ -11,8 +12,14 @@ export function getProjectType(p: DashboardProjectEntry): string {
 }
 
 export function getPassRate(p: DashboardProjectEntry): number | null {
-  if (p.is_group) return p.aggregate?.pass_rate ?? null
-  return p.latest_build?.pass_rate ?? null
+  // Compute from counts so skipped tests are excluded from the denominator and an
+  // all-skipped build returns null (rendered as "—"), consistent with every other surface.
+  if (p.is_group) {
+    const a = p.aggregate
+    return a ? calcPassRate(a.passed, a.total, a.skipped) : null
+  }
+  const s = p.latest_build?.statistics
+  return s ? calcPassRate(s.passed, s.total, s.skipped) : null
 }
 
 export function compareRows(

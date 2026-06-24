@@ -30,7 +30,7 @@ WITH child_builds AS (
            b.project_id,
            p.slug AS project_slug,
            b.build_order,
-           b.stat_passed, b.stat_failed, b.stat_broken, b.stat_total,
+           b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_total,
            b.duration_ms,
            COALESCE(b.ci_pipeline_id, b.ci_commit_sha) AS group_key
     FROM builds b
@@ -56,7 +56,7 @@ paginated_groups AS (
 SELECT cb.ci_pipeline_id, cb.ci_pipeline_url,
        cb.ci_commit_sha, cb.ci_branch, cb.ci_build_url, cb.created_at,
        cb.project_id, cb.project_slug, cb.build_order,
-       cb.stat_passed, cb.stat_failed, cb.stat_broken, cb.stat_total,
+       cb.stat_passed, cb.stat_failed, cb.stat_broken, cb.stat_skipped, cb.stat_total,
        cb.duration_ms,
        tc.cnt
 FROM child_builds cb
@@ -85,7 +85,7 @@ func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, br
 			&r.PipelineID, &r.PipelineURL,
 			&r.CommitSHA, &r.Branch, &r.CIBuildURL, &r.CreatedAt,
 			&r.ProjectID, &r.Slug, &r.BuildNumber,
-			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatTotal,
+			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatSkipped, &r.StatTotal,
 			&r.DurationMs,
 			&total,
 		); err != nil {

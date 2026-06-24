@@ -90,6 +90,16 @@ func pct(count, total int) float64 {
 	return float64(count) / float64(total) * 100
 }
 
+// passRateExclSkipped computes passed/(total-skipped)*100, returning 0 when no tests ran.
+// Skipped tests are excluded from the denominator so that 100% requires zero failed/broken/unknown.
+func passRateExclSkipped(passed, total, skipped int) float64 {
+	denom := total - skipped
+	if denom <= 0 {
+		return 0
+	}
+	return float64(passed) / float64(denom) * 100
+}
+
 // GetReportSummary godoc
 // @Summary      Get report summary with statistics, top failures, and trend
 // @Description  Returns a JSON summary of a build including statistics, quality metrics,

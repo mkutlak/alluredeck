@@ -45,8 +45,8 @@ describe('formatDuration', () => {
 })
 
 describe('calcPassRate', () => {
-  it('returns 0 for total = 0', () => {
-    expect(calcPassRate(0, 0)).toBe(0)
+  it('returns null for total = 0', () => {
+    expect(calcPassRate(0, 0)).toBeNull()
   })
 
   it('calculates percentage correctly', () => {
@@ -63,6 +63,18 @@ describe('calcPassRate', () => {
 
   it('returns full precision for near-100% values', () => {
     expect(calcPassRate(737, 740)).toBeCloseTo(99.594, 2)
+  })
+
+  it('excludes skipped from denominator: 31 passed / 36 total / 5 skipped = 100', () => {
+    expect(calcPassRate(31, 36, 5)).toBe(100)
+  })
+
+  it('broken counts against rate: 30 passed / 36 total / 5 skipped = 30/31', () => {
+    expect(calcPassRate(30, 36, 5)).toBeCloseTo((30 / 31) * 100, 2)
+  })
+
+  it('all-skipped: effectiveTotal <= 0 returns null', () => {
+    expect(calcPassRate(0, 5, 5)).toBeNull()
   })
 })
 
@@ -85,8 +97,8 @@ describe('formatPassRate', () => {
     expect(formatPassRate(0, 100)).toBe('0%')
   })
 
-  it('returns "0%" when total is 0', () => {
-    expect(formatPassRate(0, 0)).toBe('0%')
+  it('returns "—" when total is 0', () => {
+    expect(formatPassRate(0, 0)).toBe('—')
   })
 
   it('preserves tiny non-zero rates as 2-decimal output', () => {
@@ -108,6 +120,18 @@ describe('formatPassRate', () => {
 
   it('never renders 100% for 99.999% (floor guarantee)', () => {
     expect(formatPassRate(99.999)).toBe('99.99%')
+  })
+
+  it('screenshot case: 31 passed / 36 total / 5 skipped = "100%"', () => {
+    expect(formatPassRate(31, 36, 5)).toBe('100%')
+  })
+
+  it('broken counts against: 30 passed / 36 total / 5 skipped formats correctly', () => {
+    expect(formatPassRate(30, 36, 5)).toBe('96.77%')
+  })
+
+  it('all-skipped: returns "—" when effectiveTotal <= 0', () => {
+    expect(formatPassRate(0, 5, 5)).toBe('—')
   })
 })
 

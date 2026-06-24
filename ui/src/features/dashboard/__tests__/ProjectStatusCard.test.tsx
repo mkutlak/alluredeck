@@ -80,7 +80,8 @@ describe('ProjectStatusCard', () => {
 
   it('shows pass rate badge for healthy project', () => {
     renderCard(healthyProject)
-    expect(screen.getByText('95.00%')).toBeInTheDocument()
+    // passed=95, total=100, skipped=2 → denom=98 → 95/98*100 floored = 96.93%
+    expect(screen.getByText('96.93%')).toBeInTheDocument()
   })
 
   it('shows "No builds" when latest_build is null', () => {
