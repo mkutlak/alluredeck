@@ -39,12 +39,37 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []store.Test
 
 	for i := range results {
 		r := &results[i]
+		// A single build can legitimately contain several results that share
+		// the same non-empty historyId: Allure writes one *-result.json per
+		// retry/flaky attempt, so parseStabilityEntries emits one entry per
+		// attempt. Those collide on the idx_test_results_build_history partial
+		// unique index. Collapse them to one row per (build_id, history_id),
+		// keeping the latest attempt (greatest stop_ms) so a retried test
+		// records its final outcome. The guard makes the winner independent of
+		// batch order, and an older attempt arriving second is a no-op rather
+		// than aborting the whole transaction. Empty historyIds are excluded by
+		// the index predicate and so are never collapsed.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO test_results
 				(build_id, project_id, test_name, full_name, status, duration_ms,
 				 history_id, flaky, retries, new_failed, new_passed,
 				 start_ms, stop_ms, thread, host)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+			ON CONFLICT (build_id, history_id) WHERE history_id != ''
+			DO UPDATE SET
+				test_name   = EXCLUDED.test_name,
+				full_name   = EXCLUDED.full_name,
+				status      = EXCLUDED.status,
+				duration_ms = EXCLUDED.duration_ms,
+				flaky       = EXCLUDED.flaky,
+				retries     = EXCLUDED.retries,
+				new_failed  = EXCLUDED.new_failed,
+				new_passed  = EXCLUDED.new_passed,
+				start_ms    = EXCLUDED.start_ms,
+				stop_ms     = EXCLUDED.stop_ms,
+				thread      = EXCLUDED.thread,
+				host        = EXCLUDED.host
+			WHERE COALESCE(EXCLUDED.stop_ms, 0) >= COALESCE(test_results.stop_ms, 0)`,
 			r.BuildID, r.ProjectID, r.TestName, r.FullName, r.Status, r.DurationMs,
 			r.HistoryID, r.Flaky, r.Retries, r.NewFailed, r.NewPassed,
 			r.StartMs, r.StopMs, r.Thread, r.Host,
@@ -489,10 +514,45 @@ func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID int64)
 // InsertBatchFull stores fully-parsed Allure results in a single transaction.
 // For each result it inserts into test_results (returning the new id), then
 // inserts labels, parameters, steps (recursive), and attachments.
+// dedupeResultsByHistoryID collapses results that share the same non-empty
+// historyId down to a single entry, keeping the latest attempt (greatest
+// StopMs). This mirrors the latest-attempt-wins rule InsertBatch applies in SQL,
+// so the stability row and its enrichment come from the same Allure attempt.
+// Entries with an empty historyId are excluded from the unique index and so are
+// never collapsed — each is preserved in its original order.
+func dedupeResultsByHistoryID(results []*parser.Result) []*parser.Result {
+	out := make([]*parser.Result, 0, len(results))
+	idx := make(map[string]int, len(results)) // historyId -> index into out
+	for _, r := range results {
+		if r.HistoryID == "" {
+			out = append(out, r)
+			continue
+		}
+		if i, ok := idx[r.HistoryID]; ok {
+			if r.StopMs >= out[i].StopMs {
+				out[i] = r // a later (or equally recent) attempt wins
+			}
+			continue
+		}
+		idx[r.HistoryID] = len(out)
+		out = append(out, r)
+	}
+	return out
+}
+
 func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error {
 	if len(results) == 0 {
 		return nil
 	}
+	// Allure writes one *-result.json per retry attempt, so ParseDir can return
+	// several results sharing the same non-empty historyId. They all collapse
+	// onto a single test_results row via the idx_test_results_build_history
+	// ON CONFLICT below — but the loop also re-inserts each result's labels,
+	// parameters, steps and attachments under the RETURNING id, so without
+	// de-duplication every extra attempt would duplicate those child rows on the
+	// surviving result. Collapse to the latest attempt (greatest StopMs) so the
+	// enrichment matches the row InsertBatch keeps and children are written once.
+	results = dedupeResultsByHistoryID(results)
 	tx, err := ts.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
