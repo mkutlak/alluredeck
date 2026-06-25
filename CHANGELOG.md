@@ -1,3 +1,9 @@
+## [0.40.0](https://github.com/mkutlak/alluredeck/compare/v0.39.0...v0.40.0) (2026-06-25)
+
+### Features
+
+* **api,ui:** exclude skipped tests from pass-rate denominator ([74653e3](https://github.com/mkutlak/alluredeck/commit/74653e3e725ca354259fa8fa5f2e119c19468f76))
+
 ## [0.39.0](https://github.com/mkutlak/alluredeck/compare/v0.38.0...v0.39.0) (2026-06-10)
 
 ### Features
