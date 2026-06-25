@@ -1,3 +1,9 @@
+## [0.40.1](https://github.com/mkutlak/alluredeck/compare/v0.40.0...v0.40.1) (2026-06-25)
+
+### Bug Fixes
+
+* **api:** collapse duplicate Allure historyIds when storing test results ([9a6773b](https://github.com/mkutlak/alluredeck/commit/9a6773be87b8a648233a3eb6d3bc6db5020ae316))
+
 ## [0.40.0](https://github.com/mkutlak/alluredeck/compare/v0.39.0...v0.40.0) (2026-06-25)
 
 ### Features
