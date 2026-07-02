@@ -89,30 +89,10 @@ test.describe('Duplicate child slug across different parents', () => {
     ).toBeVisible()
   })
 
-  test('project switcher dropdown disambiguates same-slug children', async ({
-    authenticatedPage: page,
-  }) => {
-    await page.goto(`/projects/${scenario.childUnderA.projectId}`)
-    await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
-
-    // Trigger button shows the active child as parentA/childSlug
-    const trigger = page.getByRole('button', {
-      name: `${scenario.parentA.slug}/${scenario.childSlug}`,
-    })
-    await expect(trigger).toBeVisible()
-    await trigger.click()
-
-    // Both same-slug children appear with disambiguating parent prefix in the
-    // "All Projects" group. Scope to that group: the active child is also
-    // echoed under "Recents", which would make a bare option lookup ambiguous.
-    const allProjects = page.getByRole('group', { name: 'All Projects' })
-    await expect(
-      allProjects.getByRole('option', { name: `${scenario.parentA.slug}/${scenario.childSlug}` }),
-    ).toBeVisible()
-    await expect(
-      allProjects.getByRole('option', { name: `${scenario.parentB.slug}/${scenario.childSlug}` }),
-    ).toBeVisible()
-  })
+  // The top-bar project switcher was removed in the IA redesign (spec:
+  // docs/superpowers/specs/2026-07-02-alluredeck-ia-redesign-design.md).
+  // Same-slug disambiguation in the UI is covered by the two hierarchical
+  // header-label tests above.
 
   test('parent link from child overview navigates to the correct parent', async ({
     authenticatedPage: page,

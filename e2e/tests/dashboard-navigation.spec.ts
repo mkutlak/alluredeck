@@ -31,21 +31,24 @@ test.describe('Dashboard & Navigation', () => {
     // Post-IA-redesign: project sub-navigation is a horizontal tab strip on the
     // project page (not the sidebar, which no longer carries project nav).
     // The tabs kept the same sidebar-nav-* testids to minimize e2e churn.
+    // Tabs navigate by numeric project_id (the repo URL rule), so a slug URL
+    // canonicalizes to /projects/<id>/... on the first tab click — assert the
+    // route suffix rather than the identifier form.
     await page.goto(`/projects/${freshProject.projectSlug}`)
     const tabs = page.getByRole('navigation', { name: 'Project sections' })
     await expect(tabs.getByTestId('sidebar-nav-overview')).toBeVisible({ timeout: 10_000 })
 
     // Analytics
     await tabs.getByTestId('sidebar-nav-analytics').click()
-    await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/analytics`))
+    await expect(page).toHaveURL(/\/projects\/[^/]+\/analytics$/)
 
     // Defects
     await tabs.getByTestId('sidebar-nav-defects').click()
-    await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/defects`))
+    await expect(page).toHaveURL(/\/projects\/[^/]+\/defects$/)
 
     // Timeline
     await tabs.getByTestId('sidebar-nav-timeline').click()
-    await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/timeline`))
+    await expect(page).toHaveURL(/\/projects\/[^/]+\/timeline$/)
   })
 
   test('view allure report in iframe', async ({ authenticatedPage: page, freshProject }) => {
