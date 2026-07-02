@@ -341,6 +341,14 @@ type PipelineStorer interface {
 	// grouped by ci_commit_sha via a CTE. Only builds with non-NULL ci_commit_sha
 	// are included. Pagination operates on distinct commit SHAs, not individual rows.
 	ListPipelineRuns(ctx context.Context, parentID int64, branch string, page, perPage int) ([]PipelineRunRow, int, error)
+	// ListAllPipelineRuns returns builds across every parent/child project
+	// group, optionally filtered by branch and/or a set of parent (group)
+	// project IDs. Groups are keyed by parent project ID + (ci_pipeline_id or
+	// ci_commit_sha), so the same commit SHA appearing under two different
+	// parent groups remains two separate runs. Pagination operates on distinct
+	// groups, not individual rows. Pass an empty (non-nil) groupIDs slice to
+	// disable the group filter.
+	ListAllPipelineRuns(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]PipelineRunRow, int, error)
 }
 
 // AttachmentStorer provides queries over test attachment metadata.

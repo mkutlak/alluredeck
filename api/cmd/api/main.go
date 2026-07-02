@@ -825,6 +825,7 @@ func registerRoutes(d routeDeps) {
 
 	// Pipeline runs (parent project aggregation by commit SHA).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetPipelineRuns)))
+	mux.HandleFunc("GET "+prefix+"/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetAllPipelineRuns)))
 
 	// Admin system monitor endpoints.
 	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(d.h.admin.ListJobs)))

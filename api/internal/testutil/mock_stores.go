@@ -1097,12 +1097,20 @@ func (m *MockAuditLogger) Reset() {
 
 // MockPipelineStore is a test double for store.PipelineStorer.
 type MockPipelineStore struct {
-	ListPipelineRunsFn func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
+	ListPipelineRunsFn    func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
+	ListAllPipelineRunsFn func(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error)
 }
 
 func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
 	if m.ListPipelineRunsFn != nil {
 		return m.ListPipelineRunsFn(ctx, parentID, branch, page, perPage)
+	}
+	return nil, 0, nil
+}
+
+func (m *MockPipelineStore) ListAllPipelineRuns(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error) {
+	if m.ListAllPipelineRunsFn != nil {
+		return m.ListAllPipelineRunsFn(ctx, branch, groupIDs, page, perPage)
 	}
 	return nil, 0, nil
 }

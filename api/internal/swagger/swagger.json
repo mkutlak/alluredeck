@@ -139,6 +139,57 @@
                 }
             }
         },
+        "/admin/jobs/{job_id}/retry": {
+            "post": {
+                "description": "Makes a failed or discarded async job immediately available for re-execution.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Retry a failed job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Job ID",
+                        "name": "job_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/admin/results": {
             "get": {
                 "description": "Scans all projects and returns those with pending result files.",
@@ -302,7 +353,7 @@
                 }
             },
             "post": {
-                "description": "Generates a new API key for the authenticated user (max 5 per user).",
+                "description": "Generates a new API key for the authenticated user (max 5 per user). Set allow_mcp_writes to true to opt the key into MCP mutations.",
                 "consumes": [
                     "application/json"
                 ],
@@ -381,6 +432,67 @@
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/attachments/{id}": {
+            "get": {
+                "description": "Streams an attachment blob after verifying an HMAC-signed,\ntime-limited URL. The exp and sig query params are produced by\nthe MCP server when it hands out attachment resource links.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "attachments"
+                ],
+                "summary": "Download an attachment via a signed URL",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Attachment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Expiry Unix timestamp",
+                        "name": "exp",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "HMAC-SHA256 signature (hex)",
+                        "name": "sig",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -585,6 +697,73 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/pipeline-runs": {
+            "get": {
+                "description": "Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pipeline"
+                ],
+                "summary": "List all pipeline runs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Results per page",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by branch name",
+                        "name": "branch",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by parent (group) project ID",
+                        "name": "group_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -3068,7 +3247,7 @@
         },
         "/ready": {
             "get": {
-                "description": "Returns 200 when the database is reachable, 503 otherwise.",
+                "description": "Probes each backing dependency (database, storage backend, job\nqueue) and returns 200 only when all wired dependencies are\nhealthy, 503 otherwise. The JSON body reports per-dependency\nstatus (\"ok\"/\"error\"/\"skipped\") so an operator can see which\ndependency is degraded. A nil (unwired) dependency is \"skipped\"\nand never fails readiness.",
                 "produces": [
                     "application/json"
                 ],
@@ -3642,6 +3821,9 @@
                     "type": "integer"
                 },
                 "make_viewer_endpoints_public": {
+                    "type": "boolean"
+                },
+                "mcp_enabled": {
                     "type": "boolean"
                 },
                 "oidc_enabled": {

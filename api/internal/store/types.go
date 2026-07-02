@@ -133,22 +133,29 @@ type DashboardProject struct {
 
 // PipelineRunRow is a flat row from the pipeline-runs query.
 // The handler groups these by PipelineID (if set) or CommitSHA and computes aggregates.
+// GroupProjectID/GroupSlug identify the parent (group) project the row's child
+// project belongs to; they are populated by ListAllPipelineRuns only — rows
+// from the per-parent ListPipelineRuns leave them zero/empty since the parent
+// is already implied by the request.
 type PipelineRunRow struct {
-	PipelineID  string
-	PipelineURL string
-	CommitSHA   string
-	Branch      string
-	CIBuildURL  string
-	CreatedAt   time.Time
-	ProjectID   int64
-	Slug        string
-	BuildNumber int
-	StatPassed  *int
-	StatFailed  *int
-	StatBroken  *int
-	StatSkipped *int
-	StatTotal   *int
-	DurationMs  *int64
+	PipelineID     string
+	PipelineURL    string
+	CommitSHA      string
+	Branch         string
+	CIBuildURL     string
+	CreatedAt      time.Time
+	ProjectID      int64
+	Slug           string
+	BuildNumber    int
+	BuildID        int64
+	GroupProjectID int64
+	GroupSlug      string
+	StatPassed     *int
+	StatFailed     *int
+	StatBroken     *int
+	StatSkipped    *int
+	StatTotal      *int
+	DurationMs     *int64
 }
 
 // TestResult represents a single test execution result stored in the database.

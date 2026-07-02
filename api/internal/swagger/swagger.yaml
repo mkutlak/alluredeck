@@ -20,6 +20,8 @@ definitions:
         type: integer
       make_viewer_endpoints_public:
         type: boolean
+      mcp_enabled:
+        type: boolean
       oidc_enabled:
         type: boolean
       security_enabled:
@@ -165,6 +167,42 @@ paths:
       summary: Cancel a job
       tags:
       - admin
+  /admin/jobs/{job_id}/retry:
+    post:
+      description: Makes a failed or discarded async job immediately available for
+        re-execution.
+      parameters:
+      - description: Job ID
+        in: path
+        name: job_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Retry a failed job
+      tags:
+      - admin
   /admin/results:
     delete:
       consumes:
@@ -281,6 +319,7 @@ paths:
       consumes:
       - application/json
       description: Generates a new API key for the authenticated user (max 5 per user).
+        Set allow_mcp_writes to true to opt the key into MCP mutations.
       produces:
       - application/json
       responses:
@@ -342,6 +381,51 @@ paths:
       summary: Delete an API key
       tags:
       - api-keys
+  /attachments/{id}:
+    get:
+      description: |-
+        Streams an attachment blob after verifying an HMAC-signed,
+        time-limited URL. The exp and sig query params are produced by
+        the MCP server when it hands out attachment resource links.
+      parameters:
+      - description: Attachment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Expiry Unix timestamp
+        in: query
+        name: exp
+        required: true
+        type: integer
+      - description: HMAC-SHA256 signature (hex)
+        in: query
+        name: sig
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Download an attachment via a signed URL
+      tags:
+      - attachments
   /auth/refresh:
     post:
       description: Validates the refresh token, rotates it (OAuth 2.0 BCP), and issues
@@ -477,6 +561,53 @@ paths:
       summary: Log out
       tags:
       - auth
+  /pipeline-runs:
+    get:
+      description: Returns child-suite builds across every parent project, grouped
+        by commit SHA within each parent's group.
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: Results per page
+        in: query
+        name: per_page
+        type: integer
+      - description: Filter by branch name
+        in: query
+        name: branch
+        type: string
+      - collectionFormat: multi
+        description: Filter by parent (group) project ID
+        in: query
+        items:
+          type: integer
+        name: group_id
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List all pipeline runs
+      tags:
+      - pipeline
   /projects:
     get:
       description: Returns a paginated list of all existing projects. Supports top_level=true
@@ -2208,7 +2339,13 @@ paths:
       - projects
   /ready:
     get:
-      description: Returns 200 when the database is reachable, 503 otherwise.
+      description: |-
+        Probes each backing dependency (database, storage backend, job
+        queue) and returns 200 only when all wired dependencies are
+        healthy, 503 otherwise. The JSON body reports per-dependency
+        status ("ok"/"error"/"skipped") so an operator can see which
+        dependency is degraded. A nil (unwired) dependency is "skipped"
+        and never fails readiness.
       produces:
       - application/json
       responses:

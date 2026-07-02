@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -86,23 +87,80 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 	writePagedSuccess(w, runs, "pipeline runs retrieved", newPaginationMeta(pp.Page, pp.PerPage, total))
 }
 
+// GetAllPipelineRuns returns paginated pipeline runs across every parent
+// project's child suites, grouped by commit SHA within each parent group with
+// per-suite and aggregate statistics. Unlike GetPipelineRuns, this endpoint is
+// not scoped to a single parent project.
+//
+//	@Summary      List all pipeline runs
+//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group.
+//	@Tags         pipeline
+//	@Produce      json
+//	@Param        page        query  int     false  "Page number"                            default(1)
+//	@Param        per_page    query  int     false  "Results per page"                       default(10)
+//	@Param        branch      query  string  false  "Filter by branch name"
+//	@Param        group_id    query  []int   false  "Filter by parent (group) project ID"    collectionFormat(multi)
+//	@Success      200  {object}  map[string]any
+//	@Failure      400  {object}  map[string]any
+//	@Failure      500  {object}  map[string]any
+//	@Router       /pipeline-runs [get]
+func (h *PipelineHandler) GetAllPipelineRuns(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	pp := parsePagination(r)
+	if r.URL.Query().Get("per_page") == "" {
+		pp.PerPage = defaultPipelinePerPage
+	}
+	branch := r.URL.Query().Get("branch")
+
+	var groupIDs []int64
+	for _, raw := range r.URL.Query()["group_id"] {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid group_id")
+			return
+		}
+		groupIDs = append(groupIDs, id)
+	}
+	if groupIDs == nil {
+		groupIDs = []int64{}
+	}
+
+	rows, total, err := h.pipelineStore.ListAllPipelineRuns(ctx, branch, groupIDs, pp.Page, pp.PerPage)
+	if err != nil {
+		h.logger.Error("list all pipeline runs", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error listing pipeline runs")
+		return
+	}
+
+	runs := groupPipelineRuns(rows)
+	if runs == nil {
+		runs = []pipelineRunResp{}
+	}
+
+	writePagedSuccess(w, runs, "pipeline runs retrieved", newPaginationMeta(pp.Page, pp.PerPage, total))
+}
+
 // Response types — private to this handler.
 
 type pipelineRunResp struct {
-	PipelineID  string              `json:"pipeline_id,omitempty"`
-	PipelineURL string              `json:"pipeline_url,omitempty"`
-	CommitSHA   string              `json:"commit_sha"`
-	Branch      string              `json:"branch"`
-	CIBuildURL  string              `json:"ci_build_url,omitempty"`
-	Timestamp   string              `json:"timestamp"`
-	Suites      []pipelineSuiteResp `json:"suites"`
-	Aggregate   pipelineAggResp     `json:"aggregate"`
+	PipelineID     string              `json:"pipeline_id,omitempty"`
+	PipelineURL    string              `json:"pipeline_url,omitempty"`
+	CommitSHA      string              `json:"commit_sha"`
+	Branch         string              `json:"branch"`
+	CIBuildURL     string              `json:"ci_build_url,omitempty"`
+	Timestamp      string              `json:"timestamp"`
+	GroupProjectID int64               `json:"group_project_id,omitempty"`
+	GroupSlug      string              `json:"group_slug,omitempty"`
+	Suites         []pipelineSuiteResp `json:"suites"`
+	Aggregate      pipelineAggResp     `json:"aggregate"`
 }
 
 type pipelineSuiteResp struct {
-	ProjectID   string  `json:"project_id"`
+	ProjectID   int64   `json:"project_id"`
 	Slug        string  `json:"slug"`
 	BuildNumber int     `json:"build_number"`
+	BuildID     int64   `json:"build_id"`
 	PassRate    float64 `json:"pass_rate"`
 	Total       int     `json:"total"`
 	Failed      int     `json:"failed"`
@@ -138,20 +196,28 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 	for i := range rows {
 		r := &rows[i]
 
-		groupKey := r.CommitSHA
+		keyOf := r.CommitSHA
 		if r.PipelineID != "" {
-			groupKey = r.PipelineID
+			keyOf = r.PipelineID
 		}
+		// Prefix with GroupProjectID so the same pipeline ID/commit SHA under two
+		// different parent groups (ListAllPipelineRuns) remains two separate runs.
+		// Per-parent rows (ListPipelineRuns) leave GroupProjectID at its zero
+		// value, so the prefix is constant within a single request and grouping
+		// behavior is unchanged.
+		groupKey := fmt.Sprintf("%d:%s", r.GroupProjectID, keyOf)
 
 		acc, exists := byKey[groupKey]
 		if !exists {
 			acc = &runAccum{
 				resp: pipelineRunResp{
-					PipelineID:  r.PipelineID,
-					PipelineURL: r.PipelineURL,
-					CommitSHA:   r.CommitSHA,
-					Branch:      r.Branch,
-					CIBuildURL:  r.CIBuildURL,
+					PipelineID:     r.PipelineID,
+					PipelineURL:    r.PipelineURL,
+					CommitSHA:      r.CommitSHA,
+					Branch:         r.Branch,
+					CIBuildURL:     r.CIBuildURL,
+					GroupProjectID: r.GroupProjectID,
+					GroupSlug:      r.GroupSlug,
 				},
 			}
 			byKey[groupKey] = acc
@@ -188,9 +254,10 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 		acc.effDenom += denom
 
 		acc.resp.Suites = append(acc.resp.Suites, pipelineSuiteResp{
-			ProjectID:   strconv.FormatInt(r.ProjectID, 10),
+			ProjectID:   r.ProjectID,
 			Slug:        r.Slug,
 			BuildNumber: r.BuildNumber,
+			BuildID:     r.BuildID,
 			PassRate:    passRate,
 			Total:       total,
 			Failed:      failed,
