@@ -19,8 +19,6 @@ import { AttachmentRow } from './AttachmentRow'
 import { AttachmentLightbox } from './AttachmentLightbox'
 import { isPlaywrightTrace } from '@/features/trace/utils'
 import { isLogMime } from './utils'
-import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
-import { PageHeader } from '@/components/app/PageHeader'
 import { FilterBar } from '@/components/app/FilterBar'
 import { Segmented } from '@/components/ui/segmented'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
@@ -74,7 +72,6 @@ function filterAttachments(
 
 export function AttachmentsTab() {
   const { id: projectId } = useParams<{ id: string }>()
-  const displayName = useProjectDisplay(projectId)
   const navigate = useNavigate()
   const [selectedAttachment, setSelectedAttachment] = useState<AttachmentEntry | null>(null)
   const [mimeFilter, setMimeFilter] = useState<MimeFilter>('')
@@ -155,18 +152,13 @@ export function AttachmentsTab() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title={displayName}
-        subtitle={
-          <>
-            Attachments · Report {reportLabel}
-            {selectedStatus !== 'all' &&
-              ` · ${selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)} only`}
-            {' · '}
-            {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
-          </>
-        }
-      />
+      <p className="text-muted-foreground text-sm">
+        Report {reportLabel}
+        {selectedStatus !== 'all' &&
+          ` · ${selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)} only`}
+        {' · '}
+        {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
+      </p>
 
       <FilterBar
         filters={

@@ -1,25 +1,7 @@
 import { NavLink } from 'react-router'
-import {
-  AlertCircle,
-  BarChart3,
-  Bell,
-  Bug,
-  Clock,
-  Gauge,
-  Inbox,
-  KeyRound,
-  LayoutDashboard,
-  Paperclip,
-  Shield,
-  UsersRound,
-} from 'lucide-react'
+import { Bell, Gauge, Inbox, KeyRound, Shield, UsersRound } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { useActiveProject } from '@/hooks/useActiveProject'
-import { useTrackActiveTab } from '@/hooks/useTrackActiveTab'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
-import { projectIndexOptions } from '@/lib/queries'
-import { resolveProjectFromParam } from '@/lib/resolveProject'
-import { formatProjectLabel, splitProjectLabel } from '@/lib/projectLabel'
 import { getConfig } from '@/api/system'
 import {
   Sidebar,
@@ -33,35 +15,16 @@ import {
 } from '@/components/ui/sidebar'
 import { env } from '@/lib/env'
 
-const navItems = [
-  { label: 'Overview', path: '', icon: LayoutDashboard, end: true },
-  { label: 'Analytics', path: '/analytics', icon: BarChart3, end: false },
-  { label: 'Defects', path: '/defects', icon: Bug, end: false },
-  { label: 'Timeline', path: '/timeline', icon: Clock, end: false },
-  { label: 'Known Issues', path: '/known-issues', icon: AlertCircle, end: false },
-  { label: 'Attachments', path: '/attachments', icon: Paperclip, end: false },
-]
-
 export function AppSidebar() {
-  const { projectId } = useActiveProject()
-  useTrackActiveTab(projectId)
   const isAdmin = useAuthStore(selectIsAdmin)
   const isEditor = useAuthStore(selectIsEditor)
 
-  const { data: projectsResp } = useQuery(projectIndexOptions())
   const { data: configResp } = useQuery({
     queryKey: ['config'],
     queryFn: getConfig,
     enabled: isAdmin,
   })
   const configData = configResp?.data
-  const allProjects = projectsResp?.data ?? []
-  const currentProject = resolveProjectFromParam(projectId ?? undefined, allProjects)
-  const { name: activeProjectName } = splitProjectLabel(currentProject, allProjects)
-  const projectLabel = activeProjectName || 'Project'
-  const projectLabelTitle = currentProject
-    ? formatProjectLabel(currentProject, allProjects)
-    : undefined
 
   return (
     <Sidebar collapsible="icon" className="h-full">
@@ -80,39 +43,6 @@ export function AppSidebar() {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
-
-        {/* Project sub-nav (active project pages) */}
-        {projectId && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="truncate" title={projectLabelTitle}>
-              {projectLabel}
-            </SidebarGroupLabel>
-            <SidebarMenu>
-              {(() => {
-                const isParent = (currentProject?.children?.length ?? 0) > 0
-                const parentHiddenTabs = ['Timeline', 'Known Issues', 'Attachments']
-                const visibleNavItems = isParent
-                  ? navItems.filter((item) => !parentHiddenTabs.includes(item.label))
-                  : navItems
-
-                return visibleNavItems.map(({ label, path, icon: Icon, end }) => (
-                  <SidebarMenuItem key={label}>
-                    <SidebarMenuButton asChild tooltip={label}>
-                      <NavLink
-                        to={`/projects/${projectId}${path}`}
-                        end={end}
-                        data-testid={`sidebar-nav-${label.toLowerCase().replace(/\s+/g, '-')}`}
-                      >
-                        <Icon />
-                        <span>{label}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))
-              })()}
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
 
         {/* Administration — anchored to bottom */}
         <SidebarGroup className="mt-auto">

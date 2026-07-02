@@ -5,6 +5,7 @@ import { LoginPage } from '@/features/auth/LoginPage'
 import { Layout } from '@/components/app/Layout'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { ProjectGuard } from '@/components/app/ProjectGuard'
+import { ProjectLayout } from '@/components/app/ProjectLayout'
 
 const DashboardPage = lazy(() =>
   import('@/features/dashboard').then((m) => ({ default: m.DashboardPage })),
@@ -101,59 +102,61 @@ export function AppRoutes() {
             }
           />
           <Route path="projects/:id" element={<ProjectGuard />}>
-            <Route
-              index
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <OverviewTab />
-                </Suspense>
-              }
-            />
-            <Route
-              path="analytics"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <AnalyticsTab />
-                </Suspense>
-              }
-            />
-            <Route
-              path="known-issues"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <KnownIssuesTab />
-                </Suspense>
-              }
-            />
-            <Route
-              path="defects"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <ProjectDefectsView />
-                </Suspense>
-              }
-            />
+            <Route element={<ProjectLayout />}>
+              <Route
+                index
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <OverviewTab />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="analytics"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <AnalyticsTab />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="known-issues"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <KnownIssuesTab />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="defects"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProjectDefectsView />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="timeline"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <TimelineTab />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="attachments"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <AttachmentsTab />
+                  </Suspense>
+                }
+              />
+            </Route>
             <Route
               path="builds/:buildId/defects"
               element={
                 <Suspense fallback={<PageLoader />}>
                   <BuildDefectsView />
-                </Suspense>
-              }
-            />
-            <Route
-              path="timeline"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <TimelineTab />
-                </Suspense>
-              }
-            />
-            <Route
-              path="attachments"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <AttachmentsTab />
                 </Suspense>
               }
             />

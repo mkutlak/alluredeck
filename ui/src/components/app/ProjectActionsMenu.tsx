@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { Upload, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Upload, Trash2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { projectIndexOptions } from '@/lib/queries/projects'
 
-export function ActionBar() {
+export function ProjectActionsMenu() {
   const { id: projectId } = useParams<{ id: string }>()
   const isAdmin = useAuthStore(selectIsAdmin)
   const isEditor = useAuthStore(selectIsEditor)
@@ -25,54 +30,40 @@ export function ActionBar() {
   if (!projectId || !isEditor) return null
 
   return (
-    <div className="flex items-center gap-2">
-      {isAllure && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="sm" variant="outline" onClick={() => setSendOpen(true)}>
-                <Upload size={14} />
-                Send results
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Upload Allure result files</TooltipContent>
-          </Tooltip>
-        </>
-      )}
-
-      {isAdmin && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-warning hover:text-warning"
-                onClick={() => setCleanResultsOpen(true)}
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="icon" variant="outline" aria-label="Project actions">
+            <MoreHorizontal size={14} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {isAllure && (
+            <DropdownMenuItem onSelect={() => setSendOpen(true)}>
+              <Upload size={14} />
+              Send results
+            </DropdownMenuItem>
+          )}
+          {isAdmin && (
+            <>
+              <DropdownMenuItem
+                className="text-warning focus:text-warning"
+                onSelect={() => setCleanResultsOpen(true)}
               >
                 <Trash2 size={14} />
                 Clean results
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Delete pending result files</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setCleanHistoryOpen(true)}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => setCleanHistoryOpen(true)}
               >
                 <Trash2 size={14} />
                 Clean history
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Delete all report history</TooltipContent>
-          </Tooltip>
-        </>
-      )}
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <SendResultsDialog projectId={Number(projectId)} open={sendOpen} onOpenChange={setSendOpen} />
       <CleanDialog
@@ -87,6 +78,6 @@ export function ActionBar() {
         open={cleanHistoryOpen}
         onOpenChange={setCleanHistoryOpen}
       />
-    </div>
+    </>
   )
 }

@@ -60,9 +60,7 @@ describe('PipelineRunsTab', () => {
   it('renders pipeline run cards after data loads', async () => {
     vi.mocked(fetchPipelineRuns).mockResolvedValue(makeResponse([sampleRun]))
 
-    renderWithProviders(
-      <PipelineRunsTab projectId="parent" childIds={['api-cloud']} />,
-    )
+    renderWithProviders(<PipelineRunsTab projectId="parent" childIds={['api-cloud']} />)
 
     await waitFor(() => {
       expect(screen.getByText('abc1234')).toBeInTheDocument()
@@ -74,23 +72,18 @@ describe('PipelineRunsTab', () => {
   it('shows empty state when no runs', async () => {
     vi.mocked(fetchPipelineRuns).mockResolvedValue(makeResponse([]))
 
-    renderWithProviders(
-      <PipelineRunsTab projectId="parent" childIds={['api-cloud']} />,
-    )
+    renderWithProviders(<PipelineRunsTab projectId="parent" childIds={['api-cloud']} />)
 
     await waitFor(() => {
       expect(screen.getByText('No pipeline runs found')).toBeInTheDocument()
     })
   })
 
-  it('displays parent project header with suite count', () => {
+  it('displays a suite count summary line', () => {
     vi.mocked(fetchPipelineRuns).mockResolvedValue(makeResponse([]))
 
-    renderWithProviders(
-      <PipelineRunsTab projectId="parent" childIds={['a', 'b', 'c']} />,
-    )
+    renderWithProviders(<PipelineRunsTab projectId="parent" childIds={['a', 'b', 'c']} />)
 
-    expect(screen.getByText('parent')).toBeInTheDocument()
     expect(screen.getByText(/3 suites/)).toBeInTheDocument()
   })
 })

@@ -9,8 +9,6 @@ import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
-import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
-import { PageHeader } from '@/components/app/PageHeader'
 import { PipelineRunCard } from './PipelineRunCard'
 
 interface PipelineRunsTabProps {
@@ -19,7 +17,6 @@ interface PipelineRunsTabProps {
 }
 
 export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
-  const displayName = useProjectDisplay(projectId)
   const [page, setPage] = useState(1)
 
   const selectedBranch = useUIStore((s) => s.selectedBranch)
@@ -56,16 +53,11 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
-        title={displayName}
-        subtitle={
-          <span className="flex items-center gap-1">
-            <Layers size={14} />
-            Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}
-          </span>
-        }
-      />
+      {/* Summary line */}
+      <p className="text-muted-foreground flex items-center gap-1 text-sm">
+        <Layers size={14} />
+        Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}
+      </p>
 
       {/* Run cards */}
       {isLoading ? (

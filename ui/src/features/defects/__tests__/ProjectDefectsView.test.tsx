@@ -36,20 +36,6 @@ describe('ProjectDefectsView', () => {
     vi.clearAllMocks()
   })
 
-  it('renders project heading', async () => {
-    vi.mocked(defectsApi.fetchProjectDefectSummary).mockResolvedValue(makeSummary())
-    vi.mocked(defectsApi.fetchProjectDefects).mockResolvedValue({
-      data: [],
-      metadata: { message: 'ok' },
-      pagination: { total: 0, page: 1, per_page: 25, total_pages: 0 },
-    })
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('myproject')).toBeInTheDocument()
-    })
-    expect(screen.getByText('Defects')).toBeInTheDocument()
-  })
-
   it('renders summary cards with correct values', async () => {
     vi.mocked(defectsApi.fetchProjectDefectSummary).mockResolvedValue(makeSummary())
     vi.mocked(defectsApi.fetchProjectDefects).mockResolvedValue({

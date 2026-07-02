@@ -111,12 +111,6 @@ describe('TimelineTab', () => {
     expect(skeletons.length).toBeGreaterThan(0)
   })
 
-  it('shows the project heading while loading', () => {
-    vi.mocked(fetchProjectTimeline).mockReturnValue(new Promise(() => {}))
-    renderTab('my-project')
-    expect(screen.getByRole('heading', { name: 'my-project' })).toBeInTheDocument()
-  })
-
   it('renders chart when data is available', async () => {
     vi.mocked(fetchProjectTimeline).mockResolvedValue(mockMultiTimeline)
     renderTab()
@@ -150,10 +144,9 @@ describe('TimelineTab', () => {
     expect(await screen.findByText(/truncated/i)).toBeInTheDocument()
   })
 
-  it('displays project id and test count in header', async () => {
+  it('displays the test count in a summary line above the chart', async () => {
     vi.mocked(fetchProjectTimeline).mockResolvedValue(mockMultiTimeline)
     renderTab('my-project')
     expect(await screen.findByText(/2 tests/i)).toBeInTheDocument()
-    expect(screen.getByText('my-project')).toBeInTheDocument()
   })
 })

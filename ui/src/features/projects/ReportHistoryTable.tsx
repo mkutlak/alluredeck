@@ -1,13 +1,12 @@
-import { useState, useMemo, Fragment } from 'react'
 import { Link } from 'react-router'
-import { ExternalLink, Trash2, GitBranch, ChevronRight, Clapperboard } from 'lucide-react'
+import { ExternalLink, Trash2, GitBranch, Clapperboard } from 'lucide-react'
 import { env } from '@/lib/env'
 import { isSafeUrl } from '@/lib/url'
 import { formatDate, calcPassRate, formatPassRate } from '@/lib/utils'
-import { getPassRateColorClass, STATUS_TEXT_CLASSES } from '@/lib/status-colors'
+import { getPassRateColorClass } from '@/lib/status-colors'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { StatusDistributionBar } from '@/components/ui/StatusDistributionBar'
 import {
   Table,
   TableBody,
@@ -25,14 +24,6 @@ export interface ReportHistoryTableProps {
   onDeleteReport: (reportId: string) => void
   selectedBuilds: Set<string>
   onToggleBuild: (id: string) => void
-  groupBy: 'none' | 'commit' | 'branch'
-}
-
-interface ReportGroup {
-  key: string
-  label: string
-  reports: ReportHistoryEntry[]
-  latestDate: string | null
 }
 
 function ReportRow({
@@ -90,18 +81,17 @@ function ReportRow({
       <TableCell className="text-muted-foreground text-sm">
         {r.generated_at ? formatDate(r.generated_at) : '—'}
       </TableCell>
-      <TableCell className="text-center font-mono text-sm">{rStat?.total ?? '—'}</TableCell>
-      <TableCell className={`text-center font-mono text-sm ${STATUS_TEXT_CLASSES.passed}`}>
-        {rStat?.passed ?? '—'}
-      </TableCell>
-      <TableCell className={`text-center font-mono text-sm ${STATUS_TEXT_CLASSES.failed}`}>
-        {rStat?.failed ?? '—'}
-      </TableCell>
-      <TableCell className={`text-center font-mono text-sm ${STATUS_TEXT_CLASSES.broken}`}>
-        {rStat?.broken ?? '—'}
-      </TableCell>
-      <TableCell className="text-muted-foreground text-center font-mono text-sm">
-        {rStat?.skipped ?? '—'}
+      <TableCell>
+        {rStat ? (
+          <StatusDistributionBar
+            passed={rStat.passed}
+            failed={rStat.failed}
+            broken={rStat.broken}
+            skipped={rStat.skipped}
+          />
+        ) : (
+          <span className="text-muted-foreground text-sm">—</span>
+        )}
       </TableCell>
       <TableCell className="text-center">
         {rStat && rPassRate !== null ? (
@@ -177,9 +167,6 @@ function ReportRow({
   )
 }
 
-// Must match <TableHead> count in ReportHistoryTable header
-const TABLE_COL_COUNT = 11
-
 export function ReportHistoryTable({
   projectId,
   reports,
@@ -187,69 +174,9 @@ export function ReportHistoryTable({
   onDeleteReport,
   selectedBuilds,
   onToggleBuild,
-  groupBy,
 }: ReportHistoryTableProps) {
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
-  const [prevGroupBy, setPrevGroupBy] = useState<'none' | 'commit' | 'branch'>('none')
-
-  const { groups, ungrouped } = useMemo(() => {
-    if (groupBy === 'none') {
-      return { groups: [] as ReportGroup[], ungrouped: reports }
-    }
-
-    const keyMap = new Map<string, ReportHistoryEntry[]>()
-    const ungroupedList: ReportHistoryEntry[] = []
-
-    for (const r of reports) {
-      const key = groupBy === 'commit' ? r.ci_commit_sha : r.ci_branch
-      if (key) {
-        const existing = keyMap.get(key)
-        if (existing) {
-          existing.push(r)
-        } else {
-          keyMap.set(key, [r])
-        }
-      } else {
-        ungroupedList.push(r)
-      }
-    }
-
-    const groupList: ReportGroup[] = []
-    for (const [key, groupReports] of keyMap.entries()) {
-      const latestDate = groupReports.reduce<string | null>((best, r) => {
-        if (!r.generated_at) return best
-        if (!best) return r.generated_at
-        return r.generated_at > best ? r.generated_at : best
-      }, null)
-      const label = groupBy === 'commit' ? key.slice(0, 7) : key
-      groupList.push({ key, label, reports: groupReports, latestDate })
-    }
-
-    return { groups: groupList, ungrouped: ungroupedList }
-  }, [reports, groupBy])
-
-  // Expand all groups when groupBy changes — render-phase state update avoids
-  // setState-in-effect and the extra commit cycle it causes.
-  if (prevGroupBy !== groupBy) {
-    setPrevGroupBy(groupBy)
-    setExpandedKeys(groupBy !== 'none' ? new Set(groups.map((g) => g.key)) : new Set())
-  }
-
-  const toggleKey = (key: string) => {
-    setExpandedKeys((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
-    })
-  }
-
   return (
     <div className="space-y-2" data-testid="report-list">
-      {/* Table */}
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
@@ -257,71 +184,14 @@ export function ReportHistoryTable({
               <TableHead className="w-10" />
               <TableHead>Report</TableHead>
               <TableHead>Generated</TableHead>
-              <TableHead className="text-center">Total</TableHead>
-              <TableHead className={`text-center ${STATUS_TEXT_CLASSES.passed}`}>Passed</TableHead>
-              <TableHead className={`text-center ${STATUS_TEXT_CLASSES.failed}`}>Failed</TableHead>
-              <TableHead className={`text-center ${STATUS_TEXT_CLASSES.broken}`}>Broken</TableHead>
-              <TableHead className={`text-center ${STATUS_TEXT_CLASSES.skipped}`}>
-                Skipped
-              </TableHead>
+              <TableHead>Results</TableHead>
               <TableHead className="text-center">Pass rate</TableHead>
               <TableHead className="text-center">CI</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {groups.map(({ key, label, reports: groupReports, latestDate }) => {
-              const isExpanded = expandedKeys.has(key)
-              return (
-                <Fragment key={`group-${key}`}>
-                  <TableRow
-                    className="bg-muted/20 hover:bg-muted/30 cursor-pointer"
-                    onClick={() => toggleKey(key)}
-                    data-testid={`${groupBy}-group-${label}`}
-                  >
-                    <TableCell colSpan={TABLE_COL_COUNT} className="py-0.5">
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <ChevronRight
-                          size={12}
-                          className={
-                            isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'
-                          }
-                        />
-                        {groupBy === 'commit' ? (
-                          <span className="text-muted-foreground font-mono text-xs">{label}</span>
-                        ) : (
-                          <span className="text-muted-foreground flex items-center gap-1 text-xs">
-                            <GitBranch size={10} />
-                            {label}
-                          </span>
-                        )}
-                        {latestDate && (
-                          <span className="text-muted-foreground text-xs">
-                            {formatDate(latestDate)}
-                          </span>
-                        )}
-                        <Badge variant="secondary" className="text-xs">
-                          {groupReports.length} builds
-                        </Badge>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  {isExpanded &&
-                    groupReports.map((r) => (
-                      <ReportRow
-                        key={r.report_id}
-                        projectId={projectId}
-                        r={r}
-                        isAdmin={isAdmin}
-                        onDeleteReport={onDeleteReport}
-                        selectedBuilds={selectedBuilds}
-                        onToggleBuild={onToggleBuild}
-                      />
-                    ))}
-                </Fragment>
-              )
-            })}
-            {ungrouped.map((r) => (
+            {reports.map((r) => (
               <ReportRow
                 key={r.report_id}
                 projectId={projectId}

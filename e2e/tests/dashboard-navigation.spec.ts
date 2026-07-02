@@ -28,19 +28,23 @@ test.describe('Dashboard & Navigation', () => {
   })
 
   test('navigate project tabs', async ({ authenticatedPage: page, freshProject }) => {
+    // Post-IA-redesign: project sub-navigation is a horizontal tab strip on the
+    // project page (not the sidebar, which no longer carries project nav).
+    // The tabs kept the same sidebar-nav-* testids to minimize e2e churn.
     await page.goto(`/projects/${freshProject.projectSlug}`)
-    await expect(page.getByTestId('sidebar-nav-overview')).toBeVisible({ timeout: 10_000 })
+    const tabs = page.getByRole('navigation', { name: 'Project sections' })
+    await expect(tabs.getByTestId('sidebar-nav-overview')).toBeVisible({ timeout: 10_000 })
 
     // Analytics
-    await page.getByTestId('sidebar-nav-analytics').click()
+    await tabs.getByTestId('sidebar-nav-analytics').click()
     await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/analytics`))
 
     // Defects
-    await page.getByTestId('sidebar-nav-defects').click()
+    await tabs.getByTestId('sidebar-nav-defects').click()
     await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/defects`))
 
     // Timeline
-    await page.getByTestId('sidebar-nav-timeline').click()
+    await tabs.getByTestId('sidebar-nav-timeline').click()
     await expect(page).toHaveURL(new RegExp(`/projects/${freshProject.projectSlug}/timeline`))
   })
 
@@ -96,7 +100,10 @@ test.describe('Dashboard & Navigation', () => {
     })
 
     // Attach an HTML snippet
-    const bodyHtml = await page.locator('body').innerHTML().catch(() => '<p>N/A</p>')
+    const bodyHtml = await page
+      .locator('body')
+      .innerHTML()
+      .catch(() => '<p>N/A</p>')
     await testInfo.attach('dashboard-snapshot.html', {
       body: `<!DOCTYPE html><html><head><title>Dashboard Snapshot</title></head><body>${bodyHtml}</body></html>`,
       contentType: 'text/html',

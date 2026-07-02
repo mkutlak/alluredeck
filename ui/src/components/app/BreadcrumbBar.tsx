@@ -2,10 +2,6 @@ import { Link, useLocation, useParams } from 'react-router'
 import { FileText, Folder } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectFromParam } from '@/lib/resolveProject'
-import { BranchSelector } from '@/features/projects/BranchSelector'
-import { useUIStore } from '@/store/ui'
-
-const BRANCH_RELEVANT_SEGMENTS = new Set(['', 'analytics', 'timeline', 'tests'])
 
 // Derive tab label + href from a pathname segment
 const TAB_SEGMENTS: Record<string, string> = {
@@ -105,30 +101,16 @@ export function BreadcrumbBar() {
   const params = useParams<{ id?: string }>()
   const { isLoading } = useProjectFromParam(params.id)
   const crumbs = useBreadcrumbs()
-  const selectedBranch = useUIStore((s) => s.selectedBranch)
-  const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
 
   if (location.pathname === '/') return null
   if (!crumbs) return null
 
   const isLoadingState = crumbs.length === 1 && crumbs[0].label === '__loading__'
 
-  // Determine if the current route is branch-relevant
-  const afterId = params.id
-    ? location.pathname.replace(/^\/projects\/[^/]+\/?/, '')
-    : null
-  const firstSeg = afterId != null ? (afterId.split('/')[0] ?? '') : null
-  const showBranchSelector =
-    params.id != null &&
-    firstSeg != null &&
-    BRANCH_RELEVANT_SEGMENTS.has(firstSeg) &&
-    !isLoadingState &&
-    !isLoading
-
   return (
     <nav
       aria-label="Breadcrumb"
-      className="border-b bg-background flex h-10 shrink-0 items-center gap-1.5 px-4 text-sm"
+      className="bg-background flex h-10 shrink-0 items-center gap-1.5 border-b px-4 text-sm"
     >
       {isLoadingState || isLoading ? (
         <>
@@ -137,42 +119,29 @@ export function BreadcrumbBar() {
           <Skeleton className="h-4 w-24" data-testid="breadcrumb-skeleton" />
         </>
       ) : (
-        <>
-          <ol className="flex items-center gap-1.5">
-            {crumbs.map((crumb, i) => {
-              const isLast = i === crumbs.length - 1
-              return (
-                <li key={i} className="flex items-center gap-1.5">
-                  {i > 0 && <span className="text-muted-foreground select-none">/</span>}
-                  {crumb.icon && (
-                    <span className="flex items-center">{crumb.icon}</span>
-                  )}
-                  {crumb.href && !isLast ? (
-                    <Link
-                      to={crumb.href}
-                      className="text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {crumb.label}
-                    </Link>
-                  ) : (
-                    <span className={isLast ? 'font-medium' : 'text-muted-foreground'}>
-                      {crumb.label}
-                    </span>
-                  )}
-                </li>
-              )
-            })}
-          </ol>
-          {showBranchSelector && (
-            <div className="ml-auto">
-              <BranchSelector
-                projectId={params.id!}
-                selectedBranch={selectedBranch}
-                onBranchChange={setSelectedBranch}
-              />
-            </div>
-          )}
-        </>
+        <ol className="flex items-center gap-1.5">
+          {crumbs.map((crumb, i) => {
+            const isLast = i === crumbs.length - 1
+            return (
+              <li key={i} className="flex items-center gap-1.5">
+                {i > 0 && <span className="text-muted-foreground select-none">/</span>}
+                {crumb.icon && <span className="flex items-center">{crumb.icon}</span>}
+                {crumb.href && !isLast ? (
+                  <Link
+                    to={crumb.href}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {crumb.label}
+                  </Link>
+                ) : (
+                  <span className={isLast ? 'font-medium' : 'text-muted-foreground'}>
+                    {crumb.label}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ol>
       )}
     </nav>
   )

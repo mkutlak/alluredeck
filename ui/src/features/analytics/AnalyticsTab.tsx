@@ -20,13 +20,12 @@ import { SuitePassRateChart } from './SuitePassRateChart'
 import { LabelBreakdownCard } from './LabelBreakdownCard'
 import { AnalyticsSection } from './AnalyticsSection'
 import { KpiSummaryRow } from './KpiSummaryRow'
-import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { useUIStore } from '@/store/ui'
-import { PageHeader } from '@/components/app/PageHeader'
+import { FilterBar } from '@/components/app/FilterBar'
+import { BranchSelect } from '@/components/app/BranchSelect'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
-  const displayName = useProjectDisplay(projectId)
   const branch = useUIStore((s) => s.selectedBranch)
 
   // Fetch branches to validate the stored selection against this project's branch list
@@ -103,7 +102,7 @@ export function AnalyticsTab() {
 
   if (!projectId) return null
 
-  const header = <PageHeader title={displayName} subtitle="Analytics" />
+  const header = <FilterBar filters={<BranchSelect />} />
 
   if (isLoading) {
     return (

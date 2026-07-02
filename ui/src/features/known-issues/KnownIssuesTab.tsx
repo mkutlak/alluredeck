@@ -33,15 +33,12 @@ import {
 import { toast } from '@/components/ui/use-toast'
 import { formatDate } from '@/lib/utils'
 import type { KnownIssue } from '@/types/api'
-import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
-import { PageHeader } from '@/components/app/PageHeader'
 import { FilterBar } from '@/components/app/FilterBar'
 import { CreateKnownIssueDialog } from './CreateKnownIssueDialog'
 import { EditKnownIssueDialog } from './EditKnownIssueDialog'
 
 export function KnownIssuesTab() {
   const { id: projectId } = useParams<{ id: string }>()
-  const displayName = useProjectDisplay(projectId)
   const isEditor = useAuthStore(selectIsEditor)
   const queryClient = useQueryClient()
 
@@ -108,32 +105,26 @@ export function KnownIssuesTab() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title={displayName}
-        subtitle="Known Issues"
-        actions={
+      <FilterBar
+        filters={
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="show-resolved"
+              checked={showResolved}
+              onCheckedChange={(v) => setShowResolved(v === true)}
+            />
+            <Label htmlFor="show-resolved" className="cursor-pointer text-sm">
+              Show resolved
+            </Label>
+          </div>
+        }
+        end={
           isEditor && (
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus size={14} />
               Add Known Issue
             </Button>
           )
-        }
-        toolbar={
-          <FilterBar
-            end={
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="show-resolved"
-                  checked={showResolved}
-                  onCheckedChange={(v) => setShowResolved(v === true)}
-                />
-                <Label htmlFor="show-resolved" className="cursor-pointer text-sm">
-                  Show resolved
-                </Label>
-              </div>
-            }
-          />
         }
       />
 

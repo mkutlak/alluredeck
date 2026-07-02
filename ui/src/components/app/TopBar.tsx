@@ -17,7 +17,6 @@ import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { logout } from '@/api/auth'
 import { toast } from '@/components/ui/use-toast'
 import { useSearchCommand } from '@/features/search'
-import { ProjectSwitcher } from './ProjectSwitcher'
 import { CreateMenu } from './CreateMenu'
 
 export function TopBar() {
@@ -52,11 +51,6 @@ export function TopBar() {
       <Link to="/">
         <img src="/favicon.svg" alt="Allure" className="h-5 w-5" />
       </Link>
-      <Separator orientation="vertical" className="h-4" />
-
-      {/* Project switcher */}
-      <ProjectSwitcher />
-
       <div className="flex-1" />
 
       {/* Search trigger */}

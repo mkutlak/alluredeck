@@ -8,16 +8,14 @@ import { useUIStore } from '@/store/ui'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AlertBanner } from '@/components/ui/AlertBanner'
-import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
-import { PageHeader } from '@/components/app/PageHeader'
 import { FilterBar } from '@/components/app/FilterBar'
+import { BranchSelect } from '@/components/app/BranchSelect'
 import { TimelineChart } from './TimelineChart'
 import { DateRangePicker } from './DateRangePicker'
 import { BuildCountSelector } from './BuildCountSelector'
 
 export function TimelineTab() {
   const { id: projectId } = useParams<{ id: string }>()
-  const displayName = useProjectDisplay(projectId)
 
   const branch = useUIStore((s) => s.selectedBranch)
 
@@ -73,17 +71,26 @@ export function TimelineTab() {
   if (!projectId) return null
 
   const totalSec = (totalDuration / 1000).toFixed(1)
-  const header = (
-    <PageHeader
-      title={displayName}
-      subtitle={`Test Timeline · ${totalTests} tests · ${totalSec}s total`}
+  const summaryLine = (
+    <p className="text-muted-foreground text-sm">
+      {totalTests} tests · {totalSec}s total
+    </p>
+  )
+  const filterBar = (
+    <FilterBar
+      filters={
+        <div className="flex flex-wrap items-end gap-3">
+          <BranchSelect />
+          <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
+          {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
+        </div>
+      }
     />
   )
 
   if (isLoading) {
     return (
       <div className="space-y-4">
-        {header}
         <Skeleton className="h-[400px] w-full rounded-lg" />
       </div>
     )
@@ -92,7 +99,6 @@ export function TimelineTab() {
   if (isError) {
     return (
       <div className="space-y-4">
-        {header}
         <div className="border-destructive/50 rounded-lg border p-4 text-center">
           <p className="text-destructive text-sm">
             Failed to load timeline data. Please try again.
@@ -107,15 +113,7 @@ export function TimelineTab() {
   if (builds.length === 0 || allTestCases.length === 0) {
     return (
       <div className="space-y-4">
-        {header}
-        <FilterBar
-          filters={
-            <div className="flex flex-wrap items-end gap-3">
-              <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
-              {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
-            </div>
-          }
-        />
+        {filterBar}
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No timeline data yet</p>
           <p className="text-muted-foreground text-sm">
@@ -131,16 +129,9 @@ export function TimelineTab() {
 
   return (
     <div className="space-y-4">
-      {header}
+      {summaryLine}
 
-      <FilterBar
-        filters={
-          <div className="flex flex-wrap items-end gap-3">
-            <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
-            {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
-          </div>
-        }
-      />
+      {filterBar}
 
       {showBuildCountWarning && (
         <AlertBanner variant="info">

@@ -40,12 +40,12 @@ describe('AnalyticsTab', () => {
     vi.mocked(reportsApi.fetchReportCategories).mockResolvedValue([])
   })
 
-  it('shows the project heading in the empty state', async () => {
+  it('shows the empty state message with a filter row above it', async () => {
     renderTab()
     await waitFor(() => {
       expect(screen.getByText(/no report data yet/i)).toBeInTheDocument()
     })
-    expect(screen.getByRole('heading', { name: 'myproject' })).toBeInTheDocument()
-    expect(screen.getByText('Analytics')).toBeInTheDocument()
+    // PageHeader (title/heading) is now owned by the project layout, not the tab itself.
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument()
   })
 })

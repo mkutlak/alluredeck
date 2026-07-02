@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BreadcrumbBar } from '../BreadcrumbBar'
@@ -32,17 +32,7 @@ vi.mock('@/lib/resolveProject', () => ({
   useProjectFromParam: vi.fn(),
 }))
 
-vi.mock('@/api/branches', () => ({
-  fetchBranches: vi.fn(),
-}))
-
 import { useProjectFromParam } from '@/lib/resolveProject'
-import { fetchBranches } from '@/api/branches'
-import type { Branch } from '@/types/api'
-
-function makeBranch(name: string): Branch {
-  return { id: 1, project_id: 30, name, is_default: false, created_at: '2024-01-01T00:00:00Z' }
-}
 
 function makeQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -208,88 +198,5 @@ describe('BreadcrumbBar', () => {
     // The parent link uses numeric id 10
     const parentLink = screen.getByRole('link', { name: /parent group/i })
     expect(parentLink).toHaveAttribute('href', '/projects/10')
-  })
-
-  describe('BranchSelector visibility', () => {
-    beforeEach(() => {
-      vi.mocked(useProjectFromParam).mockReturnValue({
-        project: standaloneProject,
-        projects: allProjects,
-        isLoading: false,
-        error: null,
-      })
-    })
-
-    it('shows the branch selector on the project overview route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30')
-      await waitFor(() => {
-        expect(screen.getByRole('combobox', { name: /filter by branch/i })).toBeInTheDocument()
-      })
-    })
-
-    it('shows the branch selector on the analytics route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/analytics')
-      await waitFor(() => {
-        expect(screen.getByRole('combobox', { name: /filter by branch/i })).toBeInTheDocument()
-      })
-    })
-
-    it('shows the branch selector on the timeline route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/timeline')
-      await waitFor(() => {
-        expect(screen.getByRole('combobox', { name: /filter by branch/i })).toBeInTheDocument()
-      })
-    })
-
-    it('shows the branch selector on the tests route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/tests')
-      await waitFor(() => {
-        expect(screen.getByRole('combobox', { name: /filter by branch/i })).toBeInTheDocument()
-      })
-    })
-
-    it('does not show the branch selector on the defects route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/defects')
-      // Wait for the bar to settle, then assert the combobox is absent
-      await waitFor(() => {
-        expect(screen.getByText('Defects')).toBeInTheDocument()
-      })
-      expect(screen.queryByRole('combobox', { name: /filter by branch/i })).not.toBeInTheDocument()
-    })
-
-    it('does not show the branch selector on the attachments route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/attachments')
-      await waitFor(() => {
-        expect(screen.getByText('Attachments')).toBeInTheDocument()
-      })
-      expect(screen.queryByRole('combobox', { name: /filter by branch/i })).not.toBeInTheDocument()
-    })
-
-    it('does not show the branch selector on a reports deep-link route', async () => {
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/reports/42')
-      await waitFor(() => {
-        expect(screen.getByText(/report #42/i)).toBeInTheDocument()
-      })
-      expect(screen.queryByRole('combobox', { name: /filter by branch/i })).not.toBeInTheDocument()
-    })
-
-    it('does not show the branch selector while loading', () => {
-      vi.mocked(useProjectFromParam).mockReturnValue({
-        project: undefined,
-        projects: undefined,
-        isLoading: true,
-        error: null,
-      })
-      vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main')])
-      renderAtPath('/projects/30/analytics')
-      expect(screen.queryByRole('combobox', { name: /filter by branch/i })).not.toBeInTheDocument()
-    })
   })
 })

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
-import { Link, NavLink, useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { RefreshCw, Clock, GitCommitHorizontal, GitBranch } from 'lucide-react'
+import { RefreshCw, Clock } from 'lucide-react'
 import { fetchReportHistory, deleteReport } from '@/api/reports'
 import { fetchBranches } from '@/api/branches'
 import { extractErrorMessage } from '@/api/client'
@@ -23,12 +23,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/components/ui/use-toast'
-import { Segmented } from '@/components/ui/segmented'
+import { FilterBar } from '@/components/app/FilterBar'
+import { BranchSelect } from '@/components/app/BranchSelect'
 import { EnvironmentCard } from '@/features/projects/EnvironmentCard'
 import { CategoriesCard } from '@/features/projects/CategoriesCard'
 import { FlakyTestsCard } from '@/features/projects/FlakyTestsCard'
-import { ActionBar } from '@/components/app/ActionBar'
-import { PageHeader } from '@/components/app/PageHeader'
 import { PipelineRunsTab } from '@/features/pipeline'
 import { Badge } from '@/components/ui/badge'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
@@ -48,8 +47,6 @@ export function OverviewTab() {
   const [selectedBuilds, setSelectedBuilds] = useState<Set<string>>(new Set())
   const reportsPerPage = useUIStore((s) => s.reportsPerPage)
   const setReportsPerPage = useUIStore((s) => s.setReportsPerPage)
-  const groupBy = useUIStore((s) => s.reportsGroupBy)
-  const setGroupBy = useUIStore((s) => s.setReportsGroupBy)
 
   const { data: branchesData } = useQuery({
     queryKey: queryKeys.branches.list(projectId ?? ''),
@@ -67,9 +64,6 @@ export function OverviewTab() {
   const allProjects = projectsResp?.data ?? []
   const currentProject = resolveProjectFromParam(projectId, allProjects)
   const isParentProject = (currentProject?.children?.length ?? 0) > 0
-  const parentProject = currentProject?.parent_id
-    ? allProjects.find((p) => p.project_id === currentProject.parent_id)
-    : null
 
   const handleToggleBuild = (id: string) => {
     setSelectedBuilds((prev) => {
@@ -185,61 +179,38 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6" data-testid="project-overview">
-      {/* Page title + action buttons */}
-      <PageHeader
-        title={formatProjectLabel(currentProject, allProjects)}
-        subtitle={
-          parentProject ? (
-            <span className="flex items-center gap-1">
-              Part of:{' '}
-              <NavLink
-                to={`/projects/${parentProject.project_id}`}
-                className="text-primary hover:underline"
-              >
-                {parentProject.slug}
-              </NavLink>
-            </span>
-          ) : (
-            'Overview'
-          )
-        }
-        actions={<ActionBar />}
-        meta={
-          stat && passRate != null ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge
-                variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
-                className={getPassRateBadgeClass(passRate)}
-              >
-                Pass rate: {formatPassRate(stat.passed, stat.total, stat.skipped)}
-              </Badge>
-              <Badge variant="outline">Tests: {stat.total}</Badge>
-              {stat.failed + stat.broken > 0 && (
-                <Badge variant="destructive">Failed: {stat.failed + stat.broken}</Badge>
-              )}
-              {chipLatest?.duration_ms != null && (
-                <Badge variant="outline">
-                  Last duration: {formatDuration(chipLatest.duration_ms)}
-                </Badge>
-              )}
-              {chipLatest?.generated_at && (
-                <Badge variant="outline">
-                  Last run:{' '}
-                  {new Date(chipLatest.generated_at).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: '2-digit',
-                  })}
-                </Badge>
-              )}
-              {effectiveBranch && <Badge variant="outline">Branch: {effectiveBranch}</Badge>}
-            </div>
-          ) : !isLoading ? (
-            <div>
-              <Badge variant="secondary">No builds</Badge>
-            </div>
-          ) : null
-        }
-      />
+      {/* Stat chips */}
+      {stat && passRate != null ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge
+            variant={passRate >= 90 ? 'default' : passRate >= 70 ? 'secondary' : 'destructive'}
+            className={getPassRateBadgeClass(passRate)}
+          >
+            Pass rate: {formatPassRate(stat.passed, stat.total, stat.skipped)}
+          </Badge>
+          <Badge variant="outline">Tests: {stat.total}</Badge>
+          {stat.failed + stat.broken > 0 && (
+            <Badge variant="destructive">Failed: {stat.failed + stat.broken}</Badge>
+          )}
+          {chipLatest?.duration_ms != null && (
+            <Badge variant="outline">Last duration: {formatDuration(chipLatest.duration_ms)}</Badge>
+          )}
+          {chipLatest?.generated_at && (
+            <Badge variant="outline">
+              Last run:{' '}
+              {new Date(chipLatest.generated_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: '2-digit',
+              })}
+            </Badge>
+          )}
+          {effectiveBranch && <Badge variant="outline">Branch: {effectiveBranch}</Badge>}
+        </div>
+      ) : !isLoading ? (
+        <div>
+          <Badge variant="secondary">No builds</Badge>
+        </div>
+      ) : null}
 
       {/* Environment & Categories & Flaky Tests — G1/G2/A1 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 [&:empty]:hidden">
@@ -251,20 +222,8 @@ export function OverviewTab() {
       {/* Compare Selected bar */}
       {compareBarContent}
 
-      {/* Group by toolbar */}
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-xs">Group by:</span>
-        <Segmented
-          aria-label="Group by"
-          value={groupBy}
-          onValueChange={setGroupBy}
-          options={[
-            { value: 'none', label: 'None' },
-            { value: 'commit', label: 'Commit', icon: GitCommitHorizontal },
-            { value: 'branch', label: 'Branch', icon: GitBranch },
-          ]}
-        />
-      </div>
+      {/* Filter row */}
+      <FilterBar filters={<BranchSelect />} />
 
       {/* Report history table */}
       {isLoading ? (
@@ -294,7 +253,6 @@ export function OverviewTab() {
           onDeleteReport={setDeleteReportId}
           selectedBuilds={selectedBuilds}
           onToggleBuild={handleToggleBuild}
-          groupBy={groupBy}
         />
       )}
 

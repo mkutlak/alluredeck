@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchReportStability } from '@/api/reports'
+import { ApiError } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -10,18 +11,31 @@ interface Props {
 }
 
 export function FlakyTestsCard({ projectId }: Props) {
-  const { data: stability, isLoading, isError, error, refetch } = useQuery({
+  const {
+    data: stability,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: queryKeys.reportStability(projectId),
     queryFn: () => fetchReportStability(projectId),
     staleTime: 30_000,
+    // Auxiliary card: settle immediately instead of retrying — a 404 hides the
+    // card and other errors surface right away.
+    retry: false,
   })
 
   const flakyTests = stability?.flaky_tests ?? []
   const summary = stability?.summary
 
-  // Hide the card entirely when there are no flaky tests and no error — don't
-  // show an empty card that would confuse users.
-  if (!isLoading && !isError && flakyTests.length === 0) {
+  // A 404 means the project has no stability data yet (e.g. no builds) — for an
+  // auxiliary card that is "nothing to show", not an error worth a banner.
+  const isNotFound = isError && error instanceof ApiError && error.response?.status === 404
+
+  // Hide the card entirely when there is nothing to show — don't render an
+  // empty card (or a loud error card for missing data) that would confuse users.
+  if (!isLoading && flakyTests.length === 0 && (!isError || isNotFound)) {
     return null
   }
 

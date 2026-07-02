@@ -52,10 +52,10 @@ describe('KnownIssuesTab', () => {
     vi.clearAllMocks()
   })
 
-  it('shows loading skeletons initially', () => {
+  it('shows the "Show resolved" filter while loading', () => {
     vi.mocked(kiApi.listKnownIssues).mockReturnValue(new Promise(() => {}))
     renderTab()
-    expect(screen.getByText('Known Issues')).toBeInTheDocument()
+    expect(screen.getByLabelText(/show resolved/i)).toBeInTheDocument()
   })
 
   it('shows empty state when no issues', async () => {

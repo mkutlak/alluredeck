@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/render'
@@ -7,9 +7,6 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAuthStore } from '@/store/auth'
 import type { AuthState, Role } from '@/store/auth'
-import { useUIStore } from '@/store/ui'
-import type { UIState } from '@/store/ui'
-import { getProjectIndex, getProjects } from '@/api/projects'
 import { AppSidebar } from '../AppSidebar'
 
 vi.mock('@/api/projects', () => ({
@@ -36,10 +33,6 @@ vi.mock('@/store/auth', () => ({
   },
 }))
 
-vi.mock('@/store/ui', () => ({
-  useUIStore: vi.fn(),
-}))
-
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -56,37 +49,7 @@ beforeAll(() => {
   })
 })
 
-function makeUIState(overrides: Partial<UIState> = {}): UIState {
-  return {
-    projectViewMode: 'grid',
-    lastProjectId: null,
-    reportsPerPage: 20,
-    reportsGroupBy: 'none',
-    selectedBranch: undefined,
-    _syncedAt: null,
-    timezone: null,
-    timeFormat: null,
-    setProjectViewMode: vi.fn(),
-    setLastProjectId: vi.fn(),
-    clearLastProjectId: vi.fn(),
-    setReportsPerPage: vi.fn(),
-    setReportsGroupBy: vi.fn(),
-    setSelectedBranch: vi.fn(),
-    setSyncedAt: vi.fn(),
-    setTimezone: vi.fn(),
-    setTimeFormat: vi.fn(),
-    pinnedProjectIds: [],
-    recentProjectIds: [],
-    lastTabPerProject: {},
-    pinProject: vi.fn(),
-    unpinProject: vi.fn(),
-    recordProjectVisit: vi.fn(),
-    setLastTabForProject: vi.fn(),
-    ...overrides,
-  }
-}
-
-function renderSidebar(path: string, roles: Role[] = [], uiStateOverrides: Partial<UIState> = {}) {
+function renderSidebar(path: string, roles: Role[] = []) {
   vi.mocked(useAuthStore).mockImplementation((selector: (state: AuthState) => unknown) =>
     selector({
       isAuthenticated: false,
@@ -97,9 +60,6 @@ function renderSidebar(path: string, roles: Role[] = [], uiStateOverrides: Parti
       setAuth: vi.fn(),
       clearAuth: vi.fn(),
     }),
-  )
-  vi.mocked(useUIStore).mockImplementation((selector: (state: UIState) => unknown) =>
-    selector(makeUIState(uiStateOverrides)),
   )
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -142,76 +102,13 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
-  it('shows project sub-nav with section label when project is in URL', () => {
+  it('does NOT render a project sub-nav section, even when on a project page', () => {
     renderSidebar('/projects/my-project')
-    expect(screen.getByText('Project')).toBeInTheDocument()
-    expect(screen.getByText('Overview')).toBeInTheDocument()
-    expect(screen.getByText('Known Issues')).toBeInTheDocument()
-    expect(screen.getByText('Timeline')).toBeInTheDocument()
-    expect(screen.getByText('Analytics')).toBeInTheDocument()
-  })
-
-  it("shows the active project's own name as the section label", async () => {
-    vi.mocked(getProjectIndex).mockResolvedValueOnce({
-      data: [{ project_id: 5, slug: 'resolved-project', display_name: 'Resolved Project' }],
-      metadata: { message: 'ok' },
-    })
-    vi.mocked(getProjects).mockResolvedValueOnce({
-      data: [{ project_id: 5, slug: 'resolved-project', display_name: 'Resolved Project' }],
-      metadata: { message: 'ok' },
-      pagination: { total: 1, page: 1, per_page: 20, total_pages: 1 },
-    })
-    renderSidebar('/projects/resolved-project')
-    await waitFor(() => {
-      expect(screen.getByText('Resolved Project')).toBeInTheDocument()
-    })
-    expect(
-      screen.queryByText('Project', { selector: '[data-sidebar="group-label"]' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('falls back to "Project" label when no project is resolved', () => {
-    renderSidebar('/projects/my-project')
-    expect(screen.getByText('Project')).toBeInTheDocument()
-  })
-
-  it('hides project sub-nav when no project is in URL', async () => {
-    vi.mocked(getProjectIndex).mockResolvedValueOnce({
-      data: [],
-      metadata: { message: 'ok' },
-    })
-    vi.mocked(getProjects).mockResolvedValueOnce({
-      data: [],
-      metadata: { message: 'ok' },
-      pagination: { total: 0, page: 1, per_page: 20, total_pages: 0 },
-    })
-    renderSidebar('/', [], { lastProjectId: null })
-    await waitFor(() => {
-      expect(screen.queryByText('Overview')).not.toBeInTheDocument()
-      expect(screen.queryByText('Known Issues')).not.toBeInTheDocument()
-      expect(screen.queryByText('Timeline')).not.toBeInTheDocument()
-      expect(screen.queryByText('Analytics')).not.toBeInTheDocument()
-    })
-  })
-
-  it('nav items link to correct project paths', () => {
-    renderSidebar('/projects/my-project')
-    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
-      'href',
-      '/projects/my-project',
-    )
-    expect(screen.getByRole('link', { name: /known issues/i })).toHaveAttribute(
-      'href',
-      '/projects/my-project/known-issues',
-    )
-    expect(screen.getByRole('link', { name: /timeline/i })).toHaveAttribute(
-      'href',
-      '/projects/my-project/timeline',
-    )
-    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute(
-      'href',
-      '/projects/my-project/analytics',
-    )
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Known Issues')).not.toBeInTheDocument()
+    expect(screen.queryByText('Timeline')).not.toBeInTheDocument()
+    expect(screen.queryByText('Analytics')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('sidebar-nav-overview')).not.toBeInTheDocument()
   })
 
   it('shows "Administration" section and "System Monitor" link for admin users', () => {
@@ -237,52 +134,5 @@ describe('AppSidebar', () => {
     renderSidebar('/')
     // In test env VITE_APP_VERSION is unset → falls back to 'dev'
     expect(screen.getByText('vdev')).toBeInTheDocument()
-  })
-
-  it('shows project sub-nav using stored lastProjectId when not on project page', () => {
-    renderSidebar('/', [], { lastProjectId: 'stored-project' })
-    expect(screen.getByText('Overview')).toBeInTheDocument()
-    expect(screen.getByText('Known Issues')).toBeInTheDocument()
-    expect(screen.getByText('Timeline')).toBeInTheDocument()
-    expect(screen.getByText('Analytics')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
-      'href',
-      '/projects/stored-project',
-    )
-    expect(screen.getByRole('link', { name: /known issues/i })).toHaveAttribute(
-      'href',
-      '/projects/stored-project/known-issues',
-    )
-    expect(screen.getByRole('link', { name: /timeline/i })).toHaveAttribute(
-      'href',
-      '/projects/stored-project/timeline',
-    )
-    expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute(
-      'href',
-      '/projects/stored-project/analytics',
-    )
-  })
-
-  it('auto-selects first project when no stored project', async () => {
-    vi.mocked(getProjectIndex).mockResolvedValueOnce({
-      data: [{ project_id: 1, slug: 'first-project' }],
-      metadata: { message: 'ok' },
-    })
-    vi.mocked(getProjects).mockResolvedValueOnce({
-      data: [{ project_id: 1, slug: 'first-project' }],
-      metadata: { message: 'ok' },
-      pagination: { total: 1, page: 1, per_page: 20, total_pages: 1 },
-    })
-    renderSidebar('/', [], { lastProjectId: null })
-    await waitFor(() => {
-      expect(screen.getByText('Overview')).toBeInTheDocument()
-      expect(screen.getByText('Known Issues')).toBeInTheDocument()
-      expect(screen.getByText('Timeline')).toBeInTheDocument()
-      expect(screen.getByText('Analytics')).toBeInTheDocument()
-    })
-    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute(
-      'href',
-      '/projects/first-project',
-    )
   })
 })
