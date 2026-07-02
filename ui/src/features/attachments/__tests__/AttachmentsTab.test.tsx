@@ -157,10 +157,11 @@ describe('AttachmentsTab', () => {
     expect(await screen.findByText(/no attachments/i)).toBeInTheDocument()
   })
 
-  it('renders MIME filter buttons', async () => {
+  it('renders MIME filter buttons as a segmented group', async () => {
     vi.mocked(fetchAttachments).mockResolvedValue(mockData)
     renderTab()
     await screen.findByText('shouldRegisterNewUser')
+    expect(screen.getByRole('group', { name: /filter by type/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /all/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /images/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /logs/i })).toBeInTheDocument()
@@ -195,10 +196,38 @@ describe('AttachmentsTab', () => {
           test_name: 'testWithVariousTypes',
           test_status: 'passed',
           attachments: [
-            { id: 10, name: 'screenshot.png', source: 's1.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/s1.png' },
-            { id: 11, name: 'response.json', source: 'r1.json', mime_type: 'application/json', size_bytes: 512, url: '/mock/r1.json' },
-            { id: 12, name: 'output.txt', source: 'o1.txt', mime_type: 'text/plain', size_bytes: 256, url: '/mock/o1.txt' },
-            { id: 13, name: 'data.bin', source: 'd1.bin', mime_type: 'application/octet-stream', size_bytes: 4096, url: '/mock/d1.bin' },
+            {
+              id: 10,
+              name: 'screenshot.png',
+              source: 's1.png',
+              mime_type: 'image/png',
+              size_bytes: 1024,
+              url: '/mock/s1.png',
+            },
+            {
+              id: 11,
+              name: 'response.json',
+              source: 'r1.json',
+              mime_type: 'application/json',
+              size_bytes: 512,
+              url: '/mock/r1.json',
+            },
+            {
+              id: 12,
+              name: 'output.txt',
+              source: 'o1.txt',
+              mime_type: 'text/plain',
+              size_bytes: 256,
+              url: '/mock/o1.txt',
+            },
+            {
+              id: 13,
+              name: 'data.bin',
+              source: 'd1.bin',
+              mime_type: 'application/octet-stream',
+              size_bytes: 4096,
+              url: '/mock/d1.bin',
+            },
           ],
         },
       ],
@@ -235,10 +264,38 @@ describe('AttachmentsTab', () => {
           test_name: 'testWithVariousTypes',
           test_status: 'passed',
           attachments: [
-            { id: 10, name: 'screenshot.png', source: 's1.png', mime_type: 'image/png', size_bytes: 1024, url: '/mock/s1.png' },
-            { id: 11, name: 'response.json', source: 'r1.json', mime_type: 'application/json', size_bytes: 512, url: '/mock/r1.json' },
-            { id: 12, name: 'output.txt', source: 'o1.txt', mime_type: 'text/plain', size_bytes: 256, url: '/mock/o1.txt' },
-            { id: 13, name: 'data.bin', source: 'd1.bin', mime_type: 'application/octet-stream', size_bytes: 4096, url: '/mock/d1.bin' },
+            {
+              id: 10,
+              name: 'screenshot.png',
+              source: 's1.png',
+              mime_type: 'image/png',
+              size_bytes: 1024,
+              url: '/mock/s1.png',
+            },
+            {
+              id: 11,
+              name: 'response.json',
+              source: 'r1.json',
+              mime_type: 'application/json',
+              size_bytes: 512,
+              url: '/mock/r1.json',
+            },
+            {
+              id: 12,
+              name: 'output.txt',
+              source: 'o1.txt',
+              mime_type: 'text/plain',
+              size_bytes: 256,
+              url: '/mock/o1.txt',
+            },
+            {
+              id: 13,
+              name: 'data.bin',
+              source: 'd1.bin',
+              mime_type: 'application/octet-stream',
+              size_bytes: 4096,
+              url: '/mock/d1.bin',
+            },
           ],
         },
       ],
@@ -288,7 +345,11 @@ describe('AttachmentsTab', () => {
       const failedOption = await screen.findByRole('option', { name: /^failed$/i })
       await user.click(failedOption)
 
-      expect(fetchAttachments).toHaveBeenCalledWith('proj1', 'latest', expect.objectContaining({ status: 'failed' }))
+      expect(fetchAttachments).toHaveBeenCalledWith(
+        'proj1',
+        'latest',
+        expect.objectContaining({ status: 'failed' }),
+      )
     })
 
     it('includes status in query key causing a refetch when status changes', async () => {

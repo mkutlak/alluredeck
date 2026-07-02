@@ -60,7 +60,9 @@ export function DashboardPage() {
       const filtered = search
         ? children.filter((c) => {
             const q = search.toLowerCase()
-            return c.slug.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q)
+            return (
+              c.slug.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q)
+            )
           })
         : children
       return [...filtered].sort((a, b) => compareRows(a, b, sortField, sortDir))
@@ -93,7 +95,9 @@ export function DashboardPage() {
       const filtered = search
         ? flat.filter((p) => {
             const q = search.toLowerCase()
-            return p.slug.toLowerCase().includes(q) || (p.display_name ?? '').toLowerCase().includes(q)
+            return (
+              p.slug.toLowerCase().includes(q) || (p.display_name ?? '').toLowerCase().includes(q)
+            )
           })
         : flat
       return [...filtered].sort((a, b) => compareRows(a, b, sortField, sortDir))
@@ -103,12 +107,15 @@ export function DashboardPage() {
     const filtered = search
       ? projects.filter((p) => {
           const q = search.toLowerCase()
-          const nameMatch = p.slug.toLowerCase().includes(q) || (p.display_name ?? '').toLowerCase().includes(q)
+          const nameMatch =
+            p.slug.toLowerCase().includes(q) || (p.display_name ?? '').toLowerCase().includes(q)
           if (nameMatch) return true
           if (p.is_group && p.children) {
             return p.children.some((c) => {
               const q = search.toLowerCase()
-              return c.slug.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q)
+              return (
+                c.slug.toLowerCase().includes(q) || (c.display_name ?? '').toLowerCase().includes(q)
+              )
             })
           }
           return false
@@ -202,7 +209,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="space-y-6 p-6">
       <DashboardHeader
         projects={data.projects}
         groupId={groupId}

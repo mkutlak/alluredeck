@@ -195,8 +195,29 @@ describe('OverviewTab - report history pagination', () => {
 
   it('previous button shows prior page after navigating forward', async () => {
     const user = userEvent.setup()
-    vi.mocked(reportsApi.fetchReportHistory)
-      .mockResolvedValueOnce(
+    vi.mocked(reportsApi.fetchReportHistory).mockImplementation((_pid, page, perPage) => {
+      if (perPage === 1) {
+        // Header stat chips query — not part of this pagination flow.
+        return Promise.resolve(
+          makePaginated([makeReport('page1-report', true)], {
+            page: 1,
+            per_page: 1,
+            total: 25,
+            total_pages: 25,
+          }),
+        )
+      }
+      if (page === 2) {
+        return Promise.resolve(
+          makePaginated([makeReport('latest', true), makeReport('page2-report')], {
+            page: 2,
+            per_page: 20,
+            total: 25,
+            total_pages: 2,
+          }),
+        )
+      }
+      return Promise.resolve(
         makePaginated([makeReport('latest', true), makeReport('page1-report')], {
           page: 1,
           per_page: 20,
@@ -204,22 +225,7 @@ describe('OverviewTab - report history pagination', () => {
           total_pages: 2,
         }),
       )
-      .mockResolvedValueOnce(
-        makePaginated([makeReport('latest', true), makeReport('page2-report')], {
-          page: 2,
-          per_page: 20,
-          total: 25,
-          total_pages: 2,
-        }),
-      )
-      .mockResolvedValue(
-        makePaginated([makeReport('latest', true), makeReport('page1-report')], {
-          page: 1,
-          per_page: 20,
-          total: 25,
-          total_pages: 2,
-        }),
-      )
+    })
     renderTab()
     await waitFor(() => screen.getByText('#page1-report'))
     await user.click(screen.getByRole('button', { name: /next/i }))
@@ -549,10 +555,35 @@ describe('OverviewTab - report history pagination', () => {
     })
   })
 
-  it('falls back to undefined when stored branch is not in project\'s branch list', async () => {
+  it('renders Group by control as a segmented group with icons', async () => {
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated([makeReport('latest', true), makeReport('1')], {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        total_pages: 1,
+      }),
+    )
+    renderTab()
+    await waitFor(() => screen.getByText('#1'))
+    expect(screen.getByText('Group by:')).toBeInTheDocument()
+    const group = screen.getByRole('group', { name: /group by/i })
+    expect(group).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Commit' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Branch' })).toBeInTheDocument()
+  })
+
+  it("falls back to undefined when stored branch is not in project's branch list", async () => {
     useUIStore.setState({ selectedBranch: 'missing-branch' })
     vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
-      { id: 1, project_id: 1, name: 'master', is_default: true, created_at: '2024-01-01T00:00:00Z' },
+      {
+        id: 1,
+        project_id: 1,
+        name: 'master',
+        is_default: true,
+        created_at: '2024-01-01T00:00:00Z',
+      },
     ])
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated([makeReport('latest', true), makeReport('1')], {
@@ -566,5 +597,96 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => {
       expect(reportsApi.fetchReportHistory).toHaveBeenCalledWith('test-project', 1, 20, undefined)
     })
+  })
+})
+
+describe('OverviewTab - header stat chips branch consistency', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useUIStore.setState({ selectedBranch: undefined, reportsPerPage: 20, reportsGroupBy: 'none' })
+  })
+
+  function makeReportWithStats(id: string, passed: number, total: number, isLatest = false) {
+    return {
+      report_id: id,
+      is_latest: isLatest,
+      generated_at: '2024-01-15T10:00:00Z',
+      duration_ms: 5000,
+      statistic: { passed, failed: total - passed, broken: 0, skipped: 0, unknown: 0, total },
+    }
+  }
+
+  it('derives header chips from the newest branch-filtered numbered build, not the unfiltered "latest" alias', async () => {
+    // The synthetic "latest" entry (unfiltered by branch) has a low pass rate,
+    // while the newest branch-filtered numbered build has a high pass rate.
+    vi.mocked(reportsApi.fetchReportHistory).mockImplementation((_pid, _page, perPage) => {
+      if (perPage === 1) {
+        // Chip query: branch-filtered, newest numbered build only
+        return Promise.resolve(
+          makePaginated([makeReportWithStats('42', 10, 10)], {
+            page: 1,
+            per_page: 1,
+            total: 5,
+            total_pages: 5,
+          }),
+        )
+      }
+      // Table query: includes the unfiltered synthetic "latest" alias
+      return Promise.resolve(
+        makePaginated(
+          [makeReportWithStats('latest', 1, 10, true), makeReportWithStats('42', 10, 10)],
+          { page: 1, per_page: 20, total: 1, total_pages: 1 },
+        ),
+      )
+    })
+    renderTab()
+
+    await waitFor(() => {
+      expect(screen.getByText(/pass rate: 100%/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/pass rate: 10%/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a Branch chip when a branch filter is active', async () => {
+    useUIStore.setState({ selectedBranch: 'main' })
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
+      {
+        id: 1,
+        project_id: 1,
+        name: 'main',
+        is_default: true,
+        created_at: '2024-01-01T00:00:00Z',
+      },
+    ])
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated([makeReportWithStats('42', 10, 10, true)], {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        total_pages: 1,
+      }),
+    )
+    renderTab()
+
+    await waitFor(() => {
+      expect(screen.getByText('Branch: main')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show a Branch chip when no branch filter is active', async () => {
+    vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
+      makePaginated([makeReportWithStats('42', 10, 10, true)], {
+        page: 1,
+        per_page: 20,
+        total: 1,
+        total_pages: 1,
+      }),
+    )
+    renderTab()
+
+    await waitFor(() => {
+      expect(screen.getByText(/pass rate: 100%/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/^Branch:/)).not.toBeInTheDocument()
   })
 })

@@ -66,6 +66,30 @@ describe('KnownIssuesTab', () => {
     })
   })
 
+  it('shows error state with retry button on fetch failure', async () => {
+    vi.mocked(kiApi.listKnownIssues).mockRejectedValue(new Error('Network error'))
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't load data/i)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+
+  it('retries the query when Retry is clicked after a fetch failure', async () => {
+    const user = userEvent.setup()
+    vi.mocked(kiApi.listKnownIssues)
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue([])
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't load data/i)).toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/No known issues tracked/i)).toBeInTheDocument()
+    })
+  })
+
   it('renders issues in table', async () => {
     vi.mocked(kiApi.listKnownIssues).mockResolvedValue([
       {

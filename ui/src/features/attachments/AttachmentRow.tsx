@@ -1,5 +1,12 @@
 import { ImageIcon, FileText, File, Layers, Film, Eye, Download } from 'lucide-react'
 import { formatBytes } from '@/lib/utils'
+import {
+  ACCENT_BADGE_CLASSES,
+  ACCENT_TEXT_CLASSES,
+  INFO_BADGE_CLASSES,
+  NEUTRAL_BADGE_CLASSES,
+  STATUS_BADGE_CLASSES,
+} from '@/lib/status-colors'
 import { isPlaywrightTrace } from '@/features/trace/utils'
 import { isLogMime } from './utils'
 import type { AttachmentEntry } from '@/types/api'
@@ -10,30 +17,13 @@ interface AttachmentRowProps {
 }
 
 function getMimeBadge(mimeType: string, name: string): { label: string; className: string } {
-  if (mimeType.startsWith('image/'))
-    return {
-      label: 'IMAGE',
-      className: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300',
-    }
+  if (mimeType.startsWith('image/')) return { label: 'IMAGE', className: INFO_BADGE_CLASSES }
   if (isLogMime(mimeType))
-    return {
-      label: 'LOG',
-      className: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
-    }
-  if (isPlaywrightTrace(name, mimeType))
-    return {
-      label: 'TRACE',
-      className: 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300',
-    }
+    return { label: 'LOG', className: 'border-transparent bg-warning/15 text-warning' }
+  if (isPlaywrightTrace(name, mimeType)) return { label: 'TRACE', className: ACCENT_BADGE_CLASSES }
   if (mimeType.startsWith('video/'))
-    return {
-      label: 'VIDEO',
-      className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
-    }
-  return {
-    label: 'OTHER',
-    className: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  }
+    return { label: 'VIDEO', className: STATUS_BADGE_CLASSES.passed }
+  return { label: 'OTHER', className: NEUTRAL_BADGE_CLASSES }
 }
 
 export function AttachmentRow({ attachment, onView }: AttachmentRowProps) {
@@ -52,7 +42,7 @@ export function AttachmentRow({ attachment, onView }: AttachmentRowProps) {
         {isImage ? (
           <ImageIcon className="text-muted-foreground h-4 w-4" />
         ) : isTrace ? (
-          <Layers className="h-4 w-4 text-violet-500" />
+          <Layers className={`h-4 w-4 ${ACCENT_TEXT_CLASSES}`} />
         ) : isText ? (
           <FileText className="text-muted-foreground h-4 w-4" />
         ) : isVideo ? (

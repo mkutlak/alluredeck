@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/render'
 import { MemoryRouter } from 'react-router'
@@ -59,7 +60,23 @@ describe('DefectList', () => {
     vi.mocked(defectsApi.fetchProjectDefects).mockRejectedValue(new Error('Network error'))
     renderList()
     await waitFor(() => {
-      expect(screen.getByText(/Failed to load defects/i)).toBeInTheDocument()
+      expect(screen.getByText(/couldn't load data/i)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+
+  it('retries the query when Retry is clicked after a fetch failure', async () => {
+    const user = userEvent.setup()
+    vi.mocked(defectsApi.fetchProjectDefects)
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue(makeEmptyResponse())
+    renderList()
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't load data/i)).toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/No defects found/i)).toBeInTheDocument()
     })
   })
 

@@ -3,9 +3,14 @@ import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchBuildComparison } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
-import { formatDuration, getStatusVariant } from '@/lib/utils'
-import { STATUS_TEXT_CLASSES, STATUS_BG_CLASSES } from '@/lib/status-colors'
-import { Badge } from '@/components/ui/badge'
+import { formatDuration } from '@/lib/utils'
+import {
+  STATUS_TEXT_CLASSES,
+  STATUS_BG_CLASSES,
+  INFO_BADGE_CLASSES,
+  NEUTRAL_BADGE_CLASSES,
+} from '@/lib/status-colors'
+import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,6 +23,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { PageHeader } from '@/components/app/PageHeader'
+import { Segmented } from '@/components/ui/segmented'
+import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import type { DiffCategory } from '@/types/api'
 
 type FilterValue = DiffCategory | 'all'
@@ -32,8 +40,8 @@ const CATEGORY_LABELS: Record<DiffCategory, string> = {
 const CATEGORY_VARIANTS: Record<DiffCategory, string> = {
   regressed: `${STATUS_BG_CLASSES.failed} ${STATUS_TEXT_CLASSES.failed}`,
   fixed: `${STATUS_BG_CLASSES.passed} ${STATUS_TEXT_CLASSES.passed}`,
-  added: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  removed: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400',
+  added: INFO_BADGE_CLASSES,
+  removed: NEUTRAL_BADGE_CLASSES,
 }
 
 function DiffCategoryBadge({ category }: { category: DiffCategory }) {
@@ -60,6 +68,7 @@ function DurationDelta({ delta }: { delta: number }) {
 
 export function ComparePage() {
   const { id: projectId } = useParams<{ id: string }>()
+  const displayName = useProjectDisplay(projectId)
   const [searchParams] = useSearchParams()
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all')
   const navigate = useNavigate()
@@ -120,19 +129,10 @@ export function ComparePage() {
     <TooltipProvider>
       <div className="space-y-6 p-6">
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => void navigate(-1)}>
-            ← Back
-          </Button>
-          <div>
-            <h1 className="text-xl font-semibold">
-              Build #{buildA} vs Build #{buildB}
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              {summary.total} difference{summary.total !== 1 ? 's' : ''} found
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          title={displayName}
+          subtitle={`Build #${buildA} vs Build #${buildB} · ${summary.total} difference${summary.total !== 1 ? 's' : ''}`}
+        />
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -151,25 +151,19 @@ export function ComparePage() {
         </div>
 
         {/* Filter bar */}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant={activeFilter === 'all' ? 'default' : 'outline'}
-            onClick={() => setActiveFilter('all')}
-          >
-            All ({summary.total})
-          </Button>
-          {categories.map((cat) => (
-            <Button
-              key={cat}
-              size="sm"
-              variant={activeFilter === cat ? 'default' : 'outline'}
-              onClick={() => setActiveFilter(cat)}
-            >
-              {CATEGORY_LABELS[cat]} ({summary[cat]})
-            </Button>
-          ))}
-        </div>
+        <Segmented
+          aria-label="Filter by category"
+          value={activeFilter}
+          onValueChange={setActiveFilter}
+          options={[
+            { value: 'all', label: 'All', count: summary.total },
+            ...categories.map((cat) => ({
+              value: cat,
+              label: CATEGORY_LABELS[cat],
+              count: summary[cat],
+            })),
+          ]}
+        />
 
         {/* Diff table */}
         {filteredTests.length === 0 ? (
@@ -205,14 +199,14 @@ export function ComparePage() {
                     </TableCell>
                     <TableCell>
                       {entry.status_a ? (
-                        <Badge variant={getStatusVariant(entry.status_a)}>{entry.status_a}</Badge>
+                        <StatusBadge status={entry.status_a} />
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell>
                       {entry.status_b ? (
-                        <Badge variant={getStatusVariant(entry.status_b)}>{entry.status_b}</Badge>
+                        <StatusBadge status={entry.status_b} />
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

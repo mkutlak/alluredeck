@@ -157,25 +157,25 @@ describe('ComparePage', () => {
     expect(screen.getByText(/invalid/i, { selector: 'p' })).toBeInTheDocument()
   })
 
-  it('shows title with build numbers', async () => {
+  it('shows project heading and build numbers in the subtitle', async () => {
     vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
     renderPage()
 
     await waitFor(() => {
-      // Use heading role to target the <h1> specifically
-      expect(screen.getByRole('heading', { name: /build #1/i })).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: /build #2/i })).toBeInTheDocument()
+      // Title is the project label; build numbers moved into the subtitle line
+      expect(screen.getByRole('heading', { name: 'test-project' })).toBeInTheDocument()
+      expect(screen.getByText(/build #1.*build #2/i)).toBeInTheDocument()
     })
   })
 
-  it('has a back navigation button', async () => {
+  it('renders category filter as a segmented group', async () => {
     vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
     renderPage()
 
     await waitFor(() => {
-      const backButton = screen.getByRole('button', { name: /back/i })
-      expect(backButton).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: /filter by category/i })).toBeInTheDocument()
     })
+    expect(screen.getByRole('button', { name: /^all/i })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('shows empty state when no diffs', async () => {

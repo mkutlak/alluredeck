@@ -133,7 +133,7 @@ export function APIKeyFormDialog({ open, onOpenChange, onCreated }: APIKeyFormDi
                 type="checkbox"
                 checked={allowMcpWrites}
                 onChange={(e) => setAllowMcpWrites(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
+                className="border-input h-4 w-4 rounded"
               />
               <Label htmlFor="api-key-allow-mcp-writes">Allow MCP writes</Label>
             </div>

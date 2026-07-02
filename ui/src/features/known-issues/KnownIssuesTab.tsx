@@ -9,7 +9,7 @@ import { isSafeUrl } from '@/lib/url'
 import { useAuthStore, selectIsEditor } from '@/store/auth'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
+import { CardState } from '@/components/ui/CardState'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
@@ -34,6 +34,8 @@ import { toast } from '@/components/ui/use-toast'
 import { formatDate } from '@/lib/utils'
 import type { KnownIssue } from '@/types/api'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
+import { PageHeader } from '@/components/app/PageHeader'
+import { FilterBar } from '@/components/app/FilterBar'
 import { CreateKnownIssueDialog } from './CreateKnownIssueDialog'
 import { EditKnownIssueDialog } from './EditKnownIssueDialog'
 
@@ -52,6 +54,8 @@ export function KnownIssuesTab() {
     data: issues,
     isLoading,
     isError,
+    error,
+    refetch,
   } = useQuery({
     queryKey: queryKeys.knownIssues(projectId!, showResolved),
     queryFn: () => listKnownIssues(projectId!, !showResolved),
@@ -104,50 +108,48 @@ export function KnownIssuesTab() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-        <p className="text-muted-foreground text-sm">Known Issues</p>
-      </div>
-
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="show-resolved"
-            checked={showResolved}
-            onCheckedChange={(v) => setShowResolved(v === true)}
+      <PageHeader
+        title={displayName}
+        subtitle="Known Issues"
+        actions={
+          isEditor && (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus size={14} />
+              Add Known Issue
+            </Button>
+          )
+        }
+        toolbar={
+          <FilterBar
+            end={
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="show-resolved"
+                  checked={showResolved}
+                  onCheckedChange={(v) => setShowResolved(v === true)}
+                />
+                <Label htmlFor="show-resolved" className="cursor-pointer text-sm">
+                  Show resolved
+                </Label>
+              </div>
+            }
           />
-          <Label htmlFor="show-resolved" className="cursor-pointer text-sm">
-            Show resolved
-          </Label>
-        </div>
-        {isEditor && (
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus size={14} />
-            Add Known Issue
-          </Button>
-        )}
-      </div>
+        }
+      />
 
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      ) : isError ? (
-        <div className="border-destructive/50 rounded-lg border p-4 text-center">
-          <p className="text-destructive text-sm">Failed to load known issues. Please try again.</p>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-          <p className="font-medium">No known issues tracked for this project</p>
-          {isEditor && (
-            <p className="text-muted-foreground text-sm">
-              Add known issues to separate them from new failures in reports.
-            </p>
-          )}
-        </div>
-      ) : (
+      <CardState
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        isEmpty={filtered.length === 0}
+        refetch={refetch}
+        skeletonRows={4}
+        emptyMessage={
+          isEditor
+            ? 'No known issues tracked for this project — add known issues to separate them from new failures in reports.'
+            : 'No known issues tracked for this project'
+        }
+      >
         <div className="rounded-lg border">
           <Table>
             <TableHeader>
@@ -232,7 +234,7 @@ export function KnownIssuesTab() {
             </TableBody>
           </Table>
         </div>
-      )}
+      </CardState>
 
       {isEditor && (
         <>

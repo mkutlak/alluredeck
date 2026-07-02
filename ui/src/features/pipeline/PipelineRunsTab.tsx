@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
+import { PageHeader } from '@/components/app/PageHeader'
 import { PipelineRunCard } from './PipelineRunCard'
 
 interface PipelineRunsTabProps {
@@ -56,13 +57,15 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-        <p className="text-muted-foreground flex items-center gap-1 text-sm">
-          <Layers size={14} />
-          Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}
-        </p>
-      </div>
+      <PageHeader
+        title={displayName}
+        subtitle={
+          <span className="flex items-center gap-1">
+            <Layers size={14} />
+            Parent project — {childIds.length} {childIds.length === 1 ? 'suite' : 'suites'}
+          </span>
+        }
+      />
 
       {/* Run cards */}
       {isLoading ? (

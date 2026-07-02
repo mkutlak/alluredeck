@@ -18,7 +18,9 @@ export function BuildCountSelector({ value, onChange }: BuildCountSelectorProps)
 
   return (
     <div className="flex flex-col gap-1">
-      <Label htmlFor="build-count">Builds</Label>
+      <Label htmlFor="build-count" className="text-muted-foreground text-xs font-normal">
+        Builds
+      </Label>
       <select
         id="build-count"
         aria-label="Builds"

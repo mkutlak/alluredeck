@@ -37,7 +37,6 @@ export function ActionBar() {
             </TooltipTrigger>
             <TooltipContent>Upload Allure result files</TooltipContent>
           </Tooltip>
-
         </>
       )}
 
@@ -48,7 +47,7 @@ export function ActionBar() {
               <Button
                 size="sm"
                 variant="outline"
-                className="text-amber-600 hover:text-amber-700"
+                className="text-warning hover:text-warning"
                 onClick={() => setCleanResultsOpen(true)}
               >
                 <Trash2 size={14} />

@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDate } from '@/lib/utils'
+import { INFO_BADGE_CLASSES, NEUTRAL_BADGE_CLASSES } from '@/lib/status-colors'
 import {
   useDeleteWebhook,
   useTestWebhook,
@@ -34,10 +35,10 @@ import { WebhookFormDialog } from './WebhookFormDialog'
 
 function targetTypeClass(type: string): string {
   const variants: Record<string, string> = {
-    slack: 'bg-purple-100 text-purple-800',
-    discord: 'bg-indigo-100 text-indigo-800',
-    teams: 'bg-blue-100 text-blue-800',
-    generic: 'bg-gray-100 text-gray-800',
+    slack: NEUTRAL_BADGE_CLASSES,
+    discord: INFO_BADGE_CLASSES,
+    teams: NEUTRAL_BADGE_CLASSES,
+    generic: INFO_BADGE_CLASSES,
   }
   return variants[type] ?? variants['generic']
 }

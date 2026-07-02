@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/render'
 import * as dashboardApi from '@/api/dashboard'
 
@@ -209,5 +210,24 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
     })
+  })
+
+  it('view toggle switches active state between Grouped and All', async () => {
+    const user = userEvent.setup()
+    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Grouped' })).toBeInTheDocument()
+    })
+
+    const groupedBtn = screen.getByRole('button', { name: 'Grouped' })
+    const allBtn = screen.getByRole('button', { name: 'All' })
+    expect(groupedBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(allBtn).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(allBtn)
+
+    expect(allBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(groupedBtn).toHaveAttribute('aria-pressed', 'false')
   })
 })

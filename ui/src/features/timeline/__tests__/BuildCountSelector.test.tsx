@@ -39,4 +39,9 @@ describe('BuildCountSelector', () => {
     expect(options[0]).toHaveTextContent('1 build')
     expect(options[1]).toHaveTextContent('2 builds')
   })
+
+  it('renders with a small muted label, matching other toolbar controls', () => {
+    render(<BuildCountSelector value={1} onChange={onChange} />)
+    expect(screen.getByText('Builds')).toHaveClass('text-muted-foreground', 'text-xs')
+  })
 })

@@ -22,6 +22,7 @@ import { AnalyticsSection } from './AnalyticsSection'
 import { KpiSummaryRow } from './KpiSummaryRow'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
 import { useUIStore } from '@/store/ui'
+import { PageHeader } from '@/components/app/PageHeader'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -102,9 +103,12 @@ export function AnalyticsTab() {
 
   if (!projectId) return null
 
+  const header = <PageHeader title={displayName} subtitle="Analytics" />
+
   if (isLoading) {
     return (
       <div className="space-y-6">
+        {header}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-24 w-full rounded-lg" />
@@ -121,8 +125,13 @@ export function AnalyticsTab() {
 
   if (isError) {
     return (
-      <div className="border-destructive/50 rounded-lg border p-4 text-center">
-        <p className="text-destructive text-sm">Failed to load analytics data. Please try again.</p>
+      <div className="space-y-6">
+        {header}
+        <div className="border-destructive/50 rounded-lg border p-4 text-center">
+          <p className="text-destructive text-sm">
+            Failed to load analytics data. Please try again.
+          </p>
+        </div>
       </div>
     )
   }
@@ -130,10 +139,7 @@ export function AnalyticsTab() {
   if (statusTrend.length === 0 && pieData.length === 0) {
     return (
       <div className="space-y-4">
-        <div>
-          <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-          <p className="text-muted-foreground text-sm">Analytics</p>
-        </div>
+        {header}
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No report data yet</p>
           <p className="text-muted-foreground text-sm">
@@ -146,11 +152,7 @@ export function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-        <p className="text-muted-foreground text-sm">Analytics</p>
-      </div>
+      {header}
 
       {/* KPI Summary Row */}
       {kpiData && <KpiSummaryRow data={kpiData} />}
@@ -223,4 +225,3 @@ export function AnalyticsTab() {
     </div>
   )
 }
-

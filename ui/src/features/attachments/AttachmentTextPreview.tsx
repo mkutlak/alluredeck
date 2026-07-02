@@ -190,7 +190,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
       <div
         className={
           isMarkdownContent
-            ? 'max-h-[70vh] overflow-auto rounded-md px-4 py-2 text-sm [&_h1]:mb-3 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:mb-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:italic [&_a]:text-primary [&_a]:underline'
+            ? '[&_code]:bg-muted [&_pre]:bg-muted [&_blockquote]:border-muted-foreground/30 [&_a]:text-primary max-h-[70vh] overflow-auto rounded-md px-4 py-2 text-sm [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_h1]:mb-3 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold [&_li]:mb-1 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_pre]:mb-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:p-3 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5'
             : '[&_code_.line]:before:text-muted-foreground/50 [&_code]:counter-reset-[line] [&_code_.line]:counter-increment-[line] max-h-[70vh] overflow-auto rounded-md text-sm [&_code_.line]:before:mr-4 [&_code_.line]:before:inline-block [&_code_.line]:before:w-8 [&_code_.line]:before:text-right [&_code_.line]:before:content-[counter(line)] [&_pre]:!overflow-x-auto [&_pre]:!rounded-md [&_pre]:!p-4 [&_pre]:!whitespace-pre'
         }
         data-testid="text-preview-content"
@@ -198,7 +198,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
       />
 
       {truncated && (
-        <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+        <div className="bg-warning/10 text-warning mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-xs">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           File truncated — showing first 500 KB
         </div>

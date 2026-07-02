@@ -36,7 +36,12 @@ export function ProjectCard({ projectId, numericId, storageKey }: ProjectCardPro
   const draggable = isProjectDraggable(projectId)
   const droppable = isProjectDropTarget(projectId)
 
-  const { setNodeRef: setDragRef, listeners, attributes, isDragging } = useDraggable({
+  const {
+    setNodeRef: setDragRef,
+    listeners,
+    attributes,
+    isDragging,
+  } = useDraggable({
     id: projectId,
     disabled: !draggable,
   })
@@ -60,7 +65,7 @@ export function ProjectCard({ projectId, numericId, storageKey }: ProjectCardPro
         className={cn(
           'group relative transition-shadow hover:shadow-md',
           isDragging && 'opacity-40',
-          isActiveDropTarget && 'scale-[1.02] ring-2 ring-blue-500',
+          isActiveDropTarget && 'ring-info scale-[1.02] ring-2',
           draggable && 'cursor-grab',
         )}
         data-testid="project-card"
@@ -126,7 +131,7 @@ export function ProjectCard({ projectId, numericId, storageKey }: ProjectCardPro
             </Button>
           </div>
           {isActiveDropTarget && (
-            <p className="mt-2 text-center text-xs text-blue-500">Drop to move into {projectId}</p>
+            <p className="text-info mt-2 text-center text-xs">Drop to move into {projectId}</p>
           )}
         </CardContent>
       </Card>

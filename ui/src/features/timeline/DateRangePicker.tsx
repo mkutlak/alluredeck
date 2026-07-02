@@ -35,23 +35,27 @@ export function DateRangePicker({ from, to, onRangeChange }: DateRangePickerProp
   return (
     <div className="flex items-end gap-2">
       <div className="flex flex-col gap-1">
-        <Label htmlFor="date-from">From</Label>
+        <Label htmlFor="date-from" className="text-muted-foreground text-xs font-normal">
+          From
+        </Label>
         <Input
           id="date-from"
           type="date"
           value={from ?? ''}
           onChange={handleFromChange}
-          className="w-36"
+          className="h-9 w-36"
         />
       </div>
       <div className="flex flex-col gap-1">
-        <Label htmlFor="date-to">To</Label>
+        <Label htmlFor="date-to" className="text-muted-foreground text-xs font-normal">
+          To
+        </Label>
         <Input
           id="date-to"
           type="date"
           value={to ?? ''}
           onChange={handleToChange}
-          className="w-36"
+          className="h-9 w-36"
         />
       </div>
       {hasRange && (

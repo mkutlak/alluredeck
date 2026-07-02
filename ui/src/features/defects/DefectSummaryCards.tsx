@@ -1,3 +1,4 @@
+import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import type { DefectProjectSummary } from '@/types/api'
 
 interface DefectSummaryCardsProps {
@@ -12,10 +13,14 @@ interface StatCard {
 
 export function DefectSummaryCards({ summary }: DefectSummaryCardsProps) {
   const cards: StatCard[] = [
-    { label: 'Open', value: summary.open, colorClass: 'text-red-600' },
-    { label: 'Fixed', value: summary.fixed, colorClass: 'text-green-600' },
-    { label: 'Muted', value: summary.muted, colorClass: 'text-amber-600' },
-    { label: 'Regressions', value: summary.regressions_last_build, colorClass: 'text-red-600' },
+    { label: 'Open', value: summary.open, colorClass: STATUS_TEXT_CLASSES.failed },
+    { label: 'Fixed', value: summary.fixed, colorClass: STATUS_TEXT_CLASSES.passed },
+    { label: 'Muted', value: summary.muted, colorClass: STATUS_TEXT_CLASSES.broken },
+    {
+      label: 'Regressions',
+      value: summary.regressions_last_build,
+      colorClass: STATUS_TEXT_CLASSES.failed,
+    },
   ]
 
   return (

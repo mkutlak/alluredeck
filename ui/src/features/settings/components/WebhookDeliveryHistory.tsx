@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDate } from '@/lib/utils'
+import { STATUS_BADGE_CLASSES } from '@/lib/status-colors'
 import {
   DELIVERIES_PER_PAGE,
   useDeliveryHistory,
@@ -27,7 +28,7 @@ import {
   type WebhookDelivery,
 } from '../hooks/useWebhooks'
 
-function StatusBadge({
+function DeliveryStatusBadge({
   code,
   error,
 }: {
@@ -36,7 +37,7 @@ function StatusBadge({
 }): React.ReactElement {
   if (error) return <Badge variant="destructive">Error</Badge>
   if (code !== null && code >= 200 && code < 300)
-    return <Badge className="bg-green-100 text-green-800">{code}</Badge>
+    return <Badge className={STATUS_BADGE_CLASSES.passed}>{code}</Badge>
   if (code !== null) return <Badge variant="destructive">{code}</Badge>
   return <Badge variant="secondary">Pending</Badge>
 }
@@ -102,7 +103,7 @@ export function WebhookDeliveryHistory({
                 <TableRow key={d.id}>
                   <TableCell className="font-mono text-xs">{d.event}</TableCell>
                   <TableCell>
-                    <StatusBadge code={d.status_code} error={d.error} />
+                    <DeliveryStatusBadge code={d.status_code} error={d.error} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">{d.attempt}</TableCell>
                   <TableCell className="text-muted-foreground text-sm">

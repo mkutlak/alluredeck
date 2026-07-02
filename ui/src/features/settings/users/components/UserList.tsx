@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDate } from '@/lib/utils'
+import { INFO_BADGE_CLASSES, STATUS_BADGE_CLASSES } from '@/lib/status-colors'
 import type { User } from '@/types/api'
 
 interface UserListProps {
@@ -29,29 +30,17 @@ interface UserListProps {
 
 function RoleBadge({ role }: { role: User['role'] }) {
   if (role === 'admin') {
-    return (
-      <Badge className="border-transparent bg-blue-100 text-blue-700 hover:bg-blue-100/80 dark:bg-blue-900/30 dark:text-blue-400">
-        admin
-      </Badge>
-    )
+    return <Badge className={INFO_BADGE_CLASSES}>admin</Badge>
   }
   if (role === 'editor') {
-    return (
-      <Badge className="border-transparent bg-green-100 text-green-700 hover:bg-green-100/80 dark:bg-green-900/30 dark:text-green-400">
-        editor
-      </Badge>
-    )
+    return <Badge className={STATUS_BADGE_CLASSES.passed}>editor</Badge>
   }
   return <Badge variant="secondary">viewer</Badge>
 }
 
 function ActiveBadge({ active }: { active: boolean }) {
   if (active) {
-    return (
-      <Badge className="border-transparent bg-emerald-100 text-emerald-700 hover:bg-emerald-100/80 dark:bg-emerald-900/30 dark:text-emerald-400">
-        active
-      </Badge>
-    )
+    return <Badge className={STATUS_BADGE_CLASSES.passed}>active</Badge>
   }
   return <Badge variant="destructive">inactive</Badge>
 }
@@ -93,11 +82,7 @@ export function UserList({
             <TableCell>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Actions for ${user.email}`}
-                  >
+                  <Button size="icon" variant="ghost" aria-label={`Actions for ${user.email}`}>
                     <MoreHorizontal size={16} />
                   </Button>
                 </DropdownMenuTrigger>

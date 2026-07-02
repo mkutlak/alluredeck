@@ -18,7 +18,7 @@ export function NoGroupDropZone() {
       className={cn(
         'flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors',
         isOver
-          ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
+          ? 'border-info bg-info/10 text-info'
           : 'border-muted-foreground/30 text-muted-foreground',
       )}
     >

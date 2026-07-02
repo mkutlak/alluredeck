@@ -47,7 +47,7 @@ describe('ProjectDefectsView', () => {
     await waitFor(() => {
       expect(screen.getByText('myproject')).toBeInTheDocument()
     })
-    expect(screen.getByText('Defect Grouping')).toBeInTheDocument()
+    expect(screen.getByText('Defects')).toBeInTheDocument()
   })
 
   it('renders summary cards with correct values', async () => {

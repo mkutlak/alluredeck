@@ -6,8 +6,8 @@ import { fetchAttachments } from '@/api/attachments'
 import type { AttachmentStatusFilter } from '@/api/attachments'
 import { fetchReportHistory } from '@/api/reports'
 import { queryKeys } from '@/lib/query-keys'
+import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -20,6 +20,9 @@ import { AttachmentLightbox } from './AttachmentLightbox'
 import { isPlaywrightTrace } from '@/features/trace/utils'
 import { isLogMime } from './utils'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
+import { PageHeader } from '@/components/app/PageHeader'
+import { FilterBar } from '@/components/app/FilterBar'
+import { Segmented } from '@/components/ui/segmented'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
 
 const MIME_FILTERS = [
@@ -43,11 +46,11 @@ const STATUS_FILTERS: { label: string; value: StatusFilterValue }[] = [
 ]
 
 const statusStyles: Record<string, string> = {
-  passed: 'text-emerald-600 dark:text-emerald-400',
-  failed: 'text-red-600 dark:text-red-400',
-  broken: 'text-amber-600 dark:text-amber-400',
-  skipped: 'text-gray-500 dark:text-gray-400',
-  unknown: 'text-gray-500 dark:text-gray-400',
+  passed: STATUS_TEXT_CLASSES.passed,
+  failed: STATUS_TEXT_CLASSES.failed,
+  broken: STATUS_TEXT_CLASSES.broken,
+  skipped: STATUS_TEXT_CLASSES.skipped,
+  unknown: 'text-muted-foreground',
 }
 
 function filterAttachments(
@@ -93,7 +96,11 @@ export function AttachmentsTab() {
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.attachments(projectId!, selectedReport, statusForQuery),
     queryFn: () =>
-      fetchAttachments(projectId!, selectedReport, statusForQuery ? { status: statusForQuery } : undefined),
+      fetchAttachments(
+        projectId!,
+        selectedReport,
+        statusForQuery ? { status: statusForQuery } : undefined,
+      ),
     enabled: !!projectId,
     staleTime: 10_000,
   })
@@ -148,60 +155,62 @@ export function AttachmentsTab() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-        <p className="text-muted-foreground text-sm">
-          Attachments · Report {reportLabel}
-          {selectedStatus !== 'all' &&
-            ` · ${selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)} only`}
-          {' · '}
-          {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
-        </p>
-      </div>
+      <PageHeader
+        title={displayName}
+        subtitle={
+          <>
+            Attachments · Report {reportLabel}
+            {selectedStatus !== 'all' &&
+              ` · ${selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)} only`}
+            {' · '}
+            {mimeFilter ? `${filteredTotal} of ${total}` : `${total} total`}
+          </>
+        }
+      />
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="bg-muted/50 flex flex-wrap items-center gap-1 rounded-lg border p-1">
-          {MIME_FILTERS.map(({ label, value }) => (
-            <Button
-              key={value}
-              variant={mimeFilter === value ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setMimeFilter(value)}
-              className="h-7 text-xs"
+      <FilterBar
+        filters={
+          <Segmented
+            aria-label="Filter by type"
+            value={mimeFilter}
+            onValueChange={setMimeFilter}
+            options={MIME_FILTERS.map(({ label, value }) => ({ value, label }))}
+          />
+        }
+        end={
+          <>
+            <Select
+              value={selectedStatus}
+              onValueChange={(v) => setSelectedStatus(v as StatusFilterValue)}
             >
-              {label}
-            </Button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as StatusFilterValue)}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_FILTERS.map(({ label, value }) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={selectedReport} onValueChange={setSelectedReport}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Select report" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="latest">Latest</SelectItem>
-              {reports.map((r) => (
-                <SelectItem key={r.report_id} value={r.report_id}>
-                  #{r.report_id}
-                  {r.is_latest ? ' (latest)' : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_FILTERS.map(({ label, value }) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={selectedReport} onValueChange={setSelectedReport}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Select report" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="latest">Latest</SelectItem>
+                {reports.map((r) => (
+                  <SelectItem key={r.report_id} value={r.report_id}>
+                    #{r.report_id}
+                    {r.is_latest ? ' (latest)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
 
       {filteredGroups.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
@@ -220,10 +229,10 @@ export function AttachmentsTab() {
           {filteredGroups.map((group) => {
             const isCollapsed = collapsedGroups.has(group.test_name)
             return (
-              <div key={group.test_name} className="rounded-lg border bg-card shadow-sm">
+              <div key={group.test_name} className="bg-card rounded-lg border shadow-sm">
                 <button
                   type="button"
-                  className="hover:bg-accent/40 rounded-t-lg flex w-full items-center gap-2 px-4 py-3 text-left transition-colors"
+                  className="hover:bg-accent/40 flex w-full items-center gap-2 rounded-t-lg px-4 py-3 text-left transition-colors"
                   onClick={() => toggleGroup(group.test_name)}
                 >
                   {isCollapsed ? (
@@ -233,7 +242,7 @@ export function AttachmentsTab() {
                   )}
                   <span className="truncate text-sm font-medium">{group.test_name}</span>
                   <span
-                    className={`shrink-0 text-xs font-medium capitalize ${statusStyles[group.test_status] ?? ''}`}
+                    className={`shrink-0 text-xs font-medium ${statusStyles[group.test_status] ?? 'text-muted-foreground'}`}
                   >
                     {group.test_status}
                   </span>

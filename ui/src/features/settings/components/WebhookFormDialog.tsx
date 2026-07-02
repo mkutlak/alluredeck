@@ -149,7 +149,7 @@ function WebhookForm({ state, onChange }: WebhookFormProps) {
           type="checkbox"
           checked={state.is_active}
           onChange={(e) => onChange({ is_active: e.target.checked })}
-          className="h-4 w-4 rounded border-gray-300"
+          className="border-input h-4 w-4 rounded"
         />
         <Label htmlFor="wh-active">Active</Label>
       </div>
@@ -157,7 +157,12 @@ function WebhookForm({ state, onChange }: WebhookFormProps) {
   )
 }
 
-type CreateMode = { mode: 'create'; projectId: string; open: boolean; onOpenChange: (open: boolean) => void }
+type CreateMode = {
+  mode: 'create'
+  projectId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
 type EditMode = { mode: 'edit'; projectId: string; webhook: Webhook | null; onClose: () => void }
 
 export type WebhookFormDialogProps = CreateMode | EditMode
@@ -169,11 +174,7 @@ export function WebhookFormDialog(props: WebhookFormDialogProps) {
   return <EditDialog {...props} />
 }
 
-function CreateDialog({
-  projectId,
-  open,
-  onOpenChange,
-}: Omit<CreateMode, 'mode'>) {
+function CreateDialog({ projectId, open, onOpenChange }: Omit<CreateMode, 'mode'>) {
   const [form, setForm] = useState<WebhookFormState>(defaultFormState)
 
   const { mutate: doCreate, isPending } = useCreateWebhook(projectId)

@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
+import { DEFECT_CATEGORY_BADGE_CLASSES } from '@/lib/status-colors'
 import { DefectDetail } from './DefectDetail'
 import type { DefectCategory, DefectListRow } from '@/types/api'
 
@@ -11,13 +12,6 @@ interface DefectRowProps {
   onToggle: (id: string) => void
   expanded: boolean
   projectId: string
-}
-
-const CATEGORY_COLORS: Record<DefectCategory, string> = {
-  product_bug: 'bg-red-500 text-white',
-  test_bug: 'bg-amber-500 text-white',
-  infrastructure: 'bg-indigo-500 text-white',
-  to_investigate: 'bg-slate-400 text-white',
 }
 
 const CATEGORY_LABELS: Record<DefectCategory, string> = {
@@ -52,7 +46,10 @@ export function DefectRow({
           />
         </div>
 
-        <Badge className={CATEGORY_COLORS[defect.category]} data-testid="category-badge">
+        <Badge
+          className={DEFECT_CATEGORY_BADGE_CLASSES[defect.category]}
+          data-testid="category-badge"
+        >
           {CATEGORY_LABELS[defect.category]}
         </Badge>
 

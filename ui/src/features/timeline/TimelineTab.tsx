@@ -7,7 +7,10 @@ import { queryKeys } from '@/lib/query-keys'
 import { useUIStore } from '@/store/ui'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { AlertBanner } from '@/components/ui/AlertBanner'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
+import { PageHeader } from '@/components/app/PageHeader'
+import { FilterBar } from '@/components/app/FilterBar'
 import { TimelineChart } from './TimelineChart'
 import { DateRangePicker } from './DateRangePicker'
 import { BuildCountSelector } from './BuildCountSelector'
@@ -69,10 +72,18 @@ export function TimelineTab() {
 
   if (!projectId) return null
 
+  const totalSec = (totalDuration / 1000).toFixed(1)
+  const header = (
+    <PageHeader
+      title={displayName}
+      subtitle={`Test Timeline · ${totalTests} tests · ${totalSec}s total`}
+    />
+  )
+
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
+        {header}
         <Skeleton className="h-[400px] w-full rounded-lg" />
       </div>
     )
@@ -80,8 +91,13 @@ export function TimelineTab() {
 
   if (isError) {
     return (
-      <div className="border-destructive/50 rounded-lg border p-4 text-center">
-        <p className="text-destructive text-sm">Failed to load timeline data. Please try again.</p>
+      <div className="space-y-4">
+        {header}
+        <div className="border-destructive/50 rounded-lg border p-4 text-center">
+          <p className="text-destructive text-sm">
+            Failed to load timeline data. Please try again.
+          </p>
+        </div>
       </div>
     )
   }
@@ -91,10 +107,15 @@ export function TimelineTab() {
   if (builds.length === 0 || allTestCases.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
-          {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
-        </div>
+        {header}
+        <FilterBar
+          filters={
+            <div className="flex flex-wrap items-end gap-3">
+              <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
+              {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
+            </div>
+          }
+        />
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <p className="font-medium">No timeline data yet</p>
           <p className="text-muted-foreground text-sm">
@@ -105,35 +126,33 @@ export function TimelineTab() {
     )
   }
 
-  const totalSec = (totalDuration / 1000).toFixed(1)
   const showBuildCountWarning =
     data !== undefined && data.total_builds_in_range > data.builds_returned
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-mono text-2xl font-semibold">{displayName}</h1>
-        <p className="text-muted-foreground text-sm">
-          Test Timeline · {totalTests} tests · {totalSec}s total
-        </p>
-      </div>
+      {header}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
-        {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
-      </div>
+      <FilterBar
+        filters={
+          <div className="flex flex-wrap items-end gap-3">
+            <DateRangePicker from={dateFrom} to={dateTo} onRangeChange={handleRangeChange} />
+            {hasDateRange && <BuildCountSelector value={buildLimit} onChange={setBuildLimit} />}
+          </div>
+        }
+      />
 
       {showBuildCountWarning && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
+        <AlertBanner variant="info">
           Showing {data.builds_returned} of {data.total_builds_in_range} builds in the selected
           range.
-        </div>
+        </AlertBanner>
       )}
 
       {anyTruncated && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <AlertBanner variant="warning">
           Some builds have been truncated to the first 5,000 test cases.
-        </div>
+        </AlertBanner>
       )}
 
       <Card>

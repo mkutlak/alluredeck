@@ -16,6 +16,14 @@ describe('DateRangePicker', () => {
     expect(screen.getByLabelText(/to/i)).toBeInTheDocument()
   })
 
+  it('renders inputs at h-9 with small muted labels, matching other toolbar controls', () => {
+    render(<DateRangePicker from={undefined} to={undefined} onRangeChange={onRangeChange} />)
+    expect(screen.getByLabelText(/from/i)).toHaveClass('h-9')
+    expect(screen.getByLabelText(/to/i)).toHaveClass('h-9')
+    expect(screen.getByText('From')).toHaveClass('text-muted-foreground', 'text-xs')
+    expect(screen.getByText('To')).toHaveClass('text-muted-foreground', 'text-xs')
+  })
+
   it('renders with provided from and to values', () => {
     render(<DateRangePicker from="2026-01-01" to="2026-03-01" onRangeChange={onRangeChange} />)
     const fromInput = screen.getByLabelText(/from/i) as HTMLInputElement

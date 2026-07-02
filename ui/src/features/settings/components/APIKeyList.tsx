@@ -10,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDate } from '@/lib/utils'
+import { INFO_BADGE_CLASSES } from '@/lib/status-colors'
 import type { APIKey } from '@/types/api'
 import { RoleBadge } from './RoleBadge'
 
@@ -51,9 +52,7 @@ export function APIKeyList({ keys, onDelete }: APIKeyListProps) {
                     </Badge>
                   )}
                   {key.allow_mcp_writes && (
-                    <Badge className="border-transparent bg-purple-100 text-purple-700 hover:bg-purple-100/80 dark:bg-purple-900/30 dark:text-purple-400 text-xs">
-                      MCP
-                    </Badge>
+                    <Badge className={`${INFO_BADGE_CLASSES} text-xs`}>MCP</Badge>
                   )}
                 </span>
               </TableCell>
