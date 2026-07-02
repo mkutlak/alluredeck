@@ -115,6 +115,27 @@ describe('queryKeys', () => {
   it('jobStatus', () => {
     expect(queryKeys.jobStatus('p1', 'j42')).toEqual(['job-status', 'p1', 'j42'])
   })
+
+  it('runsFeed with no args returns key with undefined slots', () => {
+    expect(queryKeys.runsFeed()).toEqual(['runs-feed', undefined, undefined, undefined])
+  })
+
+  it('runsFeed includes page and branch', () => {
+    expect(queryKeys.runsFeed(2, 'main')).toEqual(['runs-feed', 2, 'main', undefined])
+  })
+
+  it('runsFeed sorts groupIds for a stable key regardless of selection order', () => {
+    expect(queryKeys.runsFeed(1, undefined, [7, 3])).toEqual(['runs-feed', 1, undefined, [3, 7]])
+    expect(queryKeys.runsFeed(1, undefined, [3, 7])).toEqual(queryKeys.runsFeed(1, undefined, [7, 3]))
+  })
+
+  it('runsFeed treats an empty groupIds array as no filter', () => {
+    expect(queryKeys.runsFeed(1, undefined, [])).toEqual(['runs-feed', 1, undefined, undefined])
+  })
+
+  it('buildFailedTests', () => {
+    expect(queryKeys.buildFailedTests(5, 42)).toEqual(['build-failed-tests', 5, 42])
+  })
 })
 
 describe('invalidateProjectQueries', () => {

@@ -79,11 +79,18 @@ function renderSidebar(path: string, roles: Role[] = []) {
 }
 
 describe('AppSidebar', () => {
-  it('renders dashboard link with href "/"', () => {
+  it('renders a "Runs" link with href "/"', () => {
     renderSidebar('/')
-    const link = screen.getByRole('link', { name: /projects/i })
+    const link = screen.getByRole('link', { name: /^runs$/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', '/')
+  })
+
+  it('renders a "Projects" link with href "/projects"', () => {
+    renderSidebar('/')
+    const link = screen.getByRole('link', { name: /^projects$/i })
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/projects')
   })
 
   it('does NOT render search trigger', () => {

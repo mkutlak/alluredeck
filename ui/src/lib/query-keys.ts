@@ -82,6 +82,15 @@ export const queryKeys = {
     branch != null
       ? (['pipeline-runs', pid, page ?? undefined, branch] as const)
       : (['pipeline-runs', pid, page ?? undefined] as const),
+  runsFeed: (page?: number, branch?: string, groupIds?: number[]) =>
+    [
+      'runs-feed',
+      page ?? undefined,
+      branch ?? undefined,
+      groupIds && groupIds.length > 0 ? [...groupIds].sort((a, b) => a - b) : undefined,
+    ] as const,
+  buildFailedTests: (projectId: number, buildId: number) =>
+    ['build-failed-tests', projectId, buildId] as const,
   proposals: (type: string, projectId: number, cursor?: string) =>
     cursor !== undefined
       ? (['proposals', type, projectId, cursor] as const)

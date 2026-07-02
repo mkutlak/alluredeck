@@ -12,6 +12,7 @@ const SYNC_KEYS: readonly (keyof UIState)[] = [
   'selectedBranch',
   'timezone',
   'timeFormat',
+  'runsFeedGroupIds',
 ] as const
 
 function pickSyncState(state: UIState): Record<string, unknown> {

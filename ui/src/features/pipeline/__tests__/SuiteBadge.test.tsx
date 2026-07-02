@@ -7,7 +7,8 @@ function makeSuite(overrides?: Partial<PipelineSuite>): PipelineSuite {
   return {
     project_id: 1,
     slug: 'api-cloud',
-    build_order: 5,
+    build_number: 5,
+    build_id: 105,
     pass_rate: 100,
     total: 42,
     failed: 0,

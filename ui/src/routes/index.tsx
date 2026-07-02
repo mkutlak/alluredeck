@@ -10,6 +10,9 @@ import { ProjectLayout } from '@/components/app/ProjectLayout'
 const DashboardPage = lazy(() =>
   import('@/features/dashboard').then((m) => ({ default: m.DashboardPage })),
 )
+const RunsFeedPage = lazy(() =>
+  import('@/features/runs').then((m) => ({ default: m.RunsFeedPage })),
+)
 const OverviewTab = lazy(() =>
   import('@/features/projects/OverviewTab').then((m) => ({ default: m.OverviewTab })),
 )
@@ -95,6 +98,14 @@ export function AppRoutes() {
         >
           <Route
             index
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <RunsFeedPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="projects"
             element={
               <Suspense fallback={<PageLoader />}>
                 <DashboardPage />
@@ -241,7 +252,7 @@ export function AppRoutes() {
               </Suspense>
             }
           />
-          <Route path="dashboard" element={<Navigate to="/" replace />} />
+          <Route path="dashboard" element={<Navigate to="/projects" replace />} />
           <Route path="*" element={<NotFound />} />
         </Route>
 

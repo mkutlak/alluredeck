@@ -14,7 +14,8 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
       {
         project_id: 1,
         slug: 'api-cloud',
-        build_order: 5,
+        build_number: 5,
+        build_id: 105,
         pass_rate: 100,
         total: 42,
         failed: 0,
@@ -24,7 +25,8 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
       {
         project_id: 2,
         slug: 'ui-tests',
-        build_order: 3,
+        build_number: 3,
+        build_id: 103,
         pass_rate: 85,
         total: 100,
         failed: 15,

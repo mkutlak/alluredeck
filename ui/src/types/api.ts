@@ -786,7 +786,8 @@ export interface ResetPasswordResponse {
 export interface PipelineSuite {
   project_id: number
   slug: string
-  build_order: number
+  build_number: number
+  build_id: number
   pass_rate: number
   total: number
   failed: number
@@ -812,4 +813,22 @@ export interface PipelineRun {
   timestamp: string
   suites: PipelineSuite[]
   aggregate: PipelineAggregate
+  group_project_id?: number
+  group_slug?: string
+}
+
+// ---------------------------------------------------------------------------
+// Build failed tests (runs feed drill-down)
+// ---------------------------------------------------------------------------
+export interface BuildFailedTest {
+  test_name: string
+  full_name: string
+  status: string
+  duration_ms: number
+  history_id: string
+  flaky: boolean
+  retries: number
+  new_failed: boolean
+  known: boolean
+  error_message: string
 }

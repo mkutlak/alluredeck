@@ -6,6 +6,7 @@ beforeEach(() => {
     pinnedProjectIds: [],
     recentProjectIds: [],
     lastTabPerProject: {},
+    runsFeedGroupIds: [],
   })
 })
 
@@ -109,5 +110,29 @@ describe('useUIStore - setLastTabForProject', () => {
   it('stores empty string for the Overview tab', () => {
     useUIStore.getState().setLastTabForProject('5', '')
     expect(useUIStore.getState().lastTabPerProject['5']).toBe('')
+  })
+})
+
+describe('useUIStore - runsFeedGroupIds', () => {
+  it('defaults to an empty array', () => {
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual([])
+  })
+
+  it('setRunsFeedGroupIds replaces the selection', () => {
+    useUIStore.getState().setRunsFeedGroupIds([1, 2, 3])
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual([1, 2, 3])
+  })
+
+  it('setRunsFeedGroupIds can clear the selection', () => {
+    useUIStore.getState().setRunsFeedGroupIds([1, 2])
+    useUIStore.getState().setRunsFeedGroupIds([])
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual([])
+  })
+
+  it('setRunsFeedGroupIds stores a new array reference (immutable)', () => {
+    const input = [1, 2]
+    useUIStore.getState().setRunsFeedGroupIds(input)
+    expect(useUIStore.getState().runsFeedGroupIds).not.toBe(input)
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual(input)
   })
 })

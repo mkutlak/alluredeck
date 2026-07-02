@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { Bell, Gauge, Inbox, KeyRound, Shield, UsersRound } from 'lucide-react'
+import { Bell, Gauge, Inbox, KeyRound, Rows3, Shield, UsersRound } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { getConfig } from '@/api/system'
@@ -34,8 +34,16 @@ export function AppSidebar() {
           <SidebarGroupLabel>Home</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Projects">
+              <SidebarMenuButton asChild tooltip="Runs">
                 <NavLink to="/" end>
+                  <Rows3 />
+                  <span>Runs</span>
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild tooltip="Projects">
+                <NavLink to="/projects">
                   <Gauge />
                   <span>Projects</span>
                 </NavLink>

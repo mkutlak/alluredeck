@@ -17,6 +17,7 @@ export interface UIState {
   pinnedProjectIds: number[]
   recentProjectIds: number[]
   lastTabPerProject: Record<string, string>
+  runsFeedGroupIds: number[]
 
   setProjectViewMode: (mode: ViewMode) => void
   setLastProjectId: (id: string | null) => void
@@ -31,6 +32,7 @@ export interface UIState {
   unpinProject: (id: number) => void
   recordProjectVisit: (id: number) => void
   setLastTabForProject: (projectId: string, tab: string) => void
+  setRunsFeedGroupIds: (ids: number[]) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -47,6 +49,7 @@ export const useUIStore = create<UIState>()(
       pinnedProjectIds: [],
       recentProjectIds: [],
       lastTabPerProject: {},
+      runsFeedGroupIds: [],
 
       setProjectViewMode: (mode) => set({ projectViewMode: mode }),
       setLastProjectId: (id) => set({ lastProjectId: id }),
@@ -72,6 +75,7 @@ export const useUIStore = create<UIState>()(
         }),
       setLastTabForProject: (projectId, tab) =>
         set((s) => ({ lastTabPerProject: { ...s.lastTabPerProject, [projectId]: tab } })),
+      setRunsFeedGroupIds: (ids) => set({ runsFeedGroupIds: [...ids] }),
     }),
     { name: 'allure-ui' },
   ),
