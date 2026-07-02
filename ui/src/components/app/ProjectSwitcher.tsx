@@ -5,7 +5,7 @@ import { Check, ChevronsUpDown, FileText, Folder, Star } from 'lucide-react'
 import { projectIndexOptions } from '@/lib/queries'
 import { useActiveProject } from '@/hooks/useActiveProject'
 import { useProjectDisplay } from '@/features/projects/useProjectDisplay'
-import { formatProjectLabel } from '@/lib/projectLabel'
+import { formatProjectLabel, splitProjectLabel } from '@/lib/projectLabel'
 import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -59,10 +59,11 @@ export function ProjectSwitcher() {
     }
   }
 
-  function renderProjectRow(id: number, indented = false) {
+  function renderProjectRow(id: number, indented = false, showParent = false) {
     const project = projects.find((p) => p.project_id === id)
     if (!project) return null
     const itemLabel = formatProjectLabel(project, projects)
+    const { name, parentName } = splitProjectLabel(project, projects)
     const isPinned = pinnedProjectIds.includes(id)
     const isActive = projectId != null && String(id) === String(projectId)
     return (
@@ -73,7 +74,10 @@ export function ProjectSwitcher() {
         className={indented ? 'pl-6' : undefined}
       >
         <FileText className="mr-2 h-4 w-4 shrink-0" />
-        <span className="flex-1 truncate">{itemLabel}</span>
+        <span className="flex-1 truncate">{name}</span>
+        {showParent && parentName && (
+          <span className="text-muted-foreground ml-auto shrink-0 text-xs">{parentName}</span>
+        )}
         {isActive && <Check className="ml-1 h-4 w-4 shrink-0" />}
         <button
           aria-label={isPinned ? `Unpin ${itemLabel}` : `Pin ${itemLabel}`}
@@ -81,7 +85,7 @@ export function ProjectSwitcher() {
           onClick={(e) => handlePinToggle(e, id)}
         >
           <Star
-            className={`h-3.5 w-3.5 ${isPinned ? 'fill-current text-yellow-400' : 'text-muted-foreground'}`}
+            className={`h-3.5 w-3.5 ${isPinned ? 'text-warning fill-current' : 'text-muted-foreground'}`}
           />
         </button>
       </CommandItem>
@@ -98,22 +102,25 @@ export function ProjectSwitcher() {
 
     return (
       <>
-        {groupProjects.map((group) => (
-          <div key={group.project_id}>
-            <CommandItem
-              value={`__group__${group.project_id}`}
-              disabled
-              className="text-muted-foreground"
-            >
-              <Folder className="mr-2 h-4 w-4 shrink-0" />
-              <span className="flex-1 truncate font-medium">
-                {formatProjectLabel(group, projects)}
-              </span>
-            </CommandItem>
-            {(group.children ?? []).map((childId) => renderProjectRow(childId, true))}
-          </div>
-        ))}
-        {standalones.map((p) => renderProjectRow(p.project_id, false))}
+        {groupProjects.map((group) => {
+          const isActive = projectId != null && String(group.project_id) === String(projectId)
+          return (
+            <div key={group.project_id}>
+              <CommandItem
+                value={`__group__${group.project_id}`}
+                onSelect={() => handleSelect(group.project_id)}
+              >
+                <Folder className="mr-2 h-4 w-4 shrink-0" />
+                <span className="flex-1 truncate font-medium">
+                  {formatProjectLabel(group, projects)}
+                </span>
+                {isActive && <Check className="ml-1 h-4 w-4 shrink-0" />}
+              </CommandItem>
+              {(group.children ?? []).map((childId) => renderProjectRow(childId, true, false))}
+            </div>
+          )
+        })}
+        {standalones.map((p) => renderProjectRow(p.project_id, false, true))}
       </>
     )
   }
@@ -139,44 +146,52 @@ export function ProjectSwitcher() {
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-0" align="start">
+      <PopoverContent className="w-96 p-0" align="start">
         <Command>
-          <CommandInput
-            placeholder="Search project..."
-            value={search}
-            onValueChange={setSearch}
-          />
+          <CommandInput placeholder="Search project..." value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>No projects found.</CommandEmpty>
             {search === '' ? (
               <>
                 {recentProjects.length > 0 && (
                   <CommandGroup heading="Recents">
-                    {recentProjects.map((p) => renderProjectRow(p.project_id, false))}
+                    {recentProjects.map((p) => renderProjectRow(p.project_id, false, true))}
                   </CommandGroup>
                 )}
                 {pinnedProjects.length > 0 && (
                   <CommandGroup heading="Pinned">
-                    {pinnedProjects.map((p) => renderProjectRow(p.project_id, false))}
+                    {pinnedProjects.map((p) => renderProjectRow(p.project_id, false, true))}
                   </CommandGroup>
                 )}
                 <CommandGroup heading="All Projects">{renderAllProjects()}</CommandGroup>
               </>
             ) : (
               <CommandGroup>
-                {leafProjects.map((p) => {
+                {projects.map((p) => {
                   const itemLabel = formatProjectLabel(p, projects)
+                  const { name, parentName } = splitProjectLabel(p, projects)
+                  const group = isGroup(p.project_id)
+                  const isActive = projectId != null && String(p.project_id) === String(projectId)
                   return (
                     <CommandItem
                       key={p.project_id}
                       value={itemLabel}
                       onSelect={() => handleSelect(p.project_id)}
                     >
-                      <FileText className="mr-2 h-4 w-4 shrink-0" />
-                      <span className="flex-1 truncate">{itemLabel}</span>
-                      {projectId != null && String(p.project_id) === String(projectId) && (
-                        <Check className="ml-1 h-4 w-4 shrink-0" />
+                      {group ? (
+                        <Folder className="mr-2 h-4 w-4 shrink-0" />
+                      ) : (
+                        <FileText className="mr-2 h-4 w-4 shrink-0" />
                       )}
+                      <span className={`flex-1 truncate ${group ? 'font-medium' : ''}`}>
+                        {name}
+                      </span>
+                      {!group && parentName && (
+                        <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                          {parentName}
+                        </span>
+                      )}
+                      {isActive && <Check className="ml-1 h-4 w-4 shrink-0" />}
                     </CommandItem>
                   )
                 })}

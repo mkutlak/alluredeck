@@ -19,6 +19,7 @@ import { useTrackActiveTab } from '@/hooks/useTrackActiveTab'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { projectIndexOptions } from '@/lib/queries'
 import { resolveProjectFromParam } from '@/lib/resolveProject'
+import { formatProjectLabel, splitProjectLabel } from '@/lib/projectLabel'
 import { getConfig } from '@/api/system'
 import {
   Sidebar,
@@ -55,6 +56,12 @@ export function AppSidebar() {
   })
   const configData = configResp?.data
   const allProjects = projectsResp?.data ?? []
+  const currentProject = resolveProjectFromParam(projectId ?? undefined, allProjects)
+  const { name: activeProjectName } = splitProjectLabel(currentProject, allProjects)
+  const projectLabel = activeProjectName || 'Project'
+  const projectLabelTitle = currentProject
+    ? formatProjectLabel(currentProject, allProjects)
+    : undefined
 
   return (
     <Sidebar collapsible="icon" className="h-full">
@@ -77,10 +84,11 @@ export function AppSidebar() {
         {/* Project sub-nav (active project pages) */}
         {projectId && (
           <SidebarGroup>
-            <SidebarGroupLabel>Project</SidebarGroupLabel>
+            <SidebarGroupLabel className="truncate" title={projectLabelTitle}>
+              {projectLabel}
+            </SidebarGroupLabel>
             <SidebarMenu>
               {(() => {
-                const currentProject = resolveProjectFromParam(projectId ?? undefined, allProjects)
                 const isParent = (currentProject?.children?.length ?? 0) > 0
                 const parentHiddenTabs = ['Timeline', 'Known Issues', 'Attachments']
                 const visibleNavItems = isParent

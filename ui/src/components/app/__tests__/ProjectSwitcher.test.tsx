@@ -17,19 +17,55 @@ import { ProjectSwitcher } from '../ProjectSwitcher'
 vi.mock('@/api/projects', () => ({
   getProjectIndex: vi.fn().mockResolvedValue({
     data: [
-      { project_id: 1, slug: 'alpha-group', display_name: 'Alpha Group', parent_id: null, children: [3, 4] },
+      {
+        project_id: 1,
+        slug: 'alpha-group',
+        display_name: 'Alpha Group',
+        parent_id: null,
+        children: [3, 4],
+      },
       { project_id: 2, slug: 'my-project', display_name: undefined, parent_id: null, children: [] },
-      { project_id: 3, slug: 'alpha-child-one', display_name: undefined, parent_id: 1, children: [] },
-      { project_id: 4, slug: 'alpha-child-two', display_name: undefined, parent_id: 1, children: [] },
+      {
+        project_id: 3,
+        slug: 'alpha-child-one',
+        display_name: undefined,
+        parent_id: 1,
+        children: [],
+      },
+      {
+        project_id: 4,
+        slug: 'alpha-child-two',
+        display_name: undefined,
+        parent_id: 1,
+        children: [],
+      },
     ],
     metadata: { message: 'ok' },
   }),
   getProjects: vi.fn().mockResolvedValue({
     data: [
-      { project_id: 1, slug: 'alpha-group', display_name: 'Alpha Group', parent_id: null, children: [3, 4] },
+      {
+        project_id: 1,
+        slug: 'alpha-group',
+        display_name: 'Alpha Group',
+        parent_id: null,
+        children: [3, 4],
+      },
       { project_id: 2, slug: 'my-project', display_name: undefined, parent_id: null, children: [] },
-      { project_id: 3, slug: 'alpha-child-one', display_name: undefined, parent_id: 1, children: [] },
-      { project_id: 4, slug: 'alpha-child-two', display_name: undefined, parent_id: 1, children: [] },
+      {
+        project_id: 3,
+        slug: 'alpha-child-one',
+        display_name: undefined,
+        parent_id: 1,
+        children: [],
+      },
+      {
+        project_id: 4,
+        slug: 'alpha-child-two',
+        display_name: undefined,
+        parent_id: 1,
+        children: [],
+      },
     ],
     metadata: { message: 'ok' },
     pagination: { total: 4, page: 1, per_page: 20, total_pages: 1 },
@@ -213,6 +249,21 @@ describe('ProjectSwitcher', () => {
     })
   })
 
+  it('shows the muted parent name for a recent child row', async () => {
+    const user = userEvent.setup()
+    renderSwitcher('/', { recentProjectIds: [3] })
+    await user.click(screen.getByRole('button', { name: /select a project/i }))
+    await waitFor(() => {
+      expect(screen.getByText('Recents')).toBeInTheDocument()
+    })
+    const recentsGroup = screen.getByText('Recents').closest('[cmdk-group=""]')
+    expect(recentsGroup).not.toBeNull()
+    // Own name shown
+    expect(within(recentsGroup as HTMLElement).getByText('alpha-child-one')).toBeInTheDocument()
+    // Muted parent name shown alongside it
+    expect(within(recentsGroup as HTMLElement).getByText('Alpha Group')).toBeInTheDocument()
+  })
+
   // ── Pinned section ─────────────────────────────────────────────────────────
 
   it('shows Pinned section when pinnedProjectIds is non-empty', async () => {
@@ -244,19 +295,22 @@ describe('ProjectSwitcher', () => {
     })
   })
 
-  it('shows group header (non-selectable) and indented children in All Projects', async () => {
+  it('shows group header and indented children (own name only) in All Projects', async () => {
     const user = userEvent.setup()
     renderSwitcher('/')
     await user.click(screen.getByRole('button', { name: /select a project/i }))
     await waitFor(() => {
       const listbox = screen.getByRole('listbox')
       expect(within(listbox).getAllByText('Alpha Group').length).toBeGreaterThan(0)
-      expect(within(listbox).getByText('Alpha Group/alpha-child-one')).toBeInTheDocument()
-      expect(within(listbox).getByText('Alpha Group/alpha-child-two')).toBeInTheDocument()
+      // Children under their group header show only their own name, not "group/child"
+      expect(within(listbox).getByText('alpha-child-one')).toBeInTheDocument()
+      expect(within(listbox).getByText('alpha-child-two')).toBeInTheDocument()
+      expect(within(listbox).queryByText('Alpha Group/alpha-child-one')).not.toBeInTheDocument()
+      expect(within(listbox).queryByText('Alpha Group/alpha-child-two')).not.toBeInTheDocument()
     })
   })
 
-  it('group headers are disabled (not keyboard-selectable)', async () => {
+  it('group headers are selectable (not disabled)', async () => {
     const user = userEvent.setup()
     renderSwitcher('/')
     await user.click(screen.getByRole('button', { name: /select a project/i }))
@@ -267,11 +321,11 @@ describe('ProjectSwitcher', () => {
         selector: '.flex-1.truncate.font-medium',
       })
       const groupItem = groupHeaderSpan.closest('[role="option"]')
-      expect(groupItem).toHaveAttribute('aria-disabled', 'true')
+      expect(groupItem).not.toHaveAttribute('aria-disabled', 'true')
     })
   })
 
-  it('clicking a group header does not navigate', async () => {
+  it('clicking a group header navigates to /projects/<groupId>', async () => {
     const user = userEvent.setup()
     renderSwitcher('/')
     await user.click(screen.getByRole('button', { name: /select a project/i }))
@@ -282,10 +336,9 @@ describe('ProjectSwitcher', () => {
     const groupHeaderSpan = within(listbox).getByText('Alpha Group', {
       selector: '.flex-1.truncate.font-medium',
     })
-    // Click the disabled group item — navigate should NOT be called
     const groupEl = groupHeaderSpan.closest('[role="option"]')
     if (groupEl) await user.click(groupEl)
-    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/1')
   })
 
   it('shows standalone leaf projects flat (no parent group)', async () => {
@@ -327,9 +380,10 @@ describe('ProjectSwitcher', () => {
     renderSwitcher('/')
     await user.click(screen.getByRole('button', { name: /select a project/i }))
     await waitFor(() => {
-      expect(screen.getByText('Alpha Group/alpha-child-one')).toBeInTheDocument()
+      expect(screen.getByRole('listbox')).toBeInTheDocument()
     })
-    await user.click(screen.getByText('Alpha Group/alpha-child-one'))
+    const listbox = screen.getByRole('listbox')
+    await user.click(within(listbox).getByText('alpha-child-one'))
     expect(mockNavigate).toHaveBeenCalledWith('/projects/3')
   })
 
@@ -388,7 +442,7 @@ describe('ProjectSwitcher', () => {
 
   // ── Search mode ────────────────────────────────────────────────────────────
 
-  it('shows flat leaf-only list when search input is non-empty', async () => {
+  it('shows flat list of all projects when search input is non-empty', async () => {
     const user = userEvent.setup()
     renderSwitcher('/')
     await user.click(screen.getByRole('button', { name: /select a project/i }))
@@ -403,20 +457,26 @@ describe('ProjectSwitcher', () => {
     })
   })
 
-  it('does not include group headers in search results', async () => {
+  it('includes groups in search results and selecting one navigates to the group', async () => {
     const user = userEvent.setup()
     renderSwitcher('/')
     await user.click(screen.getByRole('button', { name: /select a project/i }))
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/search project/i)).toBeInTheDocument()
     })
-    await user.type(screen.getByPlaceholderText(/search project/i), 'alpha')
-    // Wait for filter to apply, then verify group header text not in an option role
+    await user.type(screen.getByPlaceholderText(/search project/i), 'alpha group')
+    let groupOption: HTMLElement | null = null
     await waitFor(() => {
-      const options = screen.queryAllByRole('option', { name: /Alpha Group$/ })
-      // The standalone "Alpha Group" option (group header) should not be selectable
-      const selectable = options.filter((o) => o.getAttribute('aria-disabled') !== 'true')
-      expect(selectable).toHaveLength(0)
+      // The group row's own-name span carries "font-medium"; child rows only carry the
+      // muted parent-name span, so this selector uniquely targets the group row.
+      const groupHeaderSpan = screen.getByText('Alpha Group', {
+        selector: '.flex-1.truncate.font-medium',
+      })
+      groupOption = groupHeaderSpan.closest('[role="option"]')
+      expect(groupOption).not.toBeNull()
+      expect(groupOption).not.toHaveAttribute('aria-disabled', 'true')
     })
+    await user.click(groupOption!)
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/1')
   })
 })

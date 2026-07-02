@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatProjectLabel } from '@/lib/projectLabel'
+import { formatProjectLabel, splitProjectLabel } from '@/lib/projectLabel'
 import type { ProjectEntry } from '@/types/api'
 
 const PARENT_A: ProjectEntry = { project_id: 1, slug: 'parent-a' }
@@ -44,13 +44,23 @@ describe('formatProjectLabel', () => {
 
   it('prefers display_name over slug for child project', () => {
     const parent: ProjectEntry = { project_id: 1, slug: 'parent-a', display_name: 'Parent A' }
-    const child: ProjectEntry = { project_id: 10, slug: 'child-a', display_name: 'Child A', parent_id: 1 }
+    const child: ProjectEntry = {
+      project_id: 10,
+      slug: 'child-a',
+      display_name: 'Child A',
+      parent_id: 1,
+    }
     expect(formatProjectLabel(child, [parent, child])).toBe('Parent A/Child A')
   })
 
   it('uses display_name for child only when parent has no display_name', () => {
     const parent: ProjectEntry = { project_id: 1, slug: 'parent-a' }
-    const child: ProjectEntry = { project_id: 10, slug: 'child-a', display_name: 'Child A', parent_id: 1 }
+    const child: ProjectEntry = {
+      project_id: 10,
+      slug: 'child-a',
+      display_name: 'Child A',
+      parent_id: 1,
+    }
     expect(formatProjectLabel(child, [parent, child])).toBe('parent-a/Child A')
   })
 
@@ -63,5 +73,43 @@ describe('formatProjectLabel', () => {
   it('falls back to slug when display_name is empty string', () => {
     const p: ProjectEntry = { project_id: 30, slug: 'proj-30', display_name: '' }
     expect(formatProjectLabel(p, [p])).toBe('proj-30')
+  })
+})
+
+describe('splitProjectLabel', () => {
+  it('returns empty name when project is undefined', () => {
+    expect(splitProjectLabel(undefined, [])).toEqual({ name: '' })
+  })
+
+  it('returns own name only for a top-level project', () => {
+    expect(splitProjectLabel(STANDALONE, [STANDALONE])).toEqual({ name: 'standalone' })
+  })
+
+  it('returns own name and parentName when parent resolves', () => {
+    const all = [PARENT_A, CHILD_A_OF_PARENT_A]
+    expect(splitProjectLabel(CHILD_A_OF_PARENT_A, all)).toEqual({
+      name: 'child-a',
+      parentName: 'parent-a',
+    })
+  })
+
+  it('returns own name only when parent is missing from allProjects', () => {
+    expect(splitProjectLabel(CHILD_A_OF_PARENT_A, [CHILD_A_OF_PARENT_A])).toEqual({
+      name: 'child-a',
+    })
+  })
+
+  it('uses display_name over slug for own name and parentName', () => {
+    const parent: ProjectEntry = { project_id: 1, slug: 'parent-a', display_name: 'Parent A' }
+    const child: ProjectEntry = {
+      project_id: 10,
+      slug: 'child-a',
+      display_name: 'Child A',
+      parent_id: 1,
+    }
+    expect(splitProjectLabel(child, [parent, child])).toEqual({
+      name: 'Child A',
+      parentName: 'Parent A',
+    })
   })
 })

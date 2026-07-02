@@ -151,6 +151,30 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Analytics')).toBeInTheDocument()
   })
 
+  it("shows the active project's own name as the section label", async () => {
+    vi.mocked(getProjectIndex).mockResolvedValueOnce({
+      data: [{ project_id: 5, slug: 'resolved-project', display_name: 'Resolved Project' }],
+      metadata: { message: 'ok' },
+    })
+    vi.mocked(getProjects).mockResolvedValueOnce({
+      data: [{ project_id: 5, slug: 'resolved-project', display_name: 'Resolved Project' }],
+      metadata: { message: 'ok' },
+      pagination: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+    })
+    renderSidebar('/projects/resolved-project')
+    await waitFor(() => {
+      expect(screen.getByText('Resolved Project')).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByText('Project', { selector: '[data-sidebar="group-label"]' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('falls back to "Project" label when no project is resolved', () => {
+    renderSidebar('/projects/my-project')
+    expect(screen.getByText('Project')).toBeInTheDocument()
+  })
+
   it('hides project sub-nav when no project is in URL', async () => {
     vi.mocked(getProjectIndex).mockResolvedValueOnce({
       data: [],
