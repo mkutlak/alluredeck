@@ -43,6 +43,32 @@ export const STATUS_BADGE_CLASSES = {
     'border-transparent bg-[#8c8fa1]/15 text-[#6c6f85] dark:bg-[#7f849c]/15 dark:text-[#a6adc8]',
 } as const
 
+// Full CVA-compatible badge class string for informational (blue) content — light + dark
+export const INFO_BADGE_CLASSES =
+  'border-transparent bg-[#1e66f5]/15 text-[#1e66f5] dark:bg-[#89b4fa]/15 dark:text-[#89b4fa]'
+
+// Full CVA-compatible badge class string for neutral content — reuses the skipped overlay grays
+export const NEUTRAL_BADGE_CLASSES =
+  'border-transparent bg-[#8c8fa1]/15 text-[#6c6f85] dark:bg-[#7f849c]/15 dark:text-[#a6adc8]'
+
+// Accent (Catppuccin mauve) — used for trace/tooling badges that need a distinct hue
+export const ACCENT_TEXT_CLASSES = 'text-[#8839ef] dark:text-[#cba6f7]'
+
+// Full CVA-compatible badge class string for accent content — light + dark
+export const ACCENT_BADGE_CLASSES =
+  'border-transparent bg-[#8839ef]/15 text-[#8839ef] dark:bg-[#cba6f7]/15 dark:text-[#cba6f7]'
+
+// Defect category badge classes — tinted (bg/15 + colored text + border-transparent), not solid
+export const DEFECT_CATEGORY_BADGE_CLASSES: Record<
+  'product_bug' | 'test_bug' | 'infrastructure' | 'to_investigate',
+  string
+> = {
+  product_bug: STATUS_BADGE_CLASSES.failed,
+  test_bug: STATUS_BADGE_CLASSES.broken,
+  infrastructure: INFO_BADGE_CLASSES,
+  to_investigate: NEUTRAL_BADGE_CLASSES,
+}
+
 // Category colors for charts
 export const CATEGORY_COLORS: Record<string, string> = {
   'Product defects': '#d20f39', // catppuccin latte red
