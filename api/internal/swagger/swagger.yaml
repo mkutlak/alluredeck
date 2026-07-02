@@ -882,6 +882,52 @@ paths:
       summary: Set default branch
       tags:
       - branches
+  /projects/{project_id}/builds/{build_id}/tests:
+    get:
+      description: Returns failed/broken tests for a build, flagged as known, flaky,
+        retried, or newly-failed.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Build ID (primary key)
+        in: path
+        name: build_id
+        required: true
+        type: string
+      - default: failed
+        description: Test status filter
+        in: query
+        name: status
+        type: string
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List build tests
+      tags:
+      - builds
   /projects/{project_id}/children:
     get:
       description: Returns all projects that have the given project as their parent.

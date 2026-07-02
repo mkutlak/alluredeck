@@ -378,10 +378,15 @@ func (ts *TestResultStore) ListTimelineMulti(ctx context.Context, projectID int6
 }
 
 // ListFailedByBuild returns failed+broken tests for a build, ordered by duration DESC.
+// status_message is bounded to 500 characters — callers only need enough of the
+// message for a short error preview, not the full text. GetReportKnownFailures
+// also calls this with a limit of 10000, so every row it fetches now carries a
+// status_message capped at 500 chars rather than the full column value.
 func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error) {
 	rows, err := ts.pool.Query(ctx, `
 		SELECT build_id, project_id, test_name, full_name, status, duration_ms,
-		       history_id, flaky, retries, new_failed, new_passed
+		       history_id, flaky, retries, new_failed, new_passed,
+		       COALESCE(LEFT(status_message, 500), '')
 		FROM test_results
 		WHERE build_id=$1 AND project_id=$2 AND status IN ('failed','broken')
 		ORDER BY duration_ms DESC
@@ -397,6 +402,7 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int6
 		if err := rows.Scan(
 			&r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status, &r.DurationMs,
 			&r.HistoryID, &r.Flaky, &r.Retries, &r.NewFailed, &r.NewPassed,
+			&r.StatusMessage,
 		); err != nil {
 			return nil, fmt.Errorf("scan failed test result: %w", err)
 		}

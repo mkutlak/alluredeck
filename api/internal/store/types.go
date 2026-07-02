@@ -175,6 +175,10 @@ type TestResult struct {
 	StopMs     *int64
 	Thread     string
 	Host       string
+	// StatusMessage is the raw failure message, bounded to 500 characters by
+	// the callers that populate it (see ListFailedByBuild). Empty when the
+	// caller does not select it.
+	StatusMessage string
 }
 
 // TestAttachment represents a file attachment associated with a test result.

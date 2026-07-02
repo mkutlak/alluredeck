@@ -79,6 +79,7 @@ type handlerSet struct {
 	user            *handlers.UserHandler
 	parent          *handlers.ProjectParentHandler
 	defect          *handlers.DefectHandler
+	buildTests      *handlers.BuildTestsHandler
 	webhook         *handlers.WebhookHandler
 	pipeline        *handlers.PipelineHandler
 	preferences     *handlers.PreferenceHandler
@@ -503,6 +504,7 @@ func wireHandlers(
 			WithJWTManager(jwtManager),
 		parent:      handlers.NewProjectParentHandler(s.project, logger),
 		defect:      handlers.NewDefectHandler(s.defect, s.project, logger),
+		buildTests:  handlers.NewBuildTestsHandler(s.testResult, s.knownIssue, s.project, logger),
 		webhook:     handlers.NewWebhookHandler(s.webhook, s.project, logger),
 		pipeline:    handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
 		preferences: handlers.NewPreferenceHandler(s.preference),
@@ -922,6 +924,9 @@ func registerRoutes(d routeDeps) {
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects", viewerUp(noStore(d.h.defect.ListBuildDefects)))
 		mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/defects/summary", viewerUp(mutableCache(d.h.defect.GetBuildDefectSummary)))
 	}
+
+	// Build test listing (failed/broken tests with known/flaky/new flags).
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/tests", viewerUp(noStore(d.h.buildTests.ListBuildTests)))
 
 	// MCP proposal review endpoints — only registered when MCPServerEnabled is true.
 	if d.cfg.MCPServerEnabled && d.h.proposals != nil {
