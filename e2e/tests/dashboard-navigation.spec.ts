@@ -2,6 +2,8 @@ import { test, expect } from '../fixtures/project'
 
 test.describe('Dashboard & Navigation', () => {
   test('dashboard shows project cards', async ({ authenticatedPage: page, freshProject }) => {
+    // Post-IA-redesign: "/" is the global Runs feed; the projects dashboard moved to "/projects".
+    await page.goto('/projects')
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
@@ -13,6 +15,8 @@ test.describe('Dashboard & Navigation', () => {
   })
 
   test('navigate into project overview', async ({ authenticatedPage: page, freshProject }) => {
+    // Post-IA-redesign: "/" is the global Runs feed; the projects dashboard moved to "/projects".
+    await page.goto('/projects')
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
@@ -87,7 +91,8 @@ test.describe('Dashboard & Navigation', () => {
   })
 
   test('custom attachments', async ({ authenticatedPage: page }, testInfo) => {
-    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
+    // Post-IA-redesign: "/" now lands on the global Runs feed, not the projects dashboard.
+    await expect(page.getByRole('heading', { name: 'Runs' })).toBeVisible({
       timeout: 10_000,
     })
 

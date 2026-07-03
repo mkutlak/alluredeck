@@ -32,6 +32,10 @@ These are already wired in the codebase (Phase B.1):
 - `projects-grid` — dashboard grid (plus `project-card` on each card with `data-project-slug={slug}`)
 - `allure-iframe` — iframe on `ReportViewerPage.tsx`
 - `view-toggle-playwright`, `view-toggle-allure` — framework toggle buttons (only when `reportType === 'playwright'`)
+- `runs-feed` — root of `RunsFeedPage.tsx`, the global "Runs" landing page at `/`
+- `run-row` — `RunRow.tsx` root for each run in the feed (expandable)
+- `run-suite-chip` — `RunSuiteChip.tsx` suite chip strip within a run row
+- `run-failures` — `RunFailures.tsx` root, shown for expanded rows with failing suites
 
 ## Checklist for adding a new test
 

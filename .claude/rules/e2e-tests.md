@@ -14,6 +14,7 @@ Copy changes, ARIA refactors, and Tailwind churn must not break E2E tests. The `
 - `project-overview`, `report-list`, `report-row` (with `data-report-id`)
 - `projects-grid`, `project-card` (with `data-project-slug`)
 - `allure-iframe`, `view-toggle-playwright`, `view-toggle-allure`
+- `runs-feed`, `run-row`, `run-suite-chip`, `run-failures`
 
 ### Rules
 - Prefer `await expect(locator).toBeVisible({ timeout })` over `waitForTimeout`
