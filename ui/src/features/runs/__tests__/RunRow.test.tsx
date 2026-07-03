@@ -88,7 +88,7 @@ describe('RunRow', () => {
 
   it('auto-expands when there are suite failures (suites_passed < suites_total)', () => {
     renderWithProviders(<RunRow run={makeRun()} />)
-    const button = screen.getByRole('button')
+    const button = screen.getByRole('button', { name: 'Toggle run details' })
     expect(button).toHaveAttribute('aria-expanded', 'true')
   })
 
@@ -104,11 +104,11 @@ describe('RunRow', () => {
       },
     })
     renderWithProviders(<RunRow run={run} />)
-    const button = screen.getByRole('button')
+    const button = screen.getByRole('button', { name: 'Toggle run details' })
     expect(button).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('toggles expansion when the header button is clicked', async () => {
+  it('toggles expansion when the accessible toggle button is clicked', async () => {
     const user = userEvent.setup()
     const run = makeRun({
       aggregate: {
@@ -121,10 +121,17 @@ describe('RunRow', () => {
       },
     })
     renderWithProviders(<RunRow run={run} />)
-    const button = screen.getByRole('button')
+    const button = screen.getByRole('button', { name: 'Toggle run details' })
     expect(button).toHaveAttribute('aria-expanded', 'false')
     await user.click(button)
     expect(button).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('renders the pipeline/CI and group links as siblings of the toggle button, not descendants', () => {
+    renderWithProviders(<RunRow run={makeRun()} />)
+    const button = screen.getByRole('button', { name: 'Toggle run details' })
+    const groupLink = screen.getByRole('link', { name: /acme/i })
+    expect(button).not.toContainElement(groupLink)
   })
 
   it('falls back to group_slug when group_project_id is absent', () => {

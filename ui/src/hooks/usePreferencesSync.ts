@@ -47,7 +47,14 @@ export function usePreferencesSync(): void {
         const serverNewer = !localSyncedAt || new Date(updated_at) > new Date(localSyncedAt)
 
         if (serverNewer && Object.keys(preferences).length > 0) {
-          useUIStore.setState({ ...preferences, _syncedAt: updated_at })
+          const safePreferences = { ...preferences }
+          if (
+            'runsFeedGroupIds' in safePreferences &&
+            !Array.isArray(safePreferences.runsFeedGroupIds)
+          ) {
+            safePreferences.runsFeedGroupIds = []
+          }
+          useUIStore.setState({ ...safePreferences, _syncedAt: updated_at })
         }
       } catch {
         // Best-effort — localStorage is the source of truth

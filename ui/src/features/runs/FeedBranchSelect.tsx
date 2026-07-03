@@ -1,9 +1,8 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 
-import { fetchBranches } from '@/api/branches'
-import { queryKeys } from '@/lib/query-keys'
 import { projectIndexOptions } from '@/lib/queries'
 import { useUIStore } from '@/store/ui'
+import { useFeedBranches } from './useFeedBranches'
 import {
   Select,
   SelectContent,
@@ -26,19 +25,7 @@ export function FeedBranchSelect() {
 
   const parentIds = runsFeedGroupIds.length > 0 ? runsFeedGroupIds : allParentIds
 
-  const branchQueries = useQueries({
-    queries: parentIds.map((id) => ({
-      queryKey: queryKeys.branches.list(String(id)),
-      queryFn: () => fetchBranches(String(id)),
-      staleTime: 60_000,
-    })),
-  })
-
-  const isLoading = branchQueries.some((q) => q.isLoading)
-
-  const branchNames = Array.from(
-    new Set(branchQueries.flatMap((q) => q.data?.map((b) => b.name) ?? [])),
-  ).sort()
+  const { branchNames, isLoading } = useFeedBranches(parentIds)
 
   const handleValueChange = (val: string) => {
     setSelectedBranch(val === ALL_BRANCHES_VALUE ? undefined : val)

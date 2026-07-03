@@ -35,12 +35,16 @@ export function RunRow({ run }: RunRowProps) {
   return (
     <Card data-testid="run-row">
       <CardHeader className="p-4 pb-2">
-        <button
-          className="flex w-full flex-wrap items-center gap-2 text-left"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-        >
-          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="shrink-0"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label="Toggle run details"
+          >
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
 
           {hasPipeline ? (
             <div className="flex items-center gap-2">
@@ -51,7 +55,6 @@ export function RunRow({ run }: RunRowProps) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 hover:underline"
-                    onClick={(e) => e.stopPropagation()}
                   >
                     Pipeline {run.pipeline_id}
                     <ExternalLink size={12} />
@@ -75,7 +78,6 @@ export function RunRow({ run }: RunRowProps) {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 hover:underline"
-                  onClick={(e) => e.stopPropagation()}
                 >
                   {shortSHA}
                   <ExternalLink size={12} />
@@ -95,11 +97,7 @@ export function RunRow({ run }: RunRowProps) {
 
           {groupLabel &&
             (groupHref ? (
-              <NavLink
-                to={groupHref}
-                className="text-muted-foreground text-xs hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <NavLink to={groupHref} className="text-muted-foreground text-xs hover:underline">
                 {groupLabel}
               </NavLink>
             ) : (
@@ -107,7 +105,7 @@ export function RunRow({ run }: RunRowProps) {
             ))}
 
           <span className="text-muted-foreground ml-auto text-xs">{formatDate(run.timestamp)}</span>
-        </button>
+        </div>
       </CardHeader>
 
       <CardContent className="px-4 pt-0 pb-4">

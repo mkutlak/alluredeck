@@ -156,4 +156,82 @@ describe('RunFailures', () => {
 
     expect(await screen.findByText(/failed to load/i)).toBeInTheDocument()
   })
+
+  it('renders a loaded suite while another suite is still loading', async () => {
+    vi.mocked(fetchBuildFailedTests).mockImplementation((projectId: number) => {
+      if (projectId === 2) return Promise.resolve([makeTest({ test_name: 'loaded test' })])
+      return new Promise(() => {}) // never resolves — stays loading
+    })
+    const run = makeRun({
+      suites: [
+        {
+          project_id: 1,
+          slug: 'api-cloud',
+          build_number: 5,
+          build_id: 105,
+          pass_rate: 50,
+          total: 10,
+          failed: 3,
+          duration_ms: 15000,
+          status: 'degraded',
+        },
+        {
+          project_id: 2,
+          slug: 'ui-tests',
+          build_number: 3,
+          build_id: 103,
+          pass_rate: 85,
+          total: 100,
+          failed: 15,
+          duration_ms: 30000,
+          status: 'degraded',
+        },
+      ],
+    })
+    renderWithProviders(<RunFailures run={run} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('loaded test')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/loading failures for api-cloud/i)).toBeInTheDocument()
+  })
+
+  it('shows a per-suite error line while another suite renders its rows', async () => {
+    vi.mocked(fetchBuildFailedTests).mockImplementation((projectId: number) => {
+      if (projectId === 1) return Promise.reject(new Error('network error'))
+      return Promise.resolve([makeTest({ test_name: 'ok test' })])
+    })
+    const run = makeRun({
+      suites: [
+        {
+          project_id: 1,
+          slug: 'api-cloud',
+          build_number: 5,
+          build_id: 105,
+          pass_rate: 50,
+          total: 10,
+          failed: 3,
+          duration_ms: 15000,
+          status: 'degraded',
+        },
+        {
+          project_id: 2,
+          slug: 'ui-tests',
+          build_number: 3,
+          build_id: 103,
+          pass_rate: 85,
+          total: 100,
+          failed: 15,
+          duration_ms: 30000,
+          status: 'degraded',
+        },
+      ],
+    })
+    renderWithProviders(<RunFailures run={run} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ok test')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/failed to load failing tests for api-cloud/i)).toBeInTheDocument()
+  })
 })

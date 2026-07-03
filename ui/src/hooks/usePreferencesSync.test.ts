@@ -65,6 +65,24 @@ describe('usePreferencesSync', () => {
     expect(useUIStore.getState().projectViewMode).toBe('grid')
   })
 
+  it('coerces a non-array runsFeedGroupIds from the server into an empty array', async () => {
+    useAuthStore.setState({ isAuthenticated: true })
+    useUIStore.setState({ _syncedAt: null, runsFeedGroupIds: [1, 2] })
+
+    mockFetch.mockResolvedValue({
+      data: {
+        preferences: { runsFeedGroupIds: 'not-an-array' },
+        updated_at: '2026-04-06T12:00:00Z',
+      },
+      metadata: { message: 'ok' },
+    })
+
+    renderHook(() => usePreferencesSync())
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual([])
+  })
+
   it('debounces state changes and flushes to server after 3s', async () => {
     useAuthStore.setState({ isAuthenticated: true })
     mockFetch.mockResolvedValue({

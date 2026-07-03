@@ -3,7 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, GitCommitHorizontal } from 'lucide-react'
 import { Link } from 'react-router'
 
-import { runsFeedOptions } from '@/lib/queries'
+import { projectIndexOptions, runsFeedOptions } from '@/lib/queries'
 import { useUIStore } from '@/store/ui'
 import { PageHeader } from '@/components/app/PageHeader'
 import { FilterBar } from '@/components/app/FilterBar'
@@ -13,16 +13,29 @@ import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/p
 import { FeedBranchSelect } from './FeedBranchSelect'
 import { GroupFilter } from './GroupFilter'
 import { RunRow } from './RunRow'
+import { useFeedBranches } from './useFeedBranches'
 
 export function RunsFeedPage() {
   const [page, setPage] = useState(1)
   const selectedBranch = useUIStore((s) => s.selectedBranch)
   const runsFeedGroupIds = useUIStore((s) => s.runsFeedGroupIds)
 
+  // Mirror FeedBranchSelect's parent-id resolution so both agree on which
+  // branches are available before deciding whether selectedBranch applies.
+  const { data: projectsResp } = useQuery(projectIndexOptions())
+  const allParentIds = (projectsResp?.data ?? [])
+    .filter((p) => (p.children?.length ?? 0) > 0)
+    .map((p) => p.project_id)
+  const parentIds = runsFeedGroupIds.length > 0 ? runsFeedGroupIds : allParentIds
+
+  const { branchNames } = useFeedBranches(parentIds)
+  const effectiveBranch =
+    selectedBranch && branchNames.includes(selectedBranch) ? selectedBranch : undefined
+
   // Reset to page 1 when the branch or group filter changes
-  const [prevBranch, setPrevBranch] = useState(selectedBranch)
-  if (prevBranch !== selectedBranch) {
-    setPrevBranch(selectedBranch)
+  const [prevBranch, setPrevBranch] = useState(effectiveBranch)
+  if (prevBranch !== effectiveBranch) {
+    setPrevBranch(effectiveBranch)
     setPage(1)
   }
   const [prevGroupIds, setPrevGroupIds] = useState(runsFeedGroupIds)
@@ -34,7 +47,7 @@ export function RunsFeedPage() {
   const groupIds = runsFeedGroupIds.length > 0 ? runsFeedGroupIds : undefined
 
   const { data, isLoading } = useQuery({
-    ...runsFeedOptions(page, selectedBranch, groupIds),
+    ...runsFeedOptions(page, effectiveBranch, groupIds),
     placeholderData: keepPreviousData,
   })
 
@@ -82,7 +95,7 @@ export function RunsFeedPage() {
         <div className="space-y-3">
           {runs.map((run) => (
             <RunRow
-              key={`${run.group_project_id ?? run.group_slug}-${run.commit_sha}-${run.timestamp}`}
+              key={`${run.group_project_id ?? run.group_slug}:${run.pipeline_id ?? run.commit_sha}:${run.timestamp}`}
               run={run}
             />
           ))}

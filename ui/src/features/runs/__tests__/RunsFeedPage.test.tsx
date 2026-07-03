@@ -18,7 +18,16 @@ vi.mock('@/api/projects', () => ({
 }))
 
 vi.mock('@/api/branches', () => ({
-  fetchBranches: vi.fn().mockResolvedValue([]),
+  fetchBranches: vi.fn().mockResolvedValue([
+    { id: 1, project_id: 10, name: 'main', is_default: true, created_at: '2024-01-01T00:00:00Z' },
+    {
+      id: 2,
+      project_id: 10,
+      name: 'develop',
+      is_default: false,
+      created_at: '2024-01-01T00:00:00Z',
+    },
+  ]),
 }))
 
 vi.mock('@/api/builds', () => ({
@@ -137,6 +146,16 @@ describe('RunsFeedPage', () => {
 
     await waitFor(() => {
       expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, 'develop', undefined)
+    })
+  })
+
+  it('sends no branch param when the stored branch is absent from the available branches', async () => {
+    useUIStore.setState({ selectedBranch: 'nonexistent' })
+    vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
+    renderWithProviders(<RunsFeedPage />)
+
+    await waitFor(() => {
+      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, undefined, undefined)
     })
   })
 
