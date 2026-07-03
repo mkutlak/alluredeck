@@ -7,6 +7,10 @@ plugins:
   - - "@semantic-release/commit-analyzer"
     - preset: conventionalcommits
       releaseRules:
+        # Pre-1.0: breaking changes release as MINOR (SemVer allows breaking in
+        # 0.x minors). Remove this rule when the project is ready to go 1.0.
+        - breaking: true
+          release: minor
         - type: feat
           release: minor
         - type: fix
