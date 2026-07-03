@@ -275,6 +275,14 @@ run = "docker compose -f docker/docker-compose-s3.yml up --build -d"
 description = "Stop S3 stack"
 run = "docker compose -f docker/docker-compose-s3.yml down"
 
+[tasks."docker:up-preview"]
+description = "Preview local tree against a remote DB (requires PREVIEW_DATABASE_URL, e.g. via kubectl port-forward)"
+run = "docker compose -f docker/docker-compose-preview.yml up --build -d"
+
+[tasks."docker:down-preview"]
+description = "Stop preview stack"
+run = "docker compose -f docker/docker-compose-preview.yml down"
+
 [tasks."docker:logs-s3"]
 description = "Follow S3 stack logs"
 run = "docker compose -f docker/docker-compose-s3.yml logs -f"

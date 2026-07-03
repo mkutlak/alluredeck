@@ -200,6 +200,13 @@ type Config struct {
 	// RUN_MIGRATIONS=false on API/MCP Deployments when a dedicated migration Job
 	// (migrationJob.enabled=true in the Helm chart) is the single authority.
 	RunMigrations bool `yaml:"run_migrations" envconfig:"RUN_MIGRATIONS"`
+	// BackgroundJobsEnabled controls whether this instance starts its River job
+	// workers, the retention scheduler, and the background file watcher. Default
+	// true preserves the current behaviour. Set BACKGROUND_JOBS_ENABLED=false on
+	// read-only preview instances that share a live database with a primary
+	// deployment, so the preview never claims upload/report/webhook jobs or
+	// applies retention deletes against the primary's data.
+	BackgroundJobsEnabled bool `yaml:"background_jobs_enabled" envconfig:"BACKGROUND_JOBS_ENABLED"`
 	// MigrationTimeout bounds the total wall-clock time allowed for the advisory-
 	// locked migration block (goose + River). A zero value disables the deadline
 	// so operators can opt out for large or long-running migrations (e.g.
@@ -243,6 +250,7 @@ func LoadConfig() (*Config, error) {
 		MCPRateLimitBurst:        10,
 		MCPPoolMaxConns:          8,
 		RunMigrations:            true,
+		BackgroundJobsEnabled:    true,
 		MigrationTimeout:         5 * time.Minute,
 		S3: S3Config{
 			Region:      "us-east-1",

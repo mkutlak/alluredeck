@@ -905,6 +905,17 @@ func TestRunMigrationsDefaultTrue(t *testing.T) {
 	}
 }
 
+func TestBackgroundJobsEnabledDefaultTrue(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.BackgroundJobsEnabled {
+		t.Errorf("default BackgroundJobsEnabled: want true, got false")
+	}
+}
+
 func TestMigrationTimeoutDefault(t *testing.T) {
 	t.Parallel()
 	cfg, err := LoadConfig()

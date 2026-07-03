@@ -707,8 +707,11 @@ func (jm *RiverJobManager) Start(ctx context.Context) {
 }
 
 // Shutdown gracefully stops the River client, waiting for running jobs to complete.
+// It is a no-op when Start was never called (BACKGROUND_JOBS_ENABLED=false).
 func (jm *RiverJobManager) Shutdown() {
-	jm.running.Store(false)
+	if !jm.running.Swap(false) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := jm.client.Stop(ctx); err != nil {

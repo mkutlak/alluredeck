@@ -316,17 +316,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	jobManager.Start(ctx)
-
 	// Start JWT blacklist cleanup goroutine — prunes expired JTIs every 15 min (AUDIT 2.1).
 	jwtManager.StartCleanup(ctx, 15*time.Minute)
 
-	startRetentionScheduler(ctx, cfg, s.project, s.build, dataStore, s.webhook, logger)
+	if cfg.BackgroundJobsEnabled {
+		jobManager.Start(ctx)
 
-	if cfg.StorageType != "s3" {
-		backgroundWatcher.Start(ctx)
+		startRetentionScheduler(ctx, cfg, s.project, s.build, dataStore, s.webhook, logger)
+
+		if cfg.StorageType != "s3" {
+			backgroundWatcher.Start(ctx)
+		} else {
+			logger.Info("background file watcher is disabled", zap.String("reason", "StorageType=s3"))
+		}
 	} else {
-		logger.Info("background file watcher is disabled", zap.String("reason", "StorageType=s3"))
+		logger.Info("background jobs are disabled — job workers, retention scheduler and file watcher will not run",
+			zap.String("reason", "BACKGROUND_JOBS_ENABLED=false"))
 	}
 
 	go func() {

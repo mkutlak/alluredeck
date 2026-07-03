@@ -1,0 +1,59 @@
+# Preview stack: run the local tree's UI + API against a REMOTE database,
+# e.g. a `kubectl port-forward svc/<postgres> 15432:5432` from a live env.
+#
+# Safety: the API starts with RUN_MIGRATIONS=false (remote schema is
+# authoritative) and BACKGROUND_JOBS_ENABLED=false (this instance never claims
+# River upload/report/webhook jobs and never applies retention deletes against
+# the remote data). Report files live in the remote env's storage, so report
+# iframes will 404 locally — the dashboards, runs feed and analytics all work.
+#
+# Usage:
+#   export PREVIEW_DATABASE_URL='postgresql://USER:PASS@localhost:15432/alluredeck?sslmode=disable'
+#   mise run docker:up-preview      # or: docker compose -f docker/docker-compose-preview.yml up --build -d
+#   open http://localhost:7475      # log in with admin/admin (override via PREVIEW_ADMIN_USER/PASS);
+#                                   # the remote env's DB-backed accounts also work (login falls back to them)
+#
+# The API joins the host network so it can reach a 127.0.0.1-bound port-forward.
+
+services:
+  alluredeck-api-preview:
+    image: alluredeck-api:preview
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: allure-api-preview
+    network_mode: host
+    environment:
+      PORT: "5051"
+      DATABASE_URL: ${PREVIEW_DATABASE_URL:?export PREVIEW_DATABASE_URL (postgresql://USER:PASS@localhost:15432/alluredeck?sslmode=disable)}
+      RUN_MIGRATIONS: "false"
+      BACKGROUND_JOBS_ENABLED: "false"
+      # Auth is required (RequireRole rejects claim-less requests), so run with
+      # security on and env-configured credentials — nothing is written to the
+      # remote users table. The JWT secret only protects cookies of this local
+      # preview; override it if the preview is ever exposed beyond localhost.
+      SECURITY_ENABLED: "1"
+      JWT_SECRET_KEY: ${PREVIEW_JWT_SECRET:-alluredeck-preview-local-only-2f9c1d8e7b}
+      ADMIN_USER: ${PREVIEW_ADMIN_USER:-admin}
+      ADMIN_PASS: ${PREVIEW_ADMIN_PASS:-admin}
+      CHECK_RESULTS_EVERY_SECONDS: NONE
+      CORS_ALLOWED_ORIGINS: "http://localhost:7475"
+      SWAGGER_ENABLED: "0"
+      GOMEMLIMIT: "1GiB"
+    restart: unless-stopped
+
+  alluredeck-ui-preview:
+    image: alluredeck-ui:preview
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    container_name: alluredeck-ui-preview
+    depends_on:
+      - alluredeck-api-preview
+    environment:
+      VITE_API_URL: "http://localhost:5051/api/v1"
+      VITE_APP_TITLE: "AllureDeck (preview)"
+      VITE_APP_VERSION: "${VITE_APP_VERSION:-preview}"
+    ports:
+      - "7475:8080"
+    restart: unless-stopped
