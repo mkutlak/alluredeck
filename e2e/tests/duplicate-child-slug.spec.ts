@@ -100,12 +100,10 @@ test.describe('Duplicate child slug across different parents', () => {
     await page.goto(`/projects/${scenario.childUnderA.projectId}`)
     await expect(page.getByTestId('project-overview')).toBeVisible({ timeout: 10_000 })
 
-    // The parent is linked from both the breadcrumb and the overview body;
-    // scope to the overview so the locator resolves to a single link.
-    await page
-      .getByTestId('project-overview')
-      .getByRole('link', { name: scenario.parentA.slug })
-      .click()
+    // Post-IA-redesign the parent link lives in the ProjectLayout page header
+    // ("Part of: <parent>"), outside the project-overview container; the
+    // breadcrumb also links the parent, so use the dedicated testid.
+    await page.getByTestId('project-parent-link').click()
     await page.waitForURL(new RegExp(`/projects/${scenario.parentA.projectId}`), {
       timeout: 10_000,
     })

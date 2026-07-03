@@ -15,6 +15,7 @@ Copy changes, ARIA refactors, and Tailwind churn must not break E2E tests. The `
 - `projects-grid`, `project-card` (with `data-project-slug`)
 - `allure-iframe`, `view-toggle-playwright`, `view-toggle-allure`
 - `runs-feed`, `run-row`, `run-suite-chip`, `run-failures`
+- `project-parent-link` — "Part of" parent link in the project page header
 
 ### Rules
 - Prefer `await expect(locator).toBeVisible({ timeout })` over `waitForTimeout`

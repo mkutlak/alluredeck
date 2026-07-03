@@ -36,6 +36,7 @@ These are already wired in the codebase (Phase B.1):
 - `run-row` — `RunRow.tsx` root for each run in the feed (expandable)
 - `run-suite-chip` — `RunSuiteChip.tsx` suite chip strip within a run row
 - `run-failures` — `RunFailures.tsx` root, shown for expanded rows with failing suites
+- `project-parent-link` — "Part of" parent link in the `ProjectLayout.tsx` page header
 
 ## Checklist for adding a new test
 

@@ -41,6 +41,7 @@ export function ProjectLayout() {
               <NavLink
                 to={`/projects/${parentProject.project_id}`}
                 className="text-primary hover:underline"
+                data-testid="project-parent-link"
               >
                 {parentProject.slug}
               </NavLink>

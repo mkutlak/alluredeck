@@ -16,6 +16,8 @@ test.describe('Visual Regression', () => {
   })
 
   test('dashboard page', async ({ authenticatedPage: page, freshProject }) => {
+    // Post-IA-redesign: "/" is the global Runs feed; the projects dashboard moved to "/projects".
+    await page.goto('/projects')
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({
       timeout: 10_000,
     })
