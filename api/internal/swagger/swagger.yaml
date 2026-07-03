@@ -898,7 +898,7 @@ paths:
         required: true
         type: string
       - default: failed
-        description: Test status filter
+        description: Test status filter; only 'failed' is accepted (covers failed+broken)
         in: query
         name: status
         type: string

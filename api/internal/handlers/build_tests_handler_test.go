@@ -200,6 +200,11 @@ func TestBuildTestsHandler_LimitDefaultAndCap(t *testing.T) {
 		t.Errorf("default limit = %d, want 50", capturedLimit)
 	}
 
+	buildTestsRequest(h, formatID(proj.ID), "42", "limit=0")
+	if capturedLimit != 50 {
+		t.Errorf("limit=0 = %d, want default 50", capturedLimit)
+	}
+
 	buildTestsRequest(h, formatID(proj.ID), "42", "limit=1000")
 	if capturedLimit != 200 {
 		t.Errorf("capped limit = %d, want 200", capturedLimit)

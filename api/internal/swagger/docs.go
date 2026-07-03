@@ -1230,7 +1230,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "failed",
-                        "description": "Test status filter",
+                        "description": "Test status filter; only 'failed' is accepted (covers failed+broken)",
                         "name": "status",
                         "in": "query"
                     },

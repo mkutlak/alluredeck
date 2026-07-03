@@ -58,7 +58,7 @@ type buildTestResp struct {
 //	@Produce      json
 //	@Param        project_id  path   string  true   "Project ID"
 //	@Param        build_id    path   string  true   "Build ID (primary key)"
-//	@Param        status      query  string  false  "Test status filter"  default(failed)
+//	@Param        status      query  string  false  "Test status filter; only 'failed' is accepted (covers failed+broken)"  default(failed)
 //	@Param        limit       query  int     false  "Max results"          default(50)
 //	@Success      200  {object}  map[string]any
 //	@Failure      400  {object}  map[string]any
@@ -95,7 +95,9 @@ func (h *BuildTestsHandler) ListBuildTests(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "invalid limit")
 			return
 		}
-		limit = parsed
+		if parsed > 0 {
+			limit = parsed
+		}
 	}
 	if limit > maxBuildTestsLimit {
 		limit = maxBuildTestsLimit

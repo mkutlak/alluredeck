@@ -14,6 +14,8 @@ type PipelineStore struct {
 	pool *pgxpool.Pool
 }
 
+var _ store.PipelineStorer = (*PipelineStore)(nil)
+
 // NewPipelineStore creates a PipelineStore backed by the given PGStore's connection pool.
 func NewPipelineStore(s *PGStore) *PipelineStore {
 	return &PipelineStore{pool: s.pool}
@@ -52,6 +54,7 @@ total_count AS (
 ),
 paginated_groups AS (
     SELECT group_key FROM distinct_groups
+    ORDER BY max_ts DESC
     LIMIT $3 OFFSET $4
 )
 SELECT cb.ci_pipeline_id, cb.ci_pipeline_url,
@@ -141,6 +144,7 @@ total_count AS (
 ),
 paginated_groups AS (
     SELECT group_key FROM distinct_groups
+    ORDER BY max_ts DESC
     LIMIT $3 OFFSET $4
 )
 SELECT cb.ci_pipeline_id, cb.ci_pipeline_url,
