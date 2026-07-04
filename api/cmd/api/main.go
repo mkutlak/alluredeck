@@ -569,85 +569,106 @@ func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectSto
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
+
+		// runOnce performs a single retention sweep across all projects.
+		runOnce := func() {
+			projects, err := projectStore.ListProjects(ctx)
+			if err != nil {
+				logger.Error("retention scheduler: list projects failed", zap.Error(err))
+				return
+			}
+			totalPruned := 0
+			for _, p := range projects {
+				if cfg.KeepHistoryLatest > 0 {
+					removed, err := buildStore.PruneBuildsBranch(ctx, p.ID, cfg.KeepHistoryLatest, nil)
+					if err != nil {
+						logger.Error("retention scheduler: count prune failed",
+							zap.Int64("project_id", p.ID), zap.Error(err))
+					} else {
+						if err := dataStore.PruneReportDirs(ctx, p.Slug, removed); err != nil {
+							logger.Error("retention scheduler: prune report dirs failed",
+								zap.Int64("project_id", p.ID), zap.Error(err))
+						}
+						totalPruned += len(removed)
+					}
+				}
+				if cfg.KeepHistoryMaxAgeDays > 0 {
+					cutoff := time.Now().AddDate(0, 0, -cfg.KeepHistoryMaxAgeDays)
+					aged, err := buildStore.PruneBuildsByAge(ctx, p.ID, cutoff)
+					if err != nil {
+						logger.Error("retention scheduler: age prune failed",
+							zap.Int64("project_id", p.ID), zap.Error(err))
+					} else {
+						if err := dataStore.PruneReportDirs(ctx, p.Slug, aged); err != nil {
+							logger.Error("retention scheduler: prune aged report dirs failed",
+								zap.Int64("project_id", p.ID), zap.Error(err))
+						}
+						totalPruned += len(aged)
+					}
+
+					// Garbage-collect non-default branches whose newest build is
+					// older than the age cutoff (builds + branches row).
+					stale, err := buildStore.PruneStaleBranches(ctx, p.ID, cutoff)
+					if err != nil {
+						logger.Error("retention scheduler: stale branch prune failed",
+							zap.Int64("project_id", p.ID), zap.Error(err))
+					} else {
+						if err := dataStore.PruneReportDirs(ctx, p.Slug, stale); err != nil {
+							logger.Error("retention scheduler: prune stale branch report dirs failed",
+								zap.Int64("project_id", p.ID), zap.Error(err))
+						}
+						totalPruned += len(stale)
+					}
+				}
+			}
+			logger.Info("retention scheduler: daily run complete", zap.Int("builds_pruned", totalPruned))
+
+			// Prune webhook deliveries older than 30 days.
+			whCutoff := time.Now().AddDate(0, 0, -30)
+			if n, err := webhookStore.PruneDeliveries(ctx, whCutoff); err != nil {
+				logger.Error("retention scheduler: webhook delivery prune failed", zap.Error(err))
+			} else if n > 0 {
+				logger.Info("retention scheduler: pruned webhook deliveries", zap.Int64("count", n))
+			}
+
+			// Prune stale pending results.
+			if cfg.PendingResultsMaxAgeDays > 0 {
+				pendingCutoff := time.Now().AddDate(0, 0, -cfg.PendingResultsMaxAgeDays)
+				pendingCleaned := 0
+				for _, p := range projects {
+					entries, err := dataStore.ReadDir(ctx, p.Slug, "results")
+					if err != nil || len(entries) == 0 {
+						continue
+					}
+					var newest int64
+					for _, e := range entries {
+						if !e.IsDir && e.ModTime > newest {
+							newest = e.ModTime
+						}
+					}
+					if newest > 0 && time.Unix(0, newest).Before(pendingCutoff) {
+						if err := dataStore.CleanResults(ctx, p.Slug); err != nil {
+							logger.Warn("retention scheduler: pending results cleanup failed",
+								zap.String("slug", p.Slug), zap.Error(err))
+							continue
+						}
+						pendingCleaned++
+					}
+				}
+				if pendingCleaned > 0 {
+					logger.Info("retention scheduler: pending results cleanup",
+						zap.Int("projects_cleaned", pendingCleaned))
+				}
+			}
+		}
+
+		runOnce() // immediate first sweep at startup
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				projects, err := projectStore.ListProjects(ctx)
-				if err != nil {
-					logger.Error("retention scheduler: list projects failed", zap.Error(err))
-					continue
-				}
-				totalPruned := 0
-				for _, p := range projects {
-					if cfg.KeepHistoryLatest > 0 {
-						removed, err := buildStore.PruneBuildsBranch(ctx, p.ID, cfg.KeepHistoryLatest, nil)
-						if err != nil {
-							logger.Error("retention scheduler: count prune failed",
-								zap.Int64("project_id", p.ID), zap.Error(err))
-						} else {
-							if err := dataStore.PruneReportDirs(ctx, p.Slug, removed); err != nil {
-								logger.Error("retention scheduler: prune report dirs failed",
-									zap.Int64("project_id", p.ID), zap.Error(err))
-							}
-							totalPruned += len(removed)
-						}
-					}
-					if cfg.KeepHistoryMaxAgeDays > 0 {
-						cutoff := time.Now().AddDate(0, 0, -cfg.KeepHistoryMaxAgeDays)
-						aged, err := buildStore.PruneBuildsByAge(ctx, p.ID, cutoff)
-						if err != nil {
-							logger.Error("retention scheduler: age prune failed",
-								zap.Int64("project_id", p.ID), zap.Error(err))
-						} else {
-							if err := dataStore.PruneReportDirs(ctx, p.Slug, aged); err != nil {
-								logger.Error("retention scheduler: prune aged report dirs failed",
-									zap.Int64("project_id", p.ID), zap.Error(err))
-							}
-							totalPruned += len(aged)
-						}
-					}
-				}
-				logger.Info("retention scheduler: daily run complete", zap.Int("builds_pruned", totalPruned))
-
-				// Prune webhook deliveries older than 30 days.
-				whCutoff := time.Now().AddDate(0, 0, -30)
-				if n, err := webhookStore.PruneDeliveries(ctx, whCutoff); err != nil {
-					logger.Error("retention scheduler: webhook delivery prune failed", zap.Error(err))
-				} else if n > 0 {
-					logger.Info("retention scheduler: pruned webhook deliveries", zap.Int64("count", n))
-				}
-
-				// Prune stale pending results.
-				if cfg.PendingResultsMaxAgeDays > 0 {
-					pendingCutoff := time.Now().AddDate(0, 0, -cfg.PendingResultsMaxAgeDays)
-					pendingCleaned := 0
-					for _, p := range projects {
-						entries, err := dataStore.ReadDir(ctx, p.Slug, "results")
-						if err != nil || len(entries) == 0 {
-							continue
-						}
-						var newest int64
-						for _, e := range entries {
-							if !e.IsDir && e.ModTime > newest {
-								newest = e.ModTime
-							}
-						}
-						if newest > 0 && time.Unix(0, newest).Before(pendingCutoff) {
-							if err := dataStore.CleanResults(ctx, p.Slug); err != nil {
-								logger.Warn("retention scheduler: pending results cleanup failed",
-									zap.String("slug", p.Slug), zap.Error(err))
-								continue
-							}
-							pendingCleaned++
-						}
-					}
-					if pendingCleaned > 0 {
-						logger.Info("retention scheduler: pending results cleanup",
-							zap.Int("projects_cleaned", pendingCleaned))
-					}
-				}
+				runOnce()
 			}
 		}
 	}()

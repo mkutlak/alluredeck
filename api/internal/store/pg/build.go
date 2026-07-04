@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -51,6 +52,50 @@ func (bs *BuildStore) InsertBuild(ctx context.Context, projectID int64, buildNum
 		return fmt.Errorf("insert build: %w", err)
 	}
 	return nil
+}
+
+// ReserveBuild atomically allocates the next build_order for a project and
+// inserts the build row, returning the allocated order. It self-serializes via a
+// bounded retry on unique-violation (SQLSTATE 23505): under READ COMMITTED two
+// callers may compute the same MAX+1, but exactly one wins the unique constraint
+// and the loser retries against the now-higher MAX. Needs no advisory lock and is
+// safe against the concurrent Sync import path and multiple replicas.
+//
+// ReserveBuild is normally invoked under the per-project generation lock, so real
+// contention (and thus retries) only occurs versus the unlocked Sync import path
+// (InsertMissingBuilds); in practice that is ~2-3 concurrent callers. The loop is
+// guaranteed to terminate — every 23505 means another transaction advanced MAX —
+// so the generous attempt cap only tolerates more concurrency, it never masks a
+// non-terminating condition.
+func (bs *BuildStore) ReserveBuild(ctx context.Context, projectID int64) (int, error) {
+	const maxAttempts = 50
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		var order int
+		err := bs.pool.QueryRow(ctx, `
+			INSERT INTO builds (project_id, build_order)
+			SELECT $1, COALESCE(MAX(build_order), 0) + 1
+			FROM builds WHERE project_id = $1
+			RETURNING build_order`, projectID).Scan(&order)
+		if err == nil {
+			return order, nil
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Lost the race under READ COMMITTED. Back off briefly (capped) to
+			// reduce the thundering herd, then recompute MAX+1 and retry.
+			backoff := time.Duration(attempt) * time.Millisecond
+			if backoff > 10*time.Millisecond {
+				backoff = 10 * time.Millisecond
+			}
+			time.Sleep(backoff)
+			continue
+		}
+		return 0, fmt.Errorf("reserve build: %w", err)
+	}
+	return 0, fmt.Errorf("reserve build: exhausted %d attempts under contention", maxAttempts)
 }
 
 // UpdateBuildStats updates statistics for the given build.
@@ -615,6 +660,101 @@ func (bs *BuildStore) PruneBuildsByAge(ctx context.Context, projectID int64, old
 		}
 	}
 	return toRemove, nil
+}
+
+// PruneStaleBranches deletes the builds and, once empty, the branches row for
+// every non-default branch of a project whose most recent build is older than
+// cutoff. It operates on builds.ci_branch (the value the dropdown groups on —
+// see BranchStore.List), NOT branch_id, because builds.branch_id is ON DELETE
+// SET NULL, so deleting only the branches row would leave the builds (and thus
+// the dropdown entry) behind. The default branch and empty ci_branch are never
+// touched.
+//
+// The delete is self-guarding: it only removes builds older than cutoff, and it
+// only drops a branch row once no builds remain for that name. This makes it
+// safe for the unlocked retention scheduler — a build ingested for an otherwise
+// "stale" branch between the stale-name SELECT and the DELETE (created_at >=
+// cutoff) is preserved, and its branch row is kept. Returns the removed
+// build_orders so the caller can prune their storage objects.
+func (bs *BuildStore) PruneStaleBranches(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error) {
+	tx, err := bs.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("prune stale branches begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// 1. Find non-default branch names whose newest build is older than cutoff.
+	staleRows, err := tx.Query(ctx, `
+		SELECT b.ci_branch
+		FROM builds b
+		LEFT JOIN branches br ON br.project_id = b.project_id AND br.name = b.ci_branch
+		WHERE b.project_id = $1 AND b.ci_branch IS NOT NULL AND b.ci_branch <> ''
+		  AND COALESCE(br.is_default, FALSE) = FALSE
+		GROUP BY b.ci_branch
+		HAVING MAX(b.created_at) < $2`, projectID, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("prune stale branches select: %w", err)
+	}
+	var names []string
+	for staleRows.Next() {
+		var n string
+		if err := staleRows.Scan(&n); err != nil {
+			staleRows.Close()
+			return nil, fmt.Errorf("scan stale branch: %w", err)
+		}
+		names = append(names, n)
+	}
+	staleRows.Close()
+	if err := staleRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stale branches: %w", err)
+	}
+	if len(names) == 0 {
+		return nil, tx.Commit(ctx) // nothing to do
+	}
+
+	// 2. Collect the build_orders to remove (for storage cleanup by the caller).
+	// Only builds older than cutoff are collected, so a build ingested after the
+	// stale-name SELECT (created_at >= cutoff) is never scheduled for cleanup.
+	ordRows, err := tx.Query(ctx,
+		"SELECT build_order FROM builds WHERE project_id=$1 AND ci_branch = ANY($2) AND created_at < $3", projectID, names, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("prune stale branches collect orders: %w", err)
+	}
+	var removed []int
+	for ordRows.Next() {
+		var bo int
+		if err := ordRows.Scan(&bo); err != nil {
+			ordRows.Close()
+			return nil, fmt.Errorf("scan build_order: %w", err)
+		}
+		removed = append(removed, bo)
+	}
+	ordRows.Close()
+	if err := ordRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate build_orders: %w", err)
+	}
+
+	// 3. Delete only the stale builds older than cutoff (cascades test_results +
+	// children). A freshly-ingested build (created_at >= cutoff) is preserved.
+	if _, err := tx.Exec(ctx,
+		"DELETE FROM builds WHERE project_id=$1 AND ci_branch = ANY($2) AND created_at < $3", projectID, names, cutoff); err != nil {
+		return nil, fmt.Errorf("delete stale branch builds: %w", err)
+	}
+	// 4. Delete the branch row only when no builds remain for that name — a new
+	// build arriving mid-prune keeps the branch (and its dropdown entry) alive.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM branches
+		WHERE project_id=$1 AND name = ANY($2) AND is_default=FALSE
+		  AND NOT EXISTS (
+		      SELECT 1 FROM builds b2
+		      WHERE b2.project_id=$1 AND b2.ci_branch = branches.name
+		  )`, projectID, names); err != nil {
+		return nil, fmt.Errorf("delete stale branch rows: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("prune stale branches commit: %w", err)
+	}
+	return removed, nil
 }
 
 // ListBuildsPaginatedBranch returns a page of builds, optionally filtered by branch.

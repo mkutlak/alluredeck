@@ -585,6 +585,10 @@ type MemBuildStore struct {
 	mu     sync.RWMutex
 	builds []*store.Build
 	nextID int64
+	// defaultBranch is the ci_branch treated as the project default and thus
+	// exempt from stale-branch pruning, mirroring the pg impl's is_default
+	// handling. Empty means "no default configured" (nothing is exempted).
+	defaultBranch string
 }
 
 var _ store.BuildStorer = (*MemBuildStore)(nil)
@@ -592,6 +596,15 @@ var _ store.BuildStorer = (*MemBuildStore)(nil)
 // NewMemBuildStore returns an initialised MemBuildStore.
 func NewMemBuildStore() *MemBuildStore {
 	return &MemBuildStore{nextID: 1}
+}
+
+// SetDefaultBranch marks name as the project's default ci_branch so
+// PruneStaleBranches exempts it from pruning, mirroring the pg impl's is_default
+// exemption. Test-only helper for setting up stale-branch fixtures.
+func (m *MemBuildStore) SetDefaultBranch(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.defaultBranch = name
 }
 
 func (m *MemBuildStore) InsertBuild(ctx context.Context, projectID int64, buildNumber int) error {
@@ -707,6 +720,31 @@ func (m *MemBuildStore) NextBuildNumber(ctx context.Context, projectID int64) (i
 	return max + 1, nil
 }
 
+// ReserveBuild allocates the next build_order (max-scan + 1) and appends the
+// build row under one lock, mirroring the atomic pg.BuildStore.ReserveBuild.
+func (m *MemBuildStore) ReserveBuild(ctx context.Context, projectID int64) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	max := 0
+	for _, b := range m.builds {
+		if b.ProjectID == projectID && b.BuildNumber > max {
+			max = b.BuildNumber
+		}
+	}
+	order := max + 1
+	m.builds = append(m.builds, &store.Build{
+		ID:          m.nextID,
+		ProjectID:   projectID,
+		BuildNumber: order,
+		CreatedAt:   time.Now(),
+	})
+	m.nextID++
+	return order, nil
+}
+
 func (m *MemBuildStore) GetBuildByNumber(ctx context.Context, projectID int64, buildNumber int) (store.Build, error) {
 	if err := ctx.Err(); err != nil {
 		return store.Build{}, err
@@ -771,6 +809,65 @@ func (m *MemBuildStore) PruneBuildsBranch(_ context.Context, _ int64, _ int, _ *
 
 func (m *MemBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
 	return nil, nil
+}
+
+// PruneStaleBranches removes builds older than cutoff for every non-default
+// ci_branch whose newest build is older than cutoff, returning the removed
+// build_orders. It mirrors pg.BuildStore.PruneStaleBranches statefully: the
+// default branch (see SetDefaultBranch) is exempt, and only builds older than
+// cutoff are deleted so a freshly-ingested build on an otherwise-stale branch is
+// preserved. Groups by ci_branch (skipping nil/empty).
+func (m *MemBuildStore) PruneStaleBranches(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Newest build time per non-empty, non-default ci_branch for this project.
+	newest := make(map[string]time.Time)
+	for _, b := range m.builds {
+		if b.ProjectID != projectID || b.CIBranch == nil || *b.CIBranch == "" {
+			continue
+		}
+		if *b.CIBranch == m.defaultBranch {
+			continue // default branch is exempt, matching the pg impl
+		}
+		if t, ok := newest[*b.CIBranch]; !ok || b.CreatedAt.After(t) {
+			newest[*b.CIBranch] = b.CreatedAt
+		}
+	}
+
+	// Branches whose newest build predates the cutoff are stale.
+	stale := make(map[string]struct{})
+	for name, t := range newest {
+		if t.Before(cutoff) {
+			stale[name] = struct{}{}
+		}
+	}
+	if len(stale) == 0 {
+		return nil, nil
+	}
+
+	var removed []int
+	kept := m.builds[:0]
+	for _, b := range m.builds {
+		// Only delete stale-branch builds older than cutoff — a fresh build on a
+		// stale branch is preserved (self-guarding, matching the pg impl).
+		if b.ProjectID == projectID && b.CIBranch != nil && b.CreatedAt.Before(cutoff) {
+			if _, ok := stale[*b.CIBranch]; ok {
+				removed = append(removed, b.BuildNumber)
+				continue
+			}
+		}
+		kept = append(kept, b)
+	}
+	// Zero out trailing positions so removed entries are GC-eligible.
+	for i := len(kept); i < len(m.builds); i++ {
+		m.builds[i] = nil
+	}
+	m.builds = kept
+	return removed, nil
 }
 
 func (m *MemBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {

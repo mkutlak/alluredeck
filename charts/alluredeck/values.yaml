@@ -29,10 +29,10 @@ api:
     devMode: "false"
     logLevel: "info"
     storageType: "local"  # "local" or "s3"
-    checkResultsEverySeconds: "NONE"
+    checkResultsEverySeconds: "NONE"  # local-storage result watcher only; no effect on retention; already off when storageType=s3
     keepHistory: "true"
-    keepHistoryLatest: "100"
-    keepHistoryMaxAgeDays: "0"
+    keepHistoryLatest: "100"  # 0 disables count-based pruning (unlimited history)
+    keepHistoryMaxAgeDays: "0"  # 0 disables age-based pruning; when set, also GCs non-default branches whose newest build exceeds this age
     apiResponseLessVerbose: "false"
     trustXForwardedFor: "true"
     swaggerEnabled: "false"

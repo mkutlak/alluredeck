@@ -181,16 +181,13 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	var capturedStats *store.BuildStats
 	var capturedCI *store.CIMetadata
 	var capturedTestResults []store.TestResult
-	var insertBuildCalled bool
+	var reserveBuildCalled bool
 
-	mocks.Builds.NextBuildNumberFn = func(_ context.Context, _ int64) (int, error) {
-		return 1, nil
-	}
-	mocks.Builds.InsertBuildFn = func(_ context.Context, _ int64, _ int) error {
+	mocks.Builds.ReserveBuildFn = func(_ context.Context, _ int64) (int, error) {
 		mu.Lock()
-		insertBuildCalled = true
+		reserveBuildCalled = true
 		mu.Unlock()
-		return nil
+		return 1, nil
 	}
 	mocks.Builds.UpdateBuildStatsFn = func(_ context.Context, _ int64, _ int, stats store.BuildStats) error {
 		mu.Lock()
@@ -236,12 +233,12 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 		t.Error("expected non-empty success message")
 	}
 
-	// Verify build was inserted.
+	// Verify the build row was reserved up front.
 	mu.Lock()
 	defer mu.Unlock()
 
-	if !insertBuildCalled {
-		t.Error("InsertBuild was not called")
+	if !reserveBuildCalled {
+		t.Error("ReserveBuild was not called")
 	}
 
 	// Verify stats: 1 passed, 1 failed, 1 skipped = 3 total.

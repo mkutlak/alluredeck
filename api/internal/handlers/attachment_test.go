@@ -89,6 +89,9 @@ func (m *mockAttachmentBuildStore) NextBuildNumber(_ context.Context, _ int64) (
 func (m *mockAttachmentBuildStore) InsertBuild(_ context.Context, _ int64, _ int) error {
 	panic("not implemented")
 }
+func (m *mockAttachmentBuildStore) ReserveBuild(_ context.Context, _ int64) (int, error) {
+	panic("not implemented")
+}
 func (m *mockAttachmentBuildStore) UpdateBuildStats(_ context.Context, _ int64, _ int, _ store.BuildStats) error {
 	panic("not implemented")
 }
@@ -138,6 +141,9 @@ func (m *mockAttachmentBuildStore) PruneBuildsBranch(_ context.Context, _ int64,
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
+	panic("not implemented")
+}
+func (m *mockAttachmentBuildStore) PruneStaleBranches(_ context.Context, _ int64, _ time.Time) ([]int, error) {
 	panic("not implemented")
 }
 func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {

@@ -82,6 +82,11 @@ type ProjectStorer interface {
 type BuildWriter interface {
 	NextBuildNumber(ctx context.Context, projectID int64) (int, error)
 	InsertBuild(ctx context.Context, projectID int64, buildNumber int) error
+	// ReserveBuild atomically allocates the next build_order for a project and
+	// inserts the build row, returning the allocated order. Self-serializing via a
+	// bounded retry on unique-violation; needs no external lock and is safe against
+	// the concurrent Sync import path and multiple replicas.
+	ReserveBuild(ctx context.Context, projectID int64) (int, error)
 	UpdateBuildStats(ctx context.Context, projectID int64, buildNumber int, stats BuildStats) error
 	UpdateBuildCIMetadata(ctx context.Context, projectID int64, buildNumber int, ciMeta CIMetadata) error
 	UpdateBuildEnvironment(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error
@@ -115,6 +120,13 @@ type BuildPruner interface {
 	PruneBuilds(ctx context.Context, projectID int64, keep int) ([]int, error)
 	PruneBuildsBranch(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAge(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error)
+	// PruneStaleBranches deletes builds older than cutoff for every non-default
+	// branch of a project whose most recent build is older than cutoff, dropping
+	// the branches row only once no builds remain for that name. A build ingested
+	// after the stale-name check (created_at >= cutoff) is preserved, keeping the
+	// call safe for the unlocked retention scheduler. Returns the build_orders
+	// removed so the caller can prune their storage objects.
+	PruneStaleBranches(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error)
 	DeleteBuild(ctx context.Context, projectID int64, buildNumber int) error
 	DeleteAllBuilds(ctx context.Context, projectID int64) error
 }

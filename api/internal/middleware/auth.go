@@ -92,9 +92,10 @@ func AuthMiddleware(
 					}
 				}
 				// Update last_used asynchronously — fire-and-forget.
-				// Use the request context so the update is cancelled if the
-				// client disconnects, and to satisfy gosec G118.
-				reqCtx := r.Context()
+				// WithoutCancel keeps request-scoped values (trace IDs, etc.) but detaches
+				// from the request's cancellation so the write completes after the response
+				// instead of being cancelled ("canceling statement due to user request").
+				reqCtx := context.WithoutCancel(r.Context())
 				go func() {
 					_ = apiKeyStore.UpdateLastUsed(reqCtx, apiKey.ID)
 				}()

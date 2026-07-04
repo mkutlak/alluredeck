@@ -66,6 +66,14 @@ func GenerateBatchID() string {
 	return hex.EncodeToString(b)
 }
 
+// projectGenLockKey returns the advisory-lock key used to serialize report
+// generation for a single project. Keying on the immutable numeric project_id
+// (rather than the mutable, collision-prone slug) keeps the lock stable across
+// renames and unique across same-named children.
+func projectGenLockKey(projectID int64) string {
+	return fmt.Sprintf("alluredeck:gen:%d", projectID)
+}
+
 // buildIngestStorer is the build role set used by the report runners: build
 // lifecycle writes plus retention pruning. The runners never read builds back.
 type buildIngestStorer interface {
@@ -220,9 +228,8 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 	if err := a.store.PublishReport(ctx, storageKey, buildNumber, localProjectDir, pubProgress); err != nil {
 		return fmt.Errorf("publish report: %w", err)
 	}
-	if err := a.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
-		return fmt.Errorf("insert build: %w", err)
-	}
+	// The build row was reserved up front by the entry point (ReserveBuild);
+	// this helper only fills in stats/branch/metadata for that existing row.
 	// Associate build with branch if resolved.
 	if branchID != nil {
 		if err := a.buildStore.UpdateBuildBranchID(ctx, projectID, buildNumber, *branchID); err != nil {
@@ -379,15 +386,14 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 
 // recordBuild records the build in the database for pruning without publishing
 // a report snapshot. Used when storeResults=false but KeepHistory=true.
-func (a *Allure) recordBuild(ctx context.Context, projectID int64, slug string, buildNumber int) error {
-	if err := a.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
-		return fmt.Errorf("insert build: %w", err)
-	}
+func (a *Allure) recordBuild(ctx context.Context, projectID int64, slug string, buildNumber int) {
+	// The build row was reserved up front by the entry point (ReserveBuild);
+	// recordBuild only needs to mark it as the latest build. A SetLatestBranch
+	// failure is non-fatal (logged, not returned) — the reserved row still exists.
 	if err := a.buildStore.SetLatestBranch(ctx, projectID, buildNumber, nil); err != nil {
 		a.logger.Error("failed to set latest build (recordBuild)",
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
-	return nil
 }
 
 // GenerateReport implements generateAllureReport.sh
@@ -400,17 +406,27 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 
 	// 1. Acquire per-project lock to serialize concurrent report generation.
-	unlock, err := a.lockManager.AcquireLock(ctx, slug)
+	unlock, err := a.lockManager.AcquireLock(ctx, projectGenLockKey(projectID))
 	if err != nil {
 		return "", fmt.Errorf("acquire generation lock: %w", err)
 	}
 	defer unlock()
 
-	// 2. Get next build order atomically from the database.
-	buildNumber, err := a.buildStore.NextBuildNumber(ctx, projectID)
+	// 2. Reserve the build row atomically up front. The number is still needed
+	// before generation for executor.json URLs and reports/{n} paths.
+	buildNumber, err := a.buildStore.ReserveBuild(ctx, projectID)
 	if err != nil {
-		return "", fmt.Errorf("next build order: %w", err)
+		return "", fmt.Errorf("reserve build order: %w", err)
 	}
+	// Roll back the reserved row on any generation failure so a crashed/failed
+	// job leaves no phantom build. context.Background() ensures cleanup runs
+	// even if the job ctx was cancelled.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = a.buildStore.DeleteBuild(context.Background(), projectID, buildNumber)
+		}
+	}()
 
 	// 3. PrepareLocal returns the project dir (local) or a temp dir (S3).
 	a.publishProgress(JobPhasePreparingLocal, 0, 0)
@@ -423,10 +439,19 @@ func (a *Allure) GenerateReport(ctx context.Context, projectID int64, slug, stor
 	}
 	defer func() { _ = a.store.CleanupLocal(localProjectDir) }()
 
-	return a.generateReportFromLocal(ctx, projectID, slug, storageKey, batchID,
+	reportURL, persisted, err := a.generateReportFromLocal(ctx, projectID, slug, storageKey, batchID,
 		execName, execFrom, execType, storeResults,
 		ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL,
 		localProjectDir, buildNumber)
+	// Keep the reserved row iff the build was durably persisted. This stays true
+	// even when a later retention/prune step errors (persist happens first), and
+	// stays false when KeepHistory=false so the reserved empty row is cleaned up
+	// by the defer above (matching the historical "no build row" behavior).
+	committed = persisted
+	if err != nil {
+		return "", err
+	}
+	return reportURL, nil
 }
 
 // GenerateReportFromLocalDir runs report generation against a localProjectDir
@@ -458,17 +483,27 @@ func (a *Allure) GenerateReportFromLocalDir(
 	}
 
 	// 1. Acquire per-project lock to serialize concurrent report generation.
-	unlock, err := a.lockManager.AcquireLock(ctx, slug)
+	unlock, err := a.lockManager.AcquireLock(ctx, projectGenLockKey(projectID))
 	if err != nil {
 		return "", fmt.Errorf("acquire generation lock: %w", err)
 	}
 	defer unlock()
 
-	// 2. Get next build order atomically from the database.
-	buildNumber, err := a.buildStore.NextBuildNumber(ctx, projectID)
+	// 2. Reserve the build row atomically up front. The number is still needed
+	// before generation for executor.json URLs and reports/{n} paths.
+	buildNumber, err := a.buildStore.ReserveBuild(ctx, projectID)
 	if err != nil {
-		return "", fmt.Errorf("next build order: %w", err)
+		return "", fmt.Errorf("reserve build order: %w", err)
 	}
+	// Roll back the reserved row on any generation failure so a crashed/failed
+	// job leaves no phantom build. context.Background() ensures cleanup runs
+	// even if the job ctx was cancelled.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = a.buildStore.DeleteBuild(context.Background(), projectID, buildNumber)
+		}
+	}()
 
 	// 3. Download history trends into the local results dir. Results
 	// themselves are already on local disk (caller-extracted), so this
@@ -485,10 +520,19 @@ func (a *Allure) GenerateReportFromLocalDir(
 			zap.Error(err))
 	}
 
-	return a.generateReportFromLocal(ctx, projectID, slug, storageKey, batchID,
+	reportURL, persisted, err := a.generateReportFromLocal(ctx, projectID, slug, storageKey, batchID,
 		execName, execFrom, execType, storeResults,
 		ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL,
 		localProjectDir, buildNumber)
+	// Keep the reserved row iff the build was durably persisted. This stays true
+	// even when a later retention/prune step errors (persist happens first), and
+	// stays false when KeepHistory=false so the reserved empty row is cleaned up
+	// by the defer above (matching the historical "no build row" behavior).
+	committed = persisted
+	if err != nil {
+		return "", err
+	}
+	return reportURL, nil
 }
 
 // generateReportFromLocal is the shared post-PrepareLocal portion of
@@ -499,6 +543,13 @@ func (a *Allure) GenerateReportFromLocalDir(
 //
 // Behavior must remain byte-for-byte identical for the sync GenerateReport
 // caller — verified by the existing Allure*/staged_tar_gz tests.
+//
+// The returned persisted flag reports whether the build row was durably
+// recorded in the database (report published + stats/branch persisted, or the
+// no-results recordBuild path). It is the signal the entry points use to decide
+// whether to keep the up-front reserved row: persisted is set BEFORE the
+// retention/prune step, so a prune error still keeps a published build, and it
+// stays false when KeepHistory=false so the reserved empty row is cleaned up.
 func (a *Allure) generateReportFromLocal(
 	ctx context.Context,
 	projectID int64,
@@ -507,12 +558,12 @@ func (a *Allure) generateReportFromLocal(
 	ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string,
 	localProjectDir string,
 	buildNumber int,
-) (string, error) {
+) (string, bool, error) {
 	resultsDir := filepath.Join(localProjectDir, "results", batchID)
 
 	// 4. Write executor.json directly — always local (temp dir in S3 mode)
 	if err := writeExecutorJSON(resultsDir, slug, execName, execFrom, execType, buildNumber, storeResults); err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	// 5. Generate Allure 3 Config (written to results dir — allure reads it automatically)
@@ -522,11 +573,11 @@ func (a *Allure) generateReportFromLocal(
 	}
 	cf, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("marshal allurereport.config.json: %w", err)
+		return "", false, fmt.Errorf("marshal allurereport.config.json: %w", err)
 	}
 	//nolint:gosec // G306: 0o644 required for allure CLI to read config
 	if err := os.WriteFile(configPath, cf, 0o644); err != nil {
-		return "", fmt.Errorf("write allurereport.config.json: %w", err)
+		return "", false, fmt.Errorf("write allurereport.config.json: %w", err)
 	}
 
 	// 6. Generate Report — allure 3 reads allurereport.config.json from the results dir automatically
@@ -535,7 +586,7 @@ func (a *Allure) generateReportFromLocal(
 	// 6a–6c. Preserve history, clear stale output, run allure generate.
 	a.publishProgress(JobPhaseGeneratingReport, 0, 0)
 	if err := a.runAllureGenerate(ctx, slug, storageKey, batchID, latestReportDir, localProjectDir); err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	// Resolve branch — auto-create if ci_branch is provided.
@@ -552,7 +603,13 @@ func (a *Allure) generateReportFromLocal(
 		}
 	}
 
-	// 7. Store Report and record in database
+	// 7. Store Report and record in database. persisted tracks whether the build
+	// row has been durably recorded; it is set immediately after the row is
+	// persisted (before the retention/prune step below) so a later prune failure
+	// cannot roll back an already-published build. It stays false when
+	// KeepHistory=false — no row is persisted, so the caller drops the reserved
+	// row (matching the historical "no build row" behavior).
+	persisted := false
 	if a.cfg.KeepHistory {
 		if storeResults {
 			ciMeta := store.CIMetadata{
@@ -564,19 +621,21 @@ func (a *Allure) generateReportFromLocal(
 				PipelineURL: ciPipelineURL,
 			}
 			if err := a.storeAndPruneBuild(ctx, projectID, slug, storageKey, batchID, localProjectDir, buildNumber, ciMeta, resolvedBranchID); err != nil {
-				return "", err
+				return "", false, err
 			}
+			persisted = true // build published + recorded; keep the row even if pruning later fails
 		} else {
-			if err := a.recordBuild(ctx, projectID, slug, buildNumber); err != nil {
-				return "", err
-			}
+			a.recordBuild(ctx, projectID, slug, buildNumber)
+			persisted = true // build recorded (no report snapshot); keep the row even if pruning later fails
 		}
 	}
 
-	// 8. Keep Latest History (Cleanup old reports)
+	// 8. Keep Latest History (Cleanup old reports). Runs AFTER the build is
+	// persisted, so a prune failure surfaces as an error while persisted stays
+	// true — the caller keeps the durably-recorded build row.
 	a.publishProgress(JobPhaseFinalizing, 0, 0)
 	if err := a.KeepLatestHistory(ctx, projectID, slug, storageKey, resolvedBranchID); err != nil {
-		return "", err
+		return "", persisted, err
 	}
 
 	// 9. Clean up the batch directory now that the report has been generated.
@@ -590,7 +649,7 @@ func (a *Allure) generateReportFromLocal(
 		}
 	}
 
-	return strconv.Itoa(buildNumber), nil
+	return strconv.Itoa(buildNumber), persisted, nil
 }
 
 // downloadHistoryToLocal fetches reports/latest/history/ from the persistent
@@ -781,6 +840,20 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug, s
 		}
 		if err := a.store.PruneReportDirs(ctx, storageKey, aged); err != nil {
 			return fmt.Errorf("prune aged report dirs: %w", err)
+		}
+
+		// Garbage-collect non-default branches whose newest build is older than
+		// the age cutoff (builds + branches row). Best-effort: log but do not
+		// fail the ingest, otherwise a GC hiccup would roll back a good build.
+		staleOrders, err := a.buildStore.PruneStaleBranches(ctx, projectID, cutoff)
+		if err != nil {
+			a.logger.Warn("failed to prune stale branches",
+				zap.String("slug", slug), zap.Error(err))
+		} else if len(staleOrders) > 0 {
+			if err := a.store.PruneReportDirs(ctx, storageKey, staleOrders); err != nil {
+				a.logger.Warn("failed to prune stale branch report dirs",
+					zap.String("slug", slug), zap.Error(err))
+			}
 		}
 	}
 

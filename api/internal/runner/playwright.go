@@ -58,17 +58,27 @@ func NewPlaywrightRunner(deps PlaywrightRunnerDeps) *PlaywrightRunner {
 // projectID is the numeric surrogate key; slug is the human-readable identifier; storageKey is used for storage operations.
 func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, slug, storageKey, execName, execFrom, ciBranch, ciCommitSHA, ciPipelineID, ciPipelineURL string) (string, error) {
 	// 1. Acquire per-project lock to serialize concurrent report ingestion.
-	unlock, err := pr.lockManager.AcquireLock(ctx, slug)
+	unlock, err := pr.lockManager.AcquireLock(ctx, projectGenLockKey(projectID))
 	if err != nil {
 		return "", fmt.Errorf("acquire lock: %w", err)
 	}
 	defer unlock()
 
-	// 2. Get next build order atomically from the database.
-	buildNumber, err := pr.buildStore.NextBuildNumber(ctx, projectID)
+	// 2. Reserve the build row atomically up front. The number is still needed
+	// before ingestion for the numbered playwright-reports/{n} paths.
+	buildNumber, err := pr.buildStore.ReserveBuild(ctx, projectID)
 	if err != nil {
-		return "", fmt.Errorf("next build order: %w", err)
+		return "", fmt.Errorf("reserve build order: %w", err)
 	}
+	// Roll back the reserved row on any failure so a crashed/failed job leaves
+	// no phantom build. context.Background() ensures cleanup runs even if the
+	// job ctx was cancelled.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = pr.buildStore.DeleteBuild(context.Background(), projectID, buildNumber)
+		}
+	}()
 
 	// 3. Read index.html from playwright-reports/latest/ in storage.
 	indexReader, _, err := pr.store.ReadPlaywrightFile(ctx, storageKey, "latest/index.html")
@@ -93,12 +103,8 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 		return "", fmt.Errorf("copy playwright report to build: %w", err)
 	}
 
-	// 6. Insert build record.
-	if err := pr.buildStore.InsertBuild(ctx, projectID, buildNumber); err != nil {
-		return "", fmt.Errorf("insert build: %w", err)
-	}
-
-	// 7. Mark this build as having a Playwright report.
+	// 6. Mark this build as having a Playwright report. The build row was
+	// reserved up front (ReserveBuild); this only updates the existing row.
 	if err := pr.buildStore.SetHasPlaywrightReport(ctx, projectID, buildNumber, true); err != nil {
 		pr.logger.Error("failed to set has_playwright_report",
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
@@ -232,12 +238,19 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 		}
 	}
 
-	// 12. Set latest and prune.
+	// 12. Set latest.
 	if err := pr.buildStore.SetLatestBranch(ctx, projectID, buildNumber, resolvedBranchID); err != nil {
 		pr.logger.Error("failed to set latest build",
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
+	// The build is now durably recorded and published (report copied, stats,
+	// CI metadata, test results, and is_latest all written). Commit here — BEFORE
+	// the retention/prune section — so a prune failure cannot trigger the cleanup
+	// defer and roll back an already-recorded build.
+	committed = true
+
+	// 13. Prune old builds.
 	if pr.cfg.KeepHistory {
 		removed, err := pr.buildStore.PruneBuildsBranch(ctx, projectID, pr.cfg.KeepHistoryLatest, resolvedBranchID)
 		if err != nil {
@@ -251,19 +264,37 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 		if pr.cfg.KeepHistoryMaxAgeDays > 0 {
 			cutoff := time.Now().AddDate(0, 0, -pr.cfg.KeepHistoryMaxAgeDays)
 			aged, err := pr.buildStore.PruneBuildsByAge(ctx, projectID, cutoff)
-			if err == nil {
-				_ = pr.store.PruneReportDirs(ctx, storageKey, aged)
+			if err != nil {
+				pr.logger.Error("failed to prune builds by age",
+					zap.String("slug", slug), zap.Error(err))
+			} else if err := pr.store.PruneReportDirs(ctx, storageKey, aged); err != nil {
+				pr.logger.Error("failed to prune aged report dirs",
+					zap.String("slug", slug), zap.Error(err))
+			}
+
+			// Garbage-collect non-default branches whose newest build is older
+			// than the age cutoff (builds + branches row).
+			staleOrders, err := pr.buildStore.PruneStaleBranches(ctx, projectID, cutoff)
+			if err != nil {
+				pr.logger.Error("failed to prune stale branches",
+					zap.String("slug", slug), zap.Error(err))
+			} else if len(staleOrders) > 0 {
+				if err := pr.store.PruneReportDirs(ctx, storageKey, staleOrders); err != nil {
+					pr.logger.Error("failed to prune stale branch report dirs",
+						zap.String("slug", slug), zap.Error(err))
+				}
 			}
 		}
 	}
 
-	// 13. Clean up the staging directory now that files have been copied to the build.
+	// 14. Clean up the staging directory now that files have been copied to the build.
 	if err := pr.store.CleanPlaywrightLatest(ctx, storageKey); err != nil {
 		pr.logger.Warn("failed to clean playwright latest",
 			zap.String("slug", slug), zap.Error(err))
 	}
 
-	// 14. Return success.
+	// 15. Return success. committed was set above once the build was durably
+	// recorded, so the cleanup defer keeps the row.
 	return strconv.Itoa(buildNumber), nil
 }
 

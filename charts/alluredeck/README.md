@@ -187,7 +187,7 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.config.databaseURL` | PostgreSQL connection string | `""` |
 | `api.config.keepHistory` | Enable test history tracking | `"true"` |
 | `api.config.keepHistoryLatest` | Number of history entries to keep (0 = unlimited) | `"100"` |
-| `api.config.keepHistoryMaxAgeDays` | Delete reports older than N days (0 = disabled) | `"0"` |
+| `api.config.keepHistoryMaxAgeDays` | Delete reports older than N days (0 = disabled); when set, also garbage-collects non-default branches whose newest build exceeds this age | `"0"` |
 | `api.config.maxUploadSizeMb` | Max upload size in MB | `"100"` |
 | `api.config.maxArchiveFileCount` | Max files allowed in a tar.gz archive upload | `"5000"` |
 | `api.config.uploadWriteConcurrency` | Parallel storage writes during tar.gz extraction (Allure + Playwright); tune to MinIO/S3 capacity | `"32"` |
@@ -197,7 +197,7 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.config.swaggerEnabled` | Enable Swagger UI | `"false"` |
 | `api.config.makeViewerEndpointsPublic` | Allow unauthenticated read access | `"false"` |
 | `api.config.corsAllowedOrigins` | CORS origins (auto-computed from ingress if empty) | `[]` |
-| `api.config.checkResultsEverySeconds` | Polling interval for results | `"NONE"` |
+| `api.config.checkResultsEverySeconds` | Polling interval for the local-storage result watcher; `"NONE"` disables it. No effect on retention, and the watcher is already off when `storageType=s3` | `"NONE"` |
 | `api.config.trustXForwardedFor` | Trust X-Forwarded-For header | `"true"` |
 | `api.kind` | Workload kind (`Deployment` or `StatefulSet`) | `Deployment` |
 | `api.replicaCount` | Number of API replicas | `1` |

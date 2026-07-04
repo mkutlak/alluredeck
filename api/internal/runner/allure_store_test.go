@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,19 +119,22 @@ func TestStoreReport_MissingOptionalDir(t *testing.T) {
 	}
 }
 
-// TestStoreAndPruneBuild_InsertBuildErrorPropagates verifies that when
-// InsertBuild fails, the error is returned instead of swallowed.
-func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
+// TestStoreAndPruneBuild_PublishReportErrorPropagates verifies that a critical
+// error is returned from storeAndPruneBuild instead of being swallowed. The
+// build row is now reserved up front by the entry point (ReserveBuild), so
+// PublishReport is storeAndPruneBuild's leading hard-fail.
+func TestStoreAndPruneBuild_PublishReportErrorPropagates(t *testing.T) {
 	dir := t.ArtifactDir()
 	projectID := int64(10)
 	slug := "err-proj"
 
 	cfg := &config.Config{ProjectsPath: dir}
-	st := storage.NewLocalStore(cfg)
-	mocks := testutil.New()
-	mocks.Builds.InsertBuildFn = func(_ context.Context, _ int64, _ int) error {
-		return store.ErrBuildNotFound // any non-nil error
+	st := &storage.MockStore{
+		PublishReportFn: func(_ context.Context, _ string, _ int, _ string, _ storage.ProgressFn) error {
+			return errors.New("boom") // any non-nil error
+		},
 	}
+	mocks := testutil.New()
 	a := NewAllure(AllureDeps{
 		Config:     cfg,
 		Store:      st,
@@ -141,15 +145,16 @@ func TestStoreAndPruneBuild_InsertBuildErrorPropagates(t *testing.T) {
 
 	err := a.storeAndPruneBuild(context.Background(), projectID, slug, slug, "", dir, 1, store.CIMetadata{}, nil)
 	if err == nil {
-		t.Fatal("expected error from storeAndPruneBuild when InsertBuild fails, got nil")
+		t.Fatal("expected error from storeAndPruneBuild when PublishReport fails, got nil")
 	}
-	if !strings.Contains(err.Error(), "insert build") {
-		t.Errorf("expected error containing %q, got: %v", "insert build", err)
+	if !strings.Contains(err.Error(), "publish report") {
+		t.Errorf("expected error containing %q, got: %v", "publish report", err)
 	}
 }
 
-// TestRecordBuild_RecordsInDB verifies that recordBuild calls InsertBuild and
-// the build is subsequently visible via ListBuilds.
+// TestRecordBuild_RecordsInDB verifies that recordBuild completes without error
+// (the build row is reserved up front by the entry point) and the build is
+// subsequently visible via ListBuilds.
 func TestRecordBuild_RecordsInDB(t *testing.T) {
 	dir := t.ArtifactDir()
 	projectID := int64(11)
@@ -173,9 +178,7 @@ func TestRecordBuild_RecordsInDB(t *testing.T) {
 		Logger:     zap.NewNop(),
 	})
 
-	if err := a.recordBuild(context.Background(), projectID, slug, 1); err != nil {
-		t.Fatalf("recordBuild: %v", err)
-	}
+	a.recordBuild(context.Background(), projectID, slug, 1)
 
 	builds, err := mocks.Builds.ListBuilds(context.Background(), projectID)
 	if err != nil {

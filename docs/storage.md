@@ -31,7 +31,7 @@ Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per 
 | `KEEP_HISTORY` | `true` | Retain previous report builds |
 | `KEEP_HISTORY_LATEST` | `100` | Max historical builds per project |
 | `KEEP_HISTORY_MAX_AGE_DAYS` | `0` | Delete reports older than N days (0 = disabled) |
-| `PENDING_RESULTS_MAX_AGE_DAYS` | `3` | Delete uploaded-but-never-generated result files older than N days. Cleaned up by the same daily background scheduler that prunes report history |
+| `PENDING_RESULTS_MAX_AGE_DAYS` | `3` | Delete uploaded-but-never-generated result files older than N days. Cleaned up by the same background scheduler that prunes report history |
 
 ### Docker Compose
 

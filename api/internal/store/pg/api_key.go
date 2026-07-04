@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,14 +13,34 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
+// defaultLastUsedThrottle coalesces last_used writes to at most one DB UPDATE
+// per key per window (see APIKeyStore.lastUsedWindow).
+const defaultLastUsedThrottle = 60 * time.Second
+
 // APIKeyStore provides API key storage backed by PostgreSQL.
 type APIKeyStore struct {
 	pool *pgxpool.Pool
+
+	// last_used write throttle. The auth middleware and MCP verifier fire a
+	// fire-and-forget UpdateLastUsed on every authenticated request, so a hot
+	// key hammered by many concurrent requests otherwise churns the same row
+	// (visible as heavy "UPDATE api_keys SET last_used" contention). This
+	// coalesces those writes to at most one per key per lastUsedWindow. A window
+	// of <= 0 disables throttling (always write). State is per-replica and
+	// in-memory; last_used is approximate telemetry, so slight staleness across
+	// replicas is acceptable.
+	lastUsedWindow time.Duration
+	lastUsedMu     sync.Mutex
+	lastUsedAt     map[int64]time.Time
 }
 
 // NewAPIKeyStore creates a APIKeyStore backed by the given PGStore.
 func NewAPIKeyStore(s *PGStore) *APIKeyStore {
-	return &APIKeyStore{pool: s.pool}
+	return &APIKeyStore{
+		pool:           s.pool,
+		lastUsedWindow: defaultLastUsedThrottle,
+		lastUsedAt:     make(map[int64]time.Time),
+	}
 }
 
 var _ store.APIKeyStorer = (*APIKeyStore)(nil)
@@ -92,13 +114,36 @@ func (s *APIKeyStore) GetByHash(ctx context.Context, keyHash string) (*store.API
 }
 
 // UpdateLastUsed sets last_used to the current time for the given key ID.
+// Writes are throttled per key (see lastUsedWindow): within the window the call
+// is a no-op, so a frequently-used key does not churn its row on every request.
 func (s *APIKeyStore) UpdateLastUsed(ctx context.Context, id int64) error {
+	if !s.shouldWriteLastUsed(id) {
+		return nil
+	}
 	_, err := s.pool.Exec(ctx,
 		"UPDATE api_keys SET last_used = NOW() WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("update api key last_used: %w", err)
 	}
 	return nil
+}
+
+// shouldWriteLastUsed reports whether enough time has elapsed since the last
+// last_used write for id to warrant another DB UPDATE. It optimistically records
+// "now" when it returns true — last_used is approximate, so a subsequently failed
+// write simply gets retried after the window elapses.
+func (s *APIKeyStore) shouldWriteLastUsed(id int64) bool {
+	if s.lastUsedWindow <= 0 {
+		return true
+	}
+	now := time.Now()
+	s.lastUsedMu.Lock()
+	defer s.lastUsedMu.Unlock()
+	if last, ok := s.lastUsedAt[id]; ok && now.Sub(last) < s.lastUsedWindow {
+		return false
+	}
+	s.lastUsedAt[id] = now
+	return true
 }
 
 // Delete removes an API key by ID scoped to the given username (IDOR prevention).

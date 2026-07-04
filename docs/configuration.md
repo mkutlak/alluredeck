@@ -107,9 +107,9 @@ For details on roles, token types, CSRF protection, and the production security 
 | `DB_MAX_IDLE_CONNS` | `db_max_idle_conns` | `5` | Maximum idle database connections kept in the pool |
 | `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `5m` | Maximum connection lifetime before the pool recycles it (Go duration string, e.g., `30m`, `1h`) |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
-| `KEEP_HISTORY_LATEST` | `keep_history_latest` | `100` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning |
-| `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted |
-| `PENDING_RESULTS_MAX_AGE_DAYS` | `pending_results_max_age_days` | `3` | Delete uploaded but never-generated result files older than N days. Pending results are files that were uploaded via `POST /results` but never had a report generated from them. Cleaned up by the same daily background scheduler that prunes report history |
+| `KEEP_HISTORY_LATEST` | `keep_history_latest` | `100` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning entirely (unlimited history) — `0` does not mean "keep zero" |
+| `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted. When set above `0`, this also drives stale-branch garbage collection: non-default branches whose most recent build is older than the cutoff are deleted entirely (their builds and the branch entry). The default branch is never garbage-collected |
+| `PENDING_RESULTS_MAX_AGE_DAYS` | `pending_results_max_age_days` | `3` | Delete uploaded but never-generated result files older than N days. Pending results are files that were uploaded via `POST /results` but never had a report generated from them. Cleaned up by the same background scheduler that prunes report history |
 
 ### Example
 
@@ -122,7 +122,7 @@ export KEEP_HISTORY_LATEST="50"
 export KEEP_HISTORY_MAX_AGE_DAYS="90"  # delete reports older than 90 days
 ```
 
-A **daily background scheduler** runs both retention strategies automatically for all projects on API startup.
+A **background scheduler** runs both retention strategies (plus stale-branch GC) automatically for all projects — an initial sweep runs immediately on API startup, then repeats every 24 hours.
 
 ## Storage Configuration (S3 / MinIO)
 
@@ -176,7 +176,7 @@ export S3_PATH_STYLE="true"
 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
-| `CHECK_RESULTS_EVERY_SECONDS` | `check_results_every_secs` | `NONE` | Seconds between automatic result scans for new test data. Set to `NONE` to disable automatic scanning. Valid values: positive integers or `NONE` |
+| `CHECK_RESULTS_EVERY_SECONDS` | `check_results_every_secs` | `NONE` | Seconds between automatic result scans for new test data. Set to `NONE` to disable automatic scanning. Valid values: positive integers or `NONE`. This only controls the local-filesystem background watcher — it has no effect on report retention/pruning, and the watcher is already disabled outright when `STORAGE_TYPE=s3` regardless of this setting |
 | `ALLURE_VERSION_FILE` | `allure_version_path` | `/app/version` | Path to a text file containing the Allure CLI version string (e.g., `2.25.0`). Used for report display |
 | `REPORT_GENERATION_TIMEOUT` | `report_generation_timeout` | `5m` | Maximum wall-clock time the background worker may spend on a single Allure report generation job (download results, run Allure CLI, upload report). Accepts a Go duration string (`5m`, `30m`, `1h`) or integer seconds. Raise for very large projects (>1 GiB of results, or many video attachments). |
 

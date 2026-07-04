@@ -498,10 +498,12 @@ AllureDeck supports two retention strategies that work together. A build is dele
 
 | Strategy | Environment Variable | Default | Description |
 |----------|---------------------|---------|-------------|
-| **Count-based** | `KEEP_HISTORY_LATEST` | `20` | Maximum number of historical reports to keep per project |
+| **Count-based** | `KEEP_HISTORY_LATEST` | `100` | Maximum number of historical reports to keep per project. Set to `0` to disable count-based pruning (unlimited) |
 | **Age-based** | `KEEP_HISTORY_MAX_AGE_DAYS` | `0` (disabled) | Delete reports older than N days. Set to `0` to disable age-based pruning |
 
-A **daily background scheduler** runs both strategies automatically for all projects. It starts on API boot and respects graceful shutdown.
+**Stale-branch garbage collection:** When age-based pruning is enabled (`KEEP_HISTORY_MAX_AGE_DAYS` > 0), AllureDeck also removes entire non-default branches — their builds and the branch entry itself — once the branch's most recent build is older than the age cutoff. This keeps the branch selector dropdown from accumulating branches that stopped reporting long ago. The default branch is never removed, and a branch row is only dropped once none of its builds remain.
+
+A **background scheduler** runs all three (count-based pruning, age-based pruning, and stale-branch GC) for every project. It runs an immediate sweep on API startup, then repeats every 24 hours, and respects graceful shutdown.
 
 Set `KEEP_HISTORY=false` to disable report history entirely (only the latest report is kept).
 
@@ -613,7 +615,7 @@ Both endpoints are scoped to the authenticated user (via the JWT `sub` claim). P
 
 **Background watcher:** AllureDeck includes a background watcher that polls for new result files and auto-generates reports based on the `CHECK_RESULTS_EVERY_SECONDS` configuration. See [Configuration Reference](configuration.md).
 
-**Retention scheduler:** A daily background goroutine prunes old reports based on count-based and age-based retention settings. See [Report Retention](#report-retention).
+**Retention scheduler:** A background goroutine prunes old reports based on count-based and age-based retention settings, and garbage-collects stale non-default branches. It runs immediately on startup, then every 24 hours. See [Report Retention](#report-retention).
 
 **Docker Compose variants:**
 

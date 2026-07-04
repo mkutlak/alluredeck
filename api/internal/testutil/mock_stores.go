@@ -225,6 +225,7 @@ func (m *MockProjectStore) SetReportType(ctx context.Context, id int64, reportTy
 type MockBuildStore struct {
 	NextBuildNumberFn           func(ctx context.Context, projectID int64) (int, error)
 	InsertBuildFn               func(ctx context.Context, projectID int64, buildNumber int) error
+	ReserveBuildFn              func(ctx context.Context, projectID int64) (int, error)
 	UpdateBuildStatsFn          func(ctx context.Context, projectID int64, buildNumber int, stats store.BuildStats) error
 	UpdateBuildCIMetadataFn     func(ctx context.Context, projectID int64, buildNumber int, ciMeta store.CIMetadata) error
 	UpdateBuildEnvironmentFn    func(ctx context.Context, projectID int64, buildNumber int, env map[string]string) error
@@ -242,6 +243,7 @@ type MockBuildStore struct {
 	SetLatestBranchFn           func(ctx context.Context, projectID int64, buildNumber int, branchID *int64) error
 	PruneBuildsBranchFn         func(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAgeFn          func(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error)
+	PruneStaleBranchesFn        func(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error)
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]store.Build, int, error)
 	ListBuildsInRangeFn         func(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
 	SetHasPlaywrightReportFn    func(ctx context.Context, projectID int64, buildNumber int, value bool) error
@@ -261,6 +263,13 @@ func (m *MockBuildStore) InsertBuild(ctx context.Context, projectID int64, build
 		return m.InsertBuildFn(ctx, projectID, buildNumber)
 	}
 	return nil
+}
+
+func (m *MockBuildStore) ReserveBuild(ctx context.Context, projectID int64) (int, error) {
+	if m.ReserveBuildFn != nil {
+		return m.ReserveBuildFn(ctx, projectID)
+	}
+	return 0, nil
 }
 
 func (m *MockBuildStore) UpdateBuildStats(ctx context.Context, projectID int64, buildNumber int, stats store.BuildStats) error {
@@ -378,6 +387,13 @@ func (m *MockBuildStore) PruneBuildsBranch(ctx context.Context, projectID int64,
 func (m *MockBuildStore) PruneBuildsByAge(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error) {
 	if m.PruneBuildsByAgeFn != nil {
 		return m.PruneBuildsByAgeFn(ctx, projectID, olderThan)
+	}
+	return nil, nil
+}
+
+func (m *MockBuildStore) PruneStaleBranches(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error) {
+	if m.PruneStaleBranchesFn != nil {
+		return m.PruneStaleBranchesFn(ctx, projectID, cutoff)
 	}
 	return nil, nil
 }
