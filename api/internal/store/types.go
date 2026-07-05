@@ -332,6 +332,26 @@ const (
 	WebhookEventDigest             = "digest"
 )
 
+// FailureSummary is a cached, LLM-generated hypothesis about why a specific
+// test failed in a specific build. It is keyed on (BuildID, HistoryID) and
+// invalidated by InputHash: when the assembled evidence (error, step path,
+// attachments, last-good pointer, model, prompt version) changes, the hash
+// changes and the summary is regenerated. Category is a display-only label and
+// is never written back to a defect record.
+type FailureSummary struct {
+	BuildID       int64
+	HistoryID     string
+	ProjectID     int64
+	InputHash     string
+	Hypothesis    string
+	Category      string
+	Confidence    string
+	Evidence      []string
+	Model         string
+	PromptVersion int
+	CreatedAt     time.Time
+}
+
 // DiffEntry represents a single test in a build comparison result.
 type DiffEntry struct {
 	TestName  string

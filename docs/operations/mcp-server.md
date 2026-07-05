@@ -298,6 +298,6 @@ The MCP deployment and service are deleted. The database schema does not need ro
 ## Known Limitations (v1)
 
 - No OAuth 2.1 discovery endpoint — manual token entry only
-- No server-side LLM tools — read-only data tools only
+- No server-side LLM tools — the MCP tools are read-only data tools and never call an LLM. (The optional in-product **AI failure summary** is a separate, opt-in UI/REST feature — see [Configuration → AI Failure Summaries](../configuration.md#ai-failure-summaries-llm) — not an MCP tool.)
 - Mutations are proposal-only — humans approve via the admin UI (`/admin/proposals`)
 - Origin-based CORS (DNS rebinding defense) — browsers with disallowed Origins receive 403

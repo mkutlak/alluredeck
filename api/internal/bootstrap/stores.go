@@ -58,6 +58,8 @@ type Stores struct {
 	KnownIssueProposals store.KnownIssueProposalStorer
 	FlakyProposals      store.FlakyProposalStorer
 
+	FailureSummary store.FailureSummaryStorer
+
 	// DB exposes the *sql.DB handle for probes (e.g. SystemHandler).
 	DB *sql.DB
 	// Locker provides PostgreSQL advisory locks for multi-instance safety.
@@ -128,6 +130,7 @@ func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, enc
 		DefectProposals:     pg.NewDefectProposalStore(pgDB),
 		KnownIssueProposals: pg.NewKnownIssueProposalStore(pgDB),
 		FlakyProposals:      pg.NewFlakyProposalStore(pgDB),
+		FailureSummary:      pg.NewFailureSummaryStore(pgDB),
 		DB:                  pgDB.DB(),
 		Locker:              pgDB,
 		PGStore:             pgDB,

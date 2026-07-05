@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -77,6 +78,32 @@ func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 	}
 	if resp.Data.AppBuildRef == "" {
 		t.Error("handler returned empty AppBuildRef")
+	}
+}
+
+func TestSystemHandler_ConfigEndpoint_LLMEnabled(t *testing.T) {
+	cfg := &config.Config{
+		LLM: config.LLMConfig{Enabled: true, Provider: "openai", Model: "llama3.1", BaseURL: "http://ollama:11434/v1"},
+	}
+	handler := NewSystemHandler(cfg, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/config", nil)
+	rr := httptest.NewRecorder()
+	handler.ConfigEndpoint(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rr.Code)
+	}
+	var resp ConfigResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Data.LLMEnabled {
+		t.Errorf("llm_enabled: got false, want true")
+	}
+	// The API key must never leak into the config response body.
+	if strings.Contains(rr.Body.String(), "api_key") {
+		t.Errorf("config response must not contain api_key: %s", rr.Body.String())
 	}
 }
 

@@ -378,6 +378,50 @@ s3:
   concurrency: 20
 ```
 
+## AI Failure Summaries (LLM)
+
+AllureDeck can generate a plain-language **"AI hypothesis"** for a failing test — a likely
+root-cause summary + category, grounded in the test's error, failed-step path, attachment text, and
+the diff against the last passing build. It is surfaced on the failing-test rows in the UI. This
+feature is **opt-in and disabled by default.**
+
+> **⚠️ Data egress warning.** When `LLM_ENABLED=true`, AllureDeck sends failure evidence — the
+> error message, failed-step names, and a bounded slice (≤4 KB, `text/*` + `application/json` only)
+> of the test's attachment text — to the LLM endpoint you configure. **CI logs can contain secrets
+> and PII.** To keep data on-premises, point `LLM_BASE_URL` at a self-hosted OpenAI-compatible
+> server (Ollama, vLLM, LiteLLM, LocalAI); nothing leaves your network. Only enable this if you
+> accept that the configured endpoint receives that content. AllureDeck's MCP tools remain
+> read-only and never call an LLM — this is the only server-side inference path, and it stays off
+> unless you turn it on.
+
+| Environment Variable | YAML Key | Default | Description |
+|---|---|---|---|
+| `LLM_ENABLED` | `llm.enabled` | `false` | Master switch. When `false`, no evidence is assembled and no external call is ever made |
+| `LLM_PROVIDER` | `llm.provider` | `openai` | Wire protocol: `openai` (POST `{base_url}/chat/completions`) or `anthropic` (Messages API) |
+| `LLM_BASE_URL` | `llm.base_url` | *(empty)* | API base URL. **Required for `openai`** (e.g. `http://ollama:11434/v1` for a local model, or `https://api.openai.com/v1`). Optional for `anthropic` (defaults to the public API) |
+| `LLM_API_KEY` | `llm.api_key` | *(empty)* | Bearer / `x-api-key` credential. **Set via env var only, never in YAML.** May be empty for local servers that need no key |
+| `LLM_MODEL` | `llm.model` | *(empty)* | Model id (e.g. `llama3.1`, `gpt-4o-mini`, `claude-sonnet-4-6`). **Required when enabled** |
+| `LLM_MAX_TOKENS` | `llm.max_tokens` | `512` | Max tokens for the generated summary |
+| `LLM_TIMEOUT` | `llm.timeout` | `30` | Per-request timeout (seconds, or a Go duration like `45s`) |
+
+The summary is a **hypothesis, not a verdict** (always shown with a disclaimer), the suggested
+category is display-only (it is never written back to a defect automatically), and generation is
+**cache-first** (keyed on the failure's content) so a given failure is summarized once. Generation
+only runs for tests that have real failure evidence and the endpoint is rate-limited.
+
+### Example (self-hosted, no external egress)
+
+```bash
+LLM_ENABLED=true
+LLM_PROVIDER=openai
+LLM_BASE_URL=http://ollama:11434/v1
+LLM_MODEL=llama3.1
+# LLM_API_KEY intentionally unset for a local Ollama server
+```
+
+Helm users can supply these via `api.config` / an environment override or, for `LLM_API_KEY`, an
+`existingSecret` — treat the key like any other secret (see [Sensitive Values](#sensitive-values)).
+
 ## OIDC SSO Configuration
 
 OIDC configuration is documented in the dedicated [Authentication](authentication.md) guide. Key variables include `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and role-mapping groups. See [Authentication — Configuration Reference](authentication.md#configuration-reference) for the full table.

@@ -1,4 +1,4 @@
-package tools
+package failure
 
 import (
 	"testing"
@@ -76,7 +76,7 @@ func TestBuildLastGoodDiff(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildLastGoodDiff(tc.diffs, thisHID, fromBuild, toBuild)
+			got := BuildLastGoodDiff(tc.diffs, thisHID, fromBuild, toBuild)
 
 			if got.FromBuildID != fromBuild || got.ToBuildID != toBuild {
 				t.Errorf("from/to build id: got %d/%d, want %d/%d", got.FromBuildID, got.ToBuildID, fromBuild, toBuild)
@@ -125,7 +125,7 @@ func TestBuildLastGoodDiff_SampleCappedAtTen(t *testing.T) {
 		})
 	}
 
-	got := buildLastGoodDiff(diffs, thisHID, 10, 20)
+	got := BuildLastGoodDiff(diffs, thisHID, 10, 20)
 
 	// All regressions are counted (this test + 25 co-regressions).
 	if got.RegressedCount != coRegressions+1 {

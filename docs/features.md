@@ -23,6 +23,7 @@ Related documentation: [Deployment & Security](deployment.md) · [Configuration 
 10. [Test History](#test-history)
 11. [Build Comparison](#build-comparison)
 12. [Pipeline Runs](#pipeline-runs)
+    - [AI Failure Summaries](#ai-failure-summaries)
 13. [Report Viewer](#report-viewer)
 14. [Playwright Reports](#playwright-reports)
     - [Trace Viewer](#trace-viewer)
@@ -338,6 +339,18 @@ Clicking a suite's build icon navigates to that child project's report view.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/projects/{project_id}/pipeline-runs` | Paginated pipeline runs (parent projects only; returns 400 otherwise). Query params: `page`, `per_page`, `branch` |
+
+### AI Failure Summaries
+
+**Opt-in, off by default.** When an operator enables an LLM backend (see [Configuration → AI Failure Summaries](configuration.md#ai-failure-summaries-llm)), each failing test row in the runs feed gains an **"AI summary"** expander. It shows a plain-language **hypothesis** for the failure, a suggested category, supporting **evidence**, and a link to the build where the test last passed — generated from the test's error, failed-step path, attachment text, and the diff against that last-good build.
+
+The output is labelled an **"AI hypothesis"** and carries a **"verify before acting" disclaimer** — it is never treated as a verdict, and the suggested category is display-only (never written back to a defect). Summaries are cached per failure, generated only for tests with real failure evidence, and the endpoint is rate-limited. When the feature is disabled (the default), the expander is hidden and no external call is ever made. Point the LLM backend at a self-hosted OpenAI-compatible server to keep all failure data on-premises.
+
+**API:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/tests/{history_id}/failure-summary` | Cached-or-generated AI hypothesis for one failing test. Returns `{"enabled": false}` when the LLM backend is off |
 
 ---
 

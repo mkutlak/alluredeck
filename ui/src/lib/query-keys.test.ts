@@ -136,6 +136,10 @@ describe('queryKeys', () => {
   it('buildFailedTests', () => {
     expect(queryKeys.buildFailedTests(5, 42)).toEqual(['build-failed-tests', 5, 42])
   })
+
+  it('failureSummary', () => {
+    expect(queryKeys.failureSummary(42, 'h1')).toEqual(['failureSummary', 42, 'h1'])
+  })
 })
 
 describe('invalidateProjectQueries', () => {

@@ -1,15 +1,21 @@
-package tools
+// Package failure assembles the evidence for, and (optionally) generates, an
+// LLM hypothesis about why a specific test failed in a specific build. It is
+// the single home for the last-good pointer + last-good→current diff types
+// that were introduced for diagnose_failure (Phase A) and are now shared by the
+// MCP diagnose tool and the REST failure-summary handler.
+package failure
 
 import "github.com/mkutlak/alluredeck/api/internal/store"
 
 // ---------------------------------------------------------------------------
 // last-good pointer + failed-vs-last-good diff
 //
-// These types are part of the diagnose_failure output contract (see
-// DiagnoseTest). LastGood points at the build where a failing test last passed;
-// LastGoodDiff summarises the whole-build comparison between that last-good
-// build and the current failing build for one test. buildLastGoodDiff is a pure
-// transform over store.DiffEntry so it is unit-testable without a database.
+// These types are part of the diagnose_failure output contract AND the REST
+// failure-summary response. LastGood points at the build where a failing test
+// last passed; LastGoodDiff summarises the whole-build comparison between that
+// last-good build and the current failing build for one test. BuildLastGoodDiff
+// is a pure transform over store.DiffEntry so it is unit-testable without a
+// database.
 // ---------------------------------------------------------------------------
 
 // lastGoodSampleCap bounds the number of co-regressed tests surfaced in
@@ -66,13 +72,13 @@ func diffEntryToView(e store.DiffEntry) DiffView {
 	}
 }
 
-// buildLastGoodDiff filters and summarizes a whole-build diff for one test.
+// BuildLastGoodDiff filters and summarizes a whole-build diff for one test.
 // diffs is the output of CompareBuildsByHistoryID(fromBuildID, toBuildID), so
 // each entry's StatusA is the last-good status and StatusB the current status.
 // The entry matching thisHistoryID (the diagnosed test) is projected into
 // ThisTest; category counts cover every entry; SampleRegressed collects up to
 // lastGoodSampleCap regressed entries excluding the diagnosed test itself.
-func buildLastGoodDiff(diffs []store.DiffEntry, thisHistoryID string, fromBuildID, toBuildID int64) LastGoodDiff {
+func BuildLastGoodDiff(diffs []store.DiffEntry, thisHistoryID string, fromBuildID, toBuildID int64) LastGoodDiff {
 	out := LastGoodDiff{
 		FromBuildID: fromBuildID,
 		ToBuildID:   toBuildID,

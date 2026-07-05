@@ -29,27 +29,30 @@ var (
 	_ store.PipelineStorer   = (*MockPipelineStore)(nil)
 	_ store.AuditLogger      = (*MockAuditLogger)(nil)
 	_ store.AnalyticsStorer  = (*MockAnalyticsStore)(nil)
+
+	_ store.FailureSummaryStorer = (*MockFailureSummaryStore)(nil)
 )
 
 // MockStores bundles all mock store implementations for easy test setup.
 type MockStores struct {
-	Projects    *MemProjectStore // stateful in-memory project store
-	Builds      *MockBuildStore  // zero-value mock; set Fn fields for fine-grained control
-	MemBuilds   *MemBuildStore   // stateful in-memory build store for handler tests
-	TestResults *MockTestResultStore
-	KnownIssues *MemKnownIssueStore // stateful in-memory store; supports Create/List/Get/Update/Delete
-	Blacklist   *MockBlacklistStore
-	Branches    *MockBranchStore
-	Search      *MockSearchStore
-	Locker      *MockLocker
-	APIKeys     *MemAPIKeyStore // stateful in-memory store for API key handler tests
-	Users       *MemUserStore   // stateful in-memory store for user handler tests
-	Attachments *MockAttachmentStore
-	Defects     *MemDefectStore
-	Webhooks    *MemWebhookStore // stateful in-memory store for webhook handler tests
-	Pipeline    *MockPipelineStore
-	Audit       *MockAuditLogger // stateful in-memory audit recorder for handler tests
-	Analytics   *MockAnalyticsStore
+	Projects         *MemProjectStore // stateful in-memory project store
+	Builds           *MockBuildStore  // zero-value mock; set Fn fields for fine-grained control
+	MemBuilds        *MemBuildStore   // stateful in-memory build store for handler tests
+	TestResults      *MockTestResultStore
+	KnownIssues      *MemKnownIssueStore // stateful in-memory store; supports Create/List/Get/Update/Delete
+	Blacklist        *MockBlacklistStore
+	Branches         *MockBranchStore
+	Search           *MockSearchStore
+	Locker           *MockLocker
+	APIKeys          *MemAPIKeyStore // stateful in-memory store for API key handler tests
+	Users            *MemUserStore   // stateful in-memory store for user handler tests
+	Attachments      *MockAttachmentStore
+	Defects          *MemDefectStore
+	Webhooks         *MemWebhookStore // stateful in-memory store for webhook handler tests
+	Pipeline         *MockPipelineStore
+	Audit            *MockAuditLogger // stateful in-memory audit recorder for handler tests
+	Analytics        *MockAnalyticsStore
+	FailureSummaries *MockFailureSummaryStore
 }
 
 // New returns a MockStores with all fields initialised.
@@ -57,23 +60,24 @@ type MockStores struct {
 // handler tests can create records and immediately query them back.
 func New() *MockStores {
 	return &MockStores{
-		Projects:    NewMemProjectStore(),
-		Builds:      &MockBuildStore{},
-		MemBuilds:   NewMemBuildStore(),
-		TestResults: &MockTestResultStore{},
-		KnownIssues: NewMemKnownIssueStore(),
-		Blacklist:   &MockBlacklistStore{},
-		Branches:    &MockBranchStore{},
-		Search:      &MockSearchStore{},
-		Locker:      &MockLocker{},
-		APIKeys:     NewMemAPIKeyStore(),
-		Users:       NewMemUserStore(),
-		Attachments: &MockAttachmentStore{},
-		Defects:     NewMemDefectStore(),
-		Webhooks:    NewMemWebhookStore(),
-		Pipeline:    &MockPipelineStore{},
-		Audit:       NewMockAuditLogger(),
-		Analytics:   &MockAnalyticsStore{},
+		Projects:         NewMemProjectStore(),
+		Builds:           &MockBuildStore{},
+		MemBuilds:        NewMemBuildStore(),
+		TestResults:      &MockTestResultStore{},
+		KnownIssues:      NewMemKnownIssueStore(),
+		Blacklist:        &MockBlacklistStore{},
+		Branches:         &MockBranchStore{},
+		Search:           &MockSearchStore{},
+		Locker:           &MockLocker{},
+		APIKeys:          NewMemAPIKeyStore(),
+		Users:            NewMemUserStore(),
+		Attachments:      &MockAttachmentStore{},
+		Defects:          NewMemDefectStore(),
+		Webhooks:         NewMemWebhookStore(),
+		Pipeline:         &MockPipelineStore{},
+		Audit:            NewMockAuditLogger(),
+		Analytics:        &MockAnalyticsStore{},
+		FailureSummaries: &MockFailureSummaryStore{},
 	}
 }
 
@@ -1025,6 +1029,30 @@ func (m *MockAttachmentStore) GetLocation(ctx context.Context, id int64) (*store
 func (m *MockAttachmentStore) InsertBuildAttachments(ctx context.Context, buildID int64, projectID int64, attachments []store.TestAttachment) error {
 	if m.InsertBuildAttachmentsFn != nil {
 		return m.InsertBuildAttachmentsFn(ctx, buildID, projectID, attachments)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// MockFailureSummaryStore
+// ---------------------------------------------------------------------------
+
+// MockFailureSummaryStore is a function-field double for store.FailureSummaryStorer.
+type MockFailureSummaryStore struct {
+	GetFn    func(ctx context.Context, buildID int64, historyID string) (*store.FailureSummary, error)
+	UpsertFn func(ctx context.Context, s store.FailureSummary) error
+}
+
+func (m *MockFailureSummaryStore) Get(ctx context.Context, buildID int64, historyID string) (*store.FailureSummary, error) {
+	if m.GetFn != nil {
+		return m.GetFn(ctx, buildID, historyID)
+	}
+	return nil, nil
+}
+
+func (m *MockFailureSummaryStore) Upsert(ctx context.Context, s store.FailureSummary) error {
+	if m.UpsertFn != nil {
+		return m.UpsertFn(ctx, s)
 	}
 	return nil
 }

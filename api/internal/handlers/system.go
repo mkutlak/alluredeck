@@ -140,6 +140,7 @@ type ConfigData struct {
 	AppBuildRef               string `json:"app_build_ref"`
 	OIDCEnabled               bool   `json:"oidc_enabled"`
 	MCPEnabled                bool   `json:"mcp_enabled"`
+	LLMEnabled                bool   `json:"llm_enabled"`
 }
 
 // ConfigMetaData holds the response message for config responses.
@@ -176,6 +177,7 @@ func (h *SystemHandler) ConfigEndpoint(w http.ResponseWriter, _ *http.Request) {
 			AppBuildRef:               version.BuildRef,
 			OIDCEnabled:               h.cfg.OIDC.Enabled,
 			MCPEnabled:                h.cfg.MCPServerEnabled,
+			LLMEnabled:                h.cfg.LLM.Enabled,
 		},
 		MetaData: ConfigMetaData{Message: "Config successfully obtained"},
 	})

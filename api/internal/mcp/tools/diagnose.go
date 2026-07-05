@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
+	"github.com/mkutlak/alluredeck/api/internal/failure"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/triage"
 )
@@ -107,11 +108,11 @@ type DiagnoseTest struct {
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
 	// LastGood points at the build where this test last passed (branch-scoped
 	// when available). Nil when the test has no prior passing build.
-	LastGood *LastGood `json:"last_good,omitempty"`
+	LastGood *failure.LastGood `json:"last_good,omitempty"`
 	// LastGoodDiff summarizes the last-good→current whole-build comparison.
 	// Populated only when include_last_good_diff is set and a last-good build
 	// exists.
-	LastGoodDiff *LastGoodDiff `json:"last_good_diff,omitempty"`
+	LastGoodDiff *failure.LastGoodDiff `json:"last_good_diff,omitempty"`
 }
 
 // DiagnoseFailureOutput is the structured output for diagnose_failure: a
@@ -390,7 +391,7 @@ func diagnoseTest(ctx context.Context, stores *bootstrap.Stores, logger *zap.Log
 			zap.String("history_id", tr.HistoryID),
 			zap.Error(err))
 	} else if lg != nil {
-		d.LastGood = &LastGood{
+		d.LastGood = &failure.LastGood{
 			BuildID:     lg.BuildID,
 			BuildNumber: lg.BuildNumber,
 			CreatedAt:   lg.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
@@ -412,7 +413,7 @@ func diagnoseTest(ctx context.Context, stores *bootstrap.Stores, logger *zap.Log
 					zap.String("history_id", tr.HistoryID),
 					zap.Error(err))
 			} else {
-				lgd := buildLastGoodDiff(diffs, tr.HistoryID, lg.BuildID, build.ID)
+				lgd := failure.BuildLastGoodDiff(diffs, tr.HistoryID, lg.BuildID, build.ID)
 				d.LastGoodDiff = &lgd
 			}
 		}

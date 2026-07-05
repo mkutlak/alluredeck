@@ -95,6 +95,21 @@ type OIDCConfig struct {
 	AutoLinkByEmail bool `yaml:"auto_link_by_email" envconfig:"OIDC_AUTO_LINK_BY_EMAIL"`
 }
 
+// LLMConfig holds the opt-in in-product LLM failure-summary configuration.
+// It is OFF by default (Enabled=false) to preserve the no-egress/self-hosted
+// posture: nothing contacts an external LLM unless an operator sets
+// LLM_ENABLED=true. APIKey is a secret and must NEVER be serialized to /config
+// or logged.
+type LLMConfig struct {
+	Enabled   bool            `yaml:"enabled" envconfig:"LLM_ENABLED"`
+	Provider  string          `yaml:"provider" envconfig:"LLM_PROVIDER"` // "openai" (default) | "anthropic"
+	BaseURL   string          `yaml:"base_url" envconfig:"LLM_BASE_URL"` // openai: full base incl /v1 (e.g. http://ollama:11434/v1)
+	APIKey    string          `yaml:"api_key" envconfig:"LLM_API_KEY"`   //nolint:gosec // secret; loaded, never serialized to /config
+	Model     string          `yaml:"model" envconfig:"LLM_MODEL"`
+	MaxTokens int             `yaml:"max_tokens" envconfig:"LLM_MAX_TOKENS"`
+	Timeout   DurationSeconds `yaml:"timeout" envconfig:"LLM_TIMEOUT"`
+}
+
 // TracesConfig holds OpenTelemetry trace export configuration.
 type TracesConfig struct {
 	Endpoint    string  `yaml:"endpoint" envconfig:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"`
@@ -164,6 +179,7 @@ type Config struct {
 	StorageType         string        `yaml:"storage_type" envconfig:"STORAGE_TYPE"`
 	S3                  S3Config      `yaml:"s3"`
 	OIDC                OIDCConfig    `yaml:"oidc"`
+	LLM                 LLMConfig     `yaml:"llm"`
 	LogLevel            string        `yaml:"log_level" envconfig:"LOG_LEVEL"`
 	MaxUploadSizeMB     int           `yaml:"max_upload_size_mb" envconfig:"MAX_UPLOAD_SIZE_MB"`
 	MaxArchiveFileCount int           `yaml:"max_archive_file_count" envconfig:"MAX_ARCHIVE_FILE_COUNT"`
@@ -262,6 +278,11 @@ func LoadConfig() (*Config, error) {
 			DefaultRole:       "viewer",
 			PostLoginRedirect: "/",
 		},
+		LLM: LLMConfig{
+			Provider:  "openai",
+			MaxTokens: 512,
+			Timeout:   DurationSeconds(30 * time.Second),
+		},
 		Observability: ObservabilityConfig{
 			Enabled:     false,
 			ServiceName: "alluredeck-api",
@@ -339,6 +360,15 @@ var ErrDatabaseURLRequired = errors.New("DATABASE_URL is required")
 // ErrDatabaseURLInvalid is returned when DatabaseURL does not look like a Postgres DSN.
 var ErrDatabaseURLInvalid = errors.New("DATABASE_URL must be a valid Postgres DSN (postgres://... or keyword form with host= and dbname=)")
 
+// ErrLLMModelRequired is returned when the LLM is enabled but no model is set.
+var ErrLLMModelRequired = errors.New("LLM_MODEL is required when LLM_ENABLED=true")
+
+// ErrLLMBaseURLRequired is returned when the openai provider is enabled but no base URL is set.
+var ErrLLMBaseURLRequired = errors.New("LLM_BASE_URL is required when LLM_ENABLED=true and LLM_PROVIDER=openai")
+
+// ErrLLMProviderInvalid is returned when LLM_PROVIDER is not one of openai/anthropic.
+var ErrLLMProviderInvalid = errors.New("LLM_PROVIDER must be one of: openai, anthropic")
+
 // Validate checks that the configuration is safe to run in production.
 // Returns an error if security is enabled but the insecure default JWT secret is used,
 // or if S3 storage is selected but required fields are missing.
@@ -386,6 +416,18 @@ func (c *Config) Validate() error {
 		if n != 16 && n != 24 && n != 32 {
 			return ErrOIDCStateCookieSecretLength
 		}
+	}
+	if c.LLM.Enabled {
+		if c.LLM.Model == "" {
+			return ErrLLMModelRequired
+		}
+		if c.LLM.Provider == "openai" && c.LLM.BaseURL == "" {
+			return ErrLLMBaseURLRequired
+		}
+		if c.LLM.Provider != "openai" && c.LLM.Provider != "anthropic" {
+			return ErrLLMProviderInvalid
+		}
+		// APIKey may be empty (e.g. local Ollama needs no key).
 	}
 	return nil
 }

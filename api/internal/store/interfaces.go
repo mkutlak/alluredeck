@@ -406,6 +406,18 @@ type AttachmentStorer interface {
 	InsertBuildAttachments(ctx context.Context, buildID int64, projectID int64, attachments []TestAttachment) error
 }
 
+// FailureSummaryStorer caches LLM-generated failure summaries keyed on
+// (build_id, history_id). It backs the opt-in in-product failure-summary
+// feature: a summary is generated on a cache miss and replaced when its
+// input_hash changes.
+type FailureSummaryStorer interface {
+	// Get returns the cached summary for a build+test, or (nil, nil) if absent.
+	Get(ctx context.Context, buildID int64, historyID string) (*FailureSummary, error)
+	// Upsert writes or replaces the summary (ON CONFLICT (build_id, history_id)
+	// DO UPDATE).
+	Upsert(ctx context.Context, s FailureSummary) error
+}
+
 // APIKeyStorer is the interface for API key operations.
 type APIKeyStorer interface {
 	Create(ctx context.Context, key *APIKey) (*APIKey, error)

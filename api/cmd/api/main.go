@@ -21,7 +21,9 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/failure"
 	"github.com/mkutlak/alluredeck/api/internal/handlers"
+	"github.com/mkutlak/alluredeck/api/internal/llm"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/security"
@@ -53,6 +55,7 @@ type stores struct {
 	defectProposals     store.DefectProposalStorer
 	knownIssueProposals store.KnownIssueProposalStorer
 	flakyProposals      store.FlakyProposalStorer
+	failureSummary      store.FailureSummaryStorer
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -86,6 +89,7 @@ type handlerSet struct {
 	preferences     *handlers.PreferenceHandler
 	oidc            *handlers.OIDCHandler      // may be nil
 	proposals       *handlers.ProposalsHandler // may be nil; only set when MCPServerEnabled
+	failureSummary  *handlers.FailureSummaryHandler
 }
 
 // routeDeps bundles all dependencies needed by registerRoutes.
@@ -422,6 +426,7 @@ func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, 
 		defectProposals:     bs.DefectProposals,
 		knownIssueProposals: bs.KnownIssueProposals,
 		flakyProposals:      bs.FlakyProposals,
+		failureSummary:      bs.FailureSummary,
 	}
 
 	return s, bs.DB, bs.Locker, bs.PGStore
@@ -517,6 +522,20 @@ func wireHandlers(
 		preferences: handlers.NewPreferenceHandler(s.preference),
 		oidc:        oidcHandler,
 		proposals:   proposalsHandler,
+		failureSummary: handlers.NewFailureSummaryHandler(
+			failure.NewService(failure.ServiceDeps{
+				TestResults: s.testResult,
+				Attachments: s.attachment,
+				Builds:      s.build,
+				Summaries:   s.failureSummary,
+				Blobs:       dataStore,
+				LLM:         llm.New(cfg.LLM),
+				Config:      cfg.LLM,
+				Logger:      logger,
+			}),
+			s.project,
+			logger,
+		),
 	}
 }
 
@@ -844,6 +863,14 @@ func registerRoutes(d routeDeps) {
 
 	// Compare — short-lived cache.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/compare", viewerUp(shortCache(d.h.compare.CompareBuilds)))
+
+	// AI failure summary (opt-in LLM hypothesis for a single failing test).
+	// Registered unconditionally; when the feature is disabled the handler
+	// reports enabled:false in the body rather than 404-ing. Rate-limited
+	// (shares the login IP limiter, same pattern as /users/me/password below):
+	// a cache miss can trigger a real, paid LLM call, so this route must not be
+	// callable at unbounded frequency even by an authenticated viewer.
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/builds/{build_id}/tests/{history_id}/failure-summary", viewerUp(noStore(rateLimit(d.h.failureSummary.GetFailureSummary))))
 
 	// Dashboard — no-store (TanStack Query manages client-side freshness).
 	mux.HandleFunc("GET "+prefix+"/dashboard", viewerUp(noStore(d.h.dashboard.GetDashboard)))

@@ -89,6 +89,7 @@ export interface ConfigData {
   make_viewer_endpoints_public: boolean
   oidc_enabled: boolean
   mcp_enabled?: boolean
+  llm_enabled?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -856,6 +857,36 @@ export interface BuildFailedTest {
   new_failed: boolean
   known: boolean
   error_message: string
+}
+
+// ---------------------------------------------------------------------------
+// Failure summary (B1 Phase B — opt-in, in-product LLM failure hypothesis)
+// ---------------------------------------------------------------------------
+export interface FailureSummary {
+  hypothesis: string
+  category: string
+  confidence?: string
+  // Non-JSON LLM fallback path can omit this or send it as null.
+  evidence?: string[] | null
+}
+
+export interface FailureSummaryLastGood {
+  build_number: number
+  commit_sha?: string
+  builds_since: number
+}
+
+export interface FailureSummaryData {
+  enabled: boolean
+  cached?: boolean
+  build_id?: number
+  history_id?: string
+  summary?: FailureSummary | null
+  last_good?: FailureSummaryLastGood
+  model?: string
+  generated_at?: string
+  disclaimer?: string
+  error?: string
 }
 
 // ---------------------------------------------------------------------------

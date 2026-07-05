@@ -93,6 +93,8 @@ export const queryKeys = {
     ] as const,
   buildFailedTests: (projectId: number, buildId: number) =>
     ['build-failed-tests', projectId, buildId] as const,
+  failureSummary: (buildId: number, historyId: string) =>
+    ['failureSummary', buildId, historyId] as const,
   proposals: (type: string, projectId: number, cursor?: string) =>
     cursor !== undefined
       ? (['proposals', type, projectId, cursor] as const)

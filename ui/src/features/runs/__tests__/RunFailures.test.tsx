@@ -1,14 +1,25 @@
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
 import { RunFailures } from '../RunFailures'
-import type { BuildFailedTest, PipelineRun } from '@/types/api'
+import type { ApiResponse, BuildFailedTest, ConfigData, PipelineRun } from '@/types/api'
 
 vi.mock('@/api/builds', () => ({
   fetchBuildFailedTests: vi.fn(),
 }))
 
+vi.mock('@/api/failures', () => ({
+  fetchFailureSummary: vi.fn(),
+}))
+
+vi.mock('@/api/system', () => ({
+  getConfig: vi.fn(),
+}))
+
 import { fetchBuildFailedTests } from '@/api/builds'
+import { fetchFailureSummary } from '@/api/failures'
+import { getConfig } from '@/api/system'
 
 function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
   return {
@@ -51,6 +62,28 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
   }
 }
 
+function makeConfig(overrides: Partial<ConfigData> = {}): ApiResponse<ConfigData> {
+  return {
+    data: {
+      version: '1.0.0',
+      dev_mode: false,
+      check_results_every_seconds: '60',
+      keep_history: true,
+      keep_history_latest: 10,
+      tls: false,
+      security_enabled: true,
+      url_prefix: '',
+      api_response_less_verbose: false,
+      optimize_storage: false,
+      make_viewer_endpoints_public: false,
+      oidc_enabled: false,
+      llm_enabled: true,
+      ...overrides,
+    },
+    metadata: { message: 'ok' },
+  }
+}
+
 function makeTest(overrides?: Partial<BuildFailedTest>): BuildFailedTest {
   return {
     test_name: 'should login',
@@ -70,6 +103,11 @@ function makeTest(overrides?: Partial<BuildFailedTest>): BuildFailedTest {
 describe('RunFailures', () => {
   beforeEach(() => {
     vi.mocked(fetchBuildFailedTests).mockReset()
+    vi.mocked(fetchFailureSummary).mockReset()
+    vi.mocked(getConfig).mockReset()
+    // Default: feature off, matching production's off-by-default posture.
+    // Tests exercising the AI summary toggle override this explicitly.
+    vi.mocked(getConfig).mockResolvedValue(makeConfig({ llm_enabled: false }))
   })
 
   it('fetches only suites with failed > 0', async () => {
@@ -233,5 +271,98 @@ describe('RunFailures', () => {
       expect(screen.getByText('ok test')).toBeInTheDocument()
     })
     expect(screen.getByText(/failed to load failing tests for api-cloud/i)).toBeInTheDocument()
+  })
+
+  it('shows an AI summary toggle collapsed by default for each failing test', async () => {
+    vi.mocked(fetchBuildFailedTests).mockResolvedValue([makeTest()])
+    vi.mocked(getConfig).mockResolvedValue(makeConfig())
+    renderWithProviders(<RunFailures run={makeRun()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('should login')).toBeInTheDocument()
+    })
+    const toggle = await screen.findByRole('button', { name: /toggle ai failure summary/i })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('failure-summary-panel')).not.toBeInTheDocument()
+  })
+
+  it('does not render the AI summary toggle at all when llm_enabled is false', async () => {
+    vi.mocked(fetchBuildFailedTests).mockResolvedValue([makeTest()])
+    vi.mocked(getConfig).mockResolvedValue(makeConfig({ llm_enabled: false }))
+    renderWithProviders(<RunFailures run={makeRun()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('should login')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(getConfig).toHaveBeenCalled()
+    })
+    expect(
+      screen.queryByRole('button', { name: /toggle ai failure summary/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not render the AI summary toggle while config has not resolved yet', async () => {
+    vi.mocked(fetchBuildFailedTests).mockResolvedValue([makeTest()])
+    vi.mocked(getConfig).mockReturnValue(new Promise(() => {}))
+    renderWithProviders(<RunFailures run={makeRun()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('should login')).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByRole('button', { name: /toggle ai failure summary/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('mounts the FailureSummaryPanel with the build id/history id when expanded', async () => {
+    vi.mocked(fetchBuildFailedTests).mockResolvedValue([makeTest()])
+    vi.mocked(getConfig).mockResolvedValue(makeConfig())
+    vi.mocked(fetchFailureSummary).mockResolvedValue({
+      enabled: true,
+      summary: {
+        hypothesis: 'Looks like a stale selector.',
+        category: 'test_bug',
+        evidence: ['Element not found'],
+      },
+      disclaimer: 'AI hypothesis — verify before acting.',
+    })
+    renderWithProviders(<RunFailures run={makeRun()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('should login')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /toggle ai failure summary/i }))
+
+    await waitFor(() => {
+      expect(fetchFailureSummary).toHaveBeenCalledWith(2, 103, 'h1')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('AI hypothesis')).toBeInTheDocument()
+    })
+  })
+
+  it('collapses the panel again on a second click', async () => {
+    vi.mocked(fetchBuildFailedTests).mockResolvedValue([makeTest()])
+    vi.mocked(getConfig).mockResolvedValue(makeConfig())
+    vi.mocked(fetchFailureSummary).mockResolvedValue({
+      enabled: true,
+      summary: { hypothesis: 'x', category: 'test_bug', evidence: [] },
+    })
+    renderWithProviders(<RunFailures run={makeRun()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('should login')).toBeInTheDocument()
+    })
+    const toggle = screen.getByRole('button', { name: /toggle ai failure summary/i })
+
+    await userEvent.click(toggle)
+    await waitFor(() => {
+      expect(screen.getByTestId('failure-summary-panel')).toBeInTheDocument()
+    })
+
+    await userEvent.click(toggle)
+    expect(screen.queryByTestId('failure-summary-panel')).not.toBeInTheDocument()
   })
 })
