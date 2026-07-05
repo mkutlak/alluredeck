@@ -200,7 +200,13 @@ claude mcp add --transport http alluredeck https://your.host/mcp \
    - Optionally calls `get_test_history` or `compare_builds` to show whether the failure is new or recurring.
    - Output: the failure message and stack trace, plus a trend summary if history is available.
 
-3. **"Mark this failure as a known flake"**
+3. **"Diagnose build `<N>` and tell me what changed since it last passed"**
+   - Claude calls `diagnose_failure` once for the build; for each failing test it returns the error message, failed-step path, triage signals, and a `last_good` pointer to the most recent build where that test passed (with `builds_since`, branch-scoped when available).
+   - Passing `include_last_good_diff: true` adds a `last_good_diff` per failure — the test's own `passed → failed` transition plus a bounded sample of co-regressions between the last-good build and this one — so the agent can bisect what changed.
+   - No LLM runs server-side; the agent writes the plain-language hypothesis from this evidence (see "No server-side LLM tools" under Known Limitations).
+   - Output: a per-test diagnosis grounded in the last-known-good baseline.
+
+4. **"Mark this failure as a known flake"**
    - Claude calls `propose_mark_flaky` with the test identifier.
    - The tool does not apply the change directly — it creates a proposal and returns a `review_url`.
    - A human must approve or reject the proposal at `/admin/proposals` in the AllureDeck UI.

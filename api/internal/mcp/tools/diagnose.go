@@ -63,6 +63,10 @@ type DiagnoseFailureInput struct {
 	// MaxTests caps the number of failing tests examined in detail. Defaults to
 	// 20, clamped to 100. Tests beyond the cap are reported via `truncated`.
 	MaxTests int `json:"max_tests,omitempty"`
+	// IncludeLastGoodDiff additionally computes the full last-good→current diff
+	// per test (one extra whole-build comparison query each). Off by default to
+	// keep the common path cheap.
+	IncludeLastGoodDiff bool `json:"include_last_good_diff,omitempty"`
 }
 
 // DiagnoseBuildSummary is the build-level header of a diagnose_failure result.
@@ -101,6 +105,13 @@ type DiagnoseTest struct {
 	KnownIssue *KnownIssueRef `json:"known_issue,omitempty"`
 	// Attachments are the build attachments. Omitted when SummaryOnly is set.
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
+	// LastGood points at the build where this test last passed (branch-scoped
+	// when available). Nil when the test has no prior passing build.
+	LastGood *LastGood `json:"last_good,omitempty"`
+	// LastGoodDiff summarizes the last-good→current whole-build comparison.
+	// Populated only when include_last_good_diff is set and a last-good build
+	// exists.
+	LastGoodDiff *LastGoodDiff `json:"last_good_diff,omitempty"`
 }
 
 // DiagnoseFailureOutput is the structured output for diagnose_failure: a
@@ -121,7 +132,7 @@ type DiagnoseFailureOutput struct {
 func RegisterDiagnoseTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "diagnose_failure",
-		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Triage signals (builds-since-pass, last-status, fast-fail baseline) are scoped to the build's branch when available, so comparisons reflect only the same line of development. Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20).",
+		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Triage signals (builds-since-pass, last-status, fast-fail baseline) are scoped to the build's branch when available, so comparisons reflect only the same line of development. Each failing test also carries a `last_good` pointer to the build where it last passed (build_number, commit_sha, builds_since); it is omitted when the test never passed before. Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20). Set include_last_good_diff=true to additionally return, per test, the last-good→current whole-build diff (`last_good_diff`: this test's passed→failed transition plus co-regressions in that span) — one extra comparison query per test, off by default.",
 	}, diagnoseFailureHandler(stores, logger))
 }
 
@@ -165,9 +176,14 @@ func diagnoseFailureHandler(stores *bootstrap.Stores, logger *zap.Logger) func(c
 		// 3. Diagnose each failing test. Attachments are resolved per test
 		//    result inside diagnoseTest (scoped via test_result_id) so a test
 		//    only carries its own attachments, never the whole build's.
+		//    lgCache memoizes the gated last-good→current whole-build diff:
+		//    every test shares the same current build and many share the same
+		//    last-good build, so without it CompareBuildsByHistoryID would be
+		//    re-run identically once per failing test.
+		lgCache := newLastGoodDiffCache()
 		for i := range failing {
 			out.FailingTests = append(out.FailingTests,
-				diagnoseTest(ctx, stores, logger, proj.ID, build, &failing[i], in.SummaryOnly))
+				diagnoseTest(ctx, stores, logger, proj.ID, build, &failing[i], in.SummaryOnly, in.IncludeLastGoodDiff, lgCache))
 		}
 		out.ExaminedTests = len(out.FailingTests)
 
@@ -317,7 +333,7 @@ func diagnoseAttachments(ctx context.Context, stores *bootstrap.Stores, logger *
 // diagnoseTest assembles the diagnosis for a single failing test: failure
 // detail, build history, failed-step path, per-test attachments, and triage
 // signals.
-func diagnoseTest(ctx context.Context, stores *bootstrap.Stores, logger *zap.Logger, projectID int64, build *store.Build, tr *store.TestResult, summaryOnly bool) DiagnoseTest {
+func diagnoseTest(ctx context.Context, stores *bootstrap.Stores, logger *zap.Logger, projectID int64, build *store.Build, tr *store.TestResult, summaryOnly, includeLastGoodDiff bool, lgCache *lastGoodDiffCache) DiagnoseTest {
 	d := DiagnoseTest{
 		FullName:   tr.FullName,
 		HistoryID:  tr.HistoryID,
@@ -361,6 +377,47 @@ func diagnoseTest(ctx context.Context, stores *bootstrap.Stores, logger *zap.Log
 	// available; nil falls back to cross-branch behavior.
 	history := diagnoseTestHistory(ctx, stores, logger, projectID, tr.HistoryID, build.ID, build.BranchID)
 
+	// Last-good pointer: the most recent build before this one where the test
+	// passed (branch-scoped when available). Best-effort — a store error yields
+	// no last-good context rather than failing the diagnosis. Always computed
+	// (one indexed LIMIT 1 row); the heavier whole-build diff below is gated.
+	// beforeBuildOrder is build.BuildNumber (build_order), not build.ID: builds
+	// are not guaranteed to be ingested in build_order sequence, so build.ID
+	// ordering does not reliably reflect chronological order.
+	if lg, err := stores.TestResult.GetLastPassingBuild(ctx, projectID, tr.HistoryID, build.BranchID, build.BuildNumber); err != nil {
+		logger.Warn("diagnose_failure: last-good build fetch failed",
+			zap.Int64("project_id", projectID),
+			zap.String("history_id", tr.HistoryID),
+			zap.Error(err))
+	} else if lg != nil {
+		d.LastGood = &LastGood{
+			BuildID:     lg.BuildID,
+			BuildNumber: lg.BuildNumber,
+			CreatedAt:   lg.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			BuildsSince: buildsSinceLastGood(history.priorBuildOrders, lg.BuildNumber, build.BuildNumber),
+		}
+		if lg.CICommitSHA != nil {
+			d.LastGood.CommitSHA = *lg.CICommitSHA
+		}
+
+		// Whole-build last-good→current diff, gated behind the opt-in flag.
+		// CompareBuildsByHistoryID(lg, current) orders A=last-good, B=current so
+		// StatusFrom/StatusTo read correctly. lgCache memoizes this per
+		// lastGoodBuildID across the failing-tests loop. Best-effort like the
+		// pointer above.
+		if includeLastGoodDiff {
+			if diffs, err := lgCache.get(ctx, stores, projectID, lg.BuildID, build.ID); err != nil {
+				logger.Warn("diagnose_failure: last-good diff comparison failed",
+					zap.Int64("project_id", projectID),
+					zap.String("history_id", tr.HistoryID),
+					zap.Error(err))
+			} else {
+				lgd := buildLastGoodDiff(diffs, tr.HistoryID, lg.BuildID, build.ID)
+				d.LastGoodDiff = &lgd
+			}
+		}
+	}
+
 	// Run triage to attach objective signals.
 	d.Signals = triage.Analyze(triage.Input{
 		DurationMs:          tr.DurationMs,
@@ -385,6 +442,75 @@ type diagnoseHistory struct {
 	// previousStatus is the status of the build immediately preceding the
 	// current (failing) one. Empty when there is no prior build.
 	previousStatus string
+	// priorBuildOrders holds the build_order (TestHistoryEntry.BuildNumber) of
+	// each prior-history entry (the current build excluded), aligned with
+	// `entries`. triage.BuildHistoryEntry does not carry a build identifier, so
+	// this is the source used to count builds since the last-good pass.
+	// GetTestHistory's window is the most-recent diagnoseHistoryDepth builds
+	// project/branch-wide, NOT capped at the currently diagnosed build — when
+	// diagnosing a non-latest build this window can hold builds newer than the
+	// one being diagnosed, so buildsSinceLastGood must bound its count above by
+	// the current build's order too, not just below by the last-good order.
+	priorBuildOrders []int
+}
+
+// buildsSinceLastGood counts prior-history builds whose build_order falls
+// strictly between the last-good build and the current (diagnosed) build:
+// builds that ran after the last-good pass but before the current build. Both
+// bounds are required — the depth-capped history window is the most recent N
+// builds overall, so when a non-latest build is diagnosed it can contain
+// builds newer than currentOrder, which must not be counted. The result is
+// bounded by diagnoseHistoryDepth: a gap wider than the window reports at most
+// diagnoseHistoryDepth-1 even though LastGood itself is found via an uncapped
+// query.
+func buildsSinceLastGood(priorBuildOrders []int, lastGoodOrder, currentOrder int) int {
+	n := 0
+	for _, order := range priorBuildOrders {
+		if order > lastGoodOrder && order < currentOrder {
+			n++
+		}
+	}
+	return n
+}
+
+// lastGoodDiffCache memoizes CompareBuildsByHistoryID(lastGoodBuildID,
+// currentBuildID) results within a single diagnose_failure call. The current
+// build is constant across every failing test in the call, and many failing
+// tests share the same last-good build, so without memoization the same
+// whole-build diff query would be re-run identically once per failing test
+// under include_last_good_diff. Not safe for concurrent use; diagnoseTest is
+// invoked sequentially by diagnoseFailureHandler's loop.
+type lastGoodDiffCache struct {
+	diffs map[int64][]store.DiffEntry
+	errs  map[int64]error
+}
+
+// newLastGoodDiffCache returns an empty cache ready for use.
+func newLastGoodDiffCache() *lastGoodDiffCache {
+	return &lastGoodDiffCache{
+		diffs: make(map[int64][]store.DiffEntry),
+		errs:  make(map[int64]error),
+	}
+}
+
+// get returns the cached diff for lastGoodBuildID, fetching and memoizing it
+// via CompareBuildsByHistoryID on first use (keyed only by lastGoodBuildID
+// since currentBuildID is constant for the lifetime of the cache). A cached
+// error is replayed without re-querying the store.
+func (c *lastGoodDiffCache) get(ctx context.Context, stores *bootstrap.Stores, projectID, lastGoodBuildID, currentBuildID int64) ([]store.DiffEntry, error) {
+	if diffs, ok := c.diffs[lastGoodBuildID]; ok {
+		return diffs, nil
+	}
+	if err, ok := c.errs[lastGoodBuildID]; ok {
+		return nil, err
+	}
+	diffs, err := stores.TestResult.CompareBuildsByHistoryID(ctx, projectID, lastGoodBuildID, currentBuildID)
+	if err != nil {
+		c.errs[lastGoodBuildID] = err
+		return nil, err
+	}
+	c.diffs[lastGoodBuildID] = diffs
+	return diffs, nil
 }
 
 // diagnoseTestHistory fetches a test's recent build history and converts it to
@@ -412,6 +538,7 @@ func diagnoseTestHistory(ctx context.Context, stores *bootstrap.Stores, logger *
 			Status:     r.Status,
 			DurationMs: r.DurationMs,
 		})
+		h.priorBuildOrders = append(h.priorBuildOrders, r.BuildNumber)
 	}
 	// GetTestHistory returns rows most-recent-first; the first prior entry is
 	// the immediately preceding build.

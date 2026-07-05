@@ -436,3 +436,356 @@ func TestGetTestHistory_ReturnsFlakyAndRetries(t *testing.T) {
 		t.Errorf("entries[0].Retries: got %d, want 3", entries[0].Retries)
 	}
 }
+
+// TestGetLastPassingBuild_ReturnsMostRecentPriorPass exercises the new
+// GetLastPassingBuild query against a real Postgres. It verifies: (1) it returns
+// the most recent build STRICTLY before beforeBuildOrder where the test passed;
+// (2) the beforeBuildOrder bound is exclusive; (3) (nil, nil) is returned when
+// the test never passed; and (4) commit_sha is surfaced from the build row.
+func TestGetLastPassingBuild_ReturnsMostRecentPriorPass(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-lastgood-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	const historyID = "hLG"
+
+	// Build a per-test history: order 1 passed, 2 failed, 3 passed, 4 failed
+	// (current). Builds inserted in ascending order so builds.id (a monotonic
+	// IDENTITY) tracks build_order.
+	statuses := []struct {
+		order  int
+		status string
+	}{
+		{1, "passed"},
+		{2, "failed"},
+		{3, "passed"},
+		{4, "failed"},
+	}
+	buildIDByOrder := make(map[int]int64, len(statuses))
+	for _, st := range statuses {
+		if err := buildStore.InsertBuild(ctx, projectID, st.order); err != nil {
+			t.Fatalf("InsertBuild %d: %v", st.order, err)
+		}
+		bid, err := trStore.GetBuildID(ctx, projectID, st.order)
+		if err != nil {
+			t.Fatalf("GetBuildID %d: %v", st.order, err)
+		}
+		buildIDByOrder[st.order] = bid
+		if err := trStore.InsertBatch(ctx, []store.TestResult{{
+			BuildID: bid, ProjectID: projectID,
+			TestName: "lg test", FullName: "suite > lg test",
+			HistoryID: historyID, Status: st.status, DurationMs: 100,
+		}}); err != nil {
+			t.Fatalf("InsertBatch order %d: %v", st.order, err)
+		}
+	}
+	// Attach a commit SHA to the last-good build (order 3) to confirm it surfaces.
+	if err := buildStore.UpdateBuildCIMetadata(ctx, projectID, 3, store.CIMetadata{CommitSHA: "sha-order-3"}); err != nil {
+		t.Fatalf("UpdateBuildCIMetadata: %v", err)
+	}
+
+	// 1. Before the current build (order 4): most recent prior pass is order 3.
+	got, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 4)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(before order 4): %v", err)
+	}
+	if got == nil {
+		t.Fatal("want a last-good build before order 4, got nil")
+	}
+	if got.BuildNumber != 3 {
+		t.Errorf("build_number: got %d, want 3 (most recent prior pass)", got.BuildNumber)
+	}
+	if got.BuildID != buildIDByOrder[3] {
+		t.Errorf("build_id: got %d, want %d", got.BuildID, buildIDByOrder[3])
+	}
+	if got.Status != "passed" {
+		t.Errorf("status: got %q, want passed", got.Status)
+	}
+	if got.CICommitSHA == nil || *got.CICommitSHA != "sha-order-3" {
+		t.Errorf("ci_commit_sha: got %v, want sha-order-3", got.CICommitSHA)
+	}
+
+	// 2. beforeBuildOrder is exclusive: before order 3 (the pass itself), the
+	//    query must skip order 3 and return the earlier pass at order 1.
+	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 3)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(before order 3): %v", err)
+	}
+	if got == nil {
+		t.Fatal("want a last-good build before order 3, got nil")
+	}
+	if got.BuildNumber != 1 {
+		t.Errorf("build_number: got %d, want 1 (exclusive bound skips order 3)", got.BuildNumber)
+	}
+
+	// 3. Before order 1 there is no prior pass → (nil, nil).
+	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 1)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(before order 1): %v", err)
+	}
+	if got != nil {
+		t.Errorf("want nil when no prior passing build exists, got %+v", got)
+	}
+
+	// 4. A test that never passed → (nil, nil).
+	if err := trStore.InsertBatch(ctx, []store.TestResult{{
+		BuildID: buildIDByOrder[4], ProjectID: projectID,
+		TestName: "never", FullName: "suite > never", HistoryID: "hNever",
+		Status: "failed", DurationMs: 50,
+	}}); err != nil {
+		t.Fatalf("InsertBatch never: %v", err)
+	}
+	got, err = trStore.GetLastPassingBuild(ctx, projectID, "hNever", nil, 4)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(hNever): %v", err)
+	}
+	if got != nil {
+		t.Errorf("want nil for a test that never passed, got %+v", got)
+	}
+}
+
+// TestGetLastPassingBuild_EmptyHistoryIDGuard verifies that an empty historyID
+// short-circuits to (nil, nil) instead of matching the many unrelated
+// test_results rows that share the empty history_id (tests without a stable
+// identity). Without the guard, `tr.history_id=”` would match any such row
+// with status='passed' below the bound, yielding a spurious last-good result
+// for a test that isn't even the one being diagnosed.
+func TestGetLastPassingBuild_EmptyHistoryIDGuard(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-lastgood-emptyhid-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+	// A passed row with an empty history_id — unrelated to any specific test's
+	// identity, but exactly the kind of row an unguarded query would match.
+	if err := trStore.InsertBatch(ctx, []store.TestResult{{
+		BuildID: buildID, ProjectID: projectID,
+		TestName: "unrelated", FullName: "suite > unrelated",
+		HistoryID: "", Status: "passed", DurationMs: 10,
+	}}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+
+	got, err := trStore.GetLastPassingBuild(ctx, projectID, "", nil, 2)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(\"\"): %v", err)
+	}
+	if got != nil {
+		t.Errorf("want nil for an empty historyID (must not match unrelated empty-history_id rows), got %+v", got)
+	}
+}
+
+// TestGetLastPassingBuild_OutOfOrderIngestion_UsesBuildOrderNotID is a
+// regression test for keying GetLastPassingBuild on build_order instead of the
+// surrogate builds.id. Builds are not guaranteed to be ingested in build_order
+// sequence: a backfill/reconciliation pass can insert an older (lower
+// build_order) build AFTER newer ones already exist, so its IDENTITY-generated
+// id is HIGHER than builds with a greater build_order. This test constructs
+// exactly that: build_order 5 and 10 are inserted first (ids increasing with
+// insertion order), then build_order 7 is backfilled afterward and receives a
+// HIGHER id than build_order 10 despite being chronologically earlier. The
+// correct last-good build (by build_order, the human-facing build number)
+// before build_order 10 is build_order 7 — the one with the greatest
+// build_order below the bound — NOT the one with the greatest id.
+func TestGetLastPassingBuild_OutOfOrderIngestion_UsesBuildOrderNotID(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-lastgood-outoforder-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	const historyID = "hOutOfOrder"
+
+	// Ingestion order (matches insertion order below, NOT build_order order):
+	//   1st inserted: build_order=5,  status=passed  → gets the LOWEST id
+	//   2nd inserted: build_order=10, status=failed   → gets a HIGHER id (current)
+	//   3rd inserted: build_order=7,  status=passed   → backfilled LAST, gets the
+	//                                                    HIGHEST id despite build_order
+	//                                                    7 < 10.
+	type seed struct {
+		order  int
+		status string
+	}
+	for _, sd := range []seed{
+		{5, "passed"},
+		{10, "failed"},
+		{7, "passed"}, // backfilled out of order
+	} {
+		if err := buildStore.InsertBuild(ctx, projectID, sd.order); err != nil {
+			t.Fatalf("InsertBuild order=%d: %v", sd.order, err)
+		}
+		bid, err := trStore.GetBuildID(ctx, projectID, sd.order)
+		if err != nil {
+			t.Fatalf("GetBuildID order=%d: %v", sd.order, err)
+		}
+		if err := trStore.InsertBatch(ctx, []store.TestResult{{
+			BuildID: bid, ProjectID: projectID,
+			TestName: "out of order test", FullName: "suite > out of order test",
+			HistoryID: historyID, Status: sd.status, DurationMs: 100,
+		}}); err != nil {
+			t.Fatalf("InsertBatch order=%d: %v", sd.order, err)
+		}
+	}
+
+	// Sanity-check the premise: build_order=7's id must be greater than
+	// build_order=10's id (the whole point of the regression). If this ever
+	// stops holding (e.g. IDENTITY behavior changes), the test premise itself
+	// is invalid, so fail loudly rather than silently passing for the wrong
+	// reason.
+	idOf := func(order int) int64 {
+		bid, err := trStore.GetBuildID(ctx, projectID, order)
+		if err != nil {
+			t.Fatalf("GetBuildID order=%d: %v", order, err)
+		}
+		return bid
+	}
+	if idOf(7) <= idOf(10) {
+		t.Fatalf("test premise violated: expected build_order=7's id (%d) > build_order=10's id (%d)", idOf(7), idOf(10))
+	}
+
+	got, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 10)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(before order 10): %v", err)
+	}
+	if got == nil {
+		t.Fatal("want a last-good build before order 10, got nil")
+	}
+	if got.BuildNumber != 7 {
+		t.Errorf("build_number: got %d, want 7 (greatest build_order below the bound) — "+
+			"a build_order=5 result here means the query is still keying on builds.id", got.BuildNumber)
+	}
+}
+
+// TestGetLastPassingBuild_BranchScoped verifies that when branchID is non-nil
+// the query only considers builds on that branch, and that a nil branchID scopes
+// cross-branch (returning the most recent prior pass on any branch).
+func TestGetLastPassingBuild_BranchScoped(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	branchStore := pg.NewBranchStore(s)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-lastgood-branch-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	mainBranch, _, err := branchStore.GetOrCreate(ctx, projectID, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main: %v", err)
+	}
+	featureBranch, _, err := branchStore.GetOrCreate(ctx, projectID, "feature")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature: %v", err)
+	}
+
+	const historyID = "hBr"
+	// order 1 (main): passed; order 2 (feature): passed; order 3 (feature):
+	// failed (current). Inserted ascending so ids track build_order.
+	builds := []struct {
+		order    int
+		branchID int64
+		status   string
+	}{
+		{1, mainBranch.ID, "passed"},
+		{2, featureBranch.ID, "passed"},
+		{3, featureBranch.ID, "failed"},
+	}
+	buildIDByOrder := make(map[int]int64, len(builds))
+	for _, b := range builds {
+		if err := buildStore.InsertBuild(ctx, projectID, b.order); err != nil {
+			t.Fatalf("InsertBuild %d: %v", b.order, err)
+		}
+		if err := buildStore.UpdateBuildBranchID(ctx, projectID, b.order, b.branchID); err != nil {
+			t.Fatalf("UpdateBuildBranchID %d: %v", b.order, err)
+		}
+		bid, err := trStore.GetBuildID(ctx, projectID, b.order)
+		if err != nil {
+			t.Fatalf("GetBuildID %d: %v", b.order, err)
+		}
+		buildIDByOrder[b.order] = bid
+		if err := trStore.InsertBatch(ctx, []store.TestResult{{
+			BuildID: bid, ProjectID: projectID,
+			TestName: "br test", FullName: "suite > br test",
+			HistoryID: historyID, Status: b.status, DurationMs: 100,
+		}}); err != nil {
+			t.Fatalf("InsertBatch order %d: %v", b.order, err)
+		}
+	}
+
+	const currentOrder = 3
+
+	// Feature-scoped: only the feature-branch pass at order 2 qualifies.
+	got, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, &featureBranch.ID, currentOrder)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(feature): %v", err)
+	}
+	if got == nil || got.BuildNumber != 2 {
+		t.Fatalf("feature-scoped: got %+v, want build_number 2", got)
+	}
+
+	// Main-scoped: only the main-branch pass at order 1 qualifies.
+	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, &mainBranch.ID, currentOrder)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(main): %v", err)
+	}
+	if got == nil || got.BuildNumber != 1 {
+		t.Fatalf("main-scoped: got %+v, want build_number 1", got)
+	}
+
+	// Cross-branch (nil): most recent prior pass on any branch is order 2.
+	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, currentOrder)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild(cross-branch): %v", err)
+	}
+	if got == nil || got.BuildNumber != 2 {
+		t.Fatalf("cross-branch: got %+v, want build_number 2", got)
+	}
+}

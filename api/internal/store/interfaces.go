@@ -167,6 +167,19 @@ type TestResultReader interface {
 	ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]TestResult, error)
 	GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error)
 	CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]DiffEntry, error)
+	// GetLastPassingBuild returns the most recent build strictly BEFORE
+	// beforeBuildOrder in which the test identified by historyID passed, scoped
+	// to branchID when non-nil. Returns (nil, nil) when the test has no prior
+	// passing build or when historyID is empty (an empty history_id matches
+	// many unrelated test rows, so it is never a valid lookup key).
+	// beforeBuildOrder is a builds.build_order (the human-facing build number,
+	// store.Build.BuildNumber) — NOT builds.id. Builds are not guaranteed to be
+	// ingested in build_order sequence (e.g. backfills insert older builds
+	// after newer ones), so builds.id ordering does not reliably track
+	// build_order; every other test-history query in this interface
+	// (GetTestHistory, CompareBuildsByHistoryID's implicit ordering) keys on
+	// build_order for the same reason.
+	GetLastPassingBuild(ctx context.Context, projectID int64, historyID string, branchID *int64, beforeBuildOrder int) (*TestHistoryEntry, error)
 }
 
 // TestResultDefectReader covers fingerprinting and defect-oriented test result queries.

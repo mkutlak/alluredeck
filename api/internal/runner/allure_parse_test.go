@@ -57,6 +57,9 @@ func (s *spyTestResultStore) ListFailedByBuild(_ context.Context, _ int64, _ int
 func (s *spyTestResultStore) GetTestHistory(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
 	return nil, nil
 }
+func (s *spyTestResultStore) GetLastPassingBuild(_ context.Context, _ int64, _ string, _ *int64, _ int) (*store.TestHistoryEntry, error) {
+	return nil, nil
+}
 func (s *spyTestResultStore) DeleteByBuild(_ context.Context, _ int64) error   { return nil }
 func (s *spyTestResultStore) DeleteByProject(_ context.Context, _ int64) error { return nil }
 func (s *spyTestResultStore) CompareBuildsByHistoryID(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {

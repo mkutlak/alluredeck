@@ -450,6 +450,7 @@ type MockTestResultStore struct {
 	ListStabilityByBuildFn        func(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error)
 	MarkFlakyByHistoryIDFn        func(ctx context.Context, projectID int64, historyID, fullName string) error
 	GetTestHistoryFn              func(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error)
+	GetLastPassingBuildFn         func(ctx context.Context, projectID int64, historyID string, branchID *int64, beforeBuildOrder int) (*store.TestHistoryEntry, error)
 	DeleteByBuildFn               func(ctx context.Context, buildID int64) error
 	DeleteByProjectFn             func(ctx context.Context, projectID int64) error
 	CompareBuildsByHistoryIDFn    func(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
@@ -512,6 +513,13 @@ func (m *MockTestResultStore) ListFailedByBuild(ctx context.Context, projectID i
 func (m *MockTestResultStore) GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]store.TestHistoryEntry, error) {
 	if m.GetTestHistoryFn != nil {
 		return m.GetTestHistoryFn(ctx, projectID, historyID, branchID, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockTestResultStore) GetLastPassingBuild(ctx context.Context, projectID int64, historyID string, branchID *int64, beforeBuildOrder int) (*store.TestHistoryEntry, error) {
+	if m.GetLastPassingBuildFn != nil {
+		return m.GetLastPassingBuildFn(ctx, projectID, historyID, branchID, beforeBuildOrder)
 	}
 	return nil, nil
 }

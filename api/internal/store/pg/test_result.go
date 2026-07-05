@@ -499,6 +499,57 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, 
 	return entries, nil
 }
 
+// GetLastPassingBuild returns the most recent build strictly before
+// beforeBuildOrder in which the test identified by historyID passed, scoped to
+// branchID when non-nil. It mirrors GetTestHistory's join and branch-scoping
+// clause. beforeBuildOrder is a builds.build_order (NOT builds.id): builds are
+// not guaranteed to be ingested in build_order sequence (backfills can insert
+// an older build after newer ones already exist, so the IDENTITY-generated
+// b.id does not reliably track build_order), so the predicate and ORDER BY
+// both key on b.build_order for correctness — matching GetTestHistory's own
+// ordering column. Returns (nil, nil) when the test has no prior passing
+// build, or immediately when historyID is empty: an empty history_id matches
+// every test lacking one, so it must never be used as a lookup key.
+func (ts *TestResultStore) GetLastPassingBuild(ctx context.Context, projectID int64, historyID string, branchID *int64, beforeBuildOrder int) (*store.TestHistoryEntry, error) {
+	if historyID == "" {
+		return nil, nil
+	}
+
+	var row pgx.Row
+	if branchID != nil {
+		row = ts.pool.QueryRow(ctx, `
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
+			FROM test_results tr
+			JOIN builds b ON tr.build_id=b.id
+			WHERE tr.project_id=$1 AND tr.history_id=$2 AND tr.status=$3
+			  AND b.branch_id=$4 AND b.build_order < $5
+			ORDER BY b.build_order DESC
+			LIMIT 1`, projectID, historyID, string(store.TestStatusPassed), *branchID, beforeBuildOrder)
+	} else {
+		row = ts.pool.QueryRow(ctx, `
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
+			FROM test_results tr
+			JOIN builds b ON tr.build_id=b.id
+			WHERE tr.project_id=$1 AND tr.history_id=$2 AND tr.status=$3
+			  AND b.build_order < $4
+			ORDER BY b.build_order DESC
+			LIMIT 1`, projectID, historyID, string(store.TestStatusPassed), beforeBuildOrder)
+	}
+
+	var e store.TestHistoryEntry
+	var createdAt time.Time
+	var ciCommitSHA *string
+	if err := row.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA, &e.Flaky, &e.Retries); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get last passing build: %w", err)
+	}
+	e.CreatedAt = createdAt
+	e.CICommitSHA = ciCommitSHA
+	return &e, nil
+}
+
 // DeleteByBuild removes all test results for a specific build.
 func (ts *TestResultStore) DeleteByBuild(ctx context.Context, buildID int64) error {
 	_, err := ts.pool.Exec(ctx, "DELETE FROM test_results WHERE build_id=$1", buildID)
