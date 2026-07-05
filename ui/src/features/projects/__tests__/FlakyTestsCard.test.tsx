@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router'
 import { createTestQueryClient } from '@/test/render'
 import { FlakyTestsCard } from '../FlakyTestsCard'
 import { ApiError } from '@/api/client'
@@ -11,10 +12,12 @@ import { mockApiClient } from '@/test/mocks/api-client'
 vi.mock('@/api/reports')
 mockApiClient()
 
-function renderCard(projectId = 'myproject') {
+function renderCard(projectId = 'myproject', numericProjectId?: number) {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
-      <FlakyTestsCard projectId={projectId} />
+      <MemoryRouter>
+        <FlakyTestsCard projectId={projectId} numericProjectId={numericProjectId} />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -55,6 +58,91 @@ describe('FlakyTestsCard', () => {
     await waitFor(() => {
       expect(screen.getByText('TestLogin')).toBeInTheDocument()
     })
+  })
+
+  it('shows a flaky badge with the retry count for each test', async () => {
+    vi.mocked(reportsApi.fetchReportStability).mockResolvedValue({
+      flaky_tests: [
+        {
+          name: 'TestLogin',
+          full_name: 'pkg.TestLogin',
+          status: 'failed',
+          retries_count: 3,
+          retries_status_change: true,
+        },
+      ],
+      new_failed: [],
+      new_passed: [],
+      summary: {
+        flaky_count: 1,
+        retried_count: 3,
+        new_failed_count: 0,
+        new_passed_count: 0,
+        total: 10,
+      },
+    })
+    renderCard()
+    await waitFor(() => {
+      expect(screen.getByText('flaky · 3x')).toBeInTheDocument()
+    })
+  })
+
+  it('shows a link to the flaky-impact analytics view when the numeric project id is known', async () => {
+    vi.mocked(reportsApi.fetchReportStability).mockResolvedValue({
+      flaky_tests: [
+        {
+          name: 'TestLogin',
+          full_name: 'pkg.TestLogin',
+          status: 'failed',
+          retries_count: 1,
+          retries_status_change: true,
+        },
+      ],
+      new_failed: [],
+      new_passed: [],
+      summary: {
+        flaky_count: 1,
+        retried_count: 1,
+        new_failed_count: 0,
+        new_passed_count: 0,
+        total: 10,
+      },
+    })
+    renderCard('myproject', 42)
+    await waitFor(() => {
+      expect(screen.getByTestId('flaky-impact-link')).toHaveAttribute(
+        'href',
+        '/projects/42/analytics',
+      )
+    })
+  })
+
+  it('does not show the flaky-impact link when the numeric project id is unresolved', async () => {
+    vi.mocked(reportsApi.fetchReportStability).mockResolvedValue({
+      flaky_tests: [
+        {
+          name: 'TestLogin',
+          full_name: 'pkg.TestLogin',
+          status: 'failed',
+          retries_count: 1,
+          retries_status_change: true,
+        },
+      ],
+      new_failed: [],
+      new_passed: [],
+      summary: {
+        flaky_count: 1,
+        retried_count: 1,
+        new_failed_count: 0,
+        new_passed_count: 0,
+        total: 10,
+      },
+    })
+    renderCard()
+    await waitFor(() => {
+      expect(screen.getByText('TestLogin')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('flaky-impact-link')).not.toBeInTheDocument()
   })
 
   it('renders nothing when no flaky tests', async () => {

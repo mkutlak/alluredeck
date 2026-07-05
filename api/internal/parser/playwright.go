@@ -288,14 +288,17 @@ func convertPWTest(fileName string, test *pwTestJSON) *Result {
 	fullName := strings.Join(fullNameParts, " > ")
 
 	status := mapPWOutcome(test.Outcome)
+	flaky := test.Outcome == "flaky"
 
 	var statusMessage, statusTrace string
 	var startMs, stopMs, durationMs int64
+	var retries int
 	var steps []Step
 	var attachments []Attachment
 
 	if len(test.Results) > 0 {
 		last := test.Results[len(test.Results)-1]
+		retries = last.Retry
 
 		// Parse start time.
 		if t, err := time.Parse(time.RFC3339Nano, last.StartTime); err == nil {
@@ -343,6 +346,8 @@ func convertPWTest(fileName string, test *pwTestJSON) *Result {
 		StartMs:       startMs,
 		StopMs:        stopMs,
 		DurationMs:    durationMs,
+		Flaky:         flaky,
+		Retries:       retries,
 		Labels:        labels,
 		Parameters:    nil,
 		Steps:         steps,

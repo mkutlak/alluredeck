@@ -5,6 +5,7 @@ import type {
   SuitePassRate,
   LabelCount,
   TrendsData,
+  FlakyImpactData,
 } from '@/types/api'
 
 export async function fetchTopErrors(
@@ -53,6 +54,19 @@ export async function fetchTrends(
   const res = await apiClient.get<{ data: TrendsData; metadata: { message: string } }>(
     `/projects/${encodeURIComponent(projectId)}/analytics/trends`,
     { params: { builds, ...(branch ? { branch } : {}) } },
+  )
+  return res.data.data
+}
+
+export async function fetchFlakyImpact(
+  projectId: string,
+  builds = 20,
+  limit = 10,
+  branch?: string,
+): Promise<FlakyImpactData> {
+  const res = await apiClient.get<{ data: FlakyImpactData; metadata: { message: string } }>(
+    `/projects/${encodeURIComponent(projectId)}/analytics/flaky`,
+    { params: { builds, limit, ...(branch ? { branch } : {}) } },
   )
   return res.data.data
 }

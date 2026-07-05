@@ -345,6 +345,10 @@ type AnalyticsStorer interface {
 	ListLabelBreakdown(ctx context.Context, projectIDs []int64, labelName string, builds int, branchID *int64) ([]LabelCount, error)
 	// ListTrendPoints returns per-build statistics for the last N builds, ordered chronologically (oldest first).
 	ListTrendPoints(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]TrendPoint, error)
+	// ListFlakyImpact returns tests with flaky/retry impact metrics across the
+	// last N builds (optionally scoped to a branch), ordered by wasted time
+	// (retries * duration) descending, then flaky count descending.
+	ListFlakyImpact(ctx context.Context, projectID int64, branchID *int64, builds, limit int) ([]FlakyImpact, error)
 }
 
 // PipelineStorer provides cross-project pipeline run queries for parent projects.
@@ -569,6 +573,10 @@ type DefectWriter interface {
 	AutoResolveFixed(ctx context.Context, projectID int64, threshold int) (int, error)
 	// DetectRegressions returns fingerprint IDs that were previously fixed but reappeared in this build.
 	DetectRegressions(ctx context.Context, projectID int64, buildID int64) ([]string, error)
+	// MarkRegressions sets is_regression=true on the defect_occurrences rows for
+	// the given build and fingerprint IDs (typically the output of
+	// DetectRegressions). It is a no-op when fingerprintIDs is empty.
+	MarkRegressions(ctx context.Context, buildID int64, fingerprintIDs []string) error
 }
 
 // DefectReader covers defect fingerprint lookup, listing, and summary queries.
@@ -587,6 +595,13 @@ type DefectReader interface {
 	GetProjectSummary(ctx context.Context, projectID int64) (*DefectProjectSummary, error)
 	// GetBuildSummary returns aggregated defect counts for a single build.
 	GetBuildSummary(ctx context.Context, projectID int64, buildID int64) (*DefectBuildSummary, error)
+	// ListRegressionsForBuild returns the defects marked as regressions
+	// (is_regression=true) for a single build, via MarkRegressions.
+	ListRegressionsForBuild(ctx context.Context, projectID, buildID int64) ([]DefectRegression, error)
+	// ListRegressionsSince returns, grouped by project, the defect regressions
+	// observed in builds created at or after since. Used by cross-project
+	// digest/notification jobs.
+	ListRegressionsSince(ctx context.Context, since time.Time) ([]ProjectRegressions, error)
 }
 
 // DefectClassifier covers manual defect reclassification operations.

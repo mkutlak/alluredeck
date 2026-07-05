@@ -236,6 +236,8 @@ type TestHistoryEntry struct {
 	DurationMs  int64
 	CreatedAt   time.Time
 	CICommitSHA *string
+	Flaky       bool
+	Retries     int
 }
 
 // KnownIssue represents a known test failure that has been acknowledged.
@@ -327,6 +329,7 @@ const (
 	WebhookEventReportCompleted    = "report_completed"
 	WebhookEventReportFailed       = "report_failed"
 	WebhookEventRegressionDetected = "regression_detected"
+	WebhookEventDigest             = "digest"
 )
 
 // DiffEntry represents a single test in a build comparison result.
@@ -533,4 +536,40 @@ type FlakyProposal struct {
 	ReviewedByUserID int64 // nullable in DB; 0 when null
 	ReviewedAt       *time.Time
 	CreatedAt        time.Time
+}
+
+// DefectRegression holds a single reopened defect fingerprint observed in a
+// build: a fingerprint that was previously resolved/fixed but reappeared.
+type DefectRegression struct {
+	ID                string `json:"id"`
+	NormalizedMessage string `json:"normalized_message"`
+	Category          string `json:"category"`
+	OccurrenceCount   int    `json:"occurrence_count"`
+	BuildOrder        int    `json:"build_order"`
+}
+
+// ProjectRegressions groups a project's defect regressions for cross-project
+// digest/notification queries (e.g. ListRegressionsSince).
+type ProjectRegressions struct {
+	ProjectID   int64              `json:"project_id"`
+	Slug        string             `json:"slug"`
+	Regressions []DefectRegression `json:"regressions"`
+}
+
+// FlakyImpact holds aggregated flaky/retry impact metrics for a single test
+// (identified by FullName) across a window of recent builds.
+type FlakyImpact struct {
+	FullName            string    `json:"full_name"`
+	FlakyCount          int       `json:"flaky_count"`
+	RetrySum            int       `json:"retry_sum"`
+	WastedMs            int64     `json:"wasted_ms"`
+	FailureRate         float64   `json:"failure_rate"`
+	Runs                int       `json:"runs"`
+	BuildsAffected      int       `json:"builds_affected"`
+	FirstSeenBuildOrder int       `json:"first_seen_build_order"`
+	FirstSeenBuildID    int64     `json:"first_seen_build_id"`
+	LastSeenBuildOrder  int       `json:"last_seen_build_order"`
+	LastSeenBuildID     int64     `json:"last_seen_build_id"`
+	LastSeenAt          time.Time `json:"last_seen_at"`
+	CIBuildURL          string    `json:"ci_build_url,omitempty"`
 }

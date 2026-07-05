@@ -1,16 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router'
 import { fetchReportStability } from '@/api/reports'
 import { ApiError } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { FlakyBadge } from '@/components/ui/FlakyBadge'
 import { CardState } from '@/components/ui/CardState'
 
 interface Props {
   projectId: string
+  /** Numeric project_id used to build the flaky-impact link — omit while unresolved. */
+  numericProjectId?: number
 }
 
-export function FlakyTestsCard({ projectId }: Props) {
+export function FlakyTestsCard({ projectId, numericProjectId }: Props) {
   const {
     data: stability,
     isLoading,
@@ -42,14 +46,25 @@ export function FlakyTestsCard({ projectId }: Props) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">
-          Flaky Tests
-          {summary && summary.flaky_count > 0 && (
-            <Badge variant="secondary" className="ml-2 text-xs">
-              {summary.flaky_count}
-            </Badge>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium">
+            Flaky Tests
+            {summary && summary.flaky_count > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {summary.flaky_count}
+              </Badge>
+            )}
+          </CardTitle>
+          {numericProjectId != null && (
+            <Link
+              to={`/projects/${numericProjectId}/analytics`}
+              className="text-primary text-xs whitespace-nowrap hover:underline"
+              data-testid="flaky-impact-link"
+            >
+              View flaky impact
+            </Link>
           )}
-        </CardTitle>
+        </div>
       </CardHeader>
       <CardContent>
         <CardState
@@ -68,11 +83,7 @@ export function FlakyTestsCard({ projectId }: Props) {
                   {test.name}
                 </span>
                 <div className="flex shrink-0 gap-1">
-                  {test.retries_count > 0 && (
-                    <Badge variant="broken" className="text-xs">
-                      {test.retries_count}x
-                    </Badge>
-                  )}
+                  <FlakyBadge retries={test.retries_count} />
                   <Badge
                     variant={test.status === 'passed' ? 'secondary' : 'destructive'}
                     className="text-xs"

@@ -242,3 +242,197 @@ func TestInsertBatchFull_DuplicateHistoryID_NoDuplicateChildren(t *testing.T) {
 		}
 	}
 }
+
+// TestInsertBatchFull_PersistsFlakyAndRetries verifies InsertBatchFull writes
+// the Flaky/Retries fields from parser.Result (the Playwright enrichment path,
+// which — unlike Allure's InsertBatch — previously had no column mapping for
+// them at all) and that a re-upsert (ON CONFLICT) updates them in place.
+func TestInsertBatchFull_PersistsFlakyAndRetries(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-insertbatchfull-flaky-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+
+	result := &parser.Result{
+		Name: "flaky pw test", FullName: "spec/flaky.ts > flaky pw test",
+		HistoryID: "hist-flaky-pw", Status: "passed",
+		StartMs: 100, StopMs: 200, Flaky: true, Retries: 2,
+	}
+
+	if err := trStore.InsertBatchFull(ctx, buildID, projectID, []*parser.Result{result}); err != nil {
+		t.Fatalf("InsertBatchFull: %v", err)
+	}
+
+	var flaky bool
+	var retries int
+	if err := s.Pool().QueryRow(ctx,
+		"SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
+		buildID, "hist-flaky-pw").Scan(&flaky, &retries); err != nil {
+		t.Fatalf("scan flaky/retries: %v", err)
+	}
+	if !flaky {
+		t.Error("flaky: got false, want true")
+	}
+	if retries != 2 {
+		t.Errorf("retries: got %d, want 2", retries)
+	}
+
+	// Re-upsert must MERGE, not clobber: a later pass carrying flaky=false /
+	// retries=0 (exactly what the Allure parser produces on parser.Result during
+	// the enrichment pass) must NOT wipe a flaky flag an earlier pass recorded.
+	// flaky is OR-merged; retries takes the max.
+	result.Flaky = false
+	result.Retries = 0
+	if err := trStore.InsertBatchFull(ctx, buildID, projectID, []*parser.Result{result}); err != nil {
+		t.Fatalf("InsertBatchFull (re-upsert): %v", err)
+	}
+	if err := s.Pool().QueryRow(ctx,
+		"SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
+		buildID, "hist-flaky-pw").Scan(&flaky, &retries); err != nil {
+		t.Fatalf("scan flaky/retries (post re-upsert): %v", err)
+	}
+	if !flaky {
+		t.Error("flaky: got false, want true preserved after a clobbering re-upsert")
+	}
+	if retries != 2 {
+		t.Errorf("retries: got %d, want 2 preserved after re-upsert", retries)
+	}
+}
+
+// TestInsertBatch_ThenInsertBatchFull_PreservesAllureFlaky reproduces the real
+// Allure ingest sequence: InsertBatch records the authoritative flaky/retries
+// from stability entries, then InsertBatchFull runs for enrichment with
+// parser.Result rows whose Flaky/Retries are zero (the Allure parser never sets
+// them). The enrichment UPSERT must NOT clobber the flaky flag back to false.
+func TestInsertBatch_ThenInsertBatchFull_PreservesAllureFlaky(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-allure-flaky-preserve-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+
+	// 1. InsertBatch: the authoritative flaky/retries from Allure stability data.
+	if err := trStore.InsertBatch(ctx, []store.TestResult{{
+		BuildID: buildID, ProjectID: projectID,
+		TestName: "flaky allure test", FullName: "suite > flaky allure test",
+		HistoryID: "hist-allure-flaky", Status: "passed", DurationMs: 100,
+		Flaky: true, Retries: 3, StartMs: i64p(10), StopMs: i64p(110),
+	}}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+
+	// 2. InsertBatchFull enrichment: the Allure parser leaves Flaky/Retries zero.
+	if err := trStore.InsertBatchFull(ctx, buildID, projectID, []*parser.Result{{
+		Name: "flaky allure test", FullName: "suite > flaky allure test",
+		HistoryID: "hist-allure-flaky", Status: "passed",
+		StartMs: 10, StopMs: 110, // Flaky/Retries deliberately zero, as Allure yields
+	}}); err != nil {
+		t.Fatalf("InsertBatchFull: %v", err)
+	}
+
+	var flaky bool
+	var retries int
+	if err := s.Pool().QueryRow(ctx,
+		"SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
+		buildID, "hist-allure-flaky").Scan(&flaky, &retries); err != nil {
+		t.Fatalf("scan flaky/retries: %v", err)
+	}
+	if !flaky {
+		t.Error("flaky: got false, want true — InsertBatchFull clobbered the Allure flaky flag")
+	}
+	if retries != 3 {
+		t.Errorf("retries: got %d, want 3 — InsertBatchFull clobbered the Allure retries", retries)
+	}
+}
+
+// TestGetTestHistory_ReturnsFlakyAndRetries verifies GetTestHistory surfaces
+// the per-run Flaky/Retries fields alongside status and duration.
+func TestGetTestHistory_ReturnsFlakyAndRetries(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-history-flaky-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+
+	const historyID = "hist-flaky-history"
+	results := []store.TestResult{
+		{
+			BuildID: buildID, ProjectID: projectID,
+			TestName: "flaky history test", FullName: "spec/history.ts > flaky history test",
+			Status: "passed", HistoryID: historyID, DurationMs: 500,
+			Flaky: true, Retries: 3,
+		},
+	}
+	if err := trStore.InsertBatch(ctx, results); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+
+	entries, err := trStore.GetTestHistory(ctx, projectID, historyID, nil, 10)
+	if err != nil {
+		t.Fatalf("GetTestHistory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries count: got %d, want 1", len(entries))
+	}
+	if !entries[0].Flaky {
+		t.Error("entries[0].Flaky: got false, want true")
+	}
+	if entries[0].Retries != 3 {
+		t.Errorf("entries[0].Retries: got %d, want 3", entries[0].Retries)
+	}
+}

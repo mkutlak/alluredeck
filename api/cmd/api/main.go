@@ -71,6 +71,7 @@ type handlerSet struct {
 	compare         *handlers.CompareHandler
 	dashboard       *handlers.DashboardHandler
 	lowPerf         *handlers.LowPerformingHandler
+	flakyImpact     *handlers.FlakyImpactHandler
 	projectTimeline *handlers.ProjectTimelineHandler
 	knownIssue      *handlers.KnownIssueHandler
 	attachment      *handlers.AttachmentHandler
@@ -174,7 +175,7 @@ func main() {
 		Logger:          logger,
 	})
 
-	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, dataStore, cfg, encKey, cfg.ExternalURL, 2, cfg.ReportGenerationTimeout.Duration(), logger)
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, s.defect, dataStore, cfg, encKey, cfg.ExternalURL, 2, cfg.ReportGenerationTimeout.Duration(), logger)
 	if err != nil {
 		logger.Fatal("failed to create River job manager", zap.Error(err))
 	}
@@ -497,6 +498,7 @@ func wireHandlers(
 		compare:         handlers.NewCompareHandler(s.testResult, s.project),
 		dashboard:       handlers.NewDashboardHandler(s.build, logger),
 		lowPerf:         handlers.NewLowPerformingHandler(s.testResult, s.branch, s.project, logger),
+		flakyImpact:     handlers.NewFlakyImpactHandler(s.analytics, s.branch, s.project, logger),
 		projectTimeline: handlers.NewProjectTimelineHandler(s.build, s.testResult, s.branch, s.project),
 		knownIssue:      handlers.NewKnownIssueHandler(s.knownIssue, s.project, s.testResult, s.build, dataStore, logger),
 		attachment:      handlers.NewAttachmentHandler(s.attachment, s.build, s.project, dataStore, logger),
@@ -882,6 +884,7 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/suites", viewerUp(shortCache(d.h.analytics.GetSuitePassRates)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/labels", viewerUp(shortCache(d.h.analytics.GetLabelBreakdown)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/trends", viewerUp(shortCache(d.h.analytics.GetTrends)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/flaky", viewerUp(shortCache(d.h.flakyImpact.GetFlakyImpact)))
 
 	// Attachment viewer endpoints.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(d.h.attachment.ListAttachments)))

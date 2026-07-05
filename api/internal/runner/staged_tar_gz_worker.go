@@ -50,6 +50,7 @@ type ParseStagedTarGzWorker struct {
 	cfg          *config.Config
 	generator    ReportGenerator
 	buildStore   store.BuildStorer
+	defectReader store.DefectReader
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
@@ -222,7 +223,7 @@ func (w *ParseStagedTarGzWorker) Work(ctx context.Context, job *river.Job[ParseS
 	// fully wired (River client + webhook/build stores). Skip in tests that
 	// run Work directly with a partial worker.
 	if w.webhookStore != nil && w.buildStore != nil && w.riverClient != nil {
-		if err := enqueueWebhooksForProject(ctx, a.ProjectID, w.buildStore, w.webhookStore, w.riverClient, w.externalURL, w.logger); err != nil {
+		if err := enqueueWebhooksForProject(ctx, a.ProjectID, w.buildStore, w.defectReader, w.webhookStore, w.riverClient, w.externalURL, w.logger); err != nil {
 			w.logger.Warn("river: failed to enqueue webhook notifications", zap.String("slug", a.Slug), zap.Error(err))
 		}
 	}

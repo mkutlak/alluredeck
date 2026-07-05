@@ -458,7 +458,7 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, 
 
 	if branchID != nil {
 		rows, err = ts.pool.Query(ctx, `
-			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
 			FROM test_results tr
 			JOIN builds b ON tr.build_id=b.id
 			WHERE tr.project_id=$1 AND tr.history_id=$2 AND b.branch_id=$3
@@ -466,7 +466,7 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, 
 			LIMIT $4`, projectID, historyID, *branchID, limit)
 	} else {
 		rows, err = ts.pool.Query(ctx, `
-			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
 			FROM test_results tr
 			JOIN builds b ON tr.build_id=b.id
 			WHERE tr.project_id=$1 AND tr.history_id=$2
@@ -483,7 +483,7 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, 
 		var e store.TestHistoryEntry
 		var createdAt time.Time
 		var ciCommitSHA *string
-		if err := rows.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA); err != nil {
+		if err := rows.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA, &e.Flaky, &e.Retries); err != nil {
 			return nil, fmt.Errorf("scan test history row: %w", err)
 		}
 		e.CreatedAt = createdAt
@@ -570,16 +570,24 @@ func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, p
 		err := tx.QueryRow(ctx, `
 			INSERT INTO test_results
 				(build_id, project_id, test_name, full_name, status, duration_ms,
-				 history_id, start_ms, stop_ms, status_message, status_trace, description)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+				 history_id, start_ms, stop_ms, status_message, status_trace, description,
+				 flaky, retries)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 			ON CONFLICT (build_id, history_id) WHERE history_id != ''
 			DO UPDATE SET
 				status_message = EXCLUDED.status_message,
 				status_trace   = EXCLUDED.status_trace,
-				description    = EXCLUDED.description
+				description    = EXCLUDED.description,
+				-- Merge, don't clobber: InsertBatch already recorded the authoritative
+				-- flaky/retries (from Allure stability entries or the Playwright runner).
+				-- The Allure parser leaves these zero on parser.Result, so a plain
+				-- EXCLUDED assignment here would wipe a real flaky flag back to false.
+				flaky          = test_results.flaky OR EXCLUDED.flaky,
+				retries        = GREATEST(test_results.retries, EXCLUDED.retries)
 			RETURNING id`,
 			buildID, projectID, r.Name, r.FullName, r.Status, r.StopMs-r.StartMs,
 			r.HistoryID, r.StartMs, r.StopMs, r.StatusMessage, r.StatusTrace, r.Description,
+			r.Flaky, r.Retries,
 		).Scan(&testResultID)
 		if err != nil {
 			return fmt.Errorf("insert test result %q: %w", r.Name, err)

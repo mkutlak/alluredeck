@@ -70,6 +70,8 @@ export const queryKeys = {
       ? (['defects', 'build', projectId, buildId, filters] as const)
       : (['defects', 'build', projectId, buildId] as const),
   defectDetail: (defectId: string) => ['defects', 'detail', defectId] as const,
+  defectTests: (projectId: string, defectId: string) =>
+    ['defects', 'tests', projectId, defectId] as const,
   defectProjectSummary: (projectId: string) => ['defects', 'summary', projectId] as const,
   defectBuildSummary: (projectId: string, buildId: number) =>
     ['defects', 'buildSummary', projectId, buildId] as const,
@@ -95,6 +97,14 @@ export const queryKeys = {
     cursor !== undefined
       ? (['proposals', type, projectId, cursor] as const)
       : (['proposals', type, projectId] as const),
+  flakyImpact: (projectId: string, builds?: number, limit?: number, branch?: string) =>
+    [
+      'flaky-impact',
+      projectId,
+      builds ?? undefined,
+      limit ?? undefined,
+      branch ?? undefined,
+    ] as const,
 }
 
 function projectScopedKeys(projectId: string) {

@@ -204,5 +204,80 @@ WHERE project_id = ANY($1)`
 	return result, nil
 }
 
+// ListFlakyImpact returns tests with flaky/retry impact metrics across the
+// last N builds for a project, optionally scoped to a branch. Only tests with
+// at least one flaky occurrence in the window are included. Ordered by wasted
+// time (retries * duration_ms) descending, then flaky count descending.
+func (a *AnalyticsStore) ListFlakyImpact(ctx context.Context, projectID int64, branchID *int64, builds, limit int) ([]store.FlakyImpact, error) {
+	recentCTE := "SELECT id FROM builds WHERE project_id=$1 ORDER BY build_order DESC LIMIT $2"
+	args := []any{projectID, builds, projectID, limit}
+	if branchID != nil {
+		recentCTE = "SELECT id FROM builds WHERE project_id=$1 AND branch_id=$5 ORDER BY build_order DESC LIMIT $2"
+		args = append(args, *branchID)
+	}
+	query := fmt.Sprintf(`
+		WITH recent AS (%s),
+		agg AS (
+			SELECT
+				tr.full_name,
+				SUM(CASE WHEN tr.flaky THEN 1 ELSE 0 END) AS flaky_count,
+				SUM(tr.retries) AS retry_sum,
+				SUM(tr.retries * tr.duration_ms) AS wasted_ms,
+				SUM(CASE WHEN tr.status IN ('failed','broken') THEN 1 ELSE 0 END)::float8
+					/ COUNT(*)::float8 AS failure_rate,
+				COUNT(DISTINCT tr.build_id) AS runs,
+				COUNT(DISTINCT tr.build_id) FILTER (WHERE tr.flaky) AS builds_affected,
+				(array_agg(b.build_order ORDER BY b.build_order))[1] AS first_seen_build_order,
+				(array_agg(b.id ORDER BY b.build_order))[1] AS first_seen_build_id,
+				(array_agg(b.build_order ORDER BY b.build_order DESC))[1] AS last_seen_build_order,
+				(array_agg(b.id ORDER BY b.build_order DESC))[1] AS last_seen_build_id,
+				(array_agg(b.created_at ORDER BY b.build_order DESC))[1] AS last_seen_at,
+				(array_agg(COALESCE(b.ci_build_url, '') ORDER BY b.build_order DESC))[1] AS ci_build_url
+			FROM test_results tr
+			JOIN builds b ON b.id = tr.build_id
+			WHERE tr.project_id=$3
+			  AND tr.build_id IN (SELECT id FROM recent)
+			  AND tr.full_name != ''
+			GROUP BY tr.full_name
+			HAVING SUM(CASE WHEN tr.flaky THEN 1 ELSE 0 END) > 0
+		)
+		SELECT agg.full_name, agg.flaky_count, agg.retry_sum, agg.wasted_ms, agg.failure_rate,
+		       agg.runs, agg.builds_affected,
+		       agg.first_seen_build_order, agg.first_seen_build_id,
+		       agg.last_seen_build_order, agg.last_seen_build_id, agg.last_seen_at,
+		       agg.ci_build_url
+		FROM agg
+		ORDER BY agg.wasted_ms DESC, agg.flaky_count DESC
+		LIMIT $4`, recentCTE)
+
+	rows, err := a.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list flaky impact: %w", err)
+	}
+	defer rows.Close()
+
+	var result []store.FlakyImpact
+	for rows.Next() {
+		var fi store.FlakyImpact
+		if err := rows.Scan(
+			&fi.FullName, &fi.FlakyCount, &fi.RetrySum, &fi.WastedMs, &fi.FailureRate,
+			&fi.Runs, &fi.BuildsAffected,
+			&fi.FirstSeenBuildOrder, &fi.FirstSeenBuildID,
+			&fi.LastSeenBuildOrder, &fi.LastSeenBuildID, &fi.LastSeenAt,
+			&fi.CIBuildURL,
+		); err != nil {
+			return nil, fmt.Errorf("scan flaky impact: %w", err)
+		}
+		result = append(result, fi)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate flaky impact: %w", err)
+	}
+	if result == nil {
+		result = []store.FlakyImpact{}
+	}
+	return result, nil
+}
+
 // Compile-time interface compliance check.
 var _ store.AnalyticsStorer = (*AnalyticsStore)(nil)

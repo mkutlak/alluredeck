@@ -12,7 +12,7 @@ const slackDefaultTemplate = `{
   "blocks": [
     {
       "type": "header",
-      "text": {"type": "plain_text", "text": "{{.Slug}} — Build #{{.BuildNumber}}"}
+      "text": {"type": "plain_text", "text": "{{jsonescape .Slug}} — Build #{{.BuildNumber}}"}
     },
     {
       "type": "section",
@@ -32,6 +32,14 @@ const slackDefaultTemplate = `{
         {"type": "mrkdwn", "text": "*New Failures:* {{.Delta.NewFailures}}"},
         {"type": "mrkdwn", "text": "*Fixed:* {{.Delta.FixedTests}}"}
       ]
+    }{{end}}{{if .Regressions}},
+    {
+      "type": "section",
+      "text": {"type": "mrkdwn", "text": "*Regressions:*\n{{range .Regressions}}• {{jsonescape .Message}} _({{jsonescape .Category}})_\n{{end}}"}
+    }{{end}}{{if .Digest}},
+    {
+      "type": "section",
+      "text": {"type": "mrkdwn", "text": "*Digest — {{.Digest.PeriodStart.Format "2006-01-02"}} to {{.Digest.PeriodEnd.Format "2006-01-02"}}:* {{.Digest.RegressionCount}} regression(s)\n{{range .Digest.Regressions}}• {{jsonescape .Message}} _({{jsonescape .Category}})_\n{{end}}"}
     }{{end}}{{if .DashboardURL}},
     {
       "type": "actions",
@@ -49,13 +57,15 @@ const slackDefaultTemplate = `{
 const discordDefaultTemplate = `{
   "embeds": [
     {
-      "title": "{{.Slug}} — Build #{{.BuildNumber}}",
+      "title": "{{jsonescape .Slug}} — Build #{{.BuildNumber}}",
       "color": {{if ge .Stats.PassRate 90.0}}3066993{{else if ge .Stats.PassRate 70.0}}16776960{{else}}15158332{{end}},
       "fields": [
         {"name": "Pass Rate", "value": "{{printf "%.1f" .Stats.PassRate}}%", "inline": true},
         {"name": "Total", "value": "{{.Stats.Total}}", "inline": true},
         {"name": "Failed", "value": "{{.Stats.Failed}}", "inline": true},
-        {"name": "Broken", "value": "{{.Stats.Broken}}", "inline": true}
+        {"name": "Broken", "value": "{{.Stats.Broken}}", "inline": true}{{if .Regressions}},
+        {"name": "Regressions", "value": "{{range .Regressions}}{{jsonescape .Message}} ({{jsonescape .Category}})\n{{end}}", "inline": false}{{end}}{{if .Digest}},
+        {"name": "Digest Summary", "value": "{{.Digest.PeriodStart.Format "2006-01-02"}} to {{.Digest.PeriodEnd.Format "2006-01-02"}}: {{.Digest.RegressionCount}} regression(s)\n{{range .Digest.Regressions}}{{jsonescape .Message}} ({{jsonescape .Category}})\n{{end}}", "inline": false}{{end}}
       ]{{if .DashboardURL}},
       "url": "{{.DashboardURL}}"{{end}}
     }
@@ -74,7 +84,7 @@ const teamsDefaultTemplate = `{
         "body": [
           {
             "type": "TextBlock",
-            "text": "{{.Slug}} — Build #{{.BuildNumber}}",
+            "text": "{{jsonescape .Slug}} — Build #{{.BuildNumber}}",
             "weight": "Bolder",
             "size": "Medium"
           },
@@ -86,7 +96,17 @@ const teamsDefaultTemplate = `{
               {"title": "Failed", "value": "{{.Stats.Failed}}"},
               {"title": "Broken", "value": "{{.Stats.Broken}}"}
             ]
-          }
+          }{{if .Regressions}},
+          {
+            "type": "TextBlock",
+            "text": "**Regressions:**\n{{range .Regressions}}- {{jsonescape .Message}} ({{jsonescape .Category}})\n{{end}}",
+            "wrap": true
+          }{{end}}{{if .Digest}},
+          {
+            "type": "TextBlock",
+            "text": "**Digest ({{.Digest.PeriodStart.Format "2006-01-02"}} to {{.Digest.PeriodEnd.Format "2006-01-02"}}):** {{.Digest.RegressionCount}} regression(s)\n{{range .Digest.Regressions}}- {{jsonescape .Message}} ({{jsonescape .Category}})\n{{end}}",
+            "wrap": true
+          }{{end}}
         ]{{if .DashboardURL}},
         "actions": [
           {
@@ -191,9 +211,29 @@ func SampleWebhookPayload() WebhookPayload {
 	}
 }
 
+// templateFuncs are made available to every rendered webhook template
+// (default and custom).
+var templateFuncs = template.FuncMap{
+	"jsonescape": jsonEscape,
+}
+
+// jsonEscape returns s with JSON string-escape sequences applied (quotes,
+// backslashes, control characters) but without the surrounding quotes, so it
+// can be embedded inside a literal `"..."` in a template. This is needed for
+// free-form content — like defect regression messages, which frequently
+// contain quotes or newlines from assertion/stack-trace text — that would
+// otherwise produce invalid JSON when interpolated raw.
+func jsonEscape(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil || len(b) < 2 {
+		return ""
+	}
+	return string(b[1 : len(b)-1])
+}
+
 // renderTemplate is a shared helper that parses and executes a named template.
 func renderTemplate(name, tplStr string, payload WebhookPayload) ([]byte, error) {
-	tpl, err := template.New(name).Parse(tplStr)
+	tpl, err := template.New(name).Funcs(templateFuncs).Parse(tplStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}

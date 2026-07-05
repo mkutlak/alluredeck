@@ -5,6 +5,8 @@ import { fetchReportHistory, fetchReportCategories } from '@/api/reports'
 import { fetchTrends } from '@/api/analytics'
 import { fetchBranches } from '@/api/branches'
 import { queryKeys } from '@/lib/query-keys'
+import { projectIndexOptions } from '@/lib/queries'
+import { resolveProjectFromParam } from '@/lib/resolveProject'
 import { toStatusPieData, toCategoryBreakdownData } from '@/lib/chart-utils'
 import type { KpiData } from '@/lib/chart-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,6 +18,7 @@ import { StatusPieChart } from './StatusPieChart'
 import { CategoryBreakdownChart } from './CategoryBreakdownChart'
 import { LowPerformingCard } from './LowPerformingCard'
 import { ErrorClusterCard } from './ErrorClusterCard'
+import { FlakyImpactCard } from './FlakyImpactCard'
 import { SuitePassRateChart } from './SuitePassRateChart'
 import { LabelBreakdownCard } from './LabelBreakdownCard'
 import { AnalyticsSection } from './AnalyticsSection'
@@ -36,6 +39,15 @@ export function AnalyticsTab() {
   })
   const effectiveBranch =
     branch && branchesData?.some((b) => b.name === branch) ? branch : undefined
+
+  // Resolve the numeric project_id (route param may be a slug) for building
+  // report links from cards such as FlakyImpactCard — see ui/CLAUDE.md numeric
+  // project_id navigation rule.
+  const { data: projectsResp } = useQuery({
+    ...projectIndexOptions(),
+    enabled: !!projectId,
+  })
+  const numericProjectId = resolveProjectFromParam(projectId, projectsResp?.data)?.project_id
 
   // Fetch pre-computed trend data from the backend.
   const {
@@ -189,6 +201,11 @@ export function AnalyticsTab() {
       {/* Quality Section */}
       <AnalyticsSection title="Quality">
         <LowPerformingCard projectId={projectId} branch={branch} />
+        <FlakyImpactCard
+          projectId={projectId}
+          numericProjectId={numericProjectId}
+          branch={branch}
+        />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ErrorClusterCard projectId={projectId} branch={branch} />
           <Card>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -12,19 +13,23 @@ import (
 var _ store.DefectStorer = (*MemDefectStore)(nil)
 
 // MemDefectStore is a thread-safe in-memory DefectStorer for tests.
-// All methods return sensible zero values (empty slices, zero counts, nil errors).
+// All methods return sensible zero values (empty slices, zero counts, nil errors)
+// unless overridden via the Seed* helpers below.
 // GetByID and GetByHash return store.ErrDefectNotFound for unknown entries.
 type MemDefectStore struct {
-	mu           sync.RWMutex
-	fingerprints map[string]*store.DefectFingerprint // keyed by ID
-	byHash       map[string]string                   // "projectID\x00hash" -> ID
+	mu                  sync.RWMutex
+	fingerprints        map[string]*store.DefectFingerprint // keyed by ID
+	byHash              map[string]string                   // "projectID\x00hash" -> ID
+	regressionsForBuild map[string][]store.DefectRegression // "projectID\x00buildID" -> regressions
+	regressionsSince    []store.ProjectRegressions
 }
 
 // NewMemDefectStore returns an initialised MemDefectStore.
 func NewMemDefectStore() *MemDefectStore {
 	return &MemDefectStore{
-		fingerprints: make(map[string]*store.DefectFingerprint),
-		byHash:       make(map[string]string),
+		fingerprints:        make(map[string]*store.DefectFingerprint),
+		byHash:              make(map[string]string),
+		regressionsForBuild: make(map[string][]store.DefectRegression),
 	}
 }
 
@@ -36,6 +41,24 @@ func (m *MemDefectStore) Seed(fp store.DefectFingerprint) {
 	cp := fp
 	m.fingerprints[fp.ID] = &cp
 	m.byHash[fmt.Sprintf("%d\x00%s", fp.ProjectID, fp.FingerprintHash)] = fp.ID
+}
+
+// SeedRegressionsForBuild makes ListRegressionsForBuild return regs for the
+// given project/build pair. It is a test-only helper not part of the
+// store.DefectStorer interface.
+func (m *MemDefectStore) SeedRegressionsForBuild(projectID, buildID int64, regs []store.DefectRegression) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.regressionsForBuild[fmt.Sprintf("%d\x00%d", projectID, buildID)] = regs
+}
+
+// SeedRegressionsSince makes ListRegressionsSince return regs regardless of
+// the since parameter. It is a test-only helper not part of the
+// store.DefectStorer interface.
+func (m *MemDefectStore) SeedRegressionsSince(regs []store.ProjectRegressions) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.regressionsSince = regs
 }
 
 func (m *MemDefectStore) UpsertFingerprints(_ context.Context, _ int64, _ int64, _ []store.DefectFingerprint) error {
@@ -56,6 +79,28 @@ func (m *MemDefectStore) AutoResolveFixed(_ context.Context, _ int64, _ int) (in
 
 func (m *MemDefectStore) DetectRegressions(_ context.Context, _ int64, _ int64) ([]string, error) {
 	return []string{}, nil
+}
+
+func (m *MemDefectStore) MarkRegressions(_ context.Context, _ int64, _ []string) error {
+	return nil
+}
+
+func (m *MemDefectStore) ListRegressionsForBuild(_ context.Context, projectID, buildID int64) ([]store.DefectRegression, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if regs, ok := m.regressionsForBuild[fmt.Sprintf("%d\x00%d", projectID, buildID)]; ok {
+		return regs, nil
+	}
+	return []store.DefectRegression{}, nil
+}
+
+func (m *MemDefectStore) ListRegressionsSince(_ context.Context, _ time.Time) ([]store.ProjectRegressions, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.regressionsSince != nil {
+		return m.regressionsSince, nil
+	}
+	return []store.ProjectRegressions{}, nil
 }
 
 func (m *MemDefectStore) GetByHash(_ context.Context, projectID int64, hash string) (*store.DefectFingerprint, error) {

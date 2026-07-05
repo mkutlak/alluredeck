@@ -30,4 +30,9 @@ describe('FailureBadges', () => {
     expect(screen.getByText('new')).toBeInTheDocument()
     expect(screen.getByText('known')).toBeInTheDocument()
   })
+
+  it('shows the retry count on the flaky badge when retries is given', () => {
+    render(<FailureBadges flaky={true} newFailed={false} known={false} retries={3} />)
+    expect(screen.getByText('flaky · 3x')).toBeInTheDocument()
+  })
 })

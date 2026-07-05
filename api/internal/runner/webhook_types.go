@@ -4,15 +4,17 @@ import "time"
 
 // WebhookPayload is the canonical summary sent on report_completed events.
 type WebhookPayload struct {
-	Event        string        `json:"event"`
-	ProjectID    int64         `json:"project_id"`
-	Slug         string        `json:"slug,omitempty"`
-	BuildNumber  int           `json:"build_number"`
-	DashboardURL string        `json:"dashboard_url,omitempty"`
-	Stats        WebhookStats  `json:"stats"`
-	Delta        *WebhookDelta `json:"delta,omitempty"`
-	CI           *WebhookCI    `json:"ci,omitempty"`
-	Timestamp    time.Time     `json:"timestamp"`
+	Event        string              `json:"event"`
+	ProjectID    int64               `json:"project_id"`
+	Slug         string              `json:"slug,omitempty"`
+	BuildNumber  int                 `json:"build_number"`
+	DashboardURL string              `json:"dashboard_url,omitempty"`
+	Stats        WebhookStats        `json:"stats"`
+	Delta        *WebhookDelta       `json:"delta,omitempty"`
+	CI           *WebhookCI          `json:"ci,omitempty"`
+	Regressions  []WebhookRegression `json:"regressions,omitempty"`
+	Digest       *WebhookDigest      `json:"digest,omitempty"`
+	Timestamp    time.Time           `json:"timestamp"`
 }
 
 // WebhookStats holds test result statistics for a webhook payload.
@@ -38,4 +40,22 @@ type WebhookCI struct {
 	BuildURL  string `json:"build_url,omitempty"`
 	Branch    string `json:"branch,omitempty"`
 	CommitSHA string `json:"commit_sha,omitempty"`
+}
+
+// WebhookRegression describes a single defect fingerprint that reopened
+// (was previously resolved/fixed and reappeared) in the reported build.
+type WebhookRegression struct {
+	FingerprintID   string `json:"fingerprint_id"`
+	Message         string `json:"message"`
+	Category        string `json:"category"`
+	OccurrenceCount int    `json:"occurrence_count"`
+}
+
+// WebhookDigest summarizes defect regressions detected across a project over
+// a rolling time window, sent on the "digest" event by the periodic digest job.
+type WebhookDigest struct {
+	PeriodStart     time.Time           `json:"period_start"`
+	PeriodEnd       time.Time           `json:"period_end"`
+	RegressionCount int                 `json:"regression_count"`
+	Regressions     []WebhookRegression `json:"regressions,omitempty"`
 }

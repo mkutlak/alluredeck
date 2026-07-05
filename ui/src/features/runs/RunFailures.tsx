@@ -15,6 +15,7 @@ interface FailureRow {
   suiteSlug: string
   suiteHref: string
   flaky: boolean
+  retries: number
   newFailed: boolean
   known: boolean
   errorMessage: string
@@ -67,6 +68,7 @@ export function RunFailures({ run }: RunFailuresProps) {
           suiteSlug: suite.slug,
           suiteHref: `/projects/${suite.project_id}/reports/${suite.build_number}`,
           flaky: t.flaky,
+          retries: t.retries,
           newFailed: t.new_failed,
           known: t.known,
           errorMessage: t.error_message,
@@ -84,7 +86,12 @@ export function RunFailures({ run }: RunFailuresProps) {
             <NavLink to={row.suiteHref} className="text-muted-foreground text-xs hover:underline">
               {row.suiteSlug}
             </NavLink>
-            <FailureBadges flaky={row.flaky} newFailed={row.newFailed} known={row.known} />
+            <FailureBadges
+              flaky={row.flaky}
+              retries={row.retries}
+              newFailed={row.newFailed}
+              known={row.known}
+            />
             <span
               className="text-muted-foreground max-w-xs truncate text-xs"
               title={row.errorMessage}

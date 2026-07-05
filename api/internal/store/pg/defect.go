@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -184,6 +185,102 @@ func (ds *DefectStore) DetectRegressions(ctx context.Context, projectID int64, b
 	return ids, nil
 }
 
+// MarkRegressions sets is_regression=true on the defect_occurrences rows for
+// the given build and fingerprint IDs. No-op when fingerprintIDs is empty.
+func (ds *DefectStore) MarkRegressions(ctx context.Context, buildID int64, fingerprintIDs []string) error {
+	if len(fingerprintIDs) == 0 {
+		return nil
+	}
+	const q = `
+		UPDATE defect_occurrences
+		SET is_regression = TRUE
+		WHERE build_id = $1 AND defect_fingerprint_id = ANY($2)`
+	if _, err := ds.pool.Exec(ctx, q, buildID, fingerprintIDs); err != nil {
+		return fmt.Errorf("mark regressions: %w", err)
+	}
+	return nil
+}
+
+// ListRegressionsForBuild returns the defects marked as regressions
+// (is_regression=true) for a single build.
+func (ds *DefectStore) ListRegressionsForBuild(ctx context.Context, projectID, buildID int64) ([]store.DefectRegression, error) {
+	const q = `
+		SELECT df.id::text, df.normalized_message, df.category, df.occurrence_count, b.build_order
+		FROM defect_occurrences occ
+		JOIN defect_fingerprints df ON df.id = occ.defect_fingerprint_id
+		JOIN builds b ON b.id = occ.build_id
+		WHERE df.project_id = $1 AND occ.build_id = $2 AND occ.is_regression`
+
+	rows, err := ds.pool.Query(ctx, q, projectID, buildID)
+	if err != nil {
+		return nil, fmt.Errorf("list regressions for build: %w", err)
+	}
+	defer rows.Close()
+
+	var result []store.DefectRegression
+	for rows.Next() {
+		var r store.DefectRegression
+		if err := rows.Scan(&r.ID, &r.NormalizedMessage, &r.Category, &r.OccurrenceCount, &r.BuildOrder); err != nil {
+			return nil, fmt.Errorf("scan regression row: %w", err)
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate regressions for build: %w", err)
+	}
+	if result == nil {
+		result = []store.DefectRegression{}
+	}
+	return result, nil
+}
+
+// ListRegressionsSince returns, grouped by project, the defect regressions
+// observed in builds created at or after since. Ordered by project slug, then
+// by build_order/occurrence_count descending within each project.
+func (ds *DefectStore) ListRegressionsSince(ctx context.Context, since time.Time) ([]store.ProjectRegressions, error) {
+	const q = `
+		SELECT p.id, p.slug, df.id::text, df.normalized_message, df.category, df.occurrence_count, b.build_order
+		FROM defect_occurrences occ
+		JOIN defect_fingerprints df ON df.id = occ.defect_fingerprint_id
+		JOIN builds b ON b.id = occ.build_id
+		JOIN projects p ON p.id = df.project_id
+		WHERE occ.is_regression AND b.created_at >= $1
+		ORDER BY p.slug, b.build_order DESC, df.occurrence_count DESC, df.id`
+
+	rows, err := ds.pool.Query(ctx, q, since)
+	if err != nil {
+		return nil, fmt.Errorf("list regressions since: %w", err)
+	}
+	defer rows.Close()
+
+	order := make([]int64, 0)
+	byProject := make(map[int64]*store.ProjectRegressions)
+	for rows.Next() {
+		var projectID int64
+		var slug string
+		var r store.DefectRegression
+		if err := rows.Scan(&projectID, &slug, &r.ID, &r.NormalizedMessage, &r.Category, &r.OccurrenceCount, &r.BuildOrder); err != nil {
+			return nil, fmt.Errorf("scan project regression row: %w", err)
+		}
+		pr, ok := byProject[projectID]
+		if !ok {
+			pr = &store.ProjectRegressions{ProjectID: projectID, Slug: slug, Regressions: []store.DefectRegression{}}
+			byProject[projectID] = pr
+			order = append(order, projectID)
+		}
+		pr.Regressions = append(pr.Regressions, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate project regressions: %w", err)
+	}
+
+	result := make([]store.ProjectRegressions, 0, len(order))
+	for _, id := range order {
+		result = append(result, *byProject[id])
+	}
+	return result, nil
+}
+
 // GetByHash retrieves a fingerprint by its project-scoped hash.
 func (ds *DefectStore) GetByHash(ctx context.Context, projectID int64, hash string) (*store.DefectFingerprint, error) {
 	var fp store.DefectFingerprint
@@ -215,7 +312,7 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID int64, buildID
 	argIdx := 2
 
 	if buildID != nil {
-		where += fmt.Sprintf(" AND do.build_id = $%d", argIdx)
+		where += fmt.Sprintf(" AND occ.build_id = $%d", argIdx)
 		args = append(args, *buildID)
 		argIdx++
 	}
@@ -238,7 +335,7 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID int64, buildID
 	// --- JOIN clause ---
 	joinClause := ""
 	if buildID != nil {
-		joinClause = "JOIN defect_occurrences do ON do.defect_fingerprint_id = df.id"
+		joinClause = "JOIN defect_occurrences occ ON occ.defect_fingerprint_id = df.id"
 	}
 
 	// --- count query ---
@@ -286,10 +383,12 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID int64, buildID
 		ki.created_at AS ki_created_at, ki.updated_at AS ki_updated_at`
 
 	testResultCountCol := "NULL::int"
+	isRegressionCol := "FALSE"
 	if buildID != nil {
-		testResultCountCol = "do.test_result_count"
+		testResultCountCol = "occ.test_result_count"
+		isRegressionCol = "occ.is_regression"
 	}
-	selectCols += fmt.Sprintf(", %s AS test_result_count_in_build", testResultCountCol)
+	selectCols += fmt.Sprintf(", %s AS test_result_count_in_build, %s AS is_regression", testResultCountCol, isRegressionCol)
 
 	dataQ := fmt.Sprintf(`
 		SELECT %s
@@ -329,7 +428,7 @@ func (ds *DefectStore) listDefects(ctx context.Context, projectID int64, buildID
 			&row.FirstSeenBuildNumber, &row.LastSeenBuildNumber,
 			&kiID, &kiProjectID, &kiTestName, &kiPattern, &kiTicketURL,
 			&kiDescription, &kiIsActive, &kiCreatedAt, &kiUpdatedAt,
-			&testResultCount,
+			&testResultCount, &row.IsRegression,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan defect row: %w", err)
 		}
@@ -586,10 +685,10 @@ func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID int64, bui
 
 	// Total groups and affected tests.
 	const totQ = `
-		SELECT COUNT(DISTINCT do.defect_fingerprint_id), COALESCE(SUM(do.test_result_count), 0)
-		FROM defect_occurrences do
-		JOIN defect_fingerprints df ON df.id = do.defect_fingerprint_id
-		WHERE df.project_id = $1 AND do.build_id = $2`
+		SELECT COUNT(DISTINCT occ.defect_fingerprint_id), COALESCE(SUM(occ.test_result_count), 0)
+		FROM defect_occurrences occ
+		JOIN defect_fingerprints df ON df.id = occ.defect_fingerprint_id
+		WHERE df.project_id = $1 AND occ.build_id = $2`
 	if err := ds.pool.QueryRow(ctx, totQ, projectID, buildID).Scan(&summary.TotalGroups, &summary.AffectedTests); err != nil {
 		return nil, fmt.Errorf("build summary totals: %w", err)
 	}
@@ -598,7 +697,7 @@ func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID int64, bui
 	const newQ = `
 		SELECT COUNT(*)
 		FROM defect_fingerprints df
-		JOIN defect_occurrences do ON do.defect_fingerprint_id = df.id AND do.build_id = $2
+		JOIN defect_occurrences occ ON occ.defect_fingerprint_id = df.id AND occ.build_id = $2
 		WHERE df.project_id = $1 AND df.first_seen_build_id = $2`
 	if err := ds.pool.QueryRow(ctx, newQ, projectID, buildID).Scan(&summary.NewDefects); err != nil {
 		return nil, fmt.Errorf("build summary new defects: %w", err)
@@ -615,7 +714,7 @@ func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID int64, bui
 	const catQ = `
 		SELECT df.category, COUNT(*)
 		FROM defect_fingerprints df
-		JOIN defect_occurrences do ON do.defect_fingerprint_id = df.id AND do.build_id = $2
+		JOIN defect_occurrences occ ON occ.defect_fingerprint_id = df.id AND occ.build_id = $2
 		WHERE df.project_id = $1
 		GROUP BY df.category`
 	catRows, err := ds.pool.Query(ctx, catQ, projectID, buildID)
@@ -640,7 +739,7 @@ func (ds *DefectStore) GetBuildSummary(ctx context.Context, projectID int64, bui
 	const resQ = `
 		SELECT df.resolution, COUNT(*)
 		FROM defect_fingerprints df
-		JOIN defect_occurrences do ON do.defect_fingerprint_id = df.id AND do.build_id = $2
+		JOIN defect_occurrences occ ON occ.defect_fingerprint_id = df.id AND occ.build_id = $2
 		WHERE df.project_id = $1
 		GROUP BY df.resolution`
 	resRows, err := ds.pool.Query(ctx, resQ, projectID, buildID)

@@ -38,6 +38,8 @@ type testHistoryEntryJSON struct {
 	DurationMs  int64     `json:"duration_ms"`
 	CreatedAt   time.Time `json:"created_at"`
 	CICommitSHA *string   `json:"ci_commit_sha,omitempty"`
+	Flaky       bool      `json:"flaky"`
+	Retries     int       `json:"retries"`
 }
 
 // GetTestHistory godoc
@@ -109,6 +111,8 @@ func (h *TestHistoryHandler) GetTestHistory(w http.ResponseWriter, r *http.Reque
 			DurationMs:  e.DurationMs,
 			CreatedAt:   e.CreatedAt,
 			CICommitSHA: e.CICommitSHA,
+			Flaky:       e.Flaky,
+			Retries:     e.Retries,
 		})
 	}
 

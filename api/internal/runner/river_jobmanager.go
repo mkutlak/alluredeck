@@ -72,6 +72,7 @@ type GenerateReportWorker struct {
 	river.WorkerDefaults[GenerateReportArgs]
 	generator    ReportGenerator
 	buildStore   store.BuildStorer
+	defectReader store.DefectReader
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
@@ -136,7 +137,7 @@ func (w *GenerateReportWorker) Timeout(*river.Job[GenerateReportArgs]) time.Dura
 // enqueueWebhooks constructs a WebhookPayload from the latest build and enqueues
 // delivery jobs for all active webhooks. Errors are non-fatal.
 func (w *GenerateReportWorker) enqueueWebhooks(ctx context.Context, projectID int64) error {
-	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.webhookStore, w.riverClient, w.externalURL, w.logger)
+	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.defectReader, w.webhookStore, w.riverClient, w.externalURL, w.logger)
 }
 
 // PlaywrightIngestWorker is a River worker that processes Playwright report ingestion.
@@ -144,6 +145,7 @@ type PlaywrightIngestWorker struct {
 	river.WorkerDefaults[PlaywrightIngestArgs]
 	runner       *PlaywrightRunner
 	buildStore   store.BuildStorer
+	defectReader store.DefectReader
 	webhookStore store.WebhookStorer
 	externalURL  string
 	riverClient  *river.Client[pgx.Tx]
@@ -185,7 +187,7 @@ func (w *PlaywrightIngestWorker) Timeout(*river.Job[PlaywrightIngestArgs]) time.
 }
 
 func (w *PlaywrightIngestWorker) enqueueWebhooks(ctx context.Context, projectID int64) error {
-	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.webhookStore, w.riverClient, w.externalURL, w.logger)
+	return enqueueWebhooksForProject(ctx, projectID, w.buildStore, w.defectReader, w.webhookStore, w.riverClient, w.externalURL, w.logger)
 }
 
 // webhookEventPriority defines the specificity order for event selection.
@@ -197,15 +199,22 @@ var webhookEventPriority = []string{
 	store.WebhookEventRegressionDetected,
 }
 
-// enqueueWebhooksForProject constructs a WebhookPayload from the latest build,
-// derives the set of triggered events, and enqueues ONE delivery per active
-// webhook whose subscribed events intersect the triggered set. Each webhook
-// receives the most specific triggered event it subscribes to.
-func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore store.BuildStorer, webhookStore store.WebhookStorer, riverClient *river.Client[pgx.Tx], externalURL string, logger *zap.Logger) error {
+// buildWebhookPayload constructs the WebhookPayload for a project's latest
+// build (stats, delta vs previous build, CI metadata, regressions) and
+// derives the set of triggered event names. It is kept free of River/webhook
+// delivery concerns so it can be unit tested directly without a live River
+// client or database.
+//
+// Regression detection uses DefectReader.ListRegressionsForBuild — the
+// authoritative record of fingerprints that were previously resolved/fixed
+// and reappeared in this build — rather than the raw new-failures delta,
+// which only proxies for "a test newly failed" and does not indicate a
+// regression of a previously fixed defect.
+func buildWebhookPayload(ctx context.Context, projectID int64, buildStore store.BuildStorer, defectReader store.DefectReader, externalURL string, logger *zap.Logger) (WebhookPayload, map[string]bool, error) {
 	// Get latest build for stats
 	build, err := buildStore.GetLatestBuild(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("get latest build: %w", err)
+		return WebhookPayload{}, nil, fmt.Errorf("get latest build: %w", err)
 	}
 
 	// Construct base payload
@@ -280,8 +289,36 @@ func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore 
 	if derefInt(build.StatFailed) > 0 {
 		triggeredSet[store.WebhookEventReportFailed] = true
 	}
-	if payload.Delta != nil && payload.Delta.NewFailures > 0 {
-		triggeredSet[store.WebhookEventRegressionDetected] = true
+	if defectReader != nil {
+		regressions, rErr := defectReader.ListRegressionsForBuild(ctx, projectID, build.ID)
+		if rErr != nil {
+			logger.Warn("river: list regressions for build failed",
+				zap.Int64("project_id", projectID), zap.Int64("build_id", build.ID), zap.Error(rErr))
+		} else if len(regressions) > 0 {
+			triggeredSet[store.WebhookEventRegressionDetected] = true
+			payload.Regressions = make([]WebhookRegression, 0, len(regressions))
+			for _, reg := range regressions {
+				payload.Regressions = append(payload.Regressions, WebhookRegression{
+					FingerprintID:   reg.ID,
+					Message:         reg.NormalizedMessage,
+					Category:        reg.Category,
+					OccurrenceCount: reg.OccurrenceCount,
+				})
+			}
+		}
+	}
+
+	return payload, triggeredSet, nil
+}
+
+// enqueueWebhooksForProject constructs a WebhookPayload from the latest build,
+// derives the set of triggered events, and enqueues ONE delivery per active
+// webhook whose subscribed events intersect the triggered set. Each webhook
+// receives the most specific triggered event it subscribes to.
+func enqueueWebhooksForProject(ctx context.Context, projectID int64, buildStore store.BuildStorer, defectReader store.DefectReader, webhookStore store.WebhookStorer, riverClient *river.Client[pgx.Tx], externalURL string, logger *zap.Logger) error {
+	payload, triggeredSet, err := buildWebhookPayload(ctx, projectID, buildStore, defectReader, externalURL, logger)
+	if err != nil {
+		return err
 	}
 
 	// Collect all active webhooks for this project from each triggered event,
@@ -406,6 +443,129 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// digestWindow is the lookback window scanned by each periodic digest run.
+const digestWindow = 24 * time.Hour
+
+// digestInterval is how often the periodic digest job runs.
+const digestInterval = 24 * time.Hour
+
+// DigestArgs is the River job arg for the periodic cross-project regression
+// digest job. It carries no fields — each run always scans the trailing
+// digestWindow relative to time.Now().
+type DigestArgs struct{}
+
+// Kind returns the River job kind identifier.
+func (DigestArgs) Kind() string { return "webhook_digest" }
+
+// DigestWorker is a River worker that periodically summarizes defect
+// regressions detected across all projects within digestWindow and enqueues a
+// digest webhook delivery for each project that has both new regressions and
+// at least one active webhook subscribed to the "digest" event.
+type DigestWorker struct {
+	river.WorkerDefaults[DigestArgs]
+	defectReader store.DefectReader
+	webhookStore store.WebhookStorer
+	riverClient  *river.Client[pgx.Tx]
+	logger       *zap.Logger
+}
+
+// Work implements river.Worker.
+func (w *DigestWorker) Work(ctx context.Context, _ *river.Job[DigestArgs]) error {
+	end := time.Now()
+	start := end.Add(-digestWindow)
+
+	deliveries, err := buildDigestDeliveries(ctx, w.defectReader, w.webhookStore, start, end, w.logger)
+	if err != nil {
+		return err
+	}
+
+	var enqueued int
+	for i := range deliveries {
+		if _, err := w.riverClient.Insert(ctx, deliveries[i], &river.InsertOpts{
+			Queue:       "webhooks",
+			MaxAttempts: 5,
+		}); err != nil {
+			w.logger.Warn("digest: failed to enqueue webhook",
+				zap.String("webhook_id", deliveries[i].WebhookID), zap.Error(err))
+			continue
+		}
+		enqueued++
+	}
+
+	w.logger.Info("river: digest pass complete",
+		zap.Int("deliveries", len(deliveries)),
+		zap.Int("enqueued", enqueued))
+	return nil
+}
+
+// buildDigestDeliveries computes the SendWebhookArgs to enqueue for a single
+// digest run covering [start, end): for every project with at least one
+// regression detected in that window AND at least one active webhook
+// subscribed to the "digest" event, one delivery per matching webhook. Kept
+// free of River-client concerns so it can be unit tested directly without a
+// live River client or database.
+func buildDigestDeliveries(ctx context.Context, defectReader store.DefectReader, webhookStore store.WebhookStorer, start, end time.Time, logger *zap.Logger) ([]SendWebhookArgs, error) {
+	projectRegressions, err := defectReader.ListRegressionsSince(ctx, start)
+	if err != nil {
+		return nil, fmt.Errorf("list regressions since: %w", err)
+	}
+
+	var deliveries []SendWebhookArgs
+	for _, pr := range projectRegressions {
+		if len(pr.Regressions) == 0 {
+			continue
+		}
+
+		webhooks, err := webhookStore.ListActiveForEvent(ctx, pr.ProjectID, store.WebhookEventDigest)
+		if err != nil {
+			logger.Warn("digest: list active webhooks failed",
+				zap.Int64("project_id", pr.ProjectID), zap.Error(err))
+			continue
+		}
+		if len(webhooks) == 0 {
+			continue
+		}
+
+		// ListRegressionsSince returns one row per (fingerprint, build), so
+		// dedupe by fingerprint ID, keeping the highest occurrence count seen.
+		regressions := make([]WebhookRegression, 0, len(pr.Regressions))
+		seen := make(map[string]int, len(pr.Regressions))
+		for _, reg := range pr.Regressions {
+			if idx, ok := seen[reg.ID]; ok {
+				if reg.OccurrenceCount > regressions[idx].OccurrenceCount {
+					regressions[idx].OccurrenceCount = reg.OccurrenceCount
+				}
+				continue
+			}
+			seen[reg.ID] = len(regressions)
+			regressions = append(regressions, WebhookRegression{
+				FingerprintID:   reg.ID,
+				Message:         reg.NormalizedMessage,
+				Category:        reg.Category,
+				OccurrenceCount: reg.OccurrenceCount,
+			})
+		}
+
+		payload := WebhookPayload{
+			Event:     store.WebhookEventDigest,
+			ProjectID: pr.ProjectID,
+			Slug:      pr.Slug,
+			Timestamp: end,
+			Digest: &WebhookDigest{
+				PeriodStart:     start,
+				PeriodEnd:       end,
+				RegressionCount: len(regressions),
+				Regressions:     regressions,
+			},
+		}
+
+		for i := range webhooks {
+			deliveries = append(deliveries, SendWebhookArgs{WebhookID: webhooks[i].ID, Payload: payload})
+		}
+	}
+	return deliveries, nil
 }
 
 // jobFailedErrorHandler is a River ErrorHandler that increments the
@@ -582,14 +742,18 @@ var _ JobQueuer = (*RiverJobManager)(nil)
 // NewRiverJobManager creates a new RiverJobManager. Call Start to begin processing jobs.
 // The storage store and config are used to wire the staged tar.gz worker and
 // the periodic staging-cleanup job; both may be nil during tests that don't
-// exercise the async upload path.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, dataStore storage.Store, cfg *config.Config, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
+// exercise the async upload path. defectReader is used to detect regressions
+// for the regression_detected webhook event and to power the periodic digest
+// job; it may be nil during tests that don't exercise those paths, in which
+// case both are skipped.
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, defectReader store.DefectReader, dataStore storage.Store, cfg *config.Config, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
 	jm := &RiverJobManager{pool: pool, logger: logger}
 
 	workers := river.NewWorkers()
 	reportWorker := &GenerateReportWorker{
 		generator:    generator,
 		buildStore:   buildStore,
+		defectReader: defectReader,
 		webhookStore: webhookStore,
 		externalURL:  externalURL,
 		jobTimeout:   jobTimeout,
@@ -609,6 +773,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		pwWorker = &PlaywrightIngestWorker{
 			runner:       pwRunner,
 			buildStore:   buildStore,
+			defectReader: defectReader,
 			webhookStore: webhookStore,
 			externalURL:  externalURL,
 			jobTimeout:   jobTimeout,
@@ -624,6 +789,7 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 			cfg:          cfg,
 			generator:    generator,
 			buildStore:   buildStore,
+			defectReader: defectReader,
 			webhookStore: webhookStore,
 			externalURL:  externalURL,
 			jobTimeout:   jobTimeout,
@@ -637,12 +803,31 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		})
 	}
 
+	var digestWorker *DigestWorker
+	if defectReader != nil {
+		digestWorker = &DigestWorker{
+			defectReader: defectReader,
+			webhookStore: webhookStore,
+			logger:       logger,
+		}
+		river.AddWorker(workers, digestWorker)
+	}
+
 	var periodicJobs []*river.PeriodicJob
 	if dataStore != nil {
 		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
 			river.PeriodicInterval(stagingCleanupInterval),
 			func() (river.JobArgs, *river.InsertOpts) {
 				return StagingCleanupArgs{OlderThanSeconds: int64(stagingCleanupRetention.Seconds())}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		))
+	}
+	if defectReader != nil {
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(digestInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return DigestArgs{}, nil
 			},
 			&river.PeriodicJobOpts{RunOnStart: false},
 		))
@@ -689,6 +874,9 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	}
 	if stagedWorker != nil {
 		stagedWorker.riverClient = client
+	}
+	if digestWorker != nil {
+		digestWorker.riverClient = client
 	}
 	// Wire client into the error handler so it can enqueue failure webhooks.
 	errHandler.riverClient = client

@@ -1142,6 +1142,7 @@ type MockAnalyticsStore struct {
 	ListSuitePassRatesFn func(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.SuitePassRate, error)
 	ListLabelBreakdownFn func(ctx context.Context, projectIDs []int64, labelName string, builds int, branchID *int64) ([]store.LabelCount, error)
 	ListTrendPointsFn    func(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.TrendPoint, error)
+	ListFlakyImpactFn    func(ctx context.Context, projectID int64, branchID *int64, builds, limit int) ([]store.FlakyImpact, error)
 }
 
 func (m *MockAnalyticsStore) ListTopErrors(ctx context.Context, projectIDs []int64, builds, limit int, branchID *int64) ([]store.ErrorCluster, error) {
@@ -1168,6 +1169,13 @@ func (m *MockAnalyticsStore) ListLabelBreakdown(ctx context.Context, projectIDs 
 func (m *MockAnalyticsStore) ListTrendPoints(ctx context.Context, projectIDs []int64, builds int, branchID *int64) ([]store.TrendPoint, error) {
 	if m.ListTrendPointsFn != nil {
 		return m.ListTrendPointsFn(ctx, projectIDs, builds, branchID)
+	}
+	return nil, nil
+}
+
+func (m *MockAnalyticsStore) ListFlakyImpact(ctx context.Context, projectID int64, branchID *int64, builds, limit int) ([]store.FlakyImpact, error) {
+	if m.ListFlakyImpactFn != nil {
+		return m.ListFlakyImpactFn(ctx, projectID, branchID, builds, limit)
 	}
 	return nil, nil
 }

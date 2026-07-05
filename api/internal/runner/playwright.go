@@ -110,14 +110,28 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 			zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 	}
 
+	// Compute build-level flaky/retry counts from per-test Playwright results,
+	// mirroring runner/allure.go's storeAndPruneBuild aggregation over
+	// stabilityEntries (FlakyCount/RetriedCount ~254-269).
+	var flakyCount, retriedCount int
+	for _, r := range results {
+		if r.Flaky {
+			flakyCount++
+		}
+		if r.Retries > 0 {
+			retriedCount++
+		}
+	}
+
 	// 8. Compute and store BuildStats from PlaywrightMeta.
 	stats := store.BuildStats{
-		Passed:     meta.Stats.Expected,
-		Failed:     meta.Stats.Unexpected,
-		Skipped:    meta.Stats.Skipped,
-		Total:      meta.Stats.Total,
-		DurationMs: meta.Duration,
-		FlakyCount: meta.Stats.Flaky,
+		Passed:       meta.Stats.Expected,
+		Failed:       meta.Stats.Unexpected,
+		Skipped:      meta.Stats.Skipped,
+		Total:        meta.Stats.Total,
+		DurationMs:   meta.Duration,
+		FlakyCount:   flakyCount,
+		RetriedCount: retriedCount,
 	}
 	if err := pr.buildStore.UpdateBuildStats(ctx, projectID, buildNumber, stats); err != nil {
 		pr.logger.Error("failed to update build stats",
@@ -183,7 +197,8 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 			for _, r := range results {
 				var startMs, stopMs *int64
 				if r.StartMs != 0 {
-					startMs, stopMs = new(r.StartMs), new(r.StopMs)
+					s, e := r.StartMs, r.StopMs
+					startMs, stopMs = &s, &e
 				}
 
 				var thread, host string
@@ -204,8 +219,8 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 					Status:     r.Status,
 					HistoryID:  r.HistoryID,
 					DurationMs: r.DurationMs,
-					Flaky:      false,
-					Retries:    0,
+					Flaky:      r.Flaky,
+					Retries:    r.Retries,
 					StartMs:    startMs,
 					StopMs:     stopMs,
 					Thread:     thread,
@@ -370,6 +385,10 @@ func (pr *PlaywrightRunner) computeDefectFingerprints(ctx context.Context, proje
 		pr.logger.Info("detected defect regressions",
 			zap.String("slug", slug),
 			zap.Int("count", len(regressions)))
+		if err := pr.defectStore.MarkRegressions(ctx, buildID, regressions); err != nil {
+			pr.logger.Warn("failed to mark regressions",
+				zap.String("slug", slug), zap.Error(err))
+		}
 	}
 
 	return nil

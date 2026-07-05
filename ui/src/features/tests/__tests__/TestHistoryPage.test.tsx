@@ -23,6 +23,8 @@ function makeHistoryData(overrides: Partial<TestHistoryData> = {}): TestHistoryD
         duration_ms: 3500,
         created_at: '2026-03-01T10:00:00Z',
         ci_commit_sha: 'deadbeef1234567',
+        flaky: false,
+        retries: 0,
       },
       {
         build_order: 4,
@@ -31,6 +33,8 @@ function makeHistoryData(overrides: Partial<TestHistoryData> = {}): TestHistoryD
         duration_ms: 1200,
         created_at: '2026-02-28T09:00:00Z',
         ci_commit_sha: 'cafebabe9876543',
+        flaky: true,
+        retries: 2,
       },
       {
         build_order: 3,
@@ -39,6 +43,8 @@ function makeHistoryData(overrides: Partial<TestHistoryData> = {}): TestHistoryD
         duration_ms: 900,
         created_at: '2026-02-27T08:00:00Z',
         ci_commit_sha: undefined,
+        flaky: false,
+        retries: 0,
       },
     ],
     ...overrides,
@@ -100,6 +106,40 @@ describe('TestHistoryPage', () => {
     })
     expect(screen.getByText('failed')).toBeInTheDocument()
     expect(screen.getByText('broken')).toBeInTheDocument()
+  })
+
+  it('renders a flaky badge with retry count for flaky entries', async () => {
+    vi.mocked(testHistoryApi.fetchTestHistory).mockResolvedValue(makeHistoryData())
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('flaky · 2x')).toBeInTheDocument()
+    })
+  })
+
+  it('does not render a flaky badge for non-flaky entries', async () => {
+    vi.mocked(testHistoryApi.fetchTestHistory).mockResolvedValue(
+      makeHistoryData({
+        history: [
+          {
+            build_order: 5,
+            build_id: 105,
+            status: 'passed',
+            duration_ms: 3500,
+            created_at: '2026-03-01T10:00:00Z',
+            ci_commit_sha: 'deadbeef1234567',
+            flaky: false,
+            retries: 0,
+          },
+        ],
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('#5')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('flaky-badge')).not.toBeInTheDocument()
   })
 
   it('renders duration formatted as seconds', async () => {

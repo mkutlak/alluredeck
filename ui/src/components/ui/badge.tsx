@@ -18,6 +18,7 @@ const badgeVariants = cva(
         failed: STATUS_BADGE_CLASSES.failed,
         broken: STATUS_BADGE_CLASSES.broken,
         skipped: STATUS_BADGE_CLASSES.skipped,
+        flaky: STATUS_BADGE_CLASSES.broken,
       },
     },
     defaultVariants: {

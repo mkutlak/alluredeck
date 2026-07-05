@@ -498,6 +498,8 @@ export interface TestHistoryEntry {
   duration_ms: number
   created_at: string
   ci_commit_sha?: string
+  flaky: boolean
+  retries: number
 }
 
 export interface TestHistoryData {
@@ -677,6 +679,29 @@ export interface DefectListResponse {
   pagination: PaginationMeta
 }
 
+// A single test occurrence linked to a defect fingerprint, returned by
+// GET /projects/{project_id}/defects/{defect_id}/tests. Mirrors BuildFailedTest's
+// flaky/retries shape so the same FlakyBadge can be reused here.
+export interface DefectTestRow {
+  build_id: number
+  test_name: string
+  full_name: string
+  status: string
+  history_id: string
+  duration_ms: number
+  flaky: boolean
+  retries: number
+  new_failed: boolean
+  new_passed: boolean
+  status_message: string
+}
+
+export interface DefectTestsResponse {
+  data: DefectTestRow[]
+  metadata: { message: string }
+  pagination: PaginationMeta
+}
+
 // ---------------------------------------------------------------------------
 // Webhook types
 // ---------------------------------------------------------------------------
@@ -831,4 +856,29 @@ export interface BuildFailedTest {
   new_failed: boolean
   known: boolean
   error_message: string
+}
+
+// ---------------------------------------------------------------------------
+// Flaky impact analytics (C3.2)
+// ---------------------------------------------------------------------------
+export interface FlakyImpact {
+  full_name: string
+  flaky_count: number
+  retry_sum: number
+  wasted_ms: number
+  failure_rate: number
+  runs: number
+  builds_affected: number
+  first_seen_build_order: number
+  first_seen_build_id: number
+  last_seen_build_order: number
+  last_seen_build_id: number
+  last_seen_at: string
+  ci_build_url?: string
+}
+
+export interface FlakyImpactData {
+  tests: FlakyImpact[]
+  builds: number
+  total: number
 }

@@ -12,6 +12,8 @@ import { mockApiClient } from '@/test/mocks/api-client'
 vi.mock('@/api/defects')
 mockApiClient()
 
+import * as defectsApi from '@/api/defects'
+
 function makeDefect(overrides: Partial<DefectListRow> = {}): DefectListRow {
   return {
     id: 'def-1',
@@ -60,6 +62,7 @@ function renderRow(props: Partial<Parameters<typeof DefectRow>[0]> = {}) {
 describe('DefectRow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(defectsApi.fetchDefectTests).mockResolvedValue([])
   })
 
   it('renders normalized message', () => {

@@ -5,6 +5,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { formatDate, formatDuration, getStatusVariant } from '@/lib/utils'
 import type { TestHistoryEntry } from '@/types/api'
 import { Badge } from '@/components/ui/badge'
+import { FlakyBadge } from '@/components/ui/FlakyBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -122,7 +123,10 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
                 <TableRow key={entry.build_id}>
                   <TableCell className="font-medium">#{entry.build_order}</TableCell>
                   <TableCell>
-                    <Badge variant={getStatusVariant(entry.status)}>{entry.status}</Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant={getStatusVariant(entry.status)}>{entry.status}</Badge>
+                      {entry.flaky && <FlakyBadge retries={entry.retries} />}
+                    </div>
                   </TableCell>
                   <TableCell>{formatDuration(entry.duration_ms)}</TableCell>
                   <TableCell className="text-muted-foreground">

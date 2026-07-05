@@ -216,7 +216,7 @@ export function OverviewTab() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 [&:empty]:hidden">
         <EnvironmentCard projectId={projectId} />
         <CategoriesCard projectId={projectId} />
-        <FlakyTestsCard projectId={projectId} />
+        <FlakyTestsCard projectId={projectId} numericProjectId={currentProject?.project_id} />
       </div>
 
       {/* Compare Selected bar */}

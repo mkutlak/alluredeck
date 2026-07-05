@@ -12,6 +12,8 @@ type Result struct {
 	StartMs       int64
 	StopMs        int64
 	DurationMs    int64
+	Flaky         bool
+	Retries       int
 	Labels        []Label
 	Parameters    []Parameter
 	Steps         []Step

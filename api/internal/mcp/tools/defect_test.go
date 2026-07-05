@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -232,6 +233,9 @@ func (s *stubDefectStore) AutoResolveFixed(_ context.Context, _ int64, _ int) (i
 func (s *stubDefectStore) DetectRegressions(_ context.Context, _ int64, _ int64) ([]string, error) {
 	return nil, nil
 }
+func (s *stubDefectStore) MarkRegressions(_ context.Context, _ int64, _ []string) error {
+	return nil
+}
 func (s *stubDefectStore) GetByHash(_ context.Context, _ int64, _ string) (*store.DefectFingerprint, error) {
 	if s.fp == nil {
 		return nil, store.ErrDefectNotFound
@@ -269,6 +273,12 @@ func (s *stubDefectStore) GetProjectSummary(_ context.Context, _ int64) (*store.
 }
 func (s *stubDefectStore) GetBuildSummary(_ context.Context, _ int64, _ int64) (*store.DefectBuildSummary, error) {
 	return &store.DefectBuildSummary{ByCategory: map[string]int{}, ByResolution: map[string]int{}}, nil
+}
+func (s *stubDefectStore) ListRegressionsForBuild(_ context.Context, _, _ int64) ([]store.DefectRegression, error) {
+	return nil, nil
+}
+func (s *stubDefectStore) ListRegressionsSince(_ context.Context, _ time.Time) ([]store.ProjectRegressions, error) {
+	return nil, nil
 }
 func (s *stubDefectStore) UpdateDefect(_ context.Context, _ string, _, _ *string, _ *int64) error {
 	return nil

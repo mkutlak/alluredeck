@@ -744,6 +744,46 @@ paths:
       summary: Get a project
       tags:
       - projects
+  /projects/{project_id}/analytics/flaky:
+    get:
+      description: Returns tests ranked by flaky/retry impact (wasted CI time) across
+        recent builds.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - default: 20
+        description: Number of recent builds to consider
+        in: query
+        name: builds
+        type: integer
+      - default: 20
+        description: Maximum results to return
+        in: query
+        name: limit
+        type: integer
+      - description: Branch name to filter by
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get flaky-test impact
+      tags:
+      - analytics
   /projects/{project_id}/analytics/low-performing:
     get:
       description: Returns tests ranked by average duration or failure rate across

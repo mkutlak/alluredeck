@@ -1,10 +1,11 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updateDefect } from '@/api/defects'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { fetchDefectTests, updateDefect } from '@/api/defects'
 import { extractErrorMessage } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { toast } from '@/components/ui/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { FlakyBadge } from '@/components/ui/FlakyBadge'
 import type { DefectCategory, DefectListRow, DefectResolution } from '@/types/api'
 
 interface DefectDetailProps {
@@ -27,6 +28,16 @@ const RESOLUTION_ACTIONS: { value: DefectResolution; label: string }[] = [
 
 export function DefectDetail({ defect, projectId }: DefectDetailProps) {
   const queryClient = useQueryClient()
+
+  const {
+    data: tests,
+    isLoading: testsLoading,
+    isError: testsError,
+  } = useQuery({
+    queryKey: queryKeys.defectTests(projectId, defect.id),
+    queryFn: () => fetchDefectTests(projectId, defect.id),
+    staleTime: 30_000,
+  })
 
   const mutation = useMutation({
     mutationFn: (data: { category?: DefectCategory; resolution?: DefectResolution }) =>
@@ -115,6 +126,29 @@ export function DefectDetail({ defect, projectId }: DefectDetailProps) {
           )}
         </div>
       )}
+
+      {/* Affected tests */}
+      <div>
+        <p className="text-muted-foreground mb-1 text-sm">Affected tests</p>
+        {testsLoading ? (
+          <p className="text-muted-foreground text-sm">Loading tests…</p>
+        ) : testsError ? (
+          <p className="text-destructive text-sm">Failed to load tests for this defect.</p>
+        ) : !tests || tests.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No test occurrences found.</p>
+        ) : (
+          <ul className="space-y-1" data-testid="defect-tests-list">
+            {tests.map((t) => (
+              <li key={`${t.build_id}-${t.history_id}`} className="flex items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs" title={t.full_name}>
+                  {t.test_name}
+                </span>
+                {t.flaky && <FlakyBadge retries={t.retries} />}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* Sample stack trace */}
       {defect.sample_trace && (

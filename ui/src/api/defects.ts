@@ -7,6 +7,8 @@ import type {
   DefectProjectSummary,
   DefectCategory,
   DefectResolution,
+  DefectTestRow,
+  DefectTestsResponse,
 } from '@/types/api'
 
 export interface DefectFilters {
@@ -70,13 +72,13 @@ export async function fetchDefectTests(
   buildId?: number,
   page?: number,
   perPage?: number,
-): Promise<unknown> {
+): Promise<DefectTestRow[]> {
   const params: Record<string, unknown> = {}
   if (buildId != null) params.build_id = buildId
   if (page != null) params.page = page
   if (perPage != null) params.per_page = perPage
 
-  const res = await apiClient.get<ApiResponse<unknown>>(
+  const res = await apiClient.get<DefectTestsResponse>(
     `/projects/${encodeURIComponent(projectId)}/defects/${encodeURIComponent(defectId)}/tests`,
     { params },
   )

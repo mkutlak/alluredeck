@@ -362,6 +362,10 @@ func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ []int64, _ 
 	return c.trendPoints, nil
 }
 
+func (c *captureAnalyticsStore) ListFlakyImpact(_ context.Context, _ int64, _ *int64, _, _ int) ([]store.FlakyImpact, error) {
+	return nil, nil
+}
+
 // ---------------------------------------------------------------------------
 // Error leakage tests — store errors must return 500, not leak internal details.
 // ---------------------------------------------------------------------------

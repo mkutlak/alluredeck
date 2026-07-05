@@ -154,13 +154,14 @@ var validWebhookEvents = map[string]bool{
 	store.WebhookEventReportCompleted:    true,
 	store.WebhookEventReportFailed:       true,
 	store.WebhookEventRegressionDetected: true,
+	store.WebhookEventDigest:             true,
 }
 
 // validateWebhookEvents returns an error if any event in the slice is unknown.
 func validateWebhookEvents(events []string) error {
 	for _, e := range events {
 		if !validWebhookEvents[e] {
-			return fmt.Errorf("unknown event %q: must be one of report_completed, report_failed, regression_detected", e)
+			return fmt.Errorf("unknown event %q: must be one of report_completed, report_failed, regression_detected, digest", e)
 		}
 	}
 	return nil

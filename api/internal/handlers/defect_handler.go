@@ -135,6 +135,41 @@ func (h *DefectHandler) GetDefect(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, fp, "Defect successfully obtained")
 }
 
+// defectTestResp is the JSON representation of a single test result linked to
+// a defect, returned by GetDefectTests. Includes flaky/retries so the UI can
+// badge defect-linked tests as flaky (mirrors buildTestResp in
+// build_tests_handler.go, the analogous DTO for the build-tests endpoint).
+type defectTestResp struct {
+	BuildID       int64  `json:"build_id"`
+	TestName      string `json:"test_name"`
+	FullName      string `json:"full_name"`
+	Status        string `json:"status"`
+	HistoryID     string `json:"history_id"`
+	DurationMs    int64  `json:"duration_ms"`
+	Flaky         bool   `json:"flaky"`
+	Retries       int    `json:"retries"`
+	NewFailed     bool   `json:"new_failed"`
+	NewPassed     bool   `json:"new_passed"`
+	StatusMessage string `json:"status_message"`
+}
+
+// toDefectTestResp converts a store.TestResult to the API response format.
+func toDefectTestResp(tr store.TestResult) defectTestResp {
+	return defectTestResp{
+		BuildID:       tr.BuildID,
+		TestName:      tr.TestName,
+		FullName:      tr.FullName,
+		Status:        tr.Status,
+		HistoryID:     tr.HistoryID,
+		DurationMs:    tr.DurationMs,
+		Flaky:         tr.Flaky,
+		Retries:       tr.Retries,
+		NewFailed:     tr.NewFailed,
+		NewPassed:     tr.NewPassed,
+		StatusMessage: tr.StatusMessage,
+	}
+}
+
 // GetDefectTests handles GET /projects/{project_id}/defects/{defect_id}/tests
 func (h *DefectHandler) GetDefectTests(w http.ResponseWriter, r *http.Request) {
 	defectID := r.PathValue("defect_id")
@@ -163,11 +198,13 @@ func (h *DefectHandler) GetDefectTests(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error fetching defect tests")
 		return
 	}
-	if results == nil {
-		results = []store.TestResult{}
+
+	resp := make([]defectTestResp, 0, len(results))
+	for i := range results {
+		resp = append(resp, toDefectTestResp(results[i]))
 	}
 
-	writePagedSuccess(w, results, "Defect tests successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
+	writePagedSuccess(w, resp, "Defect tests successfully obtained", newPaginationMeta(pg.Page, pg.PerPage, total))
 }
 
 // UpdateDefect handles PATCH /projects/{project_id}/defects/{defect_id}

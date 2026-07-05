@@ -457,6 +457,87 @@ func TestParsePlaywrightReport(t *testing.T) {
 	}
 }
 
+// --- TestParsePlaywrightReport_Flaky ---
+
+// TestParsePlaywrightReport_Flaky verifies that a Playwright test whose outcome
+// is "flaky" (passed after one or more retries) is surfaced as Result.Flaky=true
+// with Retries set from the last attempt's retry index, while the mapped Status
+// remains "passed" (mapPWOutcome status semantics are unchanged).
+func TestParsePlaywrightReport_Flaky(t *testing.T) {
+	t.Parallel()
+
+	reportData := map[string]any{
+		"metadata":  map[string]any{},
+		"startTime": float64(1700000000000),
+		"duration":  float64(2000),
+		"stats": map[string]any{
+			"total": 1, "expected": 0, "unexpected": 0, "flaky": 1, "skipped": 0, "ok": true,
+		},
+		"files": []any{
+			map[string]any{
+				"fileId":   "file1",
+				"fileName": "tests/flaky.spec.ts",
+				"tests": []any{
+					map[string]any{
+						"testId":      "t-flaky",
+						"title":       "should eventually pass",
+						"projectName": "chromium",
+						"outcome":     "flaky",
+						"path":        []any{"Flaky"},
+						"duration":    float64(1000),
+						"tags":        []any{},
+						"ok":          true,
+						"results": []any{
+							map[string]any{
+								"startTime":   "2023-11-14T12:00:00Z",
+								"duration":    float64(1000),
+								"retry":       0,
+								"steps":       []any{},
+								"errors":      []any{"flaky failure on attempt 1"},
+								"status":      "failed",
+								"attachments": []any{},
+							},
+							map[string]any{
+								"startTime":   "2023-11-14T12:00:02Z",
+								"duration":    float64(1000),
+								"retry":       1,
+								"steps":       []any{},
+								"errors":      []any{},
+								"status":      "passed",
+								"attachments": []any{},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	reportJSON, err := json.Marshal(reportData)
+	if err != nil {
+		t.Fatalf("marshal reportData: %v", err)
+	}
+
+	results, _, err := parser.ParsePlaywrightReport(reportJSON, nil)
+	if err != nil {
+		t.Fatalf("ParsePlaywrightReport returned unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results count: got %d, want 1", len(results))
+	}
+
+	r := results[0]
+	if !r.Flaky {
+		t.Error("r.Flaky: got false, want true for outcome=flaky")
+	}
+	if r.Retries != 1 {
+		t.Errorf("r.Retries: got %d, want 1 (last attempt's retry index)", r.Retries)
+	}
+	// Status semantics must remain unchanged: flaky still maps to "passed".
+	if r.Status != "passed" {
+		t.Errorf("r.Status: got %q, want %q (flaky outcome maps to passed)", r.Status, "passed")
+	}
+}
+
 func TestParsePlaywrightReport_FallbackBranch(t *testing.T) {
 	t.Parallel()
 
