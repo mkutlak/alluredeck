@@ -70,9 +70,8 @@ export interface StatusPiePoint {
 }
 
 export function toStatusPieData(entries: ReportHistoryEntry[]): StatusPiePoint[] {
-  if (entries.length === 0) return []
   const latest = entries[0]
-  if (!latest.statistic) return []
+  if (!latest?.statistic) return []
   const { passed, failed, broken, skipped } = latest.statistic
   return [
     { name: 'Passed', value: passed, color: STATUS_COLORS.passed },
@@ -123,15 +122,15 @@ export function toAllTrendData(entries: ReportHistoryEntry[]): AllTrendData {
     if (e.statistic !== null) {
       status.push({
         name,
-        passed: e.statistic!.passed,
-        failed: e.statistic!.failed,
-        broken: e.statistic!.broken,
-        skipped: e.statistic!.skipped,
+        passed: e.statistic.passed,
+        failed: e.statistic.failed,
+        broken: e.statistic.broken,
+        skipped: e.statistic.skipped,
       })
-      passRate.push({ name, passRate: calcPassRate(e.statistic!.passed, e.statistic!.total, e.statistic!.skipped) ?? 0 })
+      passRate.push({ name, passRate: calcPassRate(e.statistic.passed, e.statistic.total, e.statistic.skipped) ?? 0 })
     }
     if (e.duration_ms !== null) {
-      duration.push({ name, durationSec: Math.round(e.duration_ms! / 1000) })
+      duration.push({ name, durationSec: Math.round(e.duration_ms / 1000) })
     }
   }
 
@@ -143,10 +142,8 @@ export function toAllTrendData(entries: ReportHistoryEntry[]): AllTrendData {
 // ---------------------------------------------------------------------------
 
 export function toKpiData(entries: ReportHistoryEntry[]): KpiData | null {
-  if (entries.length === 0) return null
-
   const latest = entries[0]
-  if (!latest.statistic) return null
+  if (!latest?.statistic) return null
 
   // Take last 10 reports, reverse to chronological for sparklines
   const sparklineEntries = entries.slice(0, 10).reverse()

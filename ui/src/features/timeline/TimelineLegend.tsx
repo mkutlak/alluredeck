@@ -27,7 +27,7 @@ export function TimelineLegend({ testCases, statusColors }: TimelineLegendProps)
           <span
             data-testid={`legend-swatch-${status}`}
             className="inline-block h-3 w-3 rounded-sm"
-            style={{ backgroundColor: statusColors[status as keyof StatusColorMap] ?? '#8c8fa1' }}
+            style={{ backgroundColor: statusColors[status] ?? '#8c8fa1' }}
           />
           <span className="text-muted-foreground text-xs">{label}</span>
         </div>

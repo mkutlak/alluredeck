@@ -169,7 +169,7 @@ describe('useActiveProject', () => {
       expect(results.length).toBeGreaterThan(0)
     })
 
-    const last = results[results.length - 1]
+    const last = results[results.length - 1]!
     expect(last.projectId).toBe('my-project')
     expect(last.isFromUrl).toBe(true)
     expect(last.isLoading).toBe(false)
@@ -216,7 +216,7 @@ describe('useActiveProject', () => {
       expect(results.length).toBeGreaterThan(0)
     })
 
-    const last = results[results.length - 1]
+    const last = results[results.length - 1]!
     expect(last.projectId).toBe('stored-project')
     expect(last.isFromUrl).toBe(false)
     expect(last.isLoading).toBe(false)
@@ -229,11 +229,11 @@ describe('useActiveProject', () => {
     renderHookNoUrl((r) => results.push(r), queryClient)
 
     await waitFor(() => {
-      const last = results[results.length - 1]
+      const last = results[results.length - 1]!
       expect(last.projectId).toBe('first-project')
     })
 
-    const last = results[results.length - 1]
+    const last = results[results.length - 1]!
     expect(last.isFromUrl).toBe(false)
   })
 
@@ -254,11 +254,11 @@ describe('useActiveProject', () => {
     renderHookNoUrl((r) => results.push(r), queryClient)
 
     await waitFor(() => {
-      const last = results[results.length - 1]
+      const last = results[results.length - 1]!
       expect(last.isLoading).toBe(false)
     })
 
-    const last = results[results.length - 1]
+    const last = results[results.length - 1]!
     expect(last.projectId).toBeNull()
     expect(last.isFromUrl).toBe(false)
   })

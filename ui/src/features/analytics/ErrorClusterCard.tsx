@@ -42,7 +42,7 @@ export function ErrorClusterCard({ projectId, branch }: Props) {
           isError={isError}
           error={error}
           isEmpty={errors.length === 0}
-          refetch={refetch}
+          refetch={() => void refetch()}
           emptyMessage="No failure data available"
         >
           <TooltipProvider>

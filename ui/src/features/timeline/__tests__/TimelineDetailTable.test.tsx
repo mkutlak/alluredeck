@@ -150,9 +150,9 @@ describe('TimelineDetailTable', () => {
     )
     const rows = screen.getAllByRole('row').slice(1) // skip header
     // Slowest first: Slow test (30000ms), Medium test (5000ms), Fast test (100ms)
-    expect(within(rows[0]).getByText('Slow test')).toBeInTheDocument()
-    expect(within(rows[1]).getByText('Medium test')).toBeInTheDocument()
-    expect(within(rows[2]).getByText('Fast test')).toBeInTheDocument()
+    expect(within(rows[0]!).getByText('Slow test')).toBeInTheDocument()
+    expect(within(rows[1]!).getByText('Medium test')).toBeInTheDocument()
+    expect(within(rows[2]!).getByText('Fast test')).toBeInTheDocument()
   })
 
   it('clicking Duration header toggles sort direction', async () => {
@@ -169,14 +169,14 @@ describe('TimelineDetailTable', () => {
     // Default is desc (slowest first), click to switch to asc (fastest first)
     await user.click(durationHeader)
     const rowsAsc = screen.getAllByRole('row').slice(1)
-    expect(within(rowsAsc[0]).getByText('Fast test')).toBeInTheDocument()
-    expect(within(rowsAsc[1]).getByText('Medium test')).toBeInTheDocument()
-    expect(within(rowsAsc[2]).getByText('Slow test')).toBeInTheDocument()
+    expect(within(rowsAsc[0]!).getByText('Fast test')).toBeInTheDocument()
+    expect(within(rowsAsc[1]!).getByText('Medium test')).toBeInTheDocument()
+    expect(within(rowsAsc[2]!).getByText('Slow test')).toBeInTheDocument()
 
     // Click again to go back to desc (slowest first)
     await user.click(durationHeader)
     const rowsDesc = screen.getAllByRole('row').slice(1)
-    expect(within(rowsDesc[0]).getByText('Slow test')).toBeInTheDocument()
+    expect(within(rowsDesc[0]!).getByText('Slow test')).toBeInTheDocument()
   })
 
   it('clicking Name header sorts alphabetically', async () => {
@@ -193,9 +193,9 @@ describe('TimelineDetailTable', () => {
 
     const rows = screen.getAllByRole('row').slice(1)
     // Alphabetical: Fast test, Medium test, Slow test
-    expect(within(rows[0]).getByText('Fast test')).toBeInTheDocument()
-    expect(within(rows[1]).getByText('Medium test')).toBeInTheDocument()
-    expect(within(rows[2]).getByText('Slow test')).toBeInTheDocument()
+    expect(within(rows[0]!).getByText('Fast test')).toBeInTheDocument()
+    expect(within(rows[1]!).getByText('Medium test')).toBeInTheDocument()
+    expect(within(rows[2]!).getByText('Slow test')).toBeInTheDocument()
   })
 
   it('search input filters rows by name', async () => {
@@ -253,7 +253,7 @@ describe('TimelineDetailTable', () => {
 
     // Default sort: slowest first, so first row is Slow test
     const rows = screen.getAllByRole('row').slice(1)
-    await user.click(rows[0])
+    await user.click(rows[0]!)
 
     expect(onTestClick).toHaveBeenCalledOnce()
     expect(onTestClick).toHaveBeenCalledWith(

@@ -174,11 +174,12 @@ const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContent
         return null
       }
       const [item] = payload
+      if (!item) return null
       const key = `${labelKey || item.dataKey || item.name || 'value'}`
       const itemConfig = getPayloadConfigFromPayload(config, item, key)
       const value =
         !labelKey && typeof label === 'string'
-          ? config[label as keyof typeof config]?.label || label
+          ? config[label]?.label || label
           : itemConfig?.label
 
       if (labelFormatter) {
@@ -311,7 +312,11 @@ const ChartLegendContent = React.forwardRef<HTMLDivElement, ChartLegendContentPr
         )}
       >
         {payload.map((item) => {
-          const key = `${nameKey || item.dataKey || 'value'}`
+          const dataKey =
+            typeof item.dataKey === 'string' || typeof item.dataKey === 'number'
+              ? item.dataKey
+              : undefined
+          const key = `${nameKey || dataKey || 'value'}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
 
           return (
@@ -360,10 +365,10 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
     key in payloadPayload &&
     typeof payloadPayload[key as keyof typeof payloadPayload] === 'string'
   ) {
-    configLabelKey = payloadPayload[key as keyof typeof payloadPayload] as string
+    configLabelKey = payloadPayload[key as keyof typeof payloadPayload]
   }
 
-  return configLabelKey in config ? config[configLabelKey] : config[key as keyof typeof config]
+  return configLabelKey in config ? config[configLabelKey] : config[key]
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

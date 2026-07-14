@@ -274,8 +274,8 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => screen.getByText('#41'))
 
     const checkboxes = screen.getAllByRole('checkbox')
-    await user.click(checkboxes[0])
-    await user.click(checkboxes[1])
+    await user.click(checkboxes[0]!)
+    await user.click(checkboxes[1]!)
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /compare selected/i })).toBeInTheDocument()
@@ -296,8 +296,8 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => screen.getByText('#41'))
 
     const checkboxes = screen.getAllByRole('checkbox')
-    await user.click(checkboxes[0]) // selects #41
-    await user.click(checkboxes[1]) // selects #40
+    await user.click(checkboxes[0]!) // selects #41
+    await user.click(checkboxes[1]!) // selects #40
 
     await waitFor(() => {
       const link = screen.getByRole('link', { name: /compare selected/i })
@@ -320,8 +320,8 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => screen.getByText('#41'))
 
     const checkboxes = screen.getAllByRole('checkbox')
-    await user.click(checkboxes[0])
-    await user.click(checkboxes[1])
+    await user.click(checkboxes[0]!)
+    await user.click(checkboxes[1]!)
 
     // Third checkbox should be disabled when 2 are already selected
     await waitFor(() => {
@@ -343,8 +343,8 @@ describe('OverviewTab - report history pagination', () => {
     await waitFor(() => screen.getByText('#41'))
 
     const checkboxes = screen.getAllByRole('checkbox')
-    await user.click(checkboxes[0])
-    await user.click(checkboxes[1])
+    await user.click(checkboxes[0]!)
+    await user.click(checkboxes[1]!)
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /compare selected/i })).toBeInTheDocument()

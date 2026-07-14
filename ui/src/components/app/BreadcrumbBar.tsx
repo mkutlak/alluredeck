@@ -59,9 +59,8 @@ function useBreadcrumbs(): Crumb[] | null {
   const afterId = location.pathname.replace(/^\/projects\/[^/]+\/?/, '')
   const segments = afterId ? afterId.split('/').filter(Boolean) : []
 
-  if (segments.length === 0) return crumbs
-
   const firstSeg = segments[0]
+  if (!firstSeg) return crumbs
 
   // Deep sub-routes: reports/:reportId or trace/:source
   if (firstSeg === 'reports' && params.reportId) {
@@ -105,7 +104,7 @@ export function BreadcrumbBar() {
   if (location.pathname === '/') return null
   if (!crumbs) return null
 
-  const isLoadingState = crumbs.length === 1 && crumbs[0].label === '__loading__'
+  const isLoadingState = crumbs.length === 1 && crumbs[0]?.label === '__loading__'
 
   return (
     <nav

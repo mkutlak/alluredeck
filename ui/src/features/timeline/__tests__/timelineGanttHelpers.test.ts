@@ -36,7 +36,7 @@ describe('computeGanttLayout', () => {
     const tc = makeTC({ start: 100, stop: 300 })
     const layout = computeGanttLayout([tc], xScale, 20, 4)
     expect(layout.bars).toHaveLength(1)
-    const bar = layout.bars[0]
+    const bar = layout.bars[0]!
     expect(bar.tc).toBe(tc)
     expect(bar.x).toBe(10) // 100 / 10
     expect(bar.width).toBe(20) // (300 - 100) / 10
@@ -49,8 +49,8 @@ describe('computeGanttLayout', () => {
     const tc2 = makeTC({ start: 2000, stop: 3000 })
     const layout = computeGanttLayout([tc1, tc2], xScale, 20, 4)
     expect(layout.rowCount).toBe(1)
-    expect(layout.bars[0].row).toBe(0)
-    expect(layout.bars[1].row).toBe(0)
+    expect(layout.bars[0]!.row).toBe(0)
+    expect(layout.bars[1]!.row).toBe(0)
   })
 
   it('two overlapping tests go in different rows', () => {
@@ -58,8 +58,8 @@ describe('computeGanttLayout', () => {
     const tc2 = makeTC({ start: 500, stop: 1500 })
     const layout = computeGanttLayout([tc1, tc2], xScale, 20, 4)
     expect(layout.rowCount).toBe(2)
-    expect(layout.bars[0].row).toBe(0)
-    expect(layout.bars[1].row).toBe(1)
+    expect(layout.bars[0]!.row).toBe(0)
+    expect(layout.bars[1]!.row).toBe(1)
   })
 
   it('tests are sorted by start time before layout', () => {
@@ -67,8 +67,8 @@ describe('computeGanttLayout', () => {
     const tc2 = makeTC({ name: 'early', start: 0, stop: 1000 })
     const layout = computeGanttLayout([tc1, tc2], xScale, 20, 4)
     // After sorting, tc2 (early) is processed first and goes to row 0
-    expect(layout.bars[0].tc.name).toBe('early')
-    expect(layout.bars[1].tc.name).toBe('late')
+    expect(layout.bars[0]!.tc.name).toBe('early')
+    expect(layout.bars[1]!.tc.name).toBe('late')
     expect(layout.rowCount).toBe(1)
   })
 
@@ -78,8 +78,8 @@ describe('computeGanttLayout', () => {
     const tc1 = makeTC({ start: 0, stop: 2000 })
     const tc2 = makeTC({ start: 500, stop: 1500 })
     const layout = computeGanttLayout([tc1, tc2], xScale, barHeight, barGap)
-    expect(layout.bars[0].y).toBe(0) // row 0: 0 * (16 + 6)
-    expect(layout.bars[1].y).toBe(22) // row 1: 1 * (16 + 6)
+    expect(layout.bars[0]!.y).toBe(0) // row 0: 0 * (16 + 6)
+    expect(layout.bars[1]!.y).toBe(22) // row 1: 1 * (16 + 6)
   })
 
   it('returns correct totalHeight and rowCount', () => {
@@ -96,7 +96,7 @@ describe('computeGanttLayout', () => {
   it('enforces minimum bar width of 2px for very short tests', () => {
     const tc = makeTC({ start: 0, stop: 1 }) // 1ms → 0.1px without clamp
     const layout = computeGanttLayout([tc], xScale, 20, 4)
-    expect(layout.bars[0].width).toBe(2)
+    expect(layout.bars[0]!.width).toBe(2)
   })
 
   it('does not mutate the input array', () => {
@@ -170,8 +170,8 @@ describe('computeMinimapBars', () => {
     const tc = makeTC({ start: 0, stop: 1000 })
     const bars = computeMinimapBars([tc], xScale, 100)
     expect(bars).toHaveLength(1)
-    expect(bars[0].y).toBe(0)
-    expect(bars[0].tc).toBe(tc)
+    expect(bars[0]!.y).toBe(0)
+    expect(bars[0]!.tc).toBe(tc)
   })
 
   it('bars are distributed across the height', () => {
@@ -182,27 +182,27 @@ describe('computeMinimapBars', () => {
     ]
     const height = 100
     const bars = computeMinimapBars(tcs, xScale, height)
-    expect(bars[0].y).toBe(0) // (0 / 3) * 100
-    expect(bars[1].y).toBeCloseTo((1 / 3) * 100) // ~33.33
-    expect(bars[2].y).toBeCloseTo((2 / 3) * 100) // ~66.67
+    expect(bars[0]!.y).toBe(0) // (0 / 3) * 100
+    expect(bars[1]!.y).toBeCloseTo((1 / 3) * 100) // ~33.33
+    expect(bars[2]!.y).toBeCloseTo((2 / 3) * 100) // ~66.67
   })
 
   it('each bar has correct x position from xScale', () => {
     const tc = makeTC({ start: 500, stop: 1500 })
     const bars = computeMinimapBars([tc], xScale, 100)
-    expect(bars[0].x).toBe(50) // xScale(500) = 50
+    expect(bars[0]!.x).toBe(50) // xScale(500) = 50
   })
 
   it('each bar has correct width from xScale', () => {
     const tc = makeTC({ start: 0, stop: 2000 })
     const bars = computeMinimapBars([tc], xScale, 100)
-    expect(bars[0].width).toBe(200) // xScale(2000) - xScale(0)
+    expect(bars[0]!.width).toBe(200) // xScale(2000) - xScale(0)
   })
 
   it('enforces minimum width of 1px', () => {
     const tc = makeTC({ start: 0, stop: 1 }) // 1ms → 0.1px
     const bars = computeMinimapBars([tc], xScale, 100)
-    expect(bars[0].width).toBe(1)
+    expect(bars[0]!.width).toBe(1)
   })
 
   it('bars are sorted by start time (sorted copy, not mutated)', () => {
@@ -210,8 +210,8 @@ describe('computeMinimapBars', () => {
     const tc2 = makeTC({ name: 'early', start: 0, stop: 1000 })
     const input = [tc1, tc2]
     const bars = computeMinimapBars(input, xScale, 100)
-    expect(bars[0].tc.name).toBe('early')
-    expect(bars[1].tc.name).toBe('late')
+    expect(bars[0]!.tc.name).toBe('early')
+    expect(bars[1]!.tc.name).toBe('late')
     expect(input[0]).toBe(tc1) // original not mutated
   })
 })

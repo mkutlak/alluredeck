@@ -26,8 +26,8 @@ describe('DateRangePicker', () => {
 
   it('renders with provided from and to values', () => {
     render(<DateRangePicker from="2026-01-01" to="2026-03-01" onRangeChange={onRangeChange} />)
-    const fromInput = screen.getByLabelText(/from/i) as HTMLInputElement
-    const toInput = screen.getByLabelText(/to/i) as HTMLInputElement
+    const fromInput = screen.getByLabelText<HTMLInputElement>(/from/i)
+    const toInput = screen.getByLabelText<HTMLInputElement>(/to/i)
     expect(fromInput.value).toBe('2026-01-01')
     expect(toInput.value).toBe('2026-03-01')
   })

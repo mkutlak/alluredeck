@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useCallback } from 'react'
 import { scaleLinear } from 'd3-scale'
-import { brushX } from 'd3-brush'
+import { brushX, type D3BrushEvent } from 'd3-brush'
 import { select } from 'd3-selection'
 import type { TimelineTestCase } from '@/types/api'
 import type { StatusColorMap } from '@/hooks/useStatusColors'
@@ -50,7 +50,7 @@ export function TimelineMinimap({
         [0, 0],
         [width, MINIMAP_HEIGHT],
       ])
-      .on('end', (event) => {
+      .on('end', (event: D3BrushEvent<unknown>) => {
         if (!event.selection) {
           onBrushChange(null)
           return

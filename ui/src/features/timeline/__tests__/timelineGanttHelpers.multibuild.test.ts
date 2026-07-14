@@ -56,10 +56,10 @@ describe('computeMultiBuildLayout', () => {
     const result = computeMultiBuildLayout(builds, xScale, barHeight, barGap, bandGap)
 
     expect(result.bands).toHaveLength(1)
-    expect(result.bands[0].buildOrder).toBe(1)
-    expect(result.bands[0].yOffset).toBe(0)
-    expect(result.bands[0].bandHeight).toBeGreaterThan(0)
-    expect(result.totalHeight).toBe(result.bands[0].bandHeight)
+    expect(result.bands[0]!.buildOrder).toBe(1)
+    expect(result.bands[0]!.yOffset).toBe(0)
+    expect(result.bands[0]!.bandHeight).toBeGreaterThan(0)
+    expect(result.totalHeight).toBe(result.bands[0]!.bandHeight)
   })
 
   it('three builds produce non-overlapping bands', () => {
@@ -72,8 +72,8 @@ describe('computeMultiBuildLayout', () => {
 
     // Each band's yOffset should be after the previous band's yOffset + bandHeight + bandGap
     for (let i = 1; i < result.bands.length; i++) {
-      const prev = result.bands[i - 1]
-      expect(result.bands[i].yOffset).toBe(prev.yOffset + prev.bandHeight + bandGap)
+      const prev = result.bands[i - 1]!
+      expect(result.bands[i]!.yOffset).toBe(prev.yOffset + prev.bandHeight + bandGap)
     }
   })
 
@@ -86,12 +86,12 @@ describe('computeMultiBuildLayout', () => {
 
     // Verify no overlapping bands
     for (let i = 1; i < result.bands.length; i++) {
-      const prevEnd = result.bands[i - 1].yOffset + result.bands[i - 1].bandHeight
-      expect(result.bands[i].yOffset).toBeGreaterThanOrEqual(prevEnd + bandGap)
+      const prevEnd = result.bands[i - 1]!.yOffset + result.bands[i - 1]!.bandHeight
+      expect(result.bands[i]!.yOffset).toBeGreaterThanOrEqual(prevEnd + bandGap)
     }
 
     // Total height should equal last band's yOffset + its bandHeight
-    const lastBand = result.bands[result.bands.length - 1]
+    const lastBand = result.bands[result.bands.length - 1]!
     expect(result.totalHeight).toBe(lastBand.yOffset + lastBand.bandHeight)
   })
 
@@ -103,10 +103,10 @@ describe('computeMultiBuildLayout', () => {
     ]
     const result = computeMultiBuildLayout(builds, xScale, barHeight, barGap, bandGap)
 
-    expect(result.bands[0].buildOrder).toBe(44)
-    expect(result.bands[0].createdAt).toBe('2026-03-25T00:00:00Z')
-    expect(result.bands[1].buildOrder).toBe(43)
-    expect(result.bands[1].createdAt).toBe('2026-03-24T00:00:00Z')
+    expect(result.bands[0]!.buildOrder).toBe(44)
+    expect(result.bands[0]!.createdAt).toBe('2026-03-25T00:00:00Z')
+    expect(result.bands[1]!.buildOrder).toBe(43)
+    expect(result.bands[1]!.createdAt).toBe('2026-03-24T00:00:00Z')
   })
 
   it('each band contains a valid GanttLayout from computeGanttLayout', () => {
@@ -115,7 +115,7 @@ describe('computeMultiBuildLayout', () => {
     const builds = [makeBuild(1, [tc1, tc2])]
     const result = computeMultiBuildLayout(builds, xScale, barHeight, barGap, bandGap)
 
-    const band = result.bands[0]
+    const band = result.bands[0]!
     expect(band.layout.bars).toHaveLength(2)
     expect(band.layout.rowCount).toBeGreaterThan(0)
     expect(band.layout.totalHeight).toBeGreaterThan(0)
@@ -125,11 +125,11 @@ describe('computeMultiBuildLayout', () => {
   it('build with no test cases has 0 band height', () => {
     const builds = [makeBuild(1, [])]
     // Fix makeBuild for empty arrays
-    builds[0].summary.min_start = 0
-    builds[0].summary.max_stop = 0
+    builds[0]!.summary.min_start = 0
+    builds[0]!.summary.max_stop = 0
     const result = computeMultiBuildLayout(builds, xScale, barHeight, barGap, bandGap)
 
     expect(result.bands).toHaveLength(1)
-    expect(result.bands[0].bandHeight).toBe(0)
+    expect(result.bands[0]!.bandHeight).toBe(0)
   })
 })

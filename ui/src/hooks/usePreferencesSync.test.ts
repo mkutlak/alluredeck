@@ -98,7 +98,9 @@ describe('usePreferencesSync', () => {
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
 
     // Trigger a state change
-    act(() => useUIStore.setState({ projectViewMode: 'table' }))
+    act(() => {
+      useUIStore.setState({ projectViewMode: 'table' })
+    })
 
     // Not flushed yet
     expect(mockUpdate).not.toHaveBeenCalled()

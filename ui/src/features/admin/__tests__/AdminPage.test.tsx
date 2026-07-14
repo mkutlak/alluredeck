@@ -224,7 +224,7 @@ describe('AdminPage', () => {
 
     // select the job row checkbox (index 1; index 0 is select-all)
     const checkboxes = screen.getAllByRole('checkbox')
-    await userEvent.click(checkboxes[1])
+    await userEvent.click(checkboxes[1]!)
 
     expect(screen.getByRole('button', { name: /delete selected/i })).toBeInTheDocument()
   })
@@ -247,7 +247,7 @@ describe('AdminPage', () => {
 
     // click select-all (first checkbox)
     const checkboxes = screen.getAllByRole('checkbox')
-    await userEvent.click(checkboxes[0])
+    await userEvent.click(checkboxes[0]!)
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /delete selected \(2\)/i })).toBeInTheDocument()
@@ -271,7 +271,7 @@ describe('AdminPage', () => {
 
     // select the job
     const checkboxes = screen.getAllByRole('checkbox')
-    await userEvent.click(checkboxes[1])
+    await userEvent.click(checkboxes[1]!)
 
     // click "Delete selected (1)"
     const deleteSelectedBtn = screen.getByRole('button', { name: /delete selected/i })

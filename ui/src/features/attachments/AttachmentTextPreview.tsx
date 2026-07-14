@@ -147,7 +147,7 @@ export function AttachmentTextPreview({ url, mimeType, fileName }: AttachmentTex
 
   function handleCopy() {
     if (rawText == null) return
-    navigator.clipboard.writeText(rawText).then(() => {
+    void navigator.clipboard.writeText(rawText).then(() => {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 2000)

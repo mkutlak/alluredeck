@@ -48,7 +48,8 @@ export function computeTicks(minStart: number, maxStop: number): TickMark[] {
   }
 
   // Find the smallest interval that yields ≤ 12 ticks.
-  let chosen = NICE_INTERVALS_MS[NICE_INTERVALS_MS.length - 1]
+  // NICE_INTERVALS_MS is a non-empty literal, so the last element always exists.
+  let chosen = NICE_INTERVALS_MS[NICE_INTERVALS_MS.length - 1]!
   for (const interval of NICE_INTERVALS_MS) {
     const count = Math.floor(totalMs / interval) + 1
     if (count <= 12) {

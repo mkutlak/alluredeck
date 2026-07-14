@@ -13,10 +13,23 @@
 ## Key Versions
 
 - React 19, React Router v7, Zustand v5
-- Vite 8, Vitest 4, TypeScript 6 (strict)
-- ESLint 10 (flat config — `eslint.config.js`), Prettier 3
+- Vite 8, Vitest 4, TypeScript 7 (native compiler, strict)
+- ESLint 10 (flat config — `eslint.config.js`, type-aware), Prettier 3
 - TanStack Query v5, Recharts 3, Tailwind CSS 4
 - Radix UI primitives, shadcn-style components
+
+## TypeScript 7 toolchain
+
+The project uses the native TypeScript 7 compiler for speed, but `typescript-eslint` has no TS7 support yet (upstream issue closed *not planned*), and it `require()`s the `typescript` module. To satisfy both, `package.json` aliases:
+
+- `typescript` → `npm:@typescript/typescript6` — Microsoft's TS6-API shim, so `typescript-eslint` (and type-aware lint) works.
+- `typescript7` → `npm:typescript@^7` — the fast native compiler; its `tsc` bin drives `build` (`tsc -b`) and `typecheck` (`tsc -b --noEmit`).
+
+Collapse this back to a single `typescript: ^7` once `typescript-eslint` ships TS7 support. Editors: install the "TypeScript 7" extension for the native LSP (the workspace `typescript` module is intentionally the v6 shim).
+
+Strict compiler flags on (see `tsconfig.app.json`/`tsconfig.node.json`): `verbatimModuleSyntax`, `erasableSyntaxOnly` (no enums/namespaces/param-properties — use const objects + literal unions), `noUncheckedIndexedAccess` (index access is `T | undefined` — guard or assert only when provably present), `noImplicitOverride`. `exactOptionalPropertyTypes` is intentionally left off (noise > value).
+
+ESLint is type-aware (`recommendedTypeChecked` + `projectService`). Real async hazards (`no-floating-promises`, `no-misused-promises`) are enforced everywhere — wrap fire-and-forget with `void`, and JSX async handlers as `() => void handleAsync()`. The `unbound-method`/`no-unsafe-*`/`require-await` rules are off for test files only (mocks are loosely typed).
 
 ## Key Libraries
 

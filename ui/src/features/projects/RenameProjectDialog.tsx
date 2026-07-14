@@ -37,7 +37,11 @@ export function RenameProjectDialog({ projectId, numericId, open, onOpenChange }
       void qc.invalidateQueries({ queryKey: queryKeys.projects })
       void qc.invalidateQueries({ queryKey: queryKeys.dashboard() })
       onOpenChange(false)
-      navigate(numericId != null ? `/projects/${numericId}` : `/projects/${encodeURIComponent(newId.trim())}`)
+      void navigate(
+        numericId != null
+          ? `/projects/${numericId}`
+          : `/projects/${encodeURIComponent(newId.trim())}`,
+      )
     },
     onError: (e) => setError(extractErrorMessage(e)),
   })

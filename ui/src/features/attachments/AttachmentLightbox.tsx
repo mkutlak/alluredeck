@@ -85,7 +85,12 @@ export function AttachmentLightbox({ attachment, open, onOpenChange }: Attachmen
           )}
 
           <div className="flex justify-end">
-            <Button variant="outline" size="sm" disabled={downloading} onClick={handleDownload}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={downloading}
+              onClick={() => void handleDownload()}
+            >
               {downloading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

@@ -173,7 +173,7 @@ export function DashboardPage() {
           <h1 className="text-2xl font-bold">Projects</h1>
         </div>
         <div className="space-y-2">
-          {[...Array(4)].map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-10 animate-pulse rounded-md" />
           ))}
         </div>
@@ -185,7 +185,7 @@ export function DashboardPage() {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
         <p className="text-lg font-medium">Failed to load dashboard.</p>
-        <Button onClick={() => refetch()}>Retry</Button>
+        <Button onClick={() => void refetch()}>Retry</Button>
       </div>
     )
   }
@@ -219,7 +219,7 @@ export function DashboardPage() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         isFetching={isFetching}
-        onRefetch={() => refetch()}
+        onRefetch={() => void refetch()}
         isAdmin={isAdmin}
         onCreate={() => setCreateOpen(true)}
       />

@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { scaleLinear } from 'd3-scale'
-import { zoom as d3Zoom, zoomIdentity } from 'd3-zoom'
+import { zoom as d3Zoom, zoomIdentity, type D3ZoomEvent } from 'd3-zoom'
 import { select } from 'd3-selection'
 import type { TimelineTestCase, TimelineBuildEntry } from '@/types/api'
 import type { StatusColorMap } from '@/hooks/useStatusColors'
@@ -145,8 +145,8 @@ export function TimelineGanttChart({
         if (event instanceof MouseEvent && event.button === 2) return false
         return true
       })
-      .on('zoom', (event) => {
-        const t = event.transform as ZoomState
+      .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
+        const t = event.transform
         setZoomTransform({ k: t.k, x: t.x, y: t.y })
 
         // Notify parent of the viewport range

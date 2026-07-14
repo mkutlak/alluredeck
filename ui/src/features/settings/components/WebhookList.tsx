@@ -40,7 +40,7 @@ function targetTypeClass(type: string): string {
     teams: NEUTRAL_BADGE_CLASSES,
     generic: INFO_BADGE_CLASSES,
   }
-  return variants[type] ?? variants['generic']
+  return variants[type] ?? variants['generic']!
 }
 
 function maskUrl(url: string): string {

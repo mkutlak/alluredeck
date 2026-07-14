@@ -52,7 +52,7 @@ describe('toKpiData', () => {
     expect(result!.passRateTrend).toHaveLength(10)
     // Sliced to first 10 (newest), then reversed to chronological:
     // trend[0] = oldest of the 10 (lower pass rate), trend[9] = newest (higher pass rate)
-    expect(result!.passRateTrend[0]).toBeLessThan(result!.passRateTrend[9])
+    expect(result!.passRateTrend[0]!).toBeLessThan(result!.passRateTrend[9]!)
   })
 
   it('returns avgDuration 0 when duration_ms is null', () => {

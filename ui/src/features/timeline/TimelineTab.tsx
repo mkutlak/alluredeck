@@ -153,8 +153,9 @@ export function TimelineTab() {
         <CardContent>
           <TimelineChart
             testCases={allTestCases}
-            minStart={data?.global_min_start ?? allTestCases[0].start}
-            maxStop={data?.global_max_stop ?? allTestCases[allTestCases.length - 1].stop}
+            // allTestCases.length > 0 is guaranteed by the empty-state guard above.
+            minStart={data?.global_min_start ?? allTestCases[0]!.start}
+            maxStop={data?.global_max_stop ?? allTestCases[allTestCases.length - 1]!.stop}
             builds={builds}
           />
         </CardContent>

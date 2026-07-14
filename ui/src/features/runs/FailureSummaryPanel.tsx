@@ -60,7 +60,7 @@ export function FailureSummaryPanel({
         isError={query.isError}
         error={query.error}
         isEmpty={false}
-        refetch={query.refetch}
+        refetch={() => void query.refetch()}
         skeletonRows={2}
       >
         {!summary ? (

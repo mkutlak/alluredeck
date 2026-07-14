@@ -52,7 +52,7 @@ export function FlakyImpactCard({ projectId, numericProjectId, branch }: Props) 
           isError={isError}
           error={error}
           isEmpty={tests.length === 0}
-          refetch={refetch}
+          refetch={() => void refetch()}
           emptyMessage="No flaky tests detected in recent builds"
         >
           <Table>

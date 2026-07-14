@@ -106,7 +106,7 @@ export function DefectList({ projectId, buildId, defaultResolution }: DefectList
         isError={isError}
         error={error}
         isEmpty={defects.length === 0}
-        refetch={refetch}
+        refetch={() => void refetch()}
         skeletonRows={5}
         emptyMessage="No defects found — defects will appear here after builds are processed."
       >

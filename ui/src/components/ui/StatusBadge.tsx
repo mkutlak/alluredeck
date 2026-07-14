@@ -8,7 +8,7 @@ export function StatusBadge({
   status,
   className,
 }: {
-  status: TestStatus | string
+  status: string
   className?: string
 }) {
   const variant = KNOWN_STATUSES.has(status)

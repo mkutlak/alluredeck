@@ -37,7 +37,10 @@ window.__env__ = {
 // which batch and fire callbacks asynchronously. This is acceptable for smoke tests.
 // For tests that verify resize-dependent behavior, consider using @juggle/resize-observer.
 globalThis.ResizeObserver = class ResizeObserver {
-  constructor(private callback: ResizeObserverCallback) {}
+  private callback: ResizeObserverCallback
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+  }
   observe(_target: Element) {
     this.callback(
       [{ contentRect: { width: 100, height: 100 } } as unknown as ResizeObserverEntry],

@@ -11,7 +11,7 @@ function makeProject(overrides: Partial<ProjectEntry> = {}): ProjectEntry {
     children: [],
     report_type: 'allure',
     ...overrides,
-  } as ProjectEntry
+  }
 }
 
 describe('projectNavItems', () => {
@@ -32,14 +32,14 @@ describe('projectNavItems', () => {
     const project = makeProject({ project_id: 5, children: [3, 4] })
     const items = projectNavItems(project)
     expect(items).toHaveLength(1)
-    expect(items[0].label).toBe('Pipeline Runs')
+    expect(items[0]!.label).toBe('Pipeline Runs')
   })
 
   it('the parent index entry links to the bare project route', () => {
     const project = makeProject({ project_id: 5, children: [3, 4] })
     const items = projectNavItems(project)
-    expect(items[0].to).toBe('/projects/5')
-    expect(items[0].end).toBe(true)
+    expect(items[0]!.to).toBe('/projects/5')
+    expect(items[0]!.end).toBe(true)
   })
 
   it('keeps the exact sidebar-nav-* data-testid strings', () => {
@@ -71,7 +71,7 @@ describe('projectNavItems', () => {
   it('marks only the Overview item as an exact-match ("end") route', () => {
     const project = makeProject({ project_id: 5, children: [] })
     const items = projectNavItems(project)
-    expect(items[0].end).toBe(true)
+    expect(items[0]!.end).toBe(true)
     expect(items.slice(1).every((i) => !i.end)).toBe(true)
   })
 

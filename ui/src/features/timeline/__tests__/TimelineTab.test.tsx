@@ -135,8 +135,8 @@ describe('TimelineTab', () => {
       ...mockMultiTimeline,
       builds: [
         {
-          ...mockMultiTimeline.builds[0],
-          summary: { ...mockMultiTimeline.builds[0].summary, total: 10000, truncated: true },
+          ...mockMultiTimeline.builds[0]!,
+          summary: { ...mockMultiTimeline.builds[0]!.summary, total: 10000, truncated: true },
         },
       ],
     })

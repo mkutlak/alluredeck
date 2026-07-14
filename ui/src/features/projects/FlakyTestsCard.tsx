@@ -72,7 +72,7 @@ export function FlakyTestsCard({ projectId, numericProjectId }: Props) {
           isError={isError}
           error={error}
           isEmpty={flakyTests.length === 0}
-          refetch={refetch}
+          refetch={() => void refetch()}
           skeletonRows={3}
           emptyMessage="No flaky tests detected"
         >

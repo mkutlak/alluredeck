@@ -14,7 +14,16 @@ export function PassRateTrendChart({ data }: Props) {
         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
         <XAxis dataKey="name" tick={{ fontSize: 11 }} />
         <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-        <Tooltip content={<ChartTooltipContent formatter={(v) => [`${v}%`, 'Pass Rate']} />} />
+        <Tooltip
+          content={
+            <ChartTooltipContent
+              formatter={(v) => {
+                const value = typeof v === 'number' || typeof v === 'string' ? v : ''
+                return [`${value}%`, 'Pass Rate']
+              }}
+            />
+          }
+        />
         <ReferenceLine
           y={90}
           stroke="hsl(var(--chart-1))"

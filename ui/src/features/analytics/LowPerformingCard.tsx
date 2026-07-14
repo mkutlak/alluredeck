@@ -75,7 +75,7 @@ export function LowPerformingCard({ projectId, branch }: Props) {
           isError={isError}
           error={error}
           isEmpty={tests.length === 0}
-          refetch={refetch}
+          refetch={() => void refetch()}
           emptyMessage="No data yet — generate some reports to see trends."
         >
           <div className="overflow-x-auto">

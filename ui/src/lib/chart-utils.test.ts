@@ -56,7 +56,7 @@ describe('toCategoryBreakdownData', () => {
     const entries = [makeCategory('Product defects'), makeCategory('Test defects', null)]
     const result = toCategoryBreakdownData(entries)
     expect(result).toHaveLength(1)
-    expect(result[0].name).toBe('Product defects')
+    expect(result[0]!.name).toBe('Product defects')
   })
 
   it('filters out categories with zero total', () => {
@@ -66,7 +66,7 @@ describe('toCategoryBreakdownData', () => {
     ]
     const result = toCategoryBreakdownData(entries)
     expect(result).toHaveLength(1)
-    expect(result[0].name).toBe('Product defects')
+    expect(result[0]!.name).toBe('Product defects')
   })
 
   it('maps fields correctly for known category', () => {
@@ -74,17 +74,17 @@ describe('toCategoryBreakdownData', () => {
       makeCategory('Product defects', { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 }),
     ]
     const result = toCategoryBreakdownData(entries)
-    expect(result[0].name).toBe('Product defects')
-    expect(result[0].failed).toBe(2)
-    expect(result[0].broken).toBe(1)
-    expect(result[0].total).toBe(3)
-    expect(result[0].color).toBe(CATEGORY_COLORS['Product defects'])
+    expect(result[0]!.name).toBe('Product defects')
+    expect(result[0]!.failed).toBe(2)
+    expect(result[0]!.broken).toBe(1)
+    expect(result[0]!.total).toBe(3)
+    expect(result[0]!.color).toBe(CATEGORY_COLORS['Product defects'])
   })
 
   it('uses default color for unknown category names', () => {
     const entries = [makeCategory('Some other defect')]
     const result = toCategoryBreakdownData(entries)
-    expect(result[0].color).toBe('#8c8fa1')
+    expect(result[0]!.color).toBe('#8c8fa1')
   })
 })
 

@@ -64,7 +64,7 @@ export function computeGanttLayout(
 
     let row = -1
     for (let i = 0; i < rowEnds.length; i++) {
-      if (x >= rowEnds[i]) {
+      if (x >= rowEnds[i]!) {
         row = i
         break
       }
@@ -180,8 +180,9 @@ export function computeMultiBuildLayout(
     currentY += layout.totalHeight + bandGap
   }
 
-  // Total height is last band's yOffset + its bandHeight (no trailing gap)
-  const lastBand = bands[bands.length - 1]
+  // Total height is last band's yOffset + its bandHeight (no trailing gap).
+  // bands.length === builds.length, which is > 0 per the guard above, so this is safe.
+  const lastBand = bands[bands.length - 1]!
   const totalHeight = lastBand.yOffset + lastBand.bandHeight
 
   return { bands, totalHeight }

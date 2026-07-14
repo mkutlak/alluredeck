@@ -43,7 +43,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
       removeProjectQueries(queryClient, projectId)
       toast({ title: 'Project deleted', description: `"${projectId}" has been removed.` })
       onOpenChange(false)
-      navigate('/', { replace: true })
+      void navigate('/', { replace: true })
     },
     onError: (err) => {
       setError(extractErrorMessage(err))

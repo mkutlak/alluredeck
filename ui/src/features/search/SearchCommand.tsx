@@ -63,7 +63,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
   const handleSelect = (path: string) => {
     setOpen(false)
     setQuery('')
-    navigate(path)
+    void navigate(path)
   }
 
   const handleOpenChange = (value: boolean) => {
@@ -96,7 +96,9 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
         <CommandList>
           {isFetching && hasQuery && <CommandEmpty>Searching...</CommandEmpty>}
 
-          {!isFetching && hasQuery && !hasResults && <CommandEmpty>No results found.</CommandEmpty>}
+          {!isFetching && hasQuery && !hasResults && (
+            <CommandEmpty>No results found.</CommandEmpty>
+          )}
 
           {!hasQuery && <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>}
 

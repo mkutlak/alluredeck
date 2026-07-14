@@ -59,10 +59,11 @@ export function SuitePassRateChart({ projectId, branch }: Props) {
                 content={
                   <ChartTooltipContent
                     formatter={(value, _name, item) => {
-                      const payload = item.payload as Record<string, unknown> | undefined
-                      const passed = payload?.passed ?? 0
-                      const total = payload?.total ?? 0
-                      return `${value}% (${String(passed)}/${String(total)} tests passed)`
+                      const payload = item.payload
+                      const passed = typeof payload?.passed === 'number' ? payload.passed : 0
+                      const total = typeof payload?.total === 'number' ? payload.total : 0
+                      const rate = typeof value === 'number' || typeof value === 'string' ? value : ''
+                      return `${rate}% (${passed}/${total} tests passed)`
                     }}
                   />
                 }

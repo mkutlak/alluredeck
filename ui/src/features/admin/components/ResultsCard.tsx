@@ -142,7 +142,9 @@ export function ResultsCard() {
             <TableBody>
               {groups.map((group) => {
                 if (group.parentId == null) {
-                  const entry = group.items[0]
+                  // groupByParent always populates a single-item `items` array
+                  // for standalone (parentId === null) groups.
+                  const entry = group.items[0]!
                   return (
                     <TableRow key={entry.project_id}>
                       <TableCell>

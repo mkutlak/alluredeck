@@ -133,7 +133,7 @@ export function KnownIssuesTab() {
         isError={isError}
         error={error}
         isEmpty={filtered.length === 0}
-        refetch={refetch}
+        refetch={() => void refetch()}
         skeletonRows={4}
         emptyMessage={
           isEditor

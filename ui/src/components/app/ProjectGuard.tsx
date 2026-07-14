@@ -22,7 +22,7 @@ export function ProjectGuard() {
       description: `No project with id "${id}".`,
       variant: 'destructive',
     })
-    navigate('/', { replace: true })
+    void navigate('/', { replace: true })
   }, [isLoading, project, id, navigate, clearLastProjectId])
 
   if (isLoading) {

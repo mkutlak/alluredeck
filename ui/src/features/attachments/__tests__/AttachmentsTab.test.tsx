@@ -341,7 +341,7 @@ describe('AttachmentsTab', () => {
 
       // Open status dropdown and pick "Failed"
       const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[0])
+      await user.click(comboboxes[0]!)
       const failedOption = await screen.findByRole('option', { name: /^failed$/i })
       await user.click(failedOption)
 
@@ -361,7 +361,7 @@ describe('AttachmentsTab', () => {
       const callsBefore = vi.mocked(fetchAttachments).mock.calls.length
 
       const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[0])
+      await user.click(comboboxes[0]!)
       const brokenOption = await screen.findByRole('option', { name: /^broken$/i })
       await user.click(brokenOption)
 
@@ -375,7 +375,7 @@ describe('AttachmentsTab', () => {
       await screen.findByText('shouldRegisterNewUser')
 
       const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[0])
+      await user.click(comboboxes[0]!)
       const failedOption = await screen.findByRole('option', { name: /^failed$/i })
       await user.click(failedOption)
 
@@ -391,7 +391,7 @@ describe('AttachmentsTab', () => {
       await screen.findByText('shouldRegisterNewUser')
 
       const comboboxes = screen.getAllByRole('combobox')
-      await user.click(comboboxes[0])
+      await user.click(comboboxes[0]!)
       const skippedOption = await screen.findByRole('option', { name: /^skipped$/i })
       await user.click(skippedOption)
 

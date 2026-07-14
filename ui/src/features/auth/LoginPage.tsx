@@ -44,7 +44,7 @@ export function LoginPage() {
         if (cancelled) return
         const { username: user, roles, expires_in, provider } = res.data
         setAuth(roles as Role[], user, expires_in, provider)
-        navigate(from, { replace: true })
+        void navigate(from, { replace: true })
       })
       .catch((err) => {
         if (cancelled) return
@@ -61,7 +61,7 @@ export function LoginPage() {
     onSuccess: (res) => {
       const { roles, expires_in } = res.data
       setAuth(roles as Role[], username, expires_in)
-      navigate(from, { replace: true })
+      void navigate(from, { replace: true })
     },
     onError: (err) => {
       setErrorMsg(extractErrorMessage(err))

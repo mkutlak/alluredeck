@@ -44,8 +44,8 @@ describe('fetchAttachments', () => {
 
     expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/latest/attachments', { params: {} })
     expect(result.groups).toHaveLength(1)
-    expect(result.groups[0].test_name).toBe('shouldRegister')
-    expect(result.groups[0].attachments[0].url).toBe(
+    expect(result.groups[0]!.test_name).toBe('shouldRegister')
+    expect(result.groups[0]!.attachments[0]!.url).toBe(
       '/api/v1/projects/p1/reports/latest/attachments/abc123.png',
     )
   })

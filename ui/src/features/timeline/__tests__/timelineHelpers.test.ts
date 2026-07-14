@@ -49,7 +49,7 @@ describe('computeTicks', () => {
   it('tick offsets are non-negative and in ascending order', () => {
     const ticks = computeTicks(0, 30000)
     for (let i = 1; i < ticks.length; i++) {
-      expect(ticks[i].ms).toBeGreaterThan(ticks[i - 1].ms)
+      expect(ticks[i]!.ms).toBeGreaterThan(ticks[i - 1]!.ms)
     }
   })
 

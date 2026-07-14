@@ -57,7 +57,8 @@ interface RefreshResponseBody {
 // ---------------------------------------------------------------------------
 function getCSRFToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
-  return match ? decodeURIComponent(match[1]) : null
+  // match[1] is the mandatory capture group — always present when match is truthy.
+  return match ? decodeURIComponent(match[1]!) : null
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +216,12 @@ function buildRequest(
   if (config?.params) {
     const searchParams = new URLSearchParams()
     for (const [key, value] of Object.entries(config.params)) {
-      if (value !== undefined) {
+      if (
+        value === null ||
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean'
+      ) {
         searchParams.append(key, String(value))
       }
     }

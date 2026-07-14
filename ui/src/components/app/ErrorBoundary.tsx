@@ -21,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info.componentStack)
     reportError(error, {
       source: 'react',
@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.href = '/'
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
         <div className="flex h-64 flex-col items-center justify-center gap-4 text-center">

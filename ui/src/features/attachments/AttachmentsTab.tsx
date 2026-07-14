@@ -124,7 +124,7 @@ export function AttachmentsTab() {
   const reportLabel =
     selectedReport === 'latest'
       ? reports.length > 0
-        ? `#${reports[0].report_id} (latest)`
+        ? `#${reports[0]!.report_id} (latest)`
         : 'latest'
       : `#${selectedReport}`
 

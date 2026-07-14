@@ -46,7 +46,7 @@ describe('DefectFilters', () => {
     const { onFilterChange } = renderFilters()
 
     const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[0])
+    await user.click(comboboxes[0]!)
     const option = await screen.findByRole('option', { name: /^product bug$/i })
     await user.click(option)
 
@@ -60,7 +60,7 @@ describe('DefectFilters', () => {
     const { onFilterChange } = renderFilters({ category: 'product_bug' })
 
     const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[0])
+    await user.click(comboboxes[0]!)
     const option = await screen.findByRole('option', { name: /^all categories$/i })
     await user.click(option)
 
@@ -72,7 +72,7 @@ describe('DefectFilters', () => {
     const { onFilterChange } = renderFilters()
 
     const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[1])
+    await user.click(comboboxes[1]!)
     const option = await screen.findByRole('option', { name: /^fixed$/i })
     await user.click(option)
 
@@ -84,7 +84,7 @@ describe('DefectFilters', () => {
     const { onFilterChange } = renderFilters({ resolution: 'fixed' })
 
     const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[1])
+    await user.click(comboboxes[1]!)
     const option = await screen.findByRole('option', { name: /^all resolutions$/i })
     await user.click(option)
 
@@ -96,7 +96,7 @@ describe('DefectFilters', () => {
     const { onFilterChange } = renderFilters()
 
     const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[2])
+    await user.click(comboboxes[2]!)
     const option = await screen.findByRole('option', { name: /^occurrences$/i })
     await user.click(option)
 

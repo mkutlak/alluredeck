@@ -28,7 +28,7 @@ describe('sendResultsMultipart', () => {
     await sendResultsMultipart('my-project', files)
 
     expect(mockedPost).toHaveBeenCalledOnce()
-    const [url, body, config] = mockedPost.mock.calls[0]
+    const [url, body, config] = mockedPost.mock.calls[0]!
     expect(url).toBe('/projects/my-project/results')
     expect(body).toBeInstanceOf(FormData)
     expect(config?.headers?.['Content-Type']).toBe('multipart/form-data')
@@ -42,7 +42,7 @@ describe('sendResultsMultipart', () => {
     await sendResultsMultipart('my-project', [blob])
 
     expect(mockedPost).toHaveBeenCalledOnce()
-    const [url, body, config] = mockedPost.mock.calls[0]
+    const [url, body, config] = mockedPost.mock.calls[0]!
     expect(url).toBe('/projects/my-project/results')
     expect(body).toBeInstanceOf(File)
     expect(config?.headers?.['Content-Type']).toBe('application/gzip')
@@ -58,7 +58,7 @@ describe('sendResultsMultipart', () => {
     await sendResultsMultipart('my-project', files)
 
     expect(mockedPost).toHaveBeenCalledOnce()
-    const [, body, config] = mockedPost.mock.calls[0]
+    const [, body, config] = mockedPost.mock.calls[0]!
     expect(body).toBeInstanceOf(FormData)
     expect(config?.headers?.['Content-Type']).toBe('multipart/form-data')
   })
@@ -70,7 +70,7 @@ describe('sendResultsMultipart', () => {
     await sendResultsMultipart('my-project', [file])
 
     expect(mockedPost).toHaveBeenCalledOnce()
-    const [, body, config] = mockedPost.mock.calls[0]
+    const [, body, config] = mockedPost.mock.calls[0]!
     expect(body).toBeInstanceOf(FormData)
     expect(config?.headers?.['Content-Type']).toBe('multipart/form-data')
   })

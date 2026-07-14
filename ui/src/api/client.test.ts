@@ -244,7 +244,7 @@ describe('apiClient', () => {
 // refresh-on-401 retry logic
 // ---------------------------------------------------------------------------
 describe('apiClient refresh-on-401', () => {
-  let fetchSpy: ReturnType<typeof vi.fn>
+  let fetchSpy: ReturnType<typeof vi.fn<typeof fetch>>
 
   function jsonResponse(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), {
@@ -385,15 +385,15 @@ describe('apiClient refresh-on-401', () => {
       resolveRefresh = resolve
     })
 
-    fetchSpy.mockImplementation((input: string | URL) => {
-      const url = typeof input === 'string' ? input : input.toString()
+    fetchSpy.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes('/auth/refresh')) {
         return refreshPending
       }
       // First time each /x is hit, return 401; after the refresh we switch
       // to returning 200. Track by occurrence count.
       const prior = fetchSpy.mock.calls.filter(
-        (c) => typeof c[0] === 'string' && (c[0] as string).includes('/x'),
+        (c) => typeof c[0] === 'string' && (c[0]).includes('/x'),
       ).length
       // prior counts the CURRENT call, so the first hit has prior === 1
       // and the first five calls all return 401, subsequent retries return 200.
@@ -430,7 +430,7 @@ describe('apiClient refresh-on-401', () => {
 
     // Exactly one call to /auth/refresh across the entire test.
     const refreshCalls = fetchSpy.mock.calls.filter(
-      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/auth/refresh'),
+      (c) => typeof c[0] === 'string' && (c[0]).includes('/auth/refresh'),
     )
     expect(refreshCalls).toHaveLength(1)
 

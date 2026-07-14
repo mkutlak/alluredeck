@@ -79,8 +79,9 @@ export async function sendResultsMultipart(projectId: string, files: File[]): Pr
   const url = `/projects/${encodeURIComponent(projectId)}/results`
 
   // Single tar.gz/tgz file → send as raw gzip body so the backend extracts it.
-  if (files.length === 1 && isTarGzFile(files[0])) {
-    await apiClient.post(url, files[0], {
+  const singleFile = files.length === 1 ? files[0] : undefined
+  if (singleFile && isTarGzFile(singleFile)) {
+    await apiClient.post(url, singleFile, {
       headers: { 'Content-Type': 'application/gzip' },
     })
     return
