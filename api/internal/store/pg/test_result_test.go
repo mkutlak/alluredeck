@@ -14,7 +14,9 @@ import (
 )
 
 // i64p returns a pointer to v, for optional start/stop millis fields.
-func i64p(v int64) *int64 { return &v }
+//
+//go:fix inline
+func i64p(v int64) *int64 { return new(v) }
 
 // TestInsertBatch_DuplicateHistoryID_LatestAttemptWins reproduces the
 // production "duplicate key value violates unique constraint

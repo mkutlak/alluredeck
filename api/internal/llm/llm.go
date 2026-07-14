@@ -76,7 +76,7 @@ func New(cfg config.LLMConfig) *Client {
 // (rate-limited) failure, mirroring cmd/mcp-eval's classify().
 func (c *Client) Summarize(ctx context.Context, p Prompt) (Summary, error) {
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := range 2 {
 		raw, retry, err := c.call(ctx, p)
 		if err == nil {
 			return parseSummary(raw), nil

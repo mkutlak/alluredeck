@@ -12,7 +12,9 @@ import (
 )
 
 // statPtr is a small helper to build *int stat fields inline.
-func statPtr(v int) *int { return &v }
+//
+//go:fix inline
+func statPtr(v int) *int { return new(v) }
 
 // TestBuildWebhookPayload_RegressionDetected_FiresOnRegressions verifies that
 // regression_detected is triggered when DefectReader.ListRegressionsForBuild
@@ -25,9 +27,9 @@ func TestBuildWebhookPayload_RegressionDetected_FiresOnRegressions(t *testing.T)
 				ID:          100,
 				ProjectID:   projectID,
 				BuildNumber: 5,
-				StatTotal:   statPtr(10),
-				StatPassed:  statPtr(10),
-				StatFailed:  statPtr(0),
+				StatTotal:   new(10),
+				StatPassed:  new(10),
+				StatFailed:  new(0),
 			}, nil
 		},
 	}
@@ -63,9 +65,9 @@ func TestBuildWebhookPayload_RegressionDetected_NotFiredByDeltaAlone(t *testing.
 				ID:          200,
 				ProjectID:   projectID,
 				BuildNumber: 6,
-				StatTotal:   statPtr(10),
-				StatPassed:  statPtr(5),
-				StatFailed:  statPtr(5),
+				StatTotal:   new(10),
+				StatPassed:  new(5),
+				StatFailed:  new(5),
 			}, nil
 		},
 		GetPreviousBuildFn: func(_ context.Context, projectID int64, _ int) (store.Build, error) {
@@ -73,9 +75,9 @@ func TestBuildWebhookPayload_RegressionDetected_NotFiredByDeltaAlone(t *testing.
 				ID:          100,
 				ProjectID:   projectID,
 				BuildNumber: 5,
-				StatTotal:   statPtr(10),
-				StatPassed:  statPtr(10),
-				StatFailed:  statPtr(0),
+				StatTotal:   new(10),
+				StatPassed:  new(10),
+				StatFailed:  new(0),
 			}, nil
 		},
 	}
@@ -107,7 +109,7 @@ func TestBuildWebhookPayload_RegressionDetected_NotFiredByDeltaAlone(t *testing.
 func TestBuildWebhookPayload_NilDefectReader(t *testing.T) {
 	buildStore := &testutil.MockBuildStore{
 		GetLatestBuildFn: func(_ context.Context, projectID int64) (store.Build, error) {
-			return store.Build{ID: 1, ProjectID: projectID, BuildNumber: 1, StatTotal: statPtr(1), StatPassed: statPtr(1)}, nil
+			return store.Build{ID: 1, ProjectID: projectID, BuildNumber: 1, StatTotal: new(1), StatPassed: new(1)}, nil
 		},
 	}
 	payload, triggered, err := buildWebhookPayload(context.Background(), 1, buildStore, nil, "", zap.NewNop())

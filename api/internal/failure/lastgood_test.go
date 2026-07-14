@@ -117,7 +117,7 @@ func TestBuildLastGoodDiff_SampleCappedAtTen(t *testing.T) {
 	}
 	// 25 co-regressions, all distinct history ids.
 	const coRegressions = 25
-	for i := 0; i < coRegressions; i++ {
+	for i := range coRegressions {
 		hid := "hCo" + string(rune('A'+i))
 		diffs = append(diffs, store.DiffEntry{
 			TestName: hid, FullName: "pkg.Co" + hid, HistoryID: hid,

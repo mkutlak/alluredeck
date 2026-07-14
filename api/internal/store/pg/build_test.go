@@ -389,7 +389,7 @@ func TestReserveBuild_ConcurrentNoDuplicatesContiguous(t *testing.T) {
 	)
 	errCh := make(chan error, n)
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			order, err := buildStore.ReserveBuild(ctx, projectID)
@@ -443,17 +443,15 @@ func TestReserveBuild_RacesWithInsertMissingBuilds(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, reservers+1)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		// Mimic the unlocked Sync import path inserting a run of build_orders.
 		if err := buildStore.InsertMissingBuilds(ctx, projectID, []int{1, 2, 3, 4, 5}); err != nil {
 			errCh <- err
 		}
-	}()
+	})
 
 	wg.Add(reservers)
-	for i := 0; i < reservers; i++ {
+	for range reservers {
 		go func() {
 			defer wg.Done()
 			if _, err := buildStore.ReserveBuild(ctx, projectID); err != nil {
