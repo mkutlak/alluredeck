@@ -56,7 +56,7 @@ func main() {
 
 	// Open PostgreSQL pool with MCP-specific MaxConns (smaller than cmd/api default).
 	poolCfg := bootstrap.PoolConfig{MaxConns: cfg.MCPPoolMaxConns}
-	stores, err := bootstrap.InitStores(context.Background(), cfg, poolCfg, encKey, nil, logger)
+	stores, err := bootstrap.InitStores(context.Background(), cfg, poolCfg, encKey, logger)
 	if err != nil {
 		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
 	}

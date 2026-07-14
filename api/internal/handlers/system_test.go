@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -42,7 +43,7 @@ func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 		CheckResultsEverySeconds: "5",
 	}
 
-	handler := NewSystemHandler(cfg, nil, nil, nil)
+	handler := NewSystemHandler(cfg, nil, nil, nil, nil)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
 	if err != nil {
@@ -85,7 +86,7 @@ func TestSystemHandler_ConfigEndpoint_LLMEnabled(t *testing.T) {
 	cfg := &config.Config{
 		LLM: config.LLMConfig{Enabled: true, Provider: "openai", Model: "llama3.1", BaseURL: "http://ollama:11434/v1"},
 	}
-	handler := NewSystemHandler(cfg, nil, nil, nil)
+	handler := NewSystemHandler(cfg, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/config", nil)
 	rr := httptest.NewRecorder()
@@ -108,7 +109,7 @@ func TestSystemHandler_ConfigEndpoint_LLMEnabled(t *testing.T) {
 }
 
 func TestSystemHandler_Health(t *testing.T) {
-	handler := NewSystemHandler(&config.Config{}, nil, nil, nil)
+	handler := NewSystemHandler(&config.Config{}, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -129,7 +130,7 @@ func TestSystemHandler_Health(t *testing.T) {
 
 func TestSystemHandler_Ready_OK(t *testing.T) {
 	db := openTestDB(t)
-	handler := NewSystemHandler(&config.Config{}, db, nil, nil)
+	handler := NewSystemHandler(&config.Config{}, db, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rr := httptest.NewRecorder()
@@ -156,7 +157,7 @@ func TestSystemHandler_Ready_DBDown(t *testing.T) {
 	// Close the DB to simulate failure
 	_ = db.Close()
 
-	handler := NewSystemHandler(&config.Config{}, db, nil, nil)
+	handler := NewSystemHandler(&config.Config{}, db, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rr := httptest.NewRecorder()
@@ -204,7 +205,7 @@ func readyBody(t *testing.T, h *SystemHandler) (int, map[string]string) {
 
 func TestSystemHandler_Ready_DependenciesHealthy_NoDB(t *testing.T) {
 	// db nil → skipped; healthy storage + queue → 200.
-	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{}, &stubQueue{})
+	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{}, &stubQueue{}, nil)
 
 	code, resp := readyBody(t, handler)
 	if code != http.StatusOK {
@@ -228,7 +229,7 @@ func TestSystemHandler_Ready_StorageDown(t *testing.T) {
 	storageDown := &storage.MockStore{
 		HealthCheckFn: func(context.Context) error { return errors.New("bucket unreachable") },
 	}
-	handler := NewSystemHandler(&config.Config{}, nil, storageDown, &stubQueue{})
+	handler := NewSystemHandler(&config.Config{}, nil, storageDown, &stubQueue{}, nil)
 
 	code, resp := readyBody(t, handler)
 	if code != http.StatusServiceUnavailable {
@@ -244,7 +245,7 @@ func TestSystemHandler_Ready_StorageDown(t *testing.T) {
 
 func TestSystemHandler_Ready_QueueDown(t *testing.T) {
 	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{},
-		&stubQueue{healthErr: errors.New("queue not running")})
+		&stubQueue{healthErr: errors.New("queue not running")}, nil)
 
 	code, resp := readyBody(t, handler)
 	if code != http.StatusServiceUnavailable {
@@ -252,5 +253,52 @@ func TestSystemHandler_Ready_QueueDown(t *testing.T) {
 	}
 	if resp["queue"] != "error" {
 		t.Errorf("expected queue=error, got %q", resp["queue"])
+	}
+}
+
+func TestSystemHandler_Ready_BootstrapGate(t *testing.T) {
+	// nil db/dataStore/queue → those checks are skipped. bootstrapReady starts
+	// false, so /ready must return 503 with bootstrap=pending before any
+	// dependency probe runs; once it flips true, /ready returns 200.
+	bootstrapReady := &atomic.Bool{}
+	handler := NewSystemHandler(&config.Config{}, nil, nil, nil, bootstrapReady)
+
+	code, resp := readyBody(t, handler)
+	if code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 while bootstrap pending, got %d: %v", code, resp)
+	}
+	if resp["bootstrap"] != "pending" {
+		t.Errorf("expected bootstrap=pending, got %q", resp["bootstrap"])
+	}
+	if resp["status"] != "unavailable" {
+		t.Errorf("expected status=unavailable, got %q", resp["status"])
+	}
+
+	// Health is unconditional: it must return 200 even while the gate is closed.
+	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	healthRR := httptest.NewRecorder()
+	handler.Health(healthRR, healthReq)
+	if healthRR.Code != http.StatusOK {
+		t.Errorf("expected Health 200 while bootstrap pending, got %d", healthRR.Code)
+	}
+
+	// Once bootstrap completes, /ready reports ready.
+	bootstrapReady.Store(true)
+	code, resp = readyBody(t, handler)
+	if code != http.StatusOK {
+		t.Errorf("expected 200 after bootstrap complete, got %d: %v", code, resp)
+	}
+	if resp["bootstrap"] != "ok" {
+		t.Errorf("expected bootstrap=ok, got %q", resp["bootstrap"])
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status=ok, got %q", resp["status"])
+	}
+
+	// Health still 200 after the gate opens.
+	healthRR = httptest.NewRecorder()
+	handler.Health(healthRR, healthReq)
+	if healthRR.Code != http.StatusOK {
+		t.Errorf("expected Health 200 after bootstrap complete, got %d", healthRR.Code)
 	}
 }

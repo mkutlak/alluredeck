@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
@@ -18,13 +19,20 @@ type SystemHandler struct {
 	db        *sql.DB
 	dataStore storage.Store
 	queue     runner.JobQueuer
+	// bootstrapReady gates readiness on completion of the async startup
+	// bootstrap (metadata sync, storage-path migration, URL audit). A nil gate
+	// means "always ready" so callers that don't run a deferred bootstrap
+	// (e.g. tests) don't regress.
+	bootstrapReady *atomic.Bool
 }
 
 // NewSystemHandler creates and returns a new SystemHandler. The db, dataStore,
 // and queue dependencies are probed by the readiness endpoint; pass nil for any
-// that should be skipped (a nil dependency never fails readiness).
-func NewSystemHandler(cfg *config.Config, db *sql.DB, dataStore storage.Store, queue runner.JobQueuer) *SystemHandler {
-	return &SystemHandler{cfg: cfg, db: db, dataStore: dataStore, queue: queue}
+// that should be skipped (a nil dependency never fails readiness). bootstrapReady
+// gates /ready with 503 until the async startup bootstrap flips it true; pass nil
+// to always report ready.
+func NewSystemHandler(cfg *config.Config, db *sql.DB, dataStore storage.Store, queue runner.JobQueuer, bootstrapReady *atomic.Bool) *SystemHandler {
+	return &SystemHandler{cfg: cfg, db: db, dataStore: dataStore, queue: queue, bootstrapReady: bootstrapReady}
 }
 
 // Health godoc
@@ -55,6 +63,17 @@ func (h *SystemHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	statuses := map[string]string{}
 	healthy := true
+
+	// Gate readiness on the async startup bootstrap. While it is still running
+	// the pod is live (/health) but must not receive real traffic, so /ready
+	// returns 503 before any dependency probes run. A nil gate means always ready.
+	if h.bootstrapReady != nil && !h.bootstrapReady.Load() {
+		statuses["bootstrap"] = "pending"
+		statuses["status"] = "unavailable"
+		writeJSON(w, http.StatusServiceUnavailable, statuses)
+		return
+	}
+	statuses["bootstrap"] = "ok"
 
 	check := func(name string, present bool, probe func() error) {
 		switch {

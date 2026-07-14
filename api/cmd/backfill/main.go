@@ -82,9 +82,9 @@ func run() int {
 	defer stop()
 
 	// InitStores opens the pool and runs all pending goose migrations,
-	// including 0042_backfill_failed_step_messages.sql. dataStore is nil:
-	// this command performs no filesystem/S3 access.
-	stores, err := bootstrap.InitStores(ctx, cfg, bootstrap.DefaultPoolConfig(), encKey, nil, logger)
+	// including 0042_backfill_failed_step_messages.sql. This command performs
+	// no filesystem/S3 access and does not run the metadata sync.
+	stores, err := bootstrap.InitStores(ctx, cfg, bootstrap.DefaultPoolConfig(), encKey, logger)
 	if err != nil {
 		logger.Error("failed to open PostgreSQL database", zap.Error(err))
 		return 1

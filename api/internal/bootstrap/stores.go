@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
@@ -60,6 +59,13 @@ type Stores struct {
 
 	FailureSummary store.FailureSummaryStorer
 
+	// ProjectPG and BuildPG expose the concrete pg store implementations so the
+	// caller can invoke pg.SyncMetadata, which requires the concrete types
+	// (*pg.ProjectStore, *pg.BuildStore) rather than the store interfaces above.
+	// They hold the same instances as Project/Build, just typed concretely.
+	ProjectPG *pg.ProjectStore
+	BuildPG   *pg.BuildStore
+
 	// DB exposes the *sql.DB handle for probes (e.g. SystemHandler).
 	DB *sql.DB
 	// Locker provides PostgreSQL advisory locks for multi-instance safety.
@@ -83,10 +89,11 @@ func (s *Stores) Close() error {
 // encKey is required for the webhook store (AES-encrypted webhook secrets).
 // Pass security.DeriveEncryptionKey(cfg.JWTSecret) from the caller.
 //
-// dataStore is used for the one-time SyncMetadata call that imports any
-// filesystem projects/builds not yet recorded in PostgreSQL. Pass nil to skip
-// the sync (e.g. in cmd/mcp which is read-only).
-func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, encKey []byte, dataStore storage.Store, logger *zap.Logger) (*Stores, error) {
+// The one-time filesystem metadata sync (pg.SyncMetadata) is NOT run here; the
+// caller invokes it separately using the concrete ProjectPG/BuildPG stores
+// exposed on the returned *Stores. cmd/api runs it in a background goroutine
+// after binding the HTTP listener so slow startup work never blocks readiness.
+func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, encKey []byte, logger *zap.Logger) (*Stores, error) {
 	// Apply PoolConfig overrides onto cfg fields before handing cfg to pg.Open.
 	// We work on a shallow copy of the config so the caller's cfg is unchanged.
 	cfgCopy := *cfg
@@ -131,15 +138,11 @@ func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, enc
 		KnownIssueProposals: pg.NewKnownIssueProposalStore(pgDB),
 		FlakyProposals:      pg.NewFlakyProposalStore(pgDB),
 		FailureSummary:      pg.NewFailureSummaryStore(pgDB),
+		ProjectPG:           pgProj,
+		BuildPG:             pgBuild,
 		DB:                  pgDB.DB(),
 		Locker:              pgDB,
 		PGStore:             pgDB,
-	}
-
-	if dataStore != nil {
-		if err := pg.SyncMetadata(ctx, dataStore, pgProj, pgBuild, logger); err != nil {
-			logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
-		}
 	}
 
 	return s, nil

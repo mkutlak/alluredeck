@@ -65,6 +65,14 @@ func (w *Watcher) Stop() {
 
 func (w *Watcher) watchLoop(ctx context.Context, interval time.Duration) {
 	defer w.wg.Done()
+	// Recover from a panic while checking projects so a single bad poll cycle
+	// logs a stack trace instead of crashing the whole process.
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("recovered from panic in file watcher goroutine",
+				zap.Any("panic", r), zap.Stack("stack"))
+		}
+	}()
 	w.logger.Info("starting background file watcher", zap.Duration("interval", interval))
 
 	ticker := time.NewTicker(interval)

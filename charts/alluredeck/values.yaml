@@ -176,7 +176,7 @@ api:
       path: /health
       port: http-api
     periodSeconds: 5
-    failureThreshold: 12  # 12 * 5s = 60s max startup
+    failureThreshold: 60  # 60 * 5s = 300s max startup
 
   terminationGracePeriodSeconds: 35
 

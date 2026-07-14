@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -56,6 +57,12 @@ type stores struct {
 	knownIssueProposals store.KnownIssueProposalStorer
 	flakyProposals      store.FlakyProposalStorer
 	failureSummary      store.FailureSummaryStorer
+
+	// projectPG and buildPG hold the concrete pg stores (same instances as
+	// project/build above) so main can call pg.SyncMetadata, which requires the
+	// concrete types rather than the store interfaces.
+	projectPG *pg.ProjectStore
+	buildPG   *pg.BuildStore
 }
 
 // handlerSet groups all HTTP handler instances.
@@ -146,15 +153,14 @@ func main() {
 		logger.Fatal("failed to initialize storage", zap.Error(err))
 	}
 
-	s, sqlDB, locker, pgDB := mustInitStores(cfg, dataStore, encKey, logger)
+	s, sqlDB, locker, pgDB := mustInitStores(cfg, encKey, logger)
 	defer func() { _ = pgDB.Close() }()
 
-	// Migrate child project storage paths from slug-based to numeric-ID-based names
-	// (idempotent, safe to re-run on every startup).
-	migrateChildStoragePaths(context.Background(), s.project, dataStore, logger)
-
-	// Audit all stored URLs at startup to surface malformed entries early.
-	auditStoredURLs(context.Background(), s, logger)
+	// NOTE: the slow, non-essential startup work (child storage-path migration,
+	// metadata sync, URL audit) used to run synchronously here, before the HTTP
+	// listener bound. That made the pod fail its k8s startupProbe budget and
+	// crash-loop. It now runs in a panic-recovered background goroutine after the
+	// listener is up (see below); /ready stays 503 until it completes.
 
 	allureCore := runner.NewAllure(runner.AllureDeps{
 		Config:          cfg,
@@ -199,7 +205,12 @@ func main() {
 		60*time.Second, // backoffMax — exponential delay cap
 	)
 
-	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, pgDB.Pool(), logger)
+	// bootstrapReady gates /ready: it flips true once the async startup bootstrap
+	// goroutine (below) finishes. Until then /ready returns 503 so k8s does not
+	// route real traffic while the slow, non-essential work runs.
+	bootstrapReady := &atomic.Bool{}
+
+	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, pgDB.Pool(), bootstrapReady, logger)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, s.project, dataStore, logger)
 
@@ -327,7 +338,8 @@ func main() {
 	if cfg.BackgroundJobsEnabled {
 		jobManager.Start(ctx)
 
-		startRetentionScheduler(ctx, cfg, s.project, s.build, dataStore, s.webhook, logger)
+		// Note: the retention scheduler is started later, at the end of the background
+		// bootstrap goroutine, so its immediate sweep runs after SyncMetadata completes.
 
 		if cfg.StorageType != "s3" {
 			backgroundWatcher.Start(ctx)
@@ -346,7 +358,58 @@ func main() {
 		}
 	}()
 
+	// Run the slow, non-essential startup bootstrap in the background so the HTTP
+	// listener (and /health) are already bound — this is what keeps the pod inside
+	// its k8s startupProbe budget instead of crash-looping. /ready gates real
+	// traffic (503) until bootstrapReady flips true below, so no request is served
+	// against half-migrated state. SyncMetadata is purely additive (it only imports
+	// filesystem builds not yet in PG), so serving read traffic during it is safe.
+	// Order matters: migrateChildStoragePaths MUST precede SyncMetadata, because the
+	// sync reads child projects' numeric storage_key paths and those dirs must first
+	// be renamed to those keys.
+	go func() {
+		// Flip readiness even if the bootstrap panics. This work is non-essential
+		// (idempotent path migration, additive metadata backfill, a URL audit), so a
+		// data-specific panic must not wedge /ready at 503 forever and silently stall
+		// the rollout. Deferred first so it runs LAST — after recoverAndLog has
+		// swallowed any panic.
+		defer bootstrapReady.Store(true)
+		defer recoverAndLog(logger, "startup-bootstrap")
+
+		migrateChildStoragePaths(ctx, s.project, dataStore, logger)
+
+		if err := pg.SyncMetadata(ctx, dataStore, s.projectPG, s.buildPG, logger); err != nil {
+			logger.Warn("metadata sync failed (non-fatal)", zap.Error(err))
+		}
+
+		auditStoredURLs(ctx, s, logger)
+
+		logger.Info("startup bootstrap complete")
+
+		// Start the retention scheduler only after the metadata sync finishes so its
+		// immediate first sweep can't prune a build that SyncMetadata is concurrently
+		// re-importing (which would re-create a build row with no report dir). Its 24h
+		// ticker then continues in its own goroutine.
+		if cfg.BackgroundJobsEnabled {
+			startRetentionScheduler(ctx, cfg, s.project, s.build, dataStore, s.webhook, logger)
+		}
+	}()
+
 	awaitShutdown(ctx, srv, backgroundWatcher, jobManager, cfg, limiterDone, logger)
+}
+
+// recoverAndLog recovers a panic in a long-running background goroutine, logging
+// the value and stack instead of letting it crash the whole process. It is the
+// single sanctioned use of recover() in this binary: unrecovered startup/worker
+// goroutines would otherwise take down a healthy server. Use as the first
+// statement of a goroutine: `defer recoverAndLog(logger, "<name>")`.
+func recoverAndLog(logger *zap.Logger, where string) {
+	if r := recover(); r != nil {
+		logger.Error("recovered from panic in background goroutine",
+			zap.String("where", where),
+			zap.Any("panic", r),
+			zap.Stack("stack"))
+	}
 }
 
 // mustLoadConfig loads and validates configuration, sets up the logger,
@@ -387,7 +450,7 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 // forced true since applying migrations is the entire purpose of this mode.
 func runMigrateOnly(cfg *config.Config, encKey []byte, logger *zap.Logger) {
 	cfg.RunMigrations = true
-	bs, err := bootstrap.InitStores(context.Background(), cfg, bootstrap.DefaultPoolConfig(), encKey, nil, logger)
+	bs, err := bootstrap.InitStores(context.Background(), cfg, bootstrap.DefaultPoolConfig(), encKey, logger)
 	if err != nil {
 		logger.Fatal("migrate-only: migrations failed", zap.Error(err))
 	}
@@ -397,10 +460,10 @@ func runMigrateOnly(cfg *config.Config, encKey []byte, logger *zap.Logger) {
 	logger.Info("migrate-only: migrations applied successfully")
 }
 
-func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
+func mustInitStores(cfg *config.Config, encKey []byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
 	initCtx := context.Background()
 
-	bs, err := bootstrap.InitStores(initCtx, cfg, bootstrap.DefaultPoolConfig(), encKey, dataStore, logger)
+	bs, err := bootstrap.InitStores(initCtx, cfg, bootstrap.DefaultPoolConfig(), encKey, logger)
 	if err != nil {
 		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
 	}
@@ -427,6 +490,8 @@ func mustInitStores(cfg *config.Config, dataStore storage.Store, encKey []byte, 
 		knownIssueProposals: bs.KnownIssueProposals,
 		flakyProposals:      bs.FlakyProposals,
 		failureSummary:      bs.FailureSummary,
+		projectPG:           bs.ProjectPG,
+		buildPG:             bs.BuildPG,
 	}
 
 	return s, bs.DB, bs.Locker, bs.PGStore
@@ -446,6 +511,7 @@ func wireHandlers(
 	jwtManager *security.JWTManager,
 	accountThrottler *middleware.AccountThrottler,
 	pool *pgxpool.Pool,
+	bootstrapReady *atomic.Bool,
 	logger *zap.Logger,
 ) handlerSet {
 	var oidcHandler *handlers.OIDCHandler
@@ -475,7 +541,7 @@ func wireHandlers(
 	}
 
 	return handlerSet{
-		system: handlers.NewSystemHandler(cfg, sqlDB, dataStore, jobManager),
+		system: handlers.NewSystemHandler(cfg, sqlDB, dataStore, jobManager, bootstrapReady),
 		auth: handlers.NewAuthHandler(cfg, jwtManager, s.refreshFamily).
 			WithUserStore(s.user).
 			WithAuditLogger(s.audit).
@@ -588,6 +654,7 @@ func startRetentionScheduler(ctx context.Context, cfg *config.Config, projectSto
 		return
 	}
 	go func() {
+		defer recoverAndLog(logger, "retention-scheduler")
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 

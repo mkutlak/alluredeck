@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -69,7 +70,7 @@ func (bs *BuildStore) InsertBuild(ctx context.Context, projectID int64, buildNum
 // non-terminating condition.
 func (bs *BuildStore) ReserveBuild(ctx context.Context, projectID int64) (int, error) {
 	const maxAttempts = 50
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
@@ -86,10 +87,7 @@ func (bs *BuildStore) ReserveBuild(ctx context.Context, projectID int64) (int, e
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			// Lost the race under READ COMMITTED. Back off briefly (capped) to
 			// reduce the thundering herd, then recompute MAX+1 and retry.
-			backoff := time.Duration(attempt) * time.Millisecond
-			if backoff > 10*time.Millisecond {
-				backoff = 10 * time.Millisecond
-			}
+			backoff := min(time.Duration(attempt)*time.Millisecond, 10*time.Millisecond)
 			time.Sleep(backoff)
 			continue
 		}
@@ -943,6 +941,7 @@ func (bs *BuildStore) BatchSyncStats(ctx context.Context, projectID int64, slug 
 
 	var mu sync.Mutex
 	var results []statsResult
+	var missing atomic.Int64
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(10)
@@ -951,8 +950,9 @@ func (bs *BuildStore) BatchSyncStats(ctx context.Context, projectID int64, slug 
 		g.Go(func() error {
 			stats, err := st.ReadBuildStats(gctx, slug, bo)
 			if err != nil {
-				bs.logger.Info("BatchSyncStats: stats unavailable (will retry next startup)",
+				bs.logger.Debug("BatchSyncStats: stats unavailable",
 					zap.String("project_slug", slug), zap.Int("build_number", bo), zap.Error(err))
+				missing.Add(1)
 				return nil
 			}
 			mu.Lock()
@@ -963,6 +963,10 @@ func (bs *BuildStore) BatchSyncStats(ctx context.Context, projectID int64, slug 
 	}
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("batch read stats for %q: %w", slug, err)
+	}
+	if n := missing.Load(); n > 0 {
+		bs.logger.Info("BatchSyncStats: builds missing stats (will retry next startup)",
+			zap.String("project_slug", slug), zap.Int("missing", int(n)), zap.Int("total", len(buildNumbers)))
 	}
 	if len(results) == 0 {
 		return nil
