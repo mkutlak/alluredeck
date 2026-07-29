@@ -51,11 +51,15 @@ func (s *APIKeyStore) Create(ctx context.Context, key *store.APIKey) (*store.API
 	if projectIDs == nil {
 		projectIDs = []int64{}
 	}
+	// allow_mcp_writes must be listed explicitly. Omitting it silently fell
+	// back to the column default of false while Create still returned the
+	// caller's requested value, so the API and UI both reported having enabled
+	// a flag that was never persisted.
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO api_keys (name, prefix, key_hash, username, role, expires_at, project_ids)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO api_keys (name, prefix, key_hash, username, role, expires_at, project_ids, allow_mcp_writes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at`,
-		key.Name, key.Prefix, key.KeyHash, key.Username, key.Role, key.ExpiresAt, projectIDs,
+		key.Name, key.Prefix, key.KeyHash, key.Username, key.Role, key.ExpiresAt, projectIDs, key.AllowMCPWrites,
 	).Scan(&key.ID, &key.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create api key: %w", err)
