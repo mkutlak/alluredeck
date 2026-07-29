@@ -628,11 +628,6 @@ func TestDiagnoseFailure_BranchScopedTriage(t *testing.T) {
 	}
 }
 
-// strPtr returns a pointer to s, for optional commit-sha fields in test setup.
-//
-//go:fix inline
-func strPtr(s string) *string { return new(s) }
-
 // TestDiagnoseFailure_LastGoodPopulated verifies that when a test has a prior
 // passing build, the last_good pointer is populated with the correct
 // build_number, commit_sha, and builds_since, and that GetLastPassingBuild is

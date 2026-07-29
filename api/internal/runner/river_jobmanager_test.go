@@ -11,11 +11,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// statPtr is a small helper to build *int stat fields inline.
-//
-//go:fix inline
-func statPtr(v int) *int { return new(v) }
-
 // TestBuildWebhookPayload_RegressionDetected_FiresOnRegressions verifies that
 // regression_detected is triggered when DefectReader.ListRegressionsForBuild
 // returns a non-empty slice for the build, and that the regressions are

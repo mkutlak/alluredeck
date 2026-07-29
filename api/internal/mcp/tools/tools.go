@@ -26,10 +26,10 @@ func RegisterAll(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger,
 	RegisterMutatingToolsWithURL(s, stores, logger, publicURL, signingKey)
 }
 
-// ptr returns a pointer to v. The MCP ToolAnnotations struct models the
-// tri-state hints (destructive, open-world) as *bool so that "unset" is
-// distinguishable from "false"; we always state them explicitly.
-func ptr[T any](v T) *T { return &v }
+// The MCP ToolAnnotations struct models the tri-state hints (destructive,
+// open-world) as *bool so that "unset" is distinguishable from "false". Both
+// helpers below state them explicitly rather than leaving them nil, so a client
+// never has to guess.
 
 // readOnlyAnnotations describes every AllureDeck query tool: it only reads,
 // returns the same answer for the same arguments, and reaches nothing beyond
@@ -39,7 +39,7 @@ func readOnlyAnnotations() *mcpsdk.ToolAnnotations {
 	return &mcpsdk.ToolAnnotations{
 		ReadOnlyHint:   true,
 		IdempotentHint: true,
-		OpenWorldHint:  ptr(false),
+		OpenWorldHint:  new(false),
 	}
 }
 
@@ -50,8 +50,8 @@ func readOnlyAnnotations() *mcpsdk.ToolAnnotations {
 func proposalAnnotations() *mcpsdk.ToolAnnotations {
 	return &mcpsdk.ToolAnnotations{
 		ReadOnlyHint:    false,
-		DestructiveHint: ptr(false),
+		DestructiveHint: new(false),
 		IdempotentHint:  false,
-		OpenWorldHint:   ptr(false),
+		OpenWorldHint:   new(false),
 	}
 }

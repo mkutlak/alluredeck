@@ -13,11 +13,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
-// i64p returns a pointer to v, for optional start/stop millis fields.
-//
-//go:fix inline
-func i64p(v int64) *int64 { return new(v) }
-
 // TestInsertBatch_DuplicateHistoryID_LatestAttemptWins reproduces the
 // production "duplicate key value violates unique constraint
 // idx_test_results_build_history" warning (runner/allure.go).
@@ -65,13 +60,13 @@ func TestInsertBatch_DuplicateHistoryID_LatestAttemptWins(t *testing.T) {
 			BuildID: buildID, ProjectID: projectID,
 			TestName: "printer settings", FullName: "ui.printer.settings",
 			Status: "passed", HistoryID: "hist-printer", DurationMs: 50,
-			Flaky: true, Retries: 1, StartMs: i64p(150), StopMs: i64p(200),
+			Flaky: true, Retries: 1, StartMs: new(int64(150)), StopMs: new(int64(200)),
 		},
 		{
 			BuildID: buildID, ProjectID: projectID,
 			TestName: "printer settings", FullName: "ui.printer.settings",
 			Status: "failed", HistoryID: "hist-printer", DurationMs: 40,
-			Flaky: false, Retries: 0, StartMs: i64p(60), StopMs: i64p(100),
+			Flaky: false, Retries: 0, StartMs: new(int64(60)), StopMs: new(int64(100)),
 		},
 	}
 
@@ -355,7 +350,7 @@ func TestInsertBatch_ThenInsertBatchFull_PreservesAllureFlaky(t *testing.T) {
 		BuildID: buildID, ProjectID: projectID,
 		TestName: "flaky allure test", FullName: "suite > flaky allure test",
 		HistoryID: "hist-allure-flaky", Status: "passed", DurationMs: 100,
-		Flaky: true, Retries: 3, StartMs: i64p(10), StopMs: i64p(110),
+		Flaky: true, Retries: 3, StartMs: new(int64(10)), StopMs: new(int64(110)),
 	}}); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}

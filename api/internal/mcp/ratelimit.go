@@ -3,6 +3,7 @@ package mcp
 import (
 	"container/list"
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -109,10 +110,8 @@ func (rl *RateLimiter) costOf(r *http.Request) int {
 // startup: a typo in a tuning knob should not take the server down.
 func ParseToolCosts(raw string) map[string]int {
 	costs := make(map[string]int, len(defaultToolCosts))
-	for name, cost := range defaultToolCosts {
-		costs[name] = cost
-	}
-	for _, pair := range strings.Split(raw, ",") {
+	maps.Copy(costs, defaultToolCosts)
+	for pair := range strings.SplitSeq(raw, ",") {
 		pair = strings.TrimSpace(pair)
 		if pair == "" {
 			continue
