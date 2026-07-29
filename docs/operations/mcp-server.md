@@ -4,6 +4,27 @@ The Model Context Protocol (MCP) server enables AI clients (Claude Code, Cursor,
 
 ---
 
+## Protocol version
+
+The server implements MCP **2026-07-28** and advertises it by default.
+
+Older clients are downgraded automatically — the SDK negotiates back to `2025-11-25` and earlier, so no client needs updating in step with the server. What changes at 2026-07-28:
+
+| Feature | Effect here |
+|---------|-------------|
+| Stateless transport | No `initialize` handshake and no `Mcp-Session-Id`. Every request is self-describing, so any replica can serve any request. Controlled by `MCP_STATELESS` (default `true`). |
+| Request cancellation | A client aborting a call now cancels the in-flight database query rather than orphaning it. Matters most for `diagnose_failure`. |
+| Cacheable lists | `tools/list` carries a 1-hour `ttlMs`, resource lists 5 minutes, inlined attachment content 24 hours (`private` scope). Clients re-fetch less. |
+| Confirmed writes | The three `propose_*` tools ask the user to confirm before writing. See [Write confirmations](#write-confirmations). |
+| `Mcp-Name` header | Used for per-tool rate-limit pricing without parsing the request body. |
+| Request body cap | Bodies above 4 MiB are rejected by the SDK (OOM protection). |
+
+Deprecated features (roots, sampling, logging, and the legacy HTTP+SSE transport) are not used by this server, so the 12-month deprecation window has no impact on AllureDeck deployments.
+
+Because the transport is stateless, `mcp.replicaCount` may now be raised above 1. Leave it at 1 if you set `MCP_STATELESS=false`.
+
+---
+
 ## Prerequisites
 
 - AllureDeck v0.34.1 or later
@@ -23,7 +44,11 @@ ENABLE_MCP_SERVER=true
 MCP_ALLOWED_ORIGINS=https://your.host
 MCP_RATE_LIMIT_PER_MIN=60
 MCP_RATE_LIMIT_BURST=10
+MCP_STATELESS=true          # 2026-07-28 stateless transport (default)
+MCP_TOOL_COSTS=""           # per-tool rate-limit pricing override
 ```
+
+`EXTERNAL_URL` is required whenever `ENABLE_MCP_SERVER=true` — the server signs absolute attachment download URLs and builds proposal review links from it. The Helm chart derives it automatically (see `alluredeck.externalURL`).
 
 On the **cmd/api** deployment (exposes the admin proposals route):
 
@@ -214,6 +239,24 @@ claude mcp add --transport http alluredeck https://your.host/mcp \
 
 ---
 
+## Write confirmations
+
+The three `propose_*` tools ask the user to confirm before writing anything. The prompt states exactly what will be recorded; for `propose_known_issue` it also reports how many of the last 1000 failure messages the regex matches, and warns when that exceeds half the sample — an over-broad pattern is the failure mode this gate exists to catch.
+
+Nothing is written until the user accepts: no proposal row, no `audit_log` entry. Declining is reported as a successful call that wrote nothing, so the agent does not treat it as a retryable error.
+
+**Clients that cannot prompt are unaffected.** The confirmation is gated on the client advertising elicitation support. A headless caller — a CI pipeline using an API key — writes directly, exactly as before this feature existed. Confirmation is also skipped entirely when `MCP_SIGNING_KEY` is unset, since the round trip could not then be authenticated.
+
+Human approval in `/admin/proposals` is unchanged and remains the gate that actually applies a proposal. The confirmation is an additional, earlier gate that keeps unintended proposals out of the review queue in the first place.
+
+### Security note
+
+The confirmation carries an opaque `RequestState` through the client and back. Because the server is stateless and the client controls that round trip, the value is HMAC-SHA256 signed with `MCP_SIGNING_KEY` and bound to the tool, the calling user, and a hash of the arguments, with a 10-minute expiry. A caller therefore cannot forge an approval, reuse one tool's approval for another, or approve a narrow change and then retry with a broader one.
+
+Rotating `MCP_SIGNING_KEY` invalidates any confirmation in flight (the user simply gets asked again) and any unexpired attachment download URL.
+
+---
+
 ## Audit Log
 
 Every MCP call that mutates the database inserts an `audit_log` row with one of these actions:
@@ -267,6 +310,10 @@ ORDER BY latest DESC;
 | 403 Forbidden with "origin not allowed" | Client's Origin header not in `MCP_ALLOWED_ORIGINS` | Update `MCP_ALLOWED_ORIGINS` env var; comma-separated list |
 | Missing-Origin requests blocked (non-browser clients) | Feature disabled | Leave `MCP_ALLOWED_ORIGINS` empty to allow missing-Origin requests |
 | 429 Too Many Requests on every call | Per-API-key rate limit exceeded | Increase `MCP_RATE_LIMIT_PER_MIN` or contact admin to raise burst quota |
+| 429 only on `diagnose_failure` / `get_test_history` | Expensive tools cost more than one request each | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
+| `propose_*` returns a prompt instead of a proposal | Working as intended — the client supports confirmations | Accept the prompt; the proposal is created on the retry leg |
+| "confirmation state rejected" on a `propose_*` retry | `MCP_SIGNING_KEY` changed, or the 10-minute window elapsed | Re-run the tool; the user will be asked again |
+| Session errors after scaling to >1 replica | `MCP_STATELESS=false` with multiple replicas | Set `MCP_STATELESS=true`, or return `mcp.replicaCount` to 1 |
 | Tool returns "history_id required" | Client passed empty `history_id` parameter | history_id is mandatory due to a partial-index caveat in migration 0015; do not omit |
 | Attachment fetch returns a signed URL | Binary attachment >2MB | This is expected behavior; follow the signed URL within 10 minutes |
 | `GET /api/v1/proposals` returns 404 | Feature flag off on cmd/api | Set `ENABLE_MCP_SERVER=true` on the cmd/api deployment and redeploy |
@@ -297,7 +344,7 @@ The MCP deployment and service are deleted. The database schema does not need ro
 
 ## Known Limitations (v1)
 
-- No OAuth 2.1 discovery endpoint — manual token entry only
+- No OAuth 2.1 authorization server — tokens are still issued manually (API keys or UI login). The server does publish RFC 9728 protected-resource metadata at `/.well-known/oauth-protected-resource`, and 401 responses carry a `WWW-Authenticate` header pointing at it, so clients can discover the resource identifier and that bearer tokens go in the header. Dynamic client registration and CIMD are not supported.
 - No server-side LLM tools — the MCP tools are read-only data tools and never call an LLM. (The optional in-product **AI failure summary** is a separate, opt-in UI/REST feature — see [Configuration → AI Failure Summaries](../configuration.md#ai-failure-summaries-llm) — not an MCP tool.)
 - Mutations are proposal-only — humans approve via the admin UI (`/admin/proposals`)
 - Origin-based CORS (DNS rebinding defense) — browsers with disallowed Origins receive 403
