@@ -114,9 +114,28 @@ func RegisterMutatingToolsWithURL(s *mcpsdk.Server, stores *bootstrap.Stores, lo
 // RBAC helpers
 // ---------------------------------------------------------------------------
 
+// proposer identifies who is creating a proposal.
+type proposer struct {
+	// Label is the human-readable actor recorded in the audit log: an email
+	// address for API-key callers, the JWT sub otherwise.
+	Label string
+	// UserID is the users.id written to proposals.proposer_user_id. That column
+	// is NOT NULL with a foreign key to users(id), so a zero value cannot be
+	// persisted — requireProposer rejects it up front.
+	UserID int64
+	// APIKeyID is the api_keys.id when the caller authenticated with a key,
+	// and 0 for JWT callers.
+	APIKeyID int64
+}
+
 // checkMutatingAuthFromInfo is the testable inner helper that takes an explicit
 // *mcpauth.TokenInfo. Tests call this directly to bypass the context round-trip.
-func checkMutatingAuthFromInfo(info *mcpauth.TokenInfo) (userID string, apiKeyID int64, err error) {
+//
+// It enforces the role and allow_mcp_writes gate, then resolves the proposer.
+// It deliberately does not reject a proposer with no users row: that is a
+// distinct failure with its own message, raised by requireProposer at the point
+// of writing.
+func checkMutatingAuthFromInfo(info *mcpauth.TokenInfo) (proposer, error) {
 	role, _ := info.Extra["role"].(string)
 	allowWritesRaw := info.Extra["allow_mcp_writes"]
 
@@ -131,24 +150,55 @@ func checkMutatingAuthFromInfo(info *mcpauth.TokenInfo) (userID string, apiKeyID
 	}
 
 	if !isMutatingRole(role) || !allowWrites {
-		return "", 0, fmt.Errorf("forbidden: requires editor role and api key with allow_mcp_writes=true")
+		return proposer{}, fmt.Errorf("forbidden: requires editor role and api key with allow_mcp_writes=true")
 	}
 
-	userID, _ = info.Extra["user_id"].(string)
-	if userID == "" {
-		userID = info.UserID
+	p := proposer{}
+
+	p.Label, _ = info.Extra["user_id"].(string)
+	if p.Label == "" {
+		p.Label = info.UserID
 	}
 
-	if raw, ok := info.Extra["api_key_id"]; ok {
-		switch v := raw.(type) {
-		case int64:
-			apiKeyID = v
-		case float64:
-			apiKeyID = int64(v)
-		}
-	}
+	// user_db_id is the numeric users.id resolved during authentication. It is
+	// absent or zero for an env-config user, which has no users row.
+	p.UserID = extraInt64(info.Extra["user_db_id"])
+	p.APIKeyID = extraInt64(info.Extra["api_key_id"])
 
-	return userID, apiKeyID, nil
+	return p, nil
+}
+
+// extraInt64 reads a numeric TokenInfo.Extra value. Values set in-process are
+// int64; a value that has round-tripped through JSON arrives as float64.
+func extraInt64(raw any) int64 {
+	switch v := raw.(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+// requireProposer rejects a caller that cannot be attributed to a users row.
+//
+// proposals.proposer_user_id is NOT NULL with a foreign key to users(id), so
+// writing without a real user produces an opaque 23503 from PostgreSQL. This
+// turns that into a message that says what is wrong and how to fix it.
+//
+// It affects API keys owned by an env-config user (ADMIN_USERNAME and friends),
+// which exist only in configuration and have no users row to reference.
+func requireProposer(p proposer) error {
+	if p.UserID == 0 {
+		return fmt.Errorf(
+			"cannot record a proposal for %q: this API key is owned by a configuration-file user, "+
+				"which has no account in the database to attribute the proposal to. "+
+				"Use a key belonging to a registered user account", p.Label)
+	}
+	return nil
 }
 
 // isMutatingRole returns true for roles that are allowed to create proposals.
@@ -162,15 +212,6 @@ func reviewURL(publicURL, proposalType string, id int64) string {
 		return fmt.Sprintf("/admin/proposals/%s/%d", proposalType, id)
 	}
 	return fmt.Sprintf("%s/admin/proposals/%s/%d", publicURL, proposalType, id)
-}
-
-// userIDToInt64 converts a string user_id to int64 for the ProposerUserID field.
-// Returns 0 if the string is not numeric (e.g. a username string).
-func userIDToInt64(s string) int64 {
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return n
-	}
-	return 0
 }
 
 // auditMetadata serialises a small key-value map to JSON for the audit log.
@@ -235,7 +276,7 @@ func execProposeClassifyDefect(
 	publicURL string,
 	signingKey []byte,
 ) (*mcpsdk.CallToolResult, ProposeClassifyDefectOutput, error) {
-	userID, apiKeyID, err := checkMutatingAuthFromInfo(info)
+	prop, err := checkMutatingAuthFromInfo(info)
 	if err != nil {
 		return nil, ProposeClassifyDefectOutput{}, err
 	}
@@ -250,17 +291,21 @@ func execProposeClassifyDefect(
 		return nil, ProposeClassifyDefectOutput{}, fmt.Errorf("proposed_category is required")
 	}
 
+	if err := requireProposer(prop); err != nil {
+		return nil, ProposeClassifyDefectOutput{}, err
+	}
+
 	prompt := fmt.Sprintf(
 		"Reclassify this defect in AllureDeck project %d?\n\n  Fingerprint: %s\n  New category: %s\n  New resolution: %s\n\nThis records a proposal for a human reviewer to approve; the defect's current classification is unchanged until then.",
 		in.ProjectID, in.FingerprintHash, in.ProposedCategory, orNotSet(in.ProposedResolution),
 	)
-	gate, ask, err := evaluateWriteGate(req, signingKey, kindClassifyDefect, userID, prompt, in, time.Now())
+	gate, ask, err := evaluateWriteGate(req, signingKey, kindClassifyDefect, prop.Label, prompt, in, time.Now())
 	if err != nil {
 		return nil, ProposeClassifyDefectOutput{}, err
 	}
 	switch gate {
 	case gateAsk:
-		logger.Debug("mcp: awaiting user confirmation for propose_classify_defect", zap.String("user", userID))
+		logger.Debug("mcp: awaiting user confirmation for propose_classify_defect", zap.String("user", prop.Label))
 		return ask, ProposeClassifyDefectOutput{}, nil
 	case gateDeclined:
 		return declinedResult("defect-classification proposal"), ProposeClassifyDefectOutput{}, nil
@@ -273,8 +318,8 @@ func execProposeClassifyDefect(
 		ProposedCategory:   in.ProposedCategory,
 		ProposedResolution: in.ProposedResolution,
 		Rationale:          in.Rationale,
-		ProposerUserID:     userIDToInt64(userID),
-		ProposerAPIKeyID:   apiKeyID,
+		ProposerUserID:     prop.UserID,
+		ProposerAPIKeyID:   prop.APIKeyID,
 		Status:             store.ProposalStatusPending,
 	}
 
@@ -287,7 +332,7 @@ func execProposeClassifyDefect(
 	// proposal is already persisted. No transactional rollback is available
 	// without exposing a raw pgx pool here.
 	auditErr := stores.Audit.Record(ctx, store.AuditEvent{
-		ActorLabel: userID,
+		ActorLabel: prop.Label,
 		TargetType: "proposal",
 		TargetID:   strconv.FormatInt(proposalID, 10),
 		Action:     store.AuditActionMCPProposeDefectClassify,
@@ -338,7 +383,7 @@ func execProposeKnownIssue(
 	publicURL string,
 	signingKey []byte,
 ) (*mcpsdk.CallToolResult, ProposeKnownIssueOutput, error) {
-	userID, apiKeyID, err := checkMutatingAuthFromInfo(info)
+	prop, err := checkMutatingAuthFromInfo(info)
 	if err != nil {
 		return nil, ProposeKnownIssueOutput{}, err
 	}
@@ -353,6 +398,13 @@ func execProposeKnownIssue(
 	re, err := regexp.Compile(in.RegexPattern)
 	if err != nil {
 		return nil, ProposeKnownIssueOutput{}, fmt.Errorf("regex_pattern does not compile: %w", err)
+	}
+
+	// Checked before the dry-run scan: there is no point scanning the project's
+	// recent failures on behalf of a caller whose proposal could never be
+	// recorded.
+	if err := requireProposer(prop); err != nil {
+		return nil, ProposeKnownIssueOutput{}, err
 	}
 
 	// Dry-run: count recent failure messages that match the regex (capped at dryRunMatchCap).
@@ -386,14 +438,14 @@ func execProposeKnownIssue(
 		formatMatchCount(matchCount), len(messages),
 		breadthWarning(matchCount, len(messages)),
 	)
-	gate, ask, err := evaluateWriteGate(req, signingKey, kindKnownIssue, userID, prompt, in, time.Now())
+	gate, ask, err := evaluateWriteGate(req, signingKey, kindKnownIssue, prop.Label, prompt, in, time.Now())
 	if err != nil {
 		return nil, ProposeKnownIssueOutput{}, err
 	}
 	switch gate {
 	case gateAsk:
 		logger.Debug("mcp: awaiting user confirmation for propose_known_issue",
-			zap.String("user", userID), zap.Int("dry_run_match_count", matchCount))
+			zap.String("user", prop.Label), zap.Int("dry_run_match_count", matchCount))
 		return ask, ProposeKnownIssueOutput{}, nil
 	case gateDeclined:
 		return declinedResult("known-issue proposal"), ProposeKnownIssueOutput{}, nil
@@ -408,8 +460,8 @@ func execProposeKnownIssue(
 		AppliesToStatus:    in.AppliesToStatus,
 		Rationale:          in.Rationale,
 		DryRunMatchCount:   matchCount,
-		ProposerUserID:     userIDToInt64(userID),
-		ProposerAPIKeyID:   apiKeyID,
+		ProposerUserID:     prop.UserID,
+		ProposerAPIKeyID:   prop.APIKeyID,
 		Status:             store.ProposalStatusPending,
 	}
 
@@ -419,7 +471,7 @@ func execProposeKnownIssue(
 	}
 
 	auditErr := stores.Audit.Record(ctx, store.AuditEvent{
-		ActorLabel: userID,
+		ActorLabel: prop.Label,
 		TargetType: "proposal",
 		TargetID:   strconv.FormatInt(proposalID, 10),
 		Action:     store.AuditActionMCPProposeKnownIssue,
@@ -471,7 +523,7 @@ func execProposeMarkFlaky(
 	publicURL string,
 	signingKey []byte,
 ) (*mcpsdk.CallToolResult, ProposeMarkFlakyOutput, error) {
-	userID, apiKeyID, err := checkMutatingAuthFromInfo(info)
+	prop, err := checkMutatingAuthFromInfo(info)
 	if err != nil {
 		return nil, ProposeMarkFlakyOutput{}, err
 	}
@@ -486,17 +538,21 @@ func execProposeMarkFlaky(
 		return nil, ProposeMarkFlakyOutput{}, fmt.Errorf("history_id is required and must be non-empty")
 	}
 
+	if err := requireProposer(prop); err != nil {
+		return nil, ProposeMarkFlakyOutput{}, err
+	}
+
 	prompt := fmt.Sprintf(
 		"Mark this test as flaky in AllureDeck project %d?\n\n  Test: %s\n  history_id: %s\n\nThis records a proposal for a human reviewer to approve; it does not change triage on its own.",
 		in.ProjectID, in.TestFullName, in.HistoryID,
 	)
-	gate, ask, err := evaluateWriteGate(req, signingKey, kindMarkFlaky, userID, prompt, in, time.Now())
+	gate, ask, err := evaluateWriteGate(req, signingKey, kindMarkFlaky, prop.Label, prompt, in, time.Now())
 	if err != nil {
 		return nil, ProposeMarkFlakyOutput{}, err
 	}
 	switch gate {
 	case gateAsk:
-		logger.Debug("mcp: awaiting user confirmation for propose_mark_flaky", zap.String("user", userID))
+		logger.Debug("mcp: awaiting user confirmation for propose_mark_flaky", zap.String("user", prop.Label))
 		return ask, ProposeMarkFlakyOutput{}, nil
 	case gateDeclined:
 		return declinedResult("flaky-test proposal"), ProposeMarkFlakyOutput{}, nil
@@ -508,8 +564,8 @@ func execProposeMarkFlaky(
 		TestFullName:     in.TestFullName,
 		HistoryID:        in.HistoryID,
 		Rationale:        in.Rationale,
-		ProposerUserID:   userIDToInt64(userID),
-		ProposerAPIKeyID: apiKeyID,
+		ProposerUserID:   prop.UserID,
+		ProposerAPIKeyID: prop.APIKeyID,
 		Status:           store.ProposalStatusPending,
 	}
 
@@ -519,7 +575,7 @@ func execProposeMarkFlaky(
 	}
 
 	auditErr := stores.Audit.Record(ctx, store.AuditEvent{
-		ActorLabel: userID,
+		ActorLabel: prop.Label,
 		TargetType: "proposal",
 		TargetID:   strconv.FormatInt(proposalID, 10),
 		Action:     store.AuditActionMCPProposeFlaky,

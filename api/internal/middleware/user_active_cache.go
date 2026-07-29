@@ -126,21 +126,55 @@ var envUsers = map[string]bool{
 	"viewer": true,
 }
 
-// IsActiveByAPIKeyUsername resolves an api_keys.username value regardless of
-// its historical shape:
-//   - env-user literal ("admin", "editor", "viewer") → (true, nil); these have
-//     no users row and are always active.
-//   - numeric string (legacy DB-user ID stored at creation time) → IsActive(sub);
-//     looks up by users.id.
-//   - anything else (email address, the correct post-Phase-2 shape) → IsActiveByEmail.
-func (c *UserActiveCache) IsActiveByAPIKeyUsername(ctx context.Context, username string) (bool, error) {
+// APIKeyIdentity is the users row behind an API key.
+//
+// UserID is 0 when the key belongs to an env-config user ("admin", "editor",
+// "viewer"), which has no users row at all. Callers that need to write a
+// users(id) foreign key must treat 0 as "no such user" rather than as an ID.
+type APIKeyIdentity struct {
+	UserID   int64
+	IsActive bool
+}
+
+// ResolveAPIKeyUsername resolves an api_keys.username value to the owning user,
+// regardless of the value's historical shape:
+//   - env-user literal ("admin", "editor", "viewer") → {UserID: 0, IsActive: true};
+//     these have no users row and are always active.
+//   - numeric string (legacy DB-user ID stored at creation time) → looks up by
+//     users.id.
+//   - anything else (email address, the correct post-Phase-2 shape) → looks up
+//     by email.
+//
+// It exists because api_keys.user_id, though present in the schema since
+// migration 0020, is never written by APIKeyStore.Create and so is NULL on
+// every key. The owning user therefore has to be resolved from username, which
+// is the same lookup the is_active recheck already performs — callers get the
+// ID for free rather than paying a second query.
+func (c *UserActiveCache) ResolveAPIKeyUsername(ctx context.Context, username string) (APIKeyIdentity, error) {
 	if envUsers[username] {
-		return true, nil
+		return APIKeyIdentity{UserID: 0, IsActive: true}, nil
 	}
-	if _, err := strconv.ParseInt(username, 10, 64); err == nil {
-		return c.IsActive(ctx, username)
+	if id, err := strconv.ParseInt(username, 10, 64); err == nil {
+		active, err := c.isActiveByID(ctx, id, username)
+		return APIKeyIdentity{UserID: id, IsActive: active}, err
 	}
-	return c.IsActiveByEmail(ctx, username)
+
+	u, err := c.store.GetByEmail(ctx, username)
+	if err != nil {
+		// Surface not-found as an error so callers can distinguish "no such
+		// user" from "found but deactivated". Do not cache — no stable key.
+		return APIKeyIdentity{}, fmt.Errorf("user_active_cache: get by email: %w", err)
+	}
+	c.storeEntry(strconv.FormatInt(u.ID, 10), u.IsActive)
+	return APIKeyIdentity{UserID: u.ID, IsActive: u.IsActive}, nil
+}
+
+// IsActiveByAPIKeyUsername reports whether the user owning an API key is
+// active. It is a thin wrapper over ResolveAPIKeyUsername for callers that only
+// need the flag.
+func (c *UserActiveCache) IsActiveByAPIKeyUsername(ctx context.Context, username string) (bool, error) {
+	identity, err := c.ResolveAPIKeyUsername(ctx, username)
+	return identity.IsActive, err
 }
 
 // Invalidate purges the entry for the given key (stringified user ID). Safe

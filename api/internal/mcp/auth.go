@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,15 +69,26 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 		return nil, fmt.Errorf("API key has expired")
 	}
 
-	// F-3: re-check owning user is still active.
+	// F-3: re-check owning user is still active, and resolve the users.id
+	// behind the key in the same lookup. That ID is what the propose_* tools
+	// write to proposals.proposer_user_id; api_keys.user_id cannot supply it,
+	// because APIKeyStore.Create never populates that column.
+	//
+	// userDBID stays 0 when the owner cannot be resolved — an env-config user
+	// with no users row, or a transient lookup failure. Authentication still
+	// succeeds; only the write tools care, and they report it themselves.
+	var userDBID int64
 	if v.userActiveCache != nil {
-		active, recheckErr := v.userActiveCache.IsActiveByAPIKeyUsername(ctx, apiKey.Username)
-		if recheckErr != nil {
+		identity, recheckErr := v.userActiveCache.ResolveAPIKeyUsername(ctx, apiKey.Username)
+		switch {
+		case recheckErr != nil:
 			v.logger.Warn("mcp auth: api key user active recheck failed",
 				zap.String("username", apiKey.Username), zap.Error(recheckErr))
 			// Fail open: transient DB error is not an authn signal.
-		} else if !active {
+		case !identity.IsActive:
 			return nil, fmt.Errorf("account inactive")
+		default:
+			userDBID = identity.UserID
 		}
 	}
 
@@ -114,6 +126,9 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 			"allow_mcp_writes": allowMCPWrites,
 			"username":         apiKey.Username,
 			"user_id":          apiKey.Username,
+			// Numeric users.id, for foreign keys. Distinct from "user_id",
+			// which is a display label and is an email on this path.
+			"user_db_id": userDBID,
 		},
 	}, nil
 }
@@ -149,6 +164,13 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 		jwtExp = time.Now().Add(15 * time.Minute)
 	}
 
+	// For DB-backed users the JWT sub is the stringified users.id; for env
+	// users it is a literal with no users row, leaving userDBID at 0.
+	var userDBID int64
+	if id, convErr := strconv.ParseInt(sub, 10, 64); convErr == nil {
+		userDBID = id
+	}
+
 	return &mcpauth.TokenInfo{
 		UserID:     sub,
 		Scopes:     []string{role},
@@ -159,6 +181,8 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 			"allow_mcp_writes": "false",
 			"username":         sub,
 			"user_id":          sub,
+			// Numeric users.id, for foreign keys.
+			"user_db_id": userDBID,
 		},
 	}, nil
 }

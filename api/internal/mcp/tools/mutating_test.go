@@ -30,6 +30,7 @@ func editorInfo() *mcpauth.TokenInfo {
 			"allow_mcp_writes": "true",
 			"username":         "editor-user",
 			"user_id":          "42",
+			"user_db_id":       int64(42),
 		},
 	}
 }
@@ -45,6 +46,7 @@ func viewerInfo() *mcpauth.TokenInfo {
 			"allow_mcp_writes": "false",
 			"username":         "viewer-user",
 			"user_id":          "1",
+			"user_db_id":       int64(1),
 		},
 	}
 }
@@ -60,6 +62,7 @@ func editorNoWriteInfo() *mcpauth.TokenInfo {
 			"allow_mcp_writes": "false",
 			"username":         "editor-nowrite",
 			"user_id":          "2",
+			"user_db_id":       int64(2),
 		},
 	}
 }

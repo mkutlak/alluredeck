@@ -29,7 +29,8 @@ Because the transport is stateless, `mcp.replicaCount` may now be raised above 1
 
 - AllureDeck v0.34.1 or later
 - PostgreSQL with migration 0041 applied (`defect_proposals`, `known_issue_proposals`, `flaky_proposals` tables)
-- An API key store row with `allow_mcp_writes` configured if proposals are needed
+- For proposals: an API key with `allow_mcp_writes` enabled, owned by a
+  registered user account (see [Token Issuance](#token-issuance))
 
 ---
 
@@ -98,29 +99,68 @@ If disabled, you will see `MCP server disabled via feature flag`.
 
 ### Personal Tokens
 
-1. User logs in to the AllureDeck UI
+1. Log in to the AllureDeck UI
 2. Navigate to **Settings → API Keys**
 3. Click **Create API Key**
-4. Choose role (typically **editor** to allow proposals)
-5. Toggle **Allow MCP writes** if proposals are needed
-6. Copy the token (format: `ald_<base64>`)
+4. Toggle **Allow MCP writes** if proposals are needed
+5. Copy the token — it is shown once and cannot be retrieved again
+
+The key inherits your own username and role; there is no role selector, so log
+in as an **editor** or **admin** if it needs to propose. Tokens have the form
+`ald_` followed by 64 hex characters.
 
 ### Machine Tokens (CI)
 
-An admin creates an API key via the admin API endpoint:
+**A key always belongs to whoever creates it.** The request body carries no
+username or role — both are taken from the caller's own credentials. There is
+no way to mint a key on behalf of another account, so to get a key owned by a
+CI identity you authenticate as that identity and create it.
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/admin/api-keys \
-  -H "Authorization: Bearer <admin-token>" \
+curl -X POST http://localhost:8080/api/v1/api-keys \
+  -H "Authorization: Bearer <token-of-the-owning-account>" \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "ci-mcp",
-    "role": "editor",
-    "allow_mcp_writes": true
+    "name": "ci-mcp",
+    "allow_mcp_writes": true,
+    "expires_at": "2027-01-01T00:00:00Z",
+    "project_ids": [12, 34]
   }'
 ```
 
-Token format is always `ald_<base64>`, compatible with the REST API.
+| Field | Meaning |
+|-------|---------|
+| `name` | Label shown in the UI. Required, max 64 characters. |
+| `allow_mcp_writes` | Required for the `propose_*` tools. Defaults to false. |
+| `expires_at` | Optional RFC3339 timestamp; must be in the future. Omit for a key that never expires. |
+| `project_ids` | Optional allow-list, max 100 entries. Omit for instance-wide access. |
+
+The key inherits the creator's **role**, so create it while authenticated as an
+editor or admin if it needs to propose. The response contains the full token
+once and never again; the format is `ald_<hex>`, and it works against both the
+REST API and the MCP endpoint. Each account may hold at most **5 keys**.
+
+An existing API key can create further keys, so CI can rotate its own
+credentials without a human logging in.
+
+### Using a dedicated bot account
+
+Not required — a key created by any registered user works. A dedicated account
+is still worth it for CI: revoking it leaves human keys untouched, the audit
+log attributes proposals to `mcp-bot@…` rather than to a person, and CI does
+not consume part of someone's 5-key budget.
+
+Create the account through **Settings → Users** (or your OIDC provider), give it
+the **editor** role, then sign in as it and create the key. It must be an
+account that can actually authenticate — a `users` row alone is not enough,
+because the key is minted from that account's session.
+
+> **Keys owned by config-file users cannot propose.** If you sign in with
+> `ADMIN_USERNAME`/`VIEWER_USER` from the environment rather than with a
+> registered account, keys you create are owned by a literal such as `admin`,
+> which has no `users` row. Read-only tools work; the `propose_*` tools refuse
+> with an explanation, because a proposal has to reference a real user. Use a
+> registered account for anything that writes.
 
 ---
 
@@ -313,6 +353,7 @@ ORDER BY latest DESC;
 | 429 only on `diagnose_failure` / `get_test_history` | Expensive tools cost more than one request each | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
 | `propose_*` returns a prompt instead of a proposal | Working as intended — the client supports confirmations | Accept the prompt; the proposal is created on the retry leg |
 | "confirmation state rejected" on a `propose_*` retry | `MCP_SIGNING_KEY` changed, or the 10-minute window elapsed | Re-run the tool; the user will be asked again |
+| `propose_*` refuses with "owned by a configuration-file user" | The key was created while signed in as an env-config user (`ADMIN_USERNAME` etc.), which has no `users` row to attribute the proposal to | Re-issue the key while signed in as a registered account — see [Using a dedicated bot account](#using-a-dedicated-bot-account) |
 | Session errors after scaling to >1 replica | `MCP_STATELESS=false` with multiple replicas | Set `MCP_STATELESS=true`, or return `mcp.replicaCount` to 1 |
 | Tool returns "history_id required" | Client passed empty `history_id` parameter | history_id is mandatory due to a partial-index caveat in migration 0015; do not omit |
 | Attachment fetch returns a signed URL | Binary attachment >2MB | This is expected behavior; follow the signed URL within 10 minutes |
