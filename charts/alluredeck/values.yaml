@@ -221,6 +221,9 @@ mcp:
     repository: ghcr.io/mkutlak/alluredeck-mcp
     tag: ""  # defaults to Chart.appVersion
     pullPolicy: Always
+  # Safe to scale above 1 while config.stateless is true: the MCP 2026-07-28
+  # stateless transport keeps no session affinity, so any replica can serve
+  # any request.
   replicaCount: 1
   port: 8081
   config:
@@ -229,6 +232,15 @@ mcp:
     rateLimitPerMin: 60
     rateLimitBurst: 10
     poolMaxConns: 8
+    # MCP 2026-07-28 stateless transport: no initialize handshake, no session
+    # id. Set false only for a client that still needs session-based transport;
+    # doing so also means replicaCount must stay at 1.
+    stateless: true              # plumbed as MCP_STATELESS
+    # Per-tool rate-limit pricing, as "tool=cost,tool=cost". Layered over the
+    # built-in defaults (diagnose_failure=5, get_test_history=3,
+    # compare_builds=3, find_test_by_name=2); unlisted tools cost 1. Costs
+    # larger than rateLimitBurst are clamped to it.
+    toolCosts: ""                # plumbed as MCP_TOOL_COSTS
   resources:
     requests:
       cpu: 50m

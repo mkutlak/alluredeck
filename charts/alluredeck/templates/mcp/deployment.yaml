@@ -49,6 +49,12 @@ spec:
               value: {{ .Values.mcp.config.rateLimitBurst | quote }}
             - name: MCP_POOL_MAX_CONNS
               value: {{ .Values.mcp.config.poolMaxConns | quote }}
+            - name: MCP_STATELESS
+              value: {{ .Values.mcp.config.stateless | quote }}
+            {{- with .Values.mcp.config.toolCosts }}
+            - name: MCP_TOOL_COSTS
+              value: {{ . | quote }}
+            {{- end }}
             {{- $secretName := include "alluredeck.mcp.secretName" . }}
             - name: DATABASE_URL
               valueFrom:
