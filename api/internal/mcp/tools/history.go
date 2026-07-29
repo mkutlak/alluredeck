@@ -157,16 +157,22 @@ type CompareBuildsOutput struct {
 func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_failure",
+		Title:       "Get AllureDeck test failure",
+		Annotations: readOnlyAnnotations(),
 		Description: "Get detailed failure information for a specific test in a build: status, message, stack trace, attachments, CI context, defect fingerprint, and the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, getTestFailureHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_history",
+		Title:       "Get AllureDeck test history",
+		Annotations: readOnlyAnnotations(),
 		Description: "Get the run history of a test across builds. Shows status trends, duration, and commit SHA per build. Optional branch parameter filters history to a single branch (unknown branch names return empty results, not an error).",
 	}, getTestHistoryHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "compare_builds",
+		Title:       "Compare AllureDeck builds",
+		Annotations: readOnlyAnnotations(),
 		Description: "Compare two builds for a project. Returns tests that regressed, became fixed, appeared new, or were removed between the base and target builds. Supports format=full|compact|summary. When the two builds are from different branches, a branch_mismatch warning is included in the output — the diff is still returned but regressions may reflect branch differences rather than true regressions. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, compareBuildsHandler(stores, logger))
 }

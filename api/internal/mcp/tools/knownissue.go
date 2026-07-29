@@ -38,6 +38,8 @@ type MatchKnownIssuesOutput struct {
 func RegisterKnownIssueTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "match_known_issues",
+		Title:       "Match AllureDeck known issues",
+		Annotations: readOnlyAnnotations(),
 		Description: "Match an error message against all active known-issue regex patterns for a project. Returns every pattern that matches.",
 	}, matchKnownIssuesHandler(stores, logger))
 }

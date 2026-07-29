@@ -133,6 +133,8 @@ type DiagnoseFailureOutput struct {
 func RegisterDiagnoseTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "diagnose_failure",
+		Title:       "Diagnose AllureDeck failure",
+		Annotations: readOnlyAnnotations(),
 		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, lists every failing test, and for each one returns the error message, failed-step path, defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, category hint). Triage signals (builds-since-pass, last-status, fast-fail baseline) are scoped to the build's branch when available, so comparisons reflect only the same line of development. Each failing test also carries a `last_good` pointer to the build where it last passed (build_number, commit_sha, builds_since); it is omitted when the test never passed before. Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20). Set include_last_good_diff=true to additionally return, per test, the last-good→current whole-build diff (`last_good_diff`: this test's passed→failed transition plus co-regressions in that span) — one extra comparison query per test, off by default.",
 	}, diagnoseFailureHandler(stores, logger))
 }

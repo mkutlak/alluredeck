@@ -73,11 +73,15 @@ type ListDefectsOutput struct {
 func RegisterDefectTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_defect_cluster",
+		Title:       "Get AllureDeck defect cluster",
+		Annotations: readOnlyAnnotations(),
 		Description: "Get details of a defect cluster by fingerprint hash. Use after get_test_failure to understand the deduplicated defect group.",
 	}, getDefectClusterHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_defects",
+		Title:       "List AllureDeck defects",
+		Annotations: readOnlyAnnotations(),
 		Description: "List defect fingerprints for a project with optional filters for category and resolution.",
 	}, listDefectsHandler(stores, logger))
 }

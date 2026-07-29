@@ -98,11 +98,15 @@ func TestProposeClassifyDefect_RBAC_DeniesViewer(t *testing.T) {
 
 	_, _, err := tools.ExecProposeClassifyDefectForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"},
 		viewerInfo(),
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err == nil {
 		t.Fatal("want error for viewer role, got nil")
@@ -125,11 +129,15 @@ func TestProposeClassifyDefect_RBAC_DeniesEditorWithoutFlag(t *testing.T) {
 
 	_, _, err := tools.ExecProposeClassifyDefectForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"},
 		editorNoWriteInfo(),
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err == nil {
 		t.Fatal("want error for editor without allow_mcp_writes, got nil")
@@ -163,6 +171,8 @@ func TestProposeClassifyDefect_HappyPath_EditorWithFlag(t *testing.T) {
 
 	_, out, err := tools.ExecProposeClassifyDefectForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeClassifyDefectInput{
 			ProjectID:        1,
 			FingerprintHash:  "deadbeef",
@@ -173,6 +183,8 @@ func TestProposeClassifyDefect_HappyPath_EditorWithFlag(t *testing.T) {
 		stores,
 		zap.NewNop(),
 		"https://app.example.com",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -219,11 +231,15 @@ func TestProposeClassifyDefect_AuditFailure_ReturnsError(t *testing.T) {
 
 	_, _, err := tools.ExecProposeClassifyDefectForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"},
 		editorInfo(),
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err == nil {
 		t.Fatal("want error when audit fails, got nil")
@@ -249,6 +265,8 @@ func TestProposeKnownIssue_InvalidRegex(t *testing.T) {
 
 	_, _, err := tools.ExecProposeKnownIssueForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeKnownIssueInput{
 			ProjectID:    1,
 			RegexPattern: "[invalid-regex",
@@ -257,6 +275,8 @@ func TestProposeKnownIssue_InvalidRegex(t *testing.T) {
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err == nil {
 		t.Fatal("want error for invalid regex, got nil")
@@ -299,6 +319,8 @@ func TestProposeKnownIssue_DryRunCount(t *testing.T) {
 
 	_, out, err := tools.ExecProposeKnownIssueForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeKnownIssueInput{
 			ProjectID:    1,
 			RegexPattern: "NullPointerException",
@@ -307,6 +329,8 @@ func TestProposeKnownIssue_DryRunCount(t *testing.T) {
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -341,6 +365,8 @@ func TestProposeKnownIssue_DryRunCap(t *testing.T) {
 
 	_, out, err := tools.ExecProposeKnownIssueForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeKnownIssueInput{
 			ProjectID:    1,
 			RegexPattern: "fatal error",
@@ -349,6 +375,8 @@ func TestProposeKnownIssue_DryRunCap(t *testing.T) {
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -375,6 +403,8 @@ func TestProposeMarkFlaky_EmptyHistoryID(t *testing.T) {
 
 	_, _, err := tools.ExecProposeMarkFlakyForTest(
 		context.Background(),
+		// nil request: no MCP client, so the confirmation gate is skipped.
+		nil,
 		tools.ProposeMarkFlakyInput{
 			ProjectID:    1,
 			TestFullName: "pkg.TestFoo",
@@ -384,6 +414,8 @@ func TestProposeMarkFlaky_EmptyHistoryID(t *testing.T) {
 		stores,
 		zap.NewNop(),
 		"",
+		// nil signing key: confirmation disabled, write goes straight through.
+		nil,
 	)
 	if err == nil {
 		t.Fatal("want error for empty history_id, got nil")

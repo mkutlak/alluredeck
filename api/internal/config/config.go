@@ -205,6 +205,15 @@ type Config struct {
 	MCPRateLimitPerMin int `yaml:"mcp_rate_limit_per_min" envconfig:"MCP_RATE_LIMIT_PER_MIN"`
 	// MCPRateLimitBurst is the burst size for the per-key token bucket.
 	MCPRateLimitBurst int `yaml:"mcp_rate_limit_burst" envconfig:"MCP_RATE_LIMIT_BURST"`
+	// MCPToolCosts overrides how many requests a call to a given tool is worth,
+	// as "diagnose_failure=5,compare_builds=3". Layered over built-in defaults;
+	// tools left unlisted cost 1. Costs above MCPRateLimitBurst are clamped.
+	MCPToolCosts string `yaml:"mcp_tool_costs" envconfig:"MCP_TOOL_COSTS"`
+	// MCPStateless selects the MCP 2026-07-28 stateless transport: no
+	// initialize handshake and no session affinity, so requests may be load
+	// balanced across replicas. Defaults to true; set false only to fall back
+	// to session-based transport for a client that needs it.
+	MCPStateless bool `yaml:"mcp_stateless" envconfig:"MCP_STATELESS"`
 	// MCPPoolMaxConns caps the pgx connection-pool size used by the MCP binary.
 	MCPPoolMaxConns int `yaml:"mcp_pool_max_conns" envconfig:"MCP_POOL_MAX_CONNS"`
 	// MCPSigningKey is the HMAC-SHA256 key used to sign time-limited attachment
@@ -265,6 +274,7 @@ func LoadConfig() (*Config, error) {
 		MCPRateLimitPerMin:       60,
 		MCPRateLimitBurst:        10,
 		MCPPoolMaxConns:          8,
+		MCPStateless:             true,
 		RunMigrations:            true,
 		BackgroundJobsEnabled:    true,
 		MigrationTimeout:         5 * time.Minute,

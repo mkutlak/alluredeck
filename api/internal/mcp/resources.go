@@ -2,9 +2,6 @@ package mcp
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
+	"github.com/mkutlak/alluredeck/api/internal/mcp/signed"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -24,6 +22,23 @@ const attachmentInlineMaxBytes = 2 * 1024 * 1024 // 2 MB
 
 // attachmentURLTTL is how long a signed attachment download URL stays valid.
 const attachmentURLTTL = 10 * time.Minute
+
+// inlinedAttachmentTTLMs is the cache lifetime advertised for inlined
+// attachment bytes. Attachment content is immutable once a report is ingested,
+// so it can be cached aggressively.
+//
+// It deliberately does NOT apply to the signed-URL fallback below: that
+// response body is a link that stops working after attachmentURLTTL, and
+// caching it for longer would hand clients a dead URL.
+const inlinedAttachmentTTLMs = 24 * 60 * 60 * 1000 // 24 hours
+
+// inlinedAttachmentCacheable is the caching hint for inlined attachment
+// content. The scope is private: attachment bytes are only served to callers
+// authorised for the owning project, so a shared intermediary must not reuse
+// one caller's copy for another.
+func inlinedAttachmentCacheable() mcpsdk.Cacheable {
+	return mcpsdk.Cacheable{TTLMs: inlinedAttachmentTTLMs, CacheScope: "private"}
+}
 
 // ErrInvalidAttachmentSource indicates an attachment source filename contains
 // path-traversal characters and must not be used to build a storage path.
@@ -143,6 +158,7 @@ func attachmentResourceHandler(
 						zap.Int64("attachment_id", id), zap.Error(err))
 				case inlineText:
 					return &mcpsdk.ReadResourceResult{
+						Cacheable: inlinedAttachmentCacheable(),
 						Contents: []*mcpsdk.ResourceContents{
 							{
 								URI:      uri,
@@ -155,6 +171,7 @@ func attachmentResourceHandler(
 					// Blob is []byte; the JSON encoder base64-encodes it
 					// automatically, so the raw bytes are passed here.
 					return &mcpsdk.ReadResourceResult{
+						Cacheable: inlinedAttachmentCacheable(),
 						Contents: []*mcpsdk.ResourceContents{
 							{
 								URI:      uri,
@@ -286,17 +303,18 @@ func parseTestResourceURI(uri string) ([3]string, error) {
 }
 
 // attachmentSigPayload builds the canonical payload string that is signed for
-// an attachment download URL: "attachment:{id}:exp:{exp_unix}".
-func attachmentSigPayload(id, exp int64) string {
-	return fmt.Sprintf("attachment:%d:exp:%d", id, exp)
+// an attachment download URL: "attachment:{id}". The expiry is bound to the
+// signature by signed.Sign rather than being part of this string, which yields
+// the same MAC input as the original "attachment:{id}:exp:{exp}" form — so
+// URLs already handed out stay valid across this refactor.
+func attachmentSigPayload(id int64) string {
+	return fmt.Sprintf("attachment:%d", id)
 }
 
 // signAttachment computes the HMAC-SHA256 signature (hex-encoded) over the
 // canonical payload for the given attachment id and expiry.
 func signAttachment(signingKey []byte, id, exp int64) string {
-	mac := hmac.New(sha256.New, signingKey)
-	mac.Write([]byte(attachmentSigPayload(id, exp)))
-	return hex.EncodeToString(mac.Sum(nil))
+	return signed.Sign(signingKey, attachmentSigPayload(id), exp)
 }
 
 // VerifyAttachmentSig validates a signed attachment download request. It checks
@@ -306,18 +324,7 @@ func signAttachment(signingKey []byte, id, exp int64) string {
 // It is the canonical verifier for the GET /attachments/{id} download route and
 // is the inverse of the signing performed by buildSignedURL.
 func VerifyAttachmentSig(signingKey []byte, id, exp int64, sig string, now time.Time) error {
-	if exp <= 0 {
-		return errors.New("missing or invalid exp")
-	}
-	if now.Unix() > exp {
-		return errors.New("signed URL has expired")
-	}
-	want := signAttachment(signingKey, id, exp)
-	// Compare hex strings in constant time to avoid timing side channels.
-	if !hmac.Equal([]byte(want), []byte(sig)) {
-		return errors.New("signature mismatch")
-	}
-	return nil
+	return signed.Verify(signingKey, attachmentSigPayload(id), exp, sig, now)
 }
 
 // buildSignedURL returns a signed URL for direct attachment download.

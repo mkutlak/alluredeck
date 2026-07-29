@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -70,33 +71,43 @@ type ProposeMarkFlakyOutput struct {
 }
 
 // ---------------------------------------------------------------------------
-// RegisterMutatingTools registers the three MCP proposal tools on s.
-// publicURL is the base URL used to build review links (e.g. "https://app.example.com").
-// Pass an empty string to omit review URLs in non-production environments.
+// RegisterMutatingToolsWithURL registers the three MCP proposal tools on s.
+//
+// publicURL is the base URL used to build review links (e.g.
+// "https://app.example.com"); pass an empty string to fall back to relative
+// review paths. signingKey authenticates the multi-round-trip confirmation
+// RequestState; pass nil to disable confirmation and write directly.
 // ---------------------------------------------------------------------------
 
-// RegisterMutatingTools registers the three MCP mutating tools on s.
-func RegisterMutatingTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
-	RegisterMutatingToolsWithURL(s, stores, logger, "")
-}
+// Tool identifiers used to bind a confirmation to the tool that requested it.
+const (
+	kindClassifyDefect = "propose_classify_defect"
+	kindKnownIssue     = "propose_known_issue"
+	kindMarkFlaky      = "propose_mark_flaky"
+)
 
-// RegisterMutatingToolsWithURL is the full constructor; publicURL is prepended
-// to review links. RegisterMutatingTools calls this with "".
-func RegisterMutatingToolsWithURL(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string) {
+// RegisterMutatingToolsWithURL registers the three MCP mutating tools on s.
+func RegisterMutatingToolsWithURL(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string, signingKey []byte) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
-		Name:        "propose_classify_defect",
+		Name:        kindClassifyDefect,
+		Title:       "Propose AllureDeck defect classification",
+		Annotations: proposalAnnotations(),
 		Description: "Propose a defect reclassification for a failing test fingerprint. Requires editor role and an API key with allow_mcp_writes=true. Creates a pending proposal that a human reviewer must approve before it takes effect.",
-	}, proposeClassifyDefectHandler(stores, logger, publicURL))
+	}, proposeClassifyDefectHandler(stores, logger, publicURL, signingKey))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
-		Name:        "propose_known_issue",
+		Name:        kindKnownIssue,
+		Title:       "Propose AllureDeck known-issue rule",
+		Annotations: proposalAnnotations(),
 		Description: "Propose a new known-issue regex rule for a project. Requires editor role and an API key with allow_mcp_writes=true. Performs a dry-run match count against recent failures before inserting the proposal.",
-	}, proposeKnownIssueHandler(stores, logger, publicURL))
+	}, proposeKnownIssueHandler(stores, logger, publicURL, signingKey))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
-		Name:        "propose_mark_flaky",
+		Name:        kindMarkFlaky,
+		Title:       "Propose AllureDeck flaky-test marking",
+		Annotations: proposalAnnotations(),
 		Description: "Propose marking a specific test as flaky by (test_full_name, history_id). Requires editor role and an API key with allow_mcp_writes=true. Creates a pending proposal for human review.",
-	}, proposeMarkFlakyHandler(stores, logger, publicURL))
+	}, proposeMarkFlakyHandler(stores, logger, publicURL, signingKey))
 }
 
 // ---------------------------------------------------------------------------
@@ -168,14 +179,42 @@ func auditMetadata(kv map[string]any) json.RawMessage {
 	return b
 }
 
+// orNotSet renders an omitted optional field for a confirmation prompt, so the
+// user sees that a field was left blank rather than an empty gap.
+func orNotSet(s string) string {
+	if s == "" {
+		return "(not set)"
+	}
+	return s
+}
+
+// formatMatchCount renders the dry-run tally, marking the point where counting
+// stopped so "1000" is not mistaken for an exact total.
+func formatMatchCount(n int) string {
+	if n >= dryRunMatchCap {
+		return fmt.Sprintf("%d or more", dryRunMatchCap)
+	}
+	return strconv.Itoa(n)
+}
+
+// breadthWarning flags a regex that matches a large share of the sample. Such a
+// pattern usually means the author meant to match one failure mode and instead
+// wrote something that swallows most of the project's failures.
+func breadthWarning(matched, sampled int) string {
+	if sampled == 0 || matched*2 <= sampled {
+		return ""
+	}
+	return " This matches over half the sample — check the pattern is not broader than intended."
+}
+
 // ---------------------------------------------------------------------------
 // propose_classify_defect handler
 // ---------------------------------------------------------------------------
 
-func proposeClassifyDefectHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeClassifyDefectInput) (*mcpsdk.CallToolResult, ProposeClassifyDefectOutput, error) {
-	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ProposeClassifyDefectInput) (*mcpsdk.CallToolResult, ProposeClassifyDefectOutput, error) {
+func proposeClassifyDefectHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string, signingKey []byte) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeClassifyDefectInput) (*mcpsdk.CallToolResult, ProposeClassifyDefectOutput, error) {
+	return func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeClassifyDefectInput) (*mcpsdk.CallToolResult, ProposeClassifyDefectOutput, error) {
 		info := mcpauth.TokenInfoFromContext(ctx)
-		return execProposeClassifyDefect(ctx, in, info, stores, logger, publicURL)
+		return execProposeClassifyDefect(ctx, req, in, info, stores, logger, publicURL, signingKey)
 	}
 }
 
@@ -188,11 +227,13 @@ var ExecProposeClassifyDefectForTest = execProposeClassifyDefect
 // execProposeClassifyDefect is the testable core for propose_classify_defect.
 func execProposeClassifyDefect(
 	ctx context.Context,
+	req *mcpsdk.CallToolRequest,
 	in ProposeClassifyDefectInput,
 	info *mcpauth.TokenInfo,
 	stores *bootstrap.Stores,
 	logger *zap.Logger,
 	publicURL string,
+	signingKey []byte,
 ) (*mcpsdk.CallToolResult, ProposeClassifyDefectOutput, error) {
 	userID, apiKeyID, err := checkMutatingAuthFromInfo(info)
 	if err != nil {
@@ -207,6 +248,23 @@ func execProposeClassifyDefect(
 	}
 	if in.ProposedCategory == "" {
 		return nil, ProposeClassifyDefectOutput{}, fmt.Errorf("proposed_category is required")
+	}
+
+	prompt := fmt.Sprintf(
+		"Reclassify this defect in AllureDeck project %d?\n\n  Fingerprint: %s\n  New category: %s\n  New resolution: %s\n\nThis records a proposal for a human reviewer to approve; the defect's current classification is unchanged until then.",
+		in.ProjectID, in.FingerprintHash, in.ProposedCategory, orNotSet(in.ProposedResolution),
+	)
+	gate, ask, err := evaluateWriteGate(req, signingKey, kindClassifyDefect, userID, prompt, in, time.Now())
+	if err != nil {
+		return nil, ProposeClassifyDefectOutput{}, err
+	}
+	switch gate {
+	case gateAsk:
+		logger.Debug("mcp: awaiting user confirmation for propose_classify_defect", zap.String("user", userID))
+		return ask, ProposeClassifyDefectOutput{}, nil
+	case gateDeclined:
+		return declinedResult("defect-classification proposal"), ProposeClassifyDefectOutput{}, nil
+	case gateWrite:
 	}
 
 	p := &store.DefectProposal{
@@ -259,10 +317,10 @@ func execProposeClassifyDefect(
 // propose_known_issue handler
 // ---------------------------------------------------------------------------
 
-func proposeKnownIssueHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeKnownIssueInput) (*mcpsdk.CallToolResult, ProposeKnownIssueOutput, error) {
-	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ProposeKnownIssueInput) (*mcpsdk.CallToolResult, ProposeKnownIssueOutput, error) {
+func proposeKnownIssueHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string, signingKey []byte) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeKnownIssueInput) (*mcpsdk.CallToolResult, ProposeKnownIssueOutput, error) {
+	return func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeKnownIssueInput) (*mcpsdk.CallToolResult, ProposeKnownIssueOutput, error) {
 		info := mcpauth.TokenInfoFromContext(ctx)
-		return execProposeKnownIssue(ctx, in, info, stores, logger, publicURL)
+		return execProposeKnownIssue(ctx, req, in, info, stores, logger, publicURL, signingKey)
 	}
 }
 
@@ -272,11 +330,13 @@ var ExecProposeKnownIssueForTest = execProposeKnownIssue
 // execProposeKnownIssue is the testable core for propose_known_issue.
 func execProposeKnownIssue(
 	ctx context.Context,
+	req *mcpsdk.CallToolRequest,
 	in ProposeKnownIssueInput,
 	info *mcpauth.TokenInfo,
 	stores *bootstrap.Stores,
 	logger *zap.Logger,
 	publicURL string,
+	signingKey []byte,
 ) (*mcpsdk.CallToolResult, ProposeKnownIssueOutput, error) {
 	userID, apiKeyID, err := checkMutatingAuthFromInfo(info)
 	if err != nil {
@@ -314,6 +374,30 @@ func execProposeKnownIssue(
 				break
 			}
 		}
+	}
+
+	// The dry-run count is the whole reason this confirmation exists: a regex
+	// that matches most recent failures would silently reclassify them, and the
+	// count is the only signal that distinguishes a targeted rule from an
+	// over-broad one. It is therefore computed before the prompt, not after.
+	prompt := fmt.Sprintf(
+		"Create this known-issue rule in AllureDeck project %d?\n\n  Pattern: %s\n  Category: %s\n\nDry run: matches %s of the last %d failure messages.%s\n\nThis records a proposal for a human reviewer to approve; no failures are reclassified until then.",
+		in.ProjectID, in.RegexPattern, orNotSet(in.ProposedCategory),
+		formatMatchCount(matchCount), len(messages),
+		breadthWarning(matchCount, len(messages)),
+	)
+	gate, ask, err := evaluateWriteGate(req, signingKey, kindKnownIssue, userID, prompt, in, time.Now())
+	if err != nil {
+		return nil, ProposeKnownIssueOutput{}, err
+	}
+	switch gate {
+	case gateAsk:
+		logger.Debug("mcp: awaiting user confirmation for propose_known_issue",
+			zap.String("user", userID), zap.Int("dry_run_match_count", matchCount))
+		return ask, ProposeKnownIssueOutput{}, nil
+	case gateDeclined:
+		return declinedResult("known-issue proposal"), ProposeKnownIssueOutput{}, nil
+	case gateWrite:
 	}
 
 	p := &store.KnownIssueProposal{
@@ -366,10 +450,10 @@ func execProposeKnownIssue(
 // propose_mark_flaky handler
 // ---------------------------------------------------------------------------
 
-func proposeMarkFlakyHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeMarkFlakyInput) (*mcpsdk.CallToolResult, ProposeMarkFlakyOutput, error) {
-	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ProposeMarkFlakyInput) (*mcpsdk.CallToolResult, ProposeMarkFlakyOutput, error) {
+func proposeMarkFlakyHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string, signingKey []byte) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeMarkFlakyInput) (*mcpsdk.CallToolResult, ProposeMarkFlakyOutput, error) {
+	return func(ctx context.Context, req *mcpsdk.CallToolRequest, in ProposeMarkFlakyInput) (*mcpsdk.CallToolResult, ProposeMarkFlakyOutput, error) {
 		info := mcpauth.TokenInfoFromContext(ctx)
-		return execProposeMarkFlaky(ctx, in, info, stores, logger, publicURL)
+		return execProposeMarkFlaky(ctx, req, in, info, stores, logger, publicURL, signingKey)
 	}
 }
 
@@ -379,11 +463,13 @@ var ExecProposeMarkFlakyForTest = execProposeMarkFlaky
 // execProposeMarkFlaky is the testable core for propose_mark_flaky.
 func execProposeMarkFlaky(
 	ctx context.Context,
+	req *mcpsdk.CallToolRequest,
 	in ProposeMarkFlakyInput,
 	info *mcpauth.TokenInfo,
 	stores *bootstrap.Stores,
 	logger *zap.Logger,
 	publicURL string,
+	signingKey []byte,
 ) (*mcpsdk.CallToolResult, ProposeMarkFlakyOutput, error) {
 	userID, apiKeyID, err := checkMutatingAuthFromInfo(info)
 	if err != nil {
@@ -398,6 +484,23 @@ func execProposeMarkFlaky(
 	}
 	if in.HistoryID == "" {
 		return nil, ProposeMarkFlakyOutput{}, fmt.Errorf("history_id is required and must be non-empty")
+	}
+
+	prompt := fmt.Sprintf(
+		"Mark this test as flaky in AllureDeck project %d?\n\n  Test: %s\n  history_id: %s\n\nThis records a proposal for a human reviewer to approve; it does not change triage on its own.",
+		in.ProjectID, in.TestFullName, in.HistoryID,
+	)
+	gate, ask, err := evaluateWriteGate(req, signingKey, kindMarkFlaky, userID, prompt, in, time.Now())
+	if err != nil {
+		return nil, ProposeMarkFlakyOutput{}, err
+	}
+	switch gate {
+	case gateAsk:
+		logger.Debug("mcp: awaiting user confirmation for propose_mark_flaky", zap.String("user", userID))
+		return ask, ProposeMarkFlakyOutput{}, nil
+	case gateDeclined:
+		return declinedResult("flaky-test proposal"), ProposeMarkFlakyOutput{}, nil
+	case gateWrite:
 	}
 
 	p := &store.FlakyProposal{

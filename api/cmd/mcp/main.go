@@ -77,6 +77,8 @@ func main() {
 		PublicURL:       cfg.ExternalURL,
 		SigningKey:      []byte(cfg.MCPSigningKey),
 		DataStore:       dataStore,
+		ToolCosts:       mcp.ParseToolCosts(cfg.MCPToolCosts),
+		Stateless:       cfg.MCPStateless,
 	}
 
 	mcpHandler, _, err := mcp.NewServer(mcpCfg, stores, jwtManager, userActiveCache, logger)
@@ -87,6 +89,10 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", mcp.HealthHandler)
 	mux.HandleFunc("GET /healthz", mcp.HealthHandler)
+	// RFC 9728 protected-resource metadata. Deliberately mounted outside the
+	// auth and rate-limit chain: clients fetch this precisely because they do
+	// not yet hold a usable token.
+	mux.Handle("GET "+mcp.ResourceMetadataPath, mcp.ProtectedResourceMetadataHandler(cfg.ExternalURL))
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
 

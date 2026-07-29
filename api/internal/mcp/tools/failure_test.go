@@ -20,7 +20,9 @@ import (
 func setupTestServer(t *testing.T, stores *bootstrap.Stores) *mcpsdk.ClientSession {
 	t.Helper()
 	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "test", Version: "v0"}, nil)
-	tools.RegisterAll(srv, stores, zap.NewNop())
+	// Empty publicURL and nil signing key: these tests exercise read tools,
+	// and a nil key leaves the write-confirmation gate disabled.
+	tools.RegisterAll(srv, stores, zap.NewNop(), "", nil)
 
 	st, ct := mcpsdk.NewInMemoryTransports()
 	ctx, cancel := context.WithCancel(context.Background())

@@ -133,21 +133,29 @@ var numericRe = regexp.MustCompile(`^\d+$`)
 func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_projects",
+		Title:       "List AllureDeck projects",
+		Annotations: readOnlyAnnotations(),
 		Description: "List alluredeck projects with pagination. Use to discover available project IDs before calling other tools.",
 	}, listProjectsHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_recent_builds",
+		Title:       "List AllureDeck recent builds",
+		Annotations: readOnlyAnnotations(),
 		Description: "List recent builds for a project, optionally filtered by branch. Returns build IDs needed for other tools.",
 	}, listRecentBuildsHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "find_test_by_name",
+		Title:       "Find AllureDeck test by name",
+		Annotations: readOnlyAnnotations(),
 		Description: "Search tests by name substring (case-insensitive). Returns up to 100 matches with their history_id for use in get_test_failure and get_test_history.",
 	}, findTestByNameHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "resolve_url",
+		Title:       "Resolve AllureDeck URL",
+		Annotations: readOnlyAnnotations(),
 		Description: "Resolve a UI URL or (project_ref, build_number) pair to the build_id and project context needed by other tools. Call this first when given a URL — the build_number in the URL is NOT the build_id that other tools require.",
 	}, resolveURLHandler(stores, logger))
 }

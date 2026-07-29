@@ -62,6 +62,8 @@ type ListFailingTestsOutput struct {
 func RegisterFailureTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_failing_tests",
+		Title:       "List AllureDeck failing tests",
+		Annotations: readOnlyAnnotations(),
 		Description: "List tests that failed in a build. Use this first when debugging a CI failure; combine with get_test_failure for details on a specific test. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, listFailingTestsHandler(stores, logger))
 }

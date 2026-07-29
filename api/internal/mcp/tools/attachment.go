@@ -39,6 +39,8 @@ type ListAttachmentsOutput struct {
 func RegisterAttachmentTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_attachments",
+		Title:       "List AllureDeck attachments",
+		Annotations: readOnlyAnnotations(),
 		Description: "List attachments for a specific test in a build. Returns resource URIs only — use the alluredeck://attachment/{id} resource to retrieve content.",
 	}, listAttachmentsHandler(stores, logger))
 }
