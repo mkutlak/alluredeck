@@ -1,3 +1,5 @@
+## [0.45.0](https://github.com/mkutlak/alluredeck/compare/v0.44.1...v0.45.0) (2026-07-29)
+
 ## [0.44.1](https://github.com/mkutlak/alluredeck/compare/v0.44.0...v0.44.1) (2026-07-14)
 
 ## [0.44.0](https://github.com/mkutlak/alluredeck/compare/v0.43.0...v0.44.0) (2026-07-05)
