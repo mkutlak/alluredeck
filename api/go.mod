@@ -15,9 +15,9 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/prometheus/client_golang v1.23.2
-	github.com/riverqueue/river v0.40.0
-	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.40.0
-	github.com/riverqueue/river/rivertype v0.40.0
+	github.com/riverqueue/river v0.41.0
+	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.41.0
+	github.com/riverqueue/river/rivertype v0.41.0
 	github.com/swaggo/swag v1.16.6
 	go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws v0.69.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0
@@ -95,8 +95,8 @@ require (
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
-	github.com/riverqueue/river/riverdriver v0.40.0 // indirect
-	github.com/riverqueue/river/rivershared v0.40.0 // indirect
+	github.com/riverqueue/river/riverdriver v0.41.0 // indirect
+	github.com/riverqueue/river/rivershared v0.41.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
