@@ -96,6 +96,10 @@ services:
       ENABLE_MCP_SERVER: "true"
       # DEV ONLY: replace MCP_SIGNING_KEY with a real secret in production
       MCP_SIGNING_KEY: "${MCP_SIGNING_KEY:-dev-only-replace-in-prod}"
+      # Required whenever ENABLE_MCP_SERVER=true: the server refuses to start
+      # without it, because it signs absolute attachment download URLs and
+      # builds proposal review links from it.
+      EXTERNAL_URL: "${EXTERNAL_URL:-http://localhost:8081}"
       DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
       SECURITY_ENABLED: "1"
       # Must match allure-api's JWT_SECRET_KEY so tokens issued there validate here

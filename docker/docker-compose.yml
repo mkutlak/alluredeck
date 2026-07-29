@@ -69,6 +69,10 @@ services:
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-68af59c5a580cf01e094ff4cf6722203c6e2a6de6ed6c3fb8185bfac9c490f3e}"
       # DEV ONLY: replace MCP_SIGNING_KEY with a real secret in production
       MCP_SIGNING_KEY: "${MCP_SIGNING_KEY:-dev-only-replace-in-prod}"
+      # Required whenever ENABLE_MCP_SERVER=true: the server refuses to start
+      # without it, because it signs absolute attachment download URLs and
+      # builds proposal review links from it.
+      EXTERNAL_URL: "${EXTERNAL_URL:-http://localhost:8081}"
     ports:
       - "8081:8081"
     depends_on:
