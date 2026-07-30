@@ -31,6 +31,7 @@ WITH child_builds AS (
            b.created_at,
            b.project_id,
            p.slug AS project_slug,
+           COALESCE(p.display_name, '') AS project_display_name,
            b.build_order,
            b.id AS build_id,
            b.stat_passed, b.stat_failed, b.stat_broken, b.stat_skipped, b.stat_total,
@@ -59,7 +60,7 @@ paginated_groups AS (
 )
 SELECT cb.ci_pipeline_id, cb.ci_pipeline_url,
        cb.ci_commit_sha, cb.ci_branch, cb.ci_build_url, cb.created_at,
-       cb.project_id, cb.project_slug, cb.build_order, cb.build_id,
+       cb.project_id, cb.project_slug, cb.project_display_name, cb.build_order, cb.build_id,
        cb.stat_passed, cb.stat_failed, cb.stat_broken, cb.stat_skipped, cb.stat_total,
        cb.duration_ms,
        tc.cnt
@@ -88,7 +89,7 @@ func (s *PipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, br
 		if err := rows.Scan(
 			&r.PipelineID, &r.PipelineURL,
 			&r.CommitSHA, &r.Branch, &r.CIBuildURL, &r.CreatedAt,
-			&r.ProjectID, &r.Slug, &r.BuildNumber, &r.BuildID,
+			&r.ProjectID, &r.Slug, &r.DisplayName, &r.BuildNumber, &r.BuildID,
 			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatSkipped, &r.StatTotal,
 			&r.DurationMs,
 			&total,
@@ -117,6 +118,7 @@ WITH child_builds AS (
            b.created_at,
            b.project_id,
            p.slug AS project_slug,
+           COALESCE(p.display_name, '') AS project_display_name,
            b.build_order,
            b.id AS build_id,
            gp.id AS group_project_id,
@@ -149,7 +151,7 @@ paginated_groups AS (
 )
 SELECT cb.ci_pipeline_id, cb.ci_pipeline_url,
        cb.ci_commit_sha, cb.ci_branch, cb.ci_build_url, cb.created_at,
-       cb.project_id, cb.project_slug, cb.build_order, cb.build_id,
+       cb.project_id, cb.project_slug, cb.project_display_name, cb.build_order, cb.build_id,
        cb.group_project_id, cb.group_slug,
        cb.stat_passed, cb.stat_failed, cb.stat_broken, cb.stat_skipped, cb.stat_total,
        cb.duration_ms,
@@ -158,6 +160,72 @@ FROM child_builds cb
 JOIN paginated_groups pg ON cb.group_key = pg.group_key
 CROSS JOIN total_count tc
 ORDER BY cb.created_at DESC, cb.project_id ASC`
+
+// runFailuresQuery collects the failing tests of an entire run in one round
+// trip. run_builds resolves every build the group's children uploaded under the
+// run key — a sharded suite contributes one build per shard — and the join then
+// pulls their failed/broken results. status_message is capped the same way
+// ListFailedByBuild caps it: callers only render a short preview.
+const runFailuresQuery = `
+WITH run_builds AS (
+    SELECT b.id AS build_id,
+           b.build_order,
+           b.project_id,
+           p.slug AS project_slug,
+           COALESCE(p.display_name, '') AS project_display_name
+    FROM builds b
+    JOIN projects p ON p.id = b.project_id
+    WHERE p.parent_id = $1
+      AND COALESCE(b.ci_pipeline_id, b.ci_commit_sha) = $2
+)
+SELECT rb.project_id, rb.project_slug, rb.project_display_name,
+       rb.build_id, rb.build_order,
+       tr.test_name, tr.full_name, tr.status, tr.duration_ms,
+       tr.history_id, tr.flaky, tr.retries, tr.new_failed,
+       COALESCE(LEFT(tr.status_message, 500), '')
+FROM run_builds rb
+JOIN test_results tr
+  ON tr.build_id = rb.build_id AND tr.project_id = rb.project_id
+WHERE tr.status IN ('failed','broken')
+ORDER BY rb.project_id ASC, rb.build_order ASC, tr.duration_ms DESC
+LIMIT $3`
+
+// ListRunFailures returns the failing tests of every build in one pipeline run.
+// runKey is a ci_pipeline_id, or a ci_commit_sha when the pipeline ID is absent
+// — the same key groupPipelineRuns uses to assemble a run.
+//
+// Rows are NOT deduplicated here. A build can hold two rows for one test when
+// two ingestion paths assign different history_ids to it, and the only field
+// they share is full_name; collapsing on that in SQL would also merge
+// parameterized tests that legitimately share a full name. Callers that need a
+// per-test view merge on their own terms.
+func (s *PipelineStore) ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
+	rows, err := s.pool.Query(ctx, runFailuresQuery, groupProjectID, runKey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("run failures query: %w", err)
+	}
+	defer rows.Close()
+
+	result := []store.RunFailureRow{}
+	for rows.Next() {
+		var r store.RunFailureRow
+		if err := rows.Scan(
+			&r.ProjectID, &r.Slug, &r.DisplayName,
+			&r.BuildID, &r.BuildNumber,
+			&r.TestName, &r.FullName, &r.Status, &r.DurationMs,
+			&r.HistoryID, &r.Flaky, &r.Retries, &r.NewFailed,
+			&r.StatusMessage,
+		); err != nil {
+			return nil, fmt.Errorf("scan run failure row: %w", err)
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate run failures: %w", err)
+	}
+
+	return result, nil
+}
 
 // ListAllPipelineRuns returns builds across every parent/child project group,
 // paginated by distinct (parent, commit-SHA-or-pipeline-ID) group. Returns
@@ -185,7 +253,7 @@ func (s *PipelineStore) ListAllPipelineRuns(ctx context.Context, branch string, 
 		if err := rows.Scan(
 			&r.PipelineID, &r.PipelineURL,
 			&r.CommitSHA, &r.Branch, &r.CIBuildURL, &r.CreatedAt,
-			&r.ProjectID, &r.Slug, &r.BuildNumber, &r.BuildID,
+			&r.ProjectID, &r.Slug, &r.DisplayName, &r.BuildNumber, &r.BuildID,
 			&r.GroupProjectID, &r.GroupSlug,
 			&r.StatPassed, &r.StatFailed, &r.StatBroken, &r.StatSkipped, &r.StatTotal,
 			&r.DurationMs,

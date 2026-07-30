@@ -52,11 +52,13 @@ function makeUIState(overrides: Partial<UIState> = {}): UIState {
     recentProjectIds: [],
     lastTabPerProject: {},
     runsFeedGroupIds: [],
+    runsFailureGrouping: 'suite',
     pinProject: vi.fn(),
     unpinProject: vi.fn(),
     recordProjectVisit: vi.fn(),
     setLastTabForProject: vi.fn(),
     setRunsFeedGroupIds: vi.fn(),
+    setRunsFailureGrouping: vi.fn(),
     ...overrides,
   }
 }

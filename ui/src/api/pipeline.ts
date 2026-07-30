@@ -1,5 +1,22 @@
 import { apiClient } from './client'
-import type { PaginatedResponse, PipelineRun } from '@/types/api'
+import type { PaginatedResponse, PipelineRun, RunFailuresResponse } from '@/types/api'
+
+/**
+ * Fetches every failing test in one pipeline run. runKey is the run's
+ * ci_pipeline_id, or its commit SHA when the pipeline ID is absent — the same
+ * key the API groups runs by. projectId is the parent (group) project.
+ */
+export async function fetchRunFailures(
+  projectId: number,
+  runKey: string,
+  limit?: number,
+): Promise<RunFailuresResponse> {
+  const res = await apiClient.get<RunFailuresResponse>(
+    `/projects/${encodeURIComponent(projectId)}/pipeline-runs/${encodeURIComponent(runKey)}/failures`,
+    { params: limit !== undefined ? { limit } : {} },
+  )
+  return res.data
+}
 
 export async function fetchPipelineRuns(
   projectId: string,

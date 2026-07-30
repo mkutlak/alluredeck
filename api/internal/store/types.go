@@ -146,6 +146,7 @@ type PipelineRunRow struct {
 	CreatedAt      time.Time
 	ProjectID      int64
 	Slug           string
+	DisplayName    string
 	BuildNumber    int
 	BuildID        int64
 	GroupProjectID int64
@@ -156,6 +157,28 @@ type PipelineRunRow struct {
 	StatSkipped    *int
 	StatTotal      *int
 	DurationMs     *int64
+}
+
+// RunFailureRow is one failing test within a pipeline run, tagged with the
+// suite (child project) and build it came from. A run spans every build its
+// child projects uploaded under one pipeline ID, including the several builds a
+// sharded suite produces, so these rows are gathered in a single query rather
+// than one request per build.
+type RunFailureRow struct {
+	ProjectID     int64
+	Slug          string
+	DisplayName   string
+	BuildID       int64
+	BuildNumber   int
+	TestName      string
+	FullName      string
+	Status        string
+	DurationMs    int64
+	HistoryID     string
+	Flaky         bool
+	Retries       int
+	NewFailed     bool
+	StatusMessage string
 }
 
 // TestResult represents a single test execution result stored in the database.

@@ -18,6 +18,8 @@ definitions:
         type: boolean
       keep_history_latest:
         type: integer
+      llm_enabled:
+        type: boolean
       make_viewer_endpoints_public:
         type: boolean
       mcp_enabled:
@@ -968,6 +970,49 @@ paths:
       summary: List build tests
       tags:
       - builds
+  /projects/{project_id}/builds/{build_id}/tests/{history_id}/failure-summary:
+    get:
+      description: |-
+        Returns a cached or freshly generated LLM hypothesis about why
+        a test failed. Off by default; when disabled the body reports
+        enabled:false. The summary is an AI hypothesis, not a verdict.
+      parameters:
+      - description: Project ID or slug
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: Build ID (surrogate PK)
+        in: path
+        name: build_id
+        required: true
+        type: integer
+      - description: Test history ID
+        in: path
+        name: history_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get the AI failure summary for a failing test
+      tags:
+      - failures
   /projects/{project_id}/children:
     get:
       description: Returns all projects that have the given project as their parent.
@@ -1323,6 +1368,47 @@ paths:
             additionalProperties: true
             type: object
       summary: List pipeline runs
+      tags:
+      - pipeline
+  /projects/{project_id}/pipeline-runs/{run_key}/failures:
+    get:
+      description: Returns the failed and broken tests of every build in one pipeline
+        run, flagged as known, flaky, retried, or newly-failed.
+      parameters:
+      - description: Parent (group) project ID
+        in: path
+        name: project_id
+        required: true
+        type: string
+      - description: CI pipeline ID, or commit SHA when the pipeline ID is absent
+        in: path
+        name: run_key
+        required: true
+        type: string
+      - default: 500
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List run failures
       tags:
       - pipeline
   /projects/{project_id}/playwright:

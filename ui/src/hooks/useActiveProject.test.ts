@@ -45,11 +45,13 @@ vi.mock('@/store/ui', () => ({
       recentProjectIds: [],
       lastTabPerProject: {},
       runsFeedGroupIds: [],
+      runsFailureGrouping: 'suite',
       pinProject: vi.fn(),
       unpinProject: vi.fn(),
       recordProjectVisit: mockRecordProjectVisit,
       setLastTabForProject: vi.fn(),
       setRunsFeedGroupIds: vi.fn(),
+      setRunsFailureGrouping: vi.fn(),
     }),
   ),
 }))
@@ -150,11 +152,13 @@ describe('useActiveProject', () => {
         recentProjectIds: [],
         lastTabPerProject: {},
         runsFeedGroupIds: [],
+        runsFailureGrouping: 'suite',
         pinProject: vi.fn(),
         unpinProject: vi.fn(),
         recordProjectVisit: mockRecordProjectVisit,
         setLastTabForProject: vi.fn(),
         setRunsFeedGroupIds: vi.fn(),
+        setRunsFailureGrouping: vi.fn(),
       }),
     )
   })
@@ -199,11 +203,13 @@ describe('useActiveProject', () => {
         recentProjectIds: [],
         lastTabPerProject: {},
         runsFeedGroupIds: [],
+        runsFailureGrouping: 'suite',
         pinProject: vi.fn(),
         unpinProject: vi.fn(),
         recordProjectVisit: mockRecordProjectVisit,
         setLastTabForProject: vi.fn(),
         setRunsFeedGroupIds: vi.fn(),
+        setRunsFailureGrouping: vi.fn(),
       }),
     )
 

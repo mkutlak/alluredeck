@@ -92,7 +92,10 @@ export function RunsFeedPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-3">
+        // One bordered list with divided rows rather than a card per run: the
+        // feed is meant to be scanned top to bottom, and per-card padding was
+        // most of what made it tall.
+        <div className="divide-y rounded-lg border">
           {runs.map((run) => (
             <RunRow
               key={`${run.group_project_id ?? run.group_slug}:${run.pipeline_id ?? run.commit_sha}:${run.timestamp}`}

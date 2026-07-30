@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/react-query'
 
-import { fetchPipelineRuns, fetchRunsFeed } from '@/api/pipeline'
+import { fetchPipelineRuns, fetchRunFailures, fetchRunsFeed } from '@/api/pipeline'
 import { fetchBuildFailedTests } from '@/api/builds'
 import { queryKeys } from '@/lib/query-keys'
 
@@ -24,6 +24,18 @@ export function buildFailedTestsOptions(projectId: number, buildId: number) {
   return queryOptions({
     queryKey: queryKeys.buildFailedTests(projectId, buildId),
     queryFn: () => fetchBuildFailedTests(projectId, buildId),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/**
+ * One request covers a whole run's failures. Callers pass `enabled: false`
+ * until the run is expanded, so a feed of collapsed runs fetches nothing.
+ */
+export function runFailuresOptions(groupProjectId: number, runKey: string) {
+  return queryOptions({
+    queryKey: queryKeys.runFailures(groupProjectId, runKey),
+    queryFn: () => fetchRunFailures(groupProjectId, runKey),
     staleTime: 5 * 60_000,
   })
 }

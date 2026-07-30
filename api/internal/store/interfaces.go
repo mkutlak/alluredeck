@@ -378,6 +378,12 @@ type PipelineStorer interface {
 	// groups, not individual rows. Pass an empty (non-nil) groupIDs slice to
 	// disable the group filter.
 	ListAllPipelineRuns(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]PipelineRunRow, int, error)
+	// ListRunFailures returns the failed and broken tests of every build that
+	// the children of groupProjectID uploaded under runKey, which is a
+	// ci_pipeline_id or, when the pipeline ID is absent, a ci_commit_sha. One
+	// call covers a whole run including sharded suites, which contribute
+	// several builds each. Rows carry the suite and build they came from.
+	ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]RunFailureRow, error)
 }
 
 // AttachmentStorer provides queries over test attachment metadata.

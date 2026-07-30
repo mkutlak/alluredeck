@@ -584,7 +584,7 @@ func wireHandlers(
 		defect:      handlers.NewDefectHandler(s.defect, s.project, logger),
 		buildTests:  handlers.NewBuildTestsHandler(s.testResult, s.knownIssue, s.project, logger),
 		webhook:     handlers.NewWebhookHandler(s.webhook, s.project, logger),
-		pipeline:    handlers.NewPipelineHandler(s.pipeline, s.project, cfg.ProjectsPath, logger),
+		pipeline:    handlers.NewPipelineHandler(s.pipeline, s.project, s.knownIssue, cfg.ProjectsPath, logger),
 		preferences: handlers.NewPreferenceHandler(s.preference),
 		oidc:        oidcHandler,
 		proposals:   proposalsHandler,
@@ -949,6 +949,7 @@ func registerRoutes(d routeDeps) {
 
 	// Pipeline runs (parent project aggregation by commit SHA).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetPipelineRuns)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs/{run_key}/failures", viewerUp(shortCache(d.h.pipeline.GetRunFailures)))
 	mux.HandleFunc("GET "+prefix+"/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetAllPipelineRuns)))
 
 	// Admin system monitor endpoints.

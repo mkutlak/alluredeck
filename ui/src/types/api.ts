@@ -809,9 +809,18 @@ export interface ResetPasswordResponse {
 // Pipeline Runs
 // ---------------------------------------------------------------------------
 
+// One build that contributed to a suite. More than one means the suite was
+// sharded across parallel CI jobs that each uploaded their own results.
+export interface PipelineSuiteBuild {
+  build_id: number
+  build_number: number
+}
+
 export interface PipelineSuite {
   project_id: number
   slug: string
+  display_name?: string
+  /** Newest contributing build; equals builds[builds.length - 1]. */
   build_number: number
   build_id: number
   pass_rate: number
@@ -819,6 +828,12 @@ export interface PipelineSuite {
   failed: number
   duration_ms: number
   status: 'passed' | 'failed' | 'degraded'
+  /**
+   * Every contributing build, oldest first. Optional so responses cached
+   * before the field existed still typecheck; treat a missing value as a
+   * single build.
+   */
+  builds?: PipelineSuiteBuild[]
 }
 
 export interface PipelineAggregate {
@@ -846,6 +861,32 @@ export interface PipelineRun {
 // ---------------------------------------------------------------------------
 // Build failed tests (runs feed drill-down)
 // ---------------------------------------------------------------------------
+// A failing test within a pipeline run, tagged with the suite and build it came
+// from. Returned by GET /projects/{id}/pipeline-runs/{run_key}/failures, which
+// covers a whole run — including every shard of a sharded suite — in one call.
+export interface RunFailure {
+  project_id: number
+  slug: string
+  display_name?: string
+  build_id: number
+  build_number: number
+  test_name: string
+  full_name: string
+  status: string
+  duration_ms: number
+  history_id: string
+  flaky: boolean
+  retries: number
+  new_failed: boolean
+  known: boolean
+  error_message: string
+}
+
+export interface RunFailuresResponse {
+  data: RunFailure[]
+  metadata: { message: string; truncated: boolean }
+}
+
 export interface BuildFailedTest {
   test_name: string
   full_name: string

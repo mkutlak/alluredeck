@@ -1318,6 +1318,64 @@
                 }
             }
         },
+        "/projects/{project_id}/builds/{build_id}/tests/{history_id}/failure-summary": {
+            "get": {
+                "description": "Returns a cached or freshly generated LLM hypothesis about why\na test failed. Off by default; when disabled the body reports\nenabled:false. The summary is an AI hypothesis, not a verdict.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "failures"
+                ],
+                "summary": "Get the AI failure summary for a failing test",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID or slug",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Build ID (surrogate PK)",
+                        "name": "build_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Test history ID",
+                        "name": "history_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}/children": {
             "get": {
                 "description": "Returns all projects that have the given project as their parent.",
@@ -1796,6 +1854,64 @@
                         "type": "string",
                         "description": "Filter by branch name",
                         "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/pipeline-runs/{run_key}/failures": {
+            "get": {
+                "description": "Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pipeline"
+                ],
+                "summary": "List run failures",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent (group) project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "CI pipeline ID, or commit SHA when the pipeline ID is absent",
+                        "name": "run_key",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 500,
+                        "description": "Max results",
+                        "name": "limit",
                         "in": "query"
                     }
                 ],
@@ -3941,6 +4057,9 @@
                 },
                 "keep_history_latest": {
                     "type": "integer"
+                },
+                "llm_enabled": {
+                    "type": "boolean"
                 },
                 "make_viewer_endpoints_public": {
                     "type": "boolean"

@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware'
 
 type ViewMode = 'grid' | 'table'
 export type GroupByMode = 'none' | 'commit' | 'branch'
+/** How the runs-feed failure drawer groups a run's failing tests. */
+export type FailureGrouping = 'suite' | 'error'
 export const PER_PAGE_OPTIONS = [10, 20, 50, 100] as const
 
 export interface UIState {
@@ -18,6 +20,7 @@ export interface UIState {
   recentProjectIds: number[]
   lastTabPerProject: Record<string, string>
   runsFeedGroupIds: number[]
+  runsFailureGrouping: FailureGrouping
 
   setProjectViewMode: (mode: ViewMode) => void
   setLastProjectId: (id: string | null) => void
@@ -33,6 +36,7 @@ export interface UIState {
   recordProjectVisit: (id: number) => void
   setLastTabForProject: (projectId: string, tab: string) => void
   setRunsFeedGroupIds: (ids: number[]) => void
+  setRunsFailureGrouping: (grouping: FailureGrouping) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -50,6 +54,7 @@ export const useUIStore = create<UIState>()(
       recentProjectIds: [],
       lastTabPerProject: {},
       runsFeedGroupIds: [],
+      runsFailureGrouping: 'suite',
 
       setProjectViewMode: (mode) => set({ projectViewMode: mode }),
       setLastProjectId: (id) => set({ lastProjectId: id }),
@@ -76,6 +81,7 @@ export const useUIStore = create<UIState>()(
       setLastTabForProject: (projectId, tab) =>
         set((s) => ({ lastTabPerProject: { ...s.lastTabPerProject, [projectId]: tab } })),
       setRunsFeedGroupIds: (ids) => set({ runsFeedGroupIds: [...ids] }),
+      setRunsFailureGrouping: (grouping) => set({ runsFailureGrouping: grouping }),
     }),
     { name: 'allure-ui' },
   ),

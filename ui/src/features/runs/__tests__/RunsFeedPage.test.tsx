@@ -7,6 +7,11 @@ import type { PaginatedResponse, PipelineRun } from '@/types/api'
 
 vi.mock('@/api/pipeline', () => ({
   fetchRunsFeed: vi.fn(),
+  fetchPipelineRuns: vi.fn(),
+  fetchRunFailures: vi.fn().mockResolvedValue({
+    data: [],
+    metadata: { message: 'ok', truncated: false },
+  }),
 }))
 
 vi.mock('@/api/projects', () => ({
@@ -63,6 +68,7 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
         failed: 0,
         duration_ms: 15000,
         status: 'passed',
+        builds: [{ build_id: 105, build_number: 5 }],
       },
     ],
     aggregate: {

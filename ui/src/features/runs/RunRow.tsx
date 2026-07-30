@@ -1,15 +1,14 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommitHorizontal } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react'
 
 import { formatDate, formatDuration } from '@/lib/utils'
-import { getPassRateColorClass } from '@/lib/status-colors'
+import { getPassRateColorClass, STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { formatProjectLabel } from '@/lib/projectLabel'
 import { projectIndexOptions } from '@/lib/queries'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { RunSuiteChip } from './RunSuiteChip'
+import { cn } from '@/lib/utils'
+import { RunSuiteChips } from './RunSuiteChips'
 import { RunFailures } from './RunFailures'
 import type { PipelineRun } from '@/types/api'
 
@@ -19,9 +18,15 @@ export interface RunRowProps {
 
 export function RunRow({ run }: RunRowProps) {
   const { aggregate } = run
-  const [expanded, setExpanded] = useState(aggregate.suites_passed < aggregate.suites_total)
+  // Collapsed by default. Auto-expanding every failing run turned a page of
+  // ten runs into an unscannable wall, and it fetched failures for all of them
+  // before the user had asked for any.
+  const [expanded, setExpanded] = useState(false)
+
   const shortSHA = run.commit_sha?.slice(0, 7)
-  const hasPipeline = !!run.pipeline_id
+  const failedCount = run.suites.reduce((sum, s) => sum + s.failed, 0)
+  const hasFailures = failedCount > 0
+  const suitesFailing = run.suites.filter((s) => s.failed > 0).length
 
   const { data: projectsResp } = useQuery(projectIndexOptions())
   const projects = projectsResp?.data
@@ -32,107 +37,90 @@ export function RunRow({ run }: RunRowProps) {
   const groupLabel = groupProject ? formatProjectLabel(groupProject, projects) : run.group_slug
   const groupHref = run.group_project_id != null ? `/projects/${run.group_project_id}` : undefined
 
+  const passRateClass = getPassRateColorClass(aggregate.pass_rate)
+  const statusClass = hasFailures ? STATUS_TEXT_CLASSES.failed : STATUS_TEXT_CLASSES.passed
+
   return (
-    <Card data-testid="run-row">
-      <CardHeader className="p-4 pb-2">
-        <div className="flex w-full flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="shrink-0"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            aria-label="Toggle run details"
-          >
-            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
+    <div className="px-4 py-2.5" data-testid="run-row">
+      {/* Line 1 — identity and headline numbers, always one line. */}
+      <div className="flex items-center gap-2 text-sm">
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground shrink-0"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-label={`Toggle failures for ${run.pipeline_id ?? shortSHA}`}
+          data-testid="run-row-toggle"
+        >
+          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </button>
 
-          {hasPipeline ? (
-            <div className="flex items-center gap-2">
-              <code className="text-sm font-semibold">
-                {run.pipeline_url ? (
-                  <a
-                    href={run.pipeline_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 hover:underline"
-                  >
-                    Pipeline {run.pipeline_id}
-                    <ExternalLink size={12} />
-                  </a>
-                ) : (
-                  <>Pipeline {run.pipeline_id}</>
-                )}
-              </code>
-              {shortSHA && (
-                <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-                  <GitCommitHorizontal size={12} />
-                  {shortSHA}
-                </span>
-              )}
-            </div>
+        <span aria-hidden="true" className={cn('shrink-0', statusClass)}>
+          {hasFailures ? '✗' : '✓'}
+        </span>
+
+        <code className="shrink-0 font-semibold">
+          {run.pipeline_url ?? run.ci_build_url ? (
+            <a
+              href={run.pipeline_url ?? run.ci_build_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 hover:underline"
+            >
+              {run.pipeline_id ?? shortSHA}
+              <ExternalLink size={11} />
+            </a>
           ) : (
-            <code className="text-sm font-semibold">
-              {run.ci_build_url ? (
-                <a
-                  href={run.ci_build_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 hover:underline"
-                >
-                  {shortSHA}
-                  <ExternalLink size={12} />
-                </a>
-              ) : (
-                shortSHA
-              )}
-            </code>
+            (run.pipeline_id ?? shortSHA)
           )}
+        </code>
 
-          {run.branch && (
-            <Badge variant="outline" className="gap-1 text-xs font-normal">
-              <GitBranch size={12} />
-              {run.branch}
-            </Badge>
-          )}
-
-          {groupLabel &&
-            (groupHref ? (
-              <NavLink to={groupHref} className="text-muted-foreground text-xs hover:underline">
-                {groupLabel}
-              </NavLink>
-            ) : (
-              <span className="text-muted-foreground text-xs">{groupLabel}</span>
-            ))}
-
-          <span className="text-muted-foreground ml-auto text-xs">{formatDate(run.timestamp)}</span>
-        </div>
-      </CardHeader>
-
-      <CardContent className="px-4 pt-0 pb-4">
-        <p className="text-muted-foreground text-sm">
-          <span className={getPassRateColorClass(aggregate.pass_rate)}>
-            {aggregate.suites_passed}/{aggregate.suites_total} suites
+        {run.branch && (
+          <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-xs">
+            <GitBranch size={11} />
+            {run.branch}
           </span>
-          {' · '}
-          <span className={getPassRateColorClass(aggregate.pass_rate)}>
-            {aggregate.tests_passed}/{aggregate.tests_total} tests
-          </span>
-          {' · '}
-          <span className={getPassRateColorClass(aggregate.pass_rate)}>
-            {aggregate.pass_rate.toFixed(1)}%
-          </span>
-          {' · '}
-          {formatDuration(aggregate.total_duration_ms)}
-        </p>
+        )}
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {run.suites.map((suite) => (
-            <RunSuiteChip key={suite.project_id} suite={suite} />
+        {groupLabel &&
+          (groupHref ? (
+            <NavLink
+              to={groupHref}
+              className="text-muted-foreground min-w-0 truncate text-xs hover:underline"
+            >
+              {groupLabel}
+            </NavLink>
+          ) : (
+            <span className="text-muted-foreground min-w-0 truncate text-xs">{groupLabel}</span>
           ))}
-        </div>
 
-        {expanded && <RunFailures run={run} />}
-      </CardContent>
-    </Card>
+        <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
+          <span className={passRateClass}>{`${aggregate.pass_rate.toFixed(1)}%`}</span>
+          <span className="text-muted-foreground">
+            {/* Spell out "failing" — a bare "7/8 suites" reads as 7 passing. */}
+            {hasFailures
+              ? `${suitesFailing}/${aggregate.suites_total} suites failing · ${failedCount} failed tests`
+              : `${aggregate.suites_total}/${aggregate.suites_total} suites passed`}
+          </span>
+          <span className="text-muted-foreground tabular-nums">
+            {formatDuration(aggregate.total_duration_ms)}
+          </span>
+          <span className="text-muted-foreground tabular-nums">{formatDate(run.timestamp)}</span>
+        </span>
+      </div>
+
+      {/* Line 2 — only when something failed, so a green run stays one line. */}
+      {hasFailures && (
+        <div className="mt-1.5 pl-6">
+          <RunSuiteChips suites={run.suites} />
+        </div>
+      )}
+
+      {expanded && (
+        <div className="mt-2 pl-6">
+          <RunFailures run={run} />
+        </div>
+      )}
+    </div>
   )
 }

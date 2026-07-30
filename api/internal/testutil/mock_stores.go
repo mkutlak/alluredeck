@@ -1151,6 +1151,7 @@ func (m *MockAuditLogger) Reset() {
 type MockPipelineStore struct {
 	ListPipelineRunsFn    func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
 	ListAllPipelineRunsFn func(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error)
+	ListRunFailuresFn     func(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error)
 }
 
 func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
@@ -1165,6 +1166,13 @@ func (m *MockPipelineStore) ListAllPipelineRuns(ctx context.Context, branch stri
 		return m.ListAllPipelineRunsFn(ctx, branch, groupIDs, page, perPage)
 	}
 	return nil, 0, nil
+}
+
+func (m *MockPipelineStore) ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
+	if m.ListRunFailuresFn != nil {
+		return m.ListRunFailuresFn(ctx, groupProjectID, runKey, limit)
+	}
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------

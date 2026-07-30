@@ -17,7 +17,7 @@ import (
 
 func newPipelineHandler(t *testing.T, ps *testutil.MockPipelineStore, projStore *testutil.MemProjectStore) *PipelineHandler {
 	t.Helper()
-	return NewPipelineHandler(ps, projStore, t.TempDir(), zap.NewNop())
+	return NewPipelineHandler(ps, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
 }
 
 func pipelineRequest(t *testing.T, h *PipelineHandler, projectID, query string) *httptest.ResponseRecorder {
@@ -106,6 +106,168 @@ func TestPipelineHandler_GetPipelineRuns_Success(t *testing.T) {
 
 	if resp.Pagination.Total != 2 {
 		t.Errorf("pagination.total = %d, want 2", resp.Pagination.Total)
+	}
+}
+
+// CI shards a suite across parallel jobs and every shard uploads its own build
+// under the same pipeline ID (see the Playwright --shard invocation in the
+// ui-tests template). Those builds are one logical suite and must be merged,
+// otherwise the feed reports shard-builds as suites and renders the same suite
+// several times with contradictory statuses.
+func TestPipelineHandler_MergesShardBuildsIntoOneSuite(t *testing.T) {
+	projStore := testutil.NewMemProjectStore()
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	child, _ := projStore.CreateProjectWithParent(context.Background(), "ui-users", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
+	now := time.Now().UTC()
+	shard := func(buildNumber int, buildID int64, passed, failed, skipped, total int, dur int64, created time.Time) store.PipelineRunRow {
+		return store.PipelineRunRow{
+			PipelineID: "196765", CommitSHA: "6fb9dec", Branch: "master", CreatedAt: created,
+			ProjectID: child.ID, Slug: "ui-users", DisplayName: "UI Users",
+			BuildNumber: buildNumber, BuildID: buildID,
+			StatPassed: &passed, StatFailed: &failed, StatBroken: new(0),
+			StatSkipped: &skipped, StatTotal: &total, DurationMs: &dur,
+		}
+	}
+
+	ps := &testutil.MockPipelineStore{
+		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
+			return []store.PipelineRunRow{
+				shard(656, 17465, 22, 2, 0, 24, 3000, now),
+				shard(655, 17464, 22, 2, 0, 24, 2000, now.Add(-time.Second)),
+				shard(654, 17463, 21, 0, 3, 24, 1000, now.Add(-2*time.Minute)),
+			}, 1, nil
+		},
+	}
+
+	h := newPipelineHandler(t, ps, projStore)
+	rr := pipelineRequest(t, h, parentIDStr, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Data []pipelineRunResp `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(resp.Data))
+	}
+
+	run := resp.Data[0]
+	if len(run.Suites) != 1 {
+		t.Fatalf("expected 3 shard builds to merge into 1 suite, got %d suites", len(run.Suites))
+	}
+
+	s := run.Suites[0]
+	if s.Total != 72 || s.Failed != 4 {
+		t.Errorf("suite total/failed = %d/%d, want 72/4", s.Total, s.Failed)
+	}
+	if s.DurationMs != 6000 {
+		t.Errorf("suite duration_ms = %d, want 6000 (sum of shards)", s.DurationMs)
+	}
+	if s.DisplayName != "UI Users" {
+		t.Errorf("suite display_name = %q, want %q", s.DisplayName, "UI Users")
+	}
+	// 65 passed of (72 total - 3 skipped) = 94.2%.
+	if s.PassRate != 94.2 {
+		t.Errorf("suite pass_rate = %v, want 94.2", s.PassRate)
+	}
+	if s.Status != "degraded" {
+		t.Errorf("suite status = %q, want degraded", s.Status)
+	}
+	// The single-report link must point at the newest shard.
+	if s.BuildNumber != 656 || s.BuildID != 17465 {
+		t.Errorf("suite build = #%d/%d, want #656/17465", s.BuildNumber, s.BuildID)
+	}
+	// Every contributing shard stays addressable, ordered oldest-first.
+	if len(s.Builds) != 3 {
+		t.Fatalf("suite builds = %d, want 3", len(s.Builds))
+	}
+	for i, want := range []int{654, 655, 656} {
+		if s.Builds[i].BuildNumber != want {
+			t.Errorf("builds[%d].build_number = %d, want %d", i, s.Builds[i].BuildNumber, want)
+		}
+	}
+
+	agg := run.Aggregate
+	if agg.SuitesTotal != 1 {
+		t.Errorf("aggregate.suites_total = %d, want 1 (distinct suites, not shard builds)", agg.SuitesTotal)
+	}
+	if agg.SuitesPassed != 0 {
+		t.Errorf("aggregate.suites_passed = %d, want 0 (a shard failed)", agg.SuitesPassed)
+	}
+	if agg.TestsTotal != 72 {
+		t.Errorf("aggregate.tests_total = %d, want 72", agg.TestsTotal)
+	}
+	// Skipped tests must not be counted as passed, or the tests fraction
+	// disagrees with the pass-rate percentage shown beside it.
+	if agg.TestsPassed != 65 {
+		t.Errorf("aggregate.tests_passed = %d, want 65 (excludes the 3 skipped)", agg.TestsPassed)
+	}
+}
+
+func TestPipelineHandler_MergedSuitePassesOnlyWhenEveryShardPasses(t *testing.T) {
+	projStore := testutil.NewMemProjectStore()
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	clean, _ := projStore.CreateProjectWithParent(context.Background(), "clean", parentProj.ID)
+	mixed, _ := projStore.CreateProjectWithParent(context.Background(), "mixed", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
+	now := time.Now().UTC()
+	row := func(projectID int64, slug string, buildNumber int, buildID int64, passed, failed, total int) store.PipelineRunRow {
+		return store.PipelineRunRow{
+			PipelineID: "p1", CommitSHA: "sha", Branch: "master", CreatedAt: now,
+			ProjectID: projectID, Slug: slug, BuildNumber: buildNumber, BuildID: buildID,
+			StatPassed: &passed, StatFailed: &failed, StatBroken: new(0),
+			StatSkipped: new(0), StatTotal: &total, DurationMs: new(int64(100)),
+		}
+	}
+
+	ps := &testutil.MockPipelineStore{
+		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
+			return []store.PipelineRunRow{
+				row(clean.ID, "clean", 1, 11, 10, 0, 10),
+				row(clean.ID, "clean", 2, 12, 10, 0, 10),
+				row(mixed.ID, "mixed", 1, 21, 10, 0, 10),
+				row(mixed.ID, "mixed", 2, 22, 9, 1, 10),
+			}, 1, nil
+		},
+	}
+
+	h := newPipelineHandler(t, ps, projStore)
+	rr := pipelineRequest(t, h, parentIDStr, "")
+
+	var resp struct {
+		Data []pipelineRunResp `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(resp.Data))
+	}
+
+	agg := resp.Data[0].Aggregate
+	if agg.SuitesTotal != 2 {
+		t.Errorf("aggregate.suites_total = %d, want 2", agg.SuitesTotal)
+	}
+	if agg.SuitesPassed != 1 {
+		t.Errorf("aggregate.suites_passed = %d, want 1 — a suite passes only when every shard passed", agg.SuitesPassed)
+	}
+
+	bySlug := map[string]pipelineSuiteResp{}
+	for _, s := range resp.Data[0].Suites {
+		bySlug[s.Slug] = s
+	}
+	if bySlug["clean"].Status != "passed" {
+		t.Errorf("clean suite status = %q, want passed", bySlug["clean"].Status)
+	}
+	if bySlug["mixed"].Status == "passed" {
+		t.Error("mixed suite must not report passed when one shard failed")
 	}
 }
 
@@ -367,6 +529,175 @@ func TestPipelineHandler_GetAllPipelineRuns_Empty(t *testing.T) {
 	}
 	if resp.Pagination.Total != 0 {
 		t.Errorf("pagination.total = %d, want 0", resp.Pagination.Total)
+	}
+}
+
+func runFailuresRequest(h *PipelineHandler, projectID, runKey, query string) *httptest.ResponseRecorder {
+	path := "/api/v1/projects/" + projectID + "/pipeline-runs/" + runKey + "/failures"
+	if query != "" {
+		path += "?" + query
+	}
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.SetPathValue("project_id", projectID)
+	req.SetPathValue("run_key", runKey)
+	rr := httptest.NewRecorder()
+	h.GetRunFailures(rr, req)
+	return rr
+}
+
+func TestPipelineHandler_GetRunFailures_TagsRowsWithSuiteAndFlagsKnown(t *testing.T) {
+	ctx := context.Background()
+	projStore := testutil.NewMemProjectStore()
+	parentProj, _ := projStore.CreateProject(ctx, "parent")
+	child, _ := projStore.CreateProjectWithParent(ctx, "ui-users", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
+	knownStore := testutil.NewMemKnownIssueStore()
+	if _, err := knownStore.Create(ctx, child.ID, "flaky login", "", "", ""); err != nil {
+		t.Fatalf("seed known issue: %v", err)
+	}
+
+	var (
+		capturedGroupID int64
+		capturedRunKey  string
+		capturedLimit   int
+	)
+	ps := &testutil.MockPipelineStore{
+		ListRunFailuresFn: func(_ context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
+			capturedGroupID, capturedRunKey, capturedLimit = groupProjectID, runKey, limit
+			return []store.RunFailureRow{
+				{
+					ProjectID: child.ID, Slug: "ui-users", DisplayName: "UI Users",
+					BuildID: 17465, BuildNumber: 656,
+					TestName: "flaky login", FullName: "spec.js:1:1", Status: "failed",
+					HistoryID: "h1", Retries: 3,
+					StatusMessage: "TimeoutError: locator.click\n  at foo.ts:12",
+				},
+				{
+					ProjectID: child.ID, Slug: "ui-users", DisplayName: "UI Users",
+					BuildID: 17464, BuildNumber: 655,
+					TestName: "add member", FullName: "spec.js:2:1", Status: "broken",
+					HistoryID: "h2", NewFailed: true,
+					StatusMessage: "",
+				},
+			}, nil
+		},
+	}
+
+	h := NewPipelineHandler(ps, projStore, knownStore, t.TempDir(), zap.NewNop())
+	rr := runFailuresRequest(h, parentIDStr, "196765", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if capturedGroupID != parentProj.ID {
+		t.Errorf("store got group_project_id = %d, want %d", capturedGroupID, parentProj.ID)
+	}
+	if capturedRunKey != "196765" {
+		t.Errorf("store got run_key = %q, want 196765", capturedRunKey)
+	}
+	// One extra row is requested so a full page can be reported as truncated.
+	if capturedLimit != defaultRunFailuresLimit+1 {
+		t.Errorf("store got limit = %d, want %d", capturedLimit, defaultRunFailuresLimit+1)
+	}
+
+	var resp struct {
+		Data     []runFailureResp `json:"data"`
+		Metadata struct {
+			Truncated bool `json:"truncated"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(resp.Data))
+	}
+	if resp.Metadata.Truncated {
+		t.Error("metadata.truncated = true, want false for a short result")
+	}
+
+	first := resp.Data[0]
+	if first.Slug != "ui-users" || first.BuildNumber != 656 {
+		t.Errorf("row[0] suite = %q #%d, want ui-users #656", first.Slug, first.BuildNumber)
+	}
+	if !first.Known {
+		t.Error("row[0] known = false, want true — it matches an active known issue")
+	}
+	// Only the first line of the error is sent; the client renders a preview.
+	if first.ErrorMessage != "TimeoutError: locator.click" {
+		t.Errorf("row[0] error_message = %q, want the first line only", first.ErrorMessage)
+	}
+	if resp.Data[1].Known {
+		t.Error("row[1] known = true, want false")
+	}
+	if !resp.Data[1].NewFailed {
+		t.Error("row[1] new_failed = false, want true")
+	}
+}
+
+func TestPipelineHandler_GetRunFailures_TruncatesAtLimit(t *testing.T) {
+	ctx := context.Background()
+	projStore := testutil.NewMemProjectStore()
+	parentProj, _ := projStore.CreateProject(ctx, "parent")
+	child, _ := projStore.CreateProjectWithParent(ctx, "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
+	ps := &testutil.MockPipelineStore{
+		ListRunFailuresFn: func(_ context.Context, _ int64, _ string, limit int) ([]store.RunFailureRow, error) {
+			rows := make([]store.RunFailureRow, limit)
+			for i := range rows {
+				rows[i] = store.RunFailureRow{ProjectID: child.ID, Slug: "child", TestName: fmt.Sprintf("t%d", i)}
+			}
+			return rows, nil
+		},
+	}
+
+	h := NewPipelineHandler(ps, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
+	rr := runFailuresRequest(h, parentIDStr, "196765", "limit=3")
+
+	var resp struct {
+		Data     []runFailureResp `json:"data"`
+		Metadata struct {
+			Truncated bool `json:"truncated"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 3 {
+		t.Errorf("data length = %d, want 3 (the overflow row is trimmed)", len(resp.Data))
+	}
+	if !resp.Metadata.Truncated {
+		t.Error("metadata.truncated = false, want true when the limit was reached")
+	}
+}
+
+func TestPipelineHandler_GetRunFailures_InvalidLimit(t *testing.T) {
+	projStore := testutil.NewMemProjectStore()
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
+	h := NewPipelineHandler(&testutil.MockPipelineStore{}, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
+	rr := runFailuresRequest(h, parentIDStr, "196765", "limit=-1")
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestPipelineHandler_GetRunFailures_EmptyRunKey(t *testing.T) {
+	projStore := testutil.NewMemProjectStore()
+	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
+	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
+	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
+
+	h := NewPipelineHandler(&testutil.MockPipelineStore{}, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
+	rr := runFailuresRequest(h, parentIDStr, "", "")
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
