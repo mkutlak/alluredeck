@@ -48,7 +48,11 @@ Runs on port **7474** (`npm run dev` / `mise run ui:dev`).
 
 ## Coverage Thresholds
 
-Configured in `vitest.config.ts`:
+Enforced in `vitest.config.ts` (CI fails below these):
+
+- Lines: 65%, Functions: 60%, Branches: 62%, Statements: 65%
+
+Target to ratchet toward as coverage improves — never lower the enforced values:
 
 - Lines: 80%, Functions: 80%, Branches: 70%, Statements: 80%
 

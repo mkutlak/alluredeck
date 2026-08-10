@@ -8,8 +8,8 @@ minimum_release_age = "7d"
 
 # ── Tool versions ─────────────────────────────────────────────
 [tools]
-go            = "1.26.2"   # keep in sync with api/go.mod
-node          = "25"
+go            = "1.26.5"   # keep in sync with api/go.mod
+node          = "26"       # keep in sync with docker/Dockerfile.*; jsdom requires >=26
 golangci-lint = "2"
 helm          = "3"
 yq            = "4"
