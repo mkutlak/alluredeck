@@ -197,15 +197,23 @@ func (m *MemProjectStore) CreateProjectWithParent(ctx context.Context, slug stri
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.slugMap[slug]; ok {
-		return nil, store.ErrProjectExists
+	// Child slugs are unique per parent, not globally — mirrors the schema's
+	// idx_projects_slug_per_parent. Two parents may each own a "backend" child.
+	for _, existing := range m.projects {
+		if existing.Slug == slug && existing.ParentID != nil && *existing.ParentID == parentID {
+			return nil, store.ErrProjectExists
+		}
 	}
 	id := m.nextID
 	m.nextID++
 	pid := parentID
 	p := &store.Project{ID: id, Slug: slug, StorageKey: strconv.FormatInt(id, 10), ParentID: &pid, DisplayName: slug, CreatedAt: time.Now()}
 	m.projects[id] = p
-	m.slugMap[slug] = id
+	// slugMap backs standalone lookups; first writer wins so a top-level project
+	// with the same slug keeps its mapping.
+	if _, ok := m.slugMap[slug]; !ok {
+		m.slugMap[slug] = id
+	}
 	cp := *p
 	return &cp, nil
 }

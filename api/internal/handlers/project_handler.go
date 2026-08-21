@@ -198,19 +198,11 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create filesystem project via runner (storage still uses slug).
-	err := h.runner.CreateProject(r.Context(), projectSlug)
-	if err != nil {
-		if errors.Is(err, runner.ErrProjectExists) {
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		}
-		h.logger.Error("creating project failed", zap.String("slug", projectSlug), zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "error creating project")
-		return
-	}
-
-	// Register in database — returns *Project with numeric ID.
+	// Register in the database first: the insert allocates storage_key, which is
+	// the numeric project ID for children and the slug for top-level projects.
+	// Storage must be keyed by that, not by the slug — child slugs are only
+	// unique per parent (idx_projects_slug_per_parent), so a slug-named
+	// directory collides as soon as two parents own a child of the same name.
 	var project *store.Project
 	var dbErr error
 	if reqBody.ParentID != nil {
@@ -219,19 +211,36 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		project, dbErr = h.projectStore.CreateProject(r.Context(), projectSlug)
 	}
 	if dbErr != nil {
-		if !errors.Is(dbErr, store.ErrProjectExists) {
-			h.logger.Error("db project registration failed", zap.String("slug", projectSlug), zap.Error(dbErr))
+		if errors.Is(dbErr, store.ErrProjectExists) {
+			writeError(w, http.StatusConflict, fmt.Sprintf("project already exists: %s", projectSlug))
+			return
 		}
-		// If the project already existed in DB, look it up to get the numeric ID.
-		if project == nil {
-			project, _ = h.projectStore.GetProjectBySlug(r.Context(), projectSlug)
+		h.logger.Error("db project registration failed", zap.String("slug", projectSlug), zap.Error(dbErr))
+		writeError(w, http.StatusInternalServerError, "error creating project")
+		return
+	}
+
+	// Create the filesystem project under the allocated storage key.
+	if err := h.runner.CreateProject(r.Context(), project.StorageKey); err != nil {
+		// The row was just inserted, so a pre-existing directory is an orphan
+		// left by an earlier delete. Storage creation is idempotent, so adopt it
+		// rather than failing the request — but make it visible.
+		if errors.Is(err, runner.ErrProjectExists) {
+			h.logger.Warn("adopting orphaned storage directory",
+				zap.String("slug", projectSlug), zap.String("storage_key", project.StorageKey))
+		} else {
+			h.logger.Error("creating project failed", zap.String("slug", projectSlug), zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "error creating project")
+			return
 		}
 	}
 
-	entry := ProjectEntry{Slug: projectSlug, DisplayName: projectSlug}
-	if project != nil {
-		entry.ProjectID = project.ID
-		entry.ParentID = reqBody.ParentID
+	entry := ProjectEntry{
+		ProjectID:   project.ID,
+		Slug:        projectSlug,
+		StorageKey:  project.StorageKey,
+		DisplayName: projectSlug,
+		ParentID:    reqBody.ParentID,
 	}
 	writeSuccess(w, http.StatusCreated, entry, "Project successfully created")
 }

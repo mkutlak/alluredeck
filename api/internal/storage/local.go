@@ -51,11 +51,22 @@ func NewLocalStore(cfg *config.Config) *LocalStore {
 	return &LocalStore{cfg: cfg}
 }
 
-// HealthCheck returns nil when the projects directory is accessible.
-// A non-nil error (e.g. unmounted volume) signals that storage is unhealthy.
+// HealthCheck returns nil when the projects directory exists and is writable.
+// It probes with a create-and-unlink rather than a stat, because the failure
+// mode that matters is a mounted volume owned by another uid: it stats fine but
+// every CreateProject below fails with EACCES.
+// A non-nil error (unmounted volume, wrong ownership) signals unhealthy storage.
 func (ls *LocalStore) HealthCheck(_ context.Context) error {
-	if _, err := os.Stat(ls.cfg.ProjectsPath); err != nil {
-		return fmt.Errorf("projects dir %q: %w", ls.cfg.ProjectsPath, err)
+	f, err := os.CreateTemp(ls.cfg.ProjectsPath, ".healthcheck-*")
+	if err != nil {
+		return fmt.Errorf("projects dir %q not writable: %w", ls.cfg.ProjectsPath, err)
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("projects dir %q probe close: %w", ls.cfg.ProjectsPath, err)
+	}
+	if err := os.Remove(name); err != nil {
+		return fmt.Errorf("projects dir %q probe cleanup: %w", ls.cfg.ProjectsPath, err)
 	}
 	return nil
 }

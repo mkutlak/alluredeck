@@ -62,15 +62,24 @@ ENV ALLURE_NO_ANALYTICS=1
 WORKDIR /app
 
 # Directory layout:
+#   /data/projects                   -> per-project results & reports; this is
+#                                       config.ProjectsPath, the real data root,
+#                                       and the mount point for the projects
+#                                       volume/PVC
 #   /app/allure-results              -> upload target (VOLUME)
 #   /app/allure-report               -> symlink to latest default report
-#   /app/alluredeck/static/projects/  -> per-project results & reports
-#   /app/projects                    -> convenience symlink to projects dir
-#   /data                            -> auxiliary data directory
+#   /app/alluredeck/static/projects/ -> legacy default-project scaffold
+#   /app/projects                    -> convenience symlink to the scaffold
+#
+# /data/projects MUST exist here and be owned by ${UID}. Docker only copies
+# ownership onto a named volume from an existing image directory; mounting over
+# a path absent from the image yields a root-owned mount that the non-root
+# runtime user cannot write to (CreateProject then fails with EACCES).
+# Kubernetes gets the same guarantee from the chart's fsGroup.
 RUN echo -n $(allure --version) > /app/version && \
     echo "ALLURE_VERSION: $(cat /app/version)" && \
     mkdir -p /app/alluredeck/static/projects/default/reports/latest \
-             /app/allure-results /data && \
+             /app/allure-results /data /data/projects && \
     ln -s /app/alluredeck/static/projects /app/projects && \
     ln -s /app/alluredeck/static/projects/default/reports /app/default-reports && \
     ln -sf /app/allure-results /app/alluredeck/static/projects/default/results && \

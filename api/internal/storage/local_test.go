@@ -49,6 +49,49 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+// --- HealthCheck ---
+
+func TestLocalStore_HealthCheck_Writable(t *testing.T) {
+	t.Parallel()
+	ls, _ := makeLocalStore(t)
+
+	if err := ls.HealthCheck(context.Background()); err != nil {
+		t.Fatalf("HealthCheck on a writable dir: %v", err)
+	}
+}
+
+func TestLocalStore_HealthCheck_MissingDir(t *testing.T) {
+	t.Parallel()
+	cfg, dir := newTestConfig(t)
+	cfg.ProjectsPath = filepath.Join(dir, "not-mounted")
+	ls := NewLocalStore(cfg)
+
+	if err := ls.HealthCheck(context.Background()); err == nil {
+		t.Fatal("HealthCheck on a missing projects dir: got nil, want error")
+	}
+}
+
+// TestLocalStore_HealthCheck_NotWritable covers the failure mode that broke the
+// e2e stack: a projects dir that exists and stats fine but is owned by another
+// uid, so the API cannot create project subdirectories inside it.
+func TestLocalStore_HealthCheck_NotWritable(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses directory mode bits")
+	}
+	ls, dir := makeLocalStore(t)
+
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("chmod %q: %v", dir, err)
+	}
+	// Restore write permission so t.TempDir() teardown can remove the dir.
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	if err := ls.HealthCheck(context.Background()); err == nil {
+		t.Fatal("HealthCheck on a read-only projects dir: got nil, want error")
+	}
+}
+
 // --- CreateProject ---
 
 func TestLocalStore_CreateProject(t *testing.T) {

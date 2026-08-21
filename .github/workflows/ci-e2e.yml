@@ -35,10 +35,14 @@ jobs:
         run: docker compose -f docker/docker-compose.yml up -d --build
 
       - name: Wait for API to be ready
+        # /readyz, not /healthz: liveness only proves the process is up, while
+        # readiness also probes the DB, job queue and a writable projects volume.
+        # A broken mount then fails here with the stack logs attached, instead of
+        # surfacing as opaque HTTP 500s inside the tests.
         run: |
-          echo "Waiting for API (http://localhost:5050/healthz)..."
+          echo "Waiting for API (http://localhost:5050/readyz)..."
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:5050/healthz > /dev/null 2>&1; then
+            if curl -sf http://localhost:5050/readyz > /dev/null 2>&1; then
               echo "API ready."
               break
             fi
