@@ -205,6 +205,64 @@ func TestListDefects_Pagination(t *testing.T) {
 	if out.NextCursor == "" {
 		t.Error("want non-empty next_cursor")
 	}
+	if out.Total != 3 {
+		t.Errorf("want total=3, got %d", out.Total)
+	}
+}
+
+// TestListDefects_PaginationNoGaps walks all pages of a 7-item seed with
+// limit=3 and asserts the union of items across pages exactly covers the
+// seed with no gaps and no duplicates — the same off-by-one regression
+// coverage as TestListProjects_PaginationNoGaps in discovery_test.go.
+func TestListDefects_PaginationNoGaps(t *testing.T) {
+	want := []string{"d1", "d2", "d3", "d4", "d5", "d6", "d7"}
+	rows := make([]store.DefectListRow, 0, len(want))
+	for _, id := range want {
+		rows = append(rows, store.DefectListRow{DefectFingerprint: store.DefectFingerprint{ID: id}})
+	}
+	ds := &stubDefectStore{listRows: rows, pagedList: true}
+	stores := &bootstrap.Stores{Defect: ds}
+
+	cs := setupTestServer(t, stores)
+	ctx := context.Background()
+
+	seen := make(map[string]int)
+	cursor := ""
+	pages := 0
+	for {
+		pages++
+		if pages > 10 {
+			t.Fatalf("too many pages (possible infinite loop); seen so far: %v", seen)
+		}
+		args := map[string]any{"project_id": 1, "limit": 3}
+		if cursor != "" {
+			args["cursor"] = cursor
+		}
+		res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_defects", Arguments: args})
+		if err != nil {
+			t.Fatalf("page %d CallTool: %v", pages, err)
+		}
+		if res.IsError {
+			t.Fatalf("page %d unexpected error: %v", pages, res.Content)
+		}
+		out := decodeListDefects(t, res)
+		for _, item := range out.Items {
+			seen[item.ID]++
+		}
+		if out.NextCursor == "" {
+			break
+		}
+		cursor = out.NextCursor
+	}
+
+	if len(seen) != len(want) {
+		t.Errorf("want %d distinct defect ids seen, got %d: %v", len(want), len(seen), seen)
+	}
+	for _, id := range want {
+		if seen[id] != 1 {
+			t.Errorf("defect %q: want seen exactly once, got %d times (gap or duplicate)", id, seen[id])
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -247,8 +305,8 @@ func (s *stubDefectStore) ListByProject(_ context.Context, _ int64, f store.Defe
 	if !s.pagedList {
 		return s.listRows, len(s.listRows), nil
 	}
-	// Paginate: perPage includes the +1 has-more sentinel.
-	start := (f.Page - 1) * (f.PerPage - 1)
+	// Paginate exactly like the pg implementation: offset := (page-1)*perPage.
+	start := (f.Page - 1) * f.PerPage
 	if start >= len(s.listRows) {
 		return nil, len(s.listRows), nil
 	}

@@ -71,15 +71,25 @@ func decodeCompareBuilds(t *testing.T, res *mcpsdk.CallToolResult) tools.Compare
 
 func TestGetTestFailure_HappyPath(t *testing.T) {
 	mocks := testutil.New()
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 1234},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 1234}, nil
 	}
-	mocks.Attachments.ListByBuildFn = func(_ context.Context, _ int64, _ int64, _, _ string, _, _ int) ([]store.TestAttachment, int, error) {
+	// Attachments must be resolved per test result, not per build.
+	mocks.Attachments.ListByTestResultFn = func(_ context.Context, _ int64, _ int64, historyID string, _ int) ([]store.TestAttachment, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
 		return []store.TestAttachment{
 			{ID: 99, Name: "screenshot.png", MimeType: "image/png", SizeBytes: 4096},
-		}, 1, nil
+		}, nil
+	}
+	// A build-wide fetch would leak another test's evidence into this result.
+	mocks.Attachments.ListByBuildFn = func(_ context.Context, _ int64, _ int64, _, _ string, _, _ int) ([]store.TestAttachment, int, error) {
+		t.Error("get_test_failure must scope attachments by test result, not by build")
+		return nil, 0, nil
 	}
 
 	cs := setupTestServer(t, buildStoresHistory(mocks))
@@ -143,10 +153,11 @@ func TestGetTestFailure_InvalidInput(t *testing.T) {
 
 func TestGetTestFailure_NotFound(t *testing.T) {
 	mocks := testutil.New()
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 10, HistoryID: "other-id", Status: "failed"},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "other-id" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 10, HistoryID: "other-id", Status: "failed"}, nil
 	}
 
 	cs := setupTestServer(t, buildStoresHistory(mocks))
@@ -221,10 +232,11 @@ func TestGetTestFailure_CIMetadataForNonLatestBuild(t *testing.T) {
 			CIPipelineURL: &pipeline,
 		}, nil
 	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 50, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test", Status: "failed", DurationMs: 100},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 50, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test", Status: "failed", DurationMs: 100}, nil
 	}
 
 	cs := setupTestServer(t, buildStoresHistory(mocks))
@@ -264,10 +276,11 @@ func TestGetTestFailure_Fingerprint(t *testing.T) {
 	const fpUUID = "11111111-1111-1111-1111-111111111111"
 
 	mocks := testutil.New()
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 50},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 50}, nil
 	}
 	// The test row at (project=1, build=10, history=h1) links to fpUUID.
 	mocks.TestResults.GetDefectFingerprintIDFn = func(_ context.Context, projectID int64, buildID int64, historyID string) (*string, error) {
@@ -330,10 +343,11 @@ func TestGetTestFailure_Fingerprint(t *testing.T) {
 // defect_fingerprint_id leaves out.Fingerprint nil without erroring.
 func TestGetTestFailure_NoFingerprint(t *testing.T) {
 	mocks := testutil.New()
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 50},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 50}, nil
 	}
 	// Row exists but has no linked fingerprint (nil pointer).
 	mocks.TestResults.GetDefectFingerprintIDFn = func(_ context.Context, _ int64, _ int64, _ string) (*string, error) {
@@ -418,14 +432,21 @@ func TestGetTestHistory_InvalidInput(t *testing.T) {
 	}
 }
 
-func TestGetTestHistory_Pagination(t *testing.T) {
+// TestGetTestHistory_LimitIsExactAndNoCursor pins the replacement for the fake
+// cursor. The store has no offset pagination, so the tool used to emit a
+// next_cursor it then discarded on the next call — an infinite first page. Now
+// it asks for exactly `limit` rows and the caller reads len(items) == limit as
+// "older runs may exist".
+func TestGetTestHistory_LimitIsExactAndNoCursor(t *testing.T) {
 	entries := make([]store.TestHistoryEntry, 5)
 	for i := range entries {
 		entries[i] = store.TestHistoryEntry{BuildNumber: i + 1, BuildID: int64(i + 1), Status: "passed", CreatedAt: time.Now()}
 	}
 
 	mocks := testutil.New()
+	var gotLimit int
 	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, limit int) ([]store.TestHistoryEntry, error) {
+		gotLimit = limit
 		if limit > len(entries) {
 			return entries, nil
 		}
@@ -435,7 +456,6 @@ func TestGetTestHistory_Pagination(t *testing.T) {
 	cs := setupTestServer(t, buildStoresHistory(mocks))
 	ctx := context.Background()
 
-	// limit=2 → handler requests 3, gets 3, returns 2 with cursor.
 	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "get_test_history",
 		Arguments: map[string]any{"project_id": 1, "history_id": "h1", "limit": 2},
@@ -446,12 +466,198 @@ func TestGetTestHistory_Pagination(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected error: %v", res.Content)
 	}
+	if gotLimit != 2 {
+		t.Errorf("store limit: got %d, want 2 (no +1 probe without a cursor)", gotLimit)
+	}
 	out := decodeGetTestHistory(t, res)
 	if len(out.Items) != 2 {
 		t.Errorf("want 2 items, got %d", len(out.Items))
 	}
-	if out.NextCursor == "" {
-		t.Error("want non-empty next_cursor")
+
+	// next_cursor must be gone from the wire payload entirely.
+	raw, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(raw, &asMap); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := asMap["next_cursor"]; ok {
+		t.Errorf("next_cursor must not be emitted: got %s", raw)
+	}
+}
+
+// TestGetTestHistory_CursorAcceptedButIgnored verifies the deprecated cursor
+// argument still validates against the schema so existing callers do not break.
+func TestGetTestHistory_CursorAcceptedButIgnored(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+		return []store.TestHistoryEntry{
+			{BuildNumber: 1, BuildID: 1, Status: "passed", CreatedAt: time.Now()},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "get_test_history",
+		Arguments: map[string]any{"project_id": 1, "history_id": "h1", "cursor": "not-a-real-cursor"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("a deprecated cursor must be ignored, not rejected: %v", res.Content)
+	}
+	if out := decodeGetTestHistory(t, res); len(out.Items) != 1 {
+		t.Errorf("want 1 item, got %d", len(out.Items))
+	}
+}
+
+// TestGetTestHistory_BranchNamePropagated verifies each run reports the branch
+// it came from, so a cross-branch history is not read as one timeline.
+func TestGetTestHistory_BranchNamePropagated(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+		return []store.TestHistoryEntry{
+			{BuildNumber: 2, BuildID: 2, Status: "failed", CreatedAt: time.Now(), BranchName: "feature/x"},
+			{BuildNumber: 1, BuildID: 1, Status: "passed", CreatedAt: time.Now()},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "get_test_history",
+		Arguments: map[string]any{"project_id": 1, "history_id": "h1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+	out := decodeGetTestHistory(t, res)
+	if len(out.Items) != 2 {
+		t.Fatalf("want 2 items, got %d", len(out.Items))
+	}
+	if out.Items[0].Branch != "feature/x" {
+		t.Errorf("items[0].branch: got %q, want feature/x", out.Items[0].Branch)
+	}
+	if out.Items[1].Branch != "" {
+		t.Errorf("items[1].branch: got %q, want empty for a branch-less build", out.Items[1].Branch)
+	}
+}
+
+// TestGetTestFailure_PassingTest verifies the lookup is by key and not
+// restricted to failing rows: a test that passed returns its actual status
+// instead of a misleading not-found error.
+func TestGetTestFailure_PassingTest(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h-green" {
+			return nil, nil
+		}
+		return &store.TestResult{
+			BuildID: 10, ProjectID: 1, HistoryID: "h-green", FullName: "pkg.GreenTest",
+			Status: "passed", DurationMs: 77,
+		}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		t.Error("get_test_failure must look the row up by key, not scan the failing list")
+		return nil, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 10, "history_id": "h-green"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("a passing test must not be an error: %v", res.Content)
+	}
+	out := decodeGetTestFailure(t, res)
+	if out.Status != "passed" {
+		t.Errorf("status: got %q, want passed", out.Status)
+	}
+	if out.DurationMs != 77 {
+		t.Errorf("duration_ms: got %d, want 77", out.DurationMs)
+	}
+}
+
+// TestGetTestFailure_NotFoundKeepsHint verifies the not-found path still points
+// the caller at resolve_url when the build itself is the problem, and reports a
+// plain not-found when only the history_id is unknown.
+func TestGetTestFailure_NotFoundKeepsHint(t *testing.T) {
+	mocks := testutil.New()
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, _ string) (*store.TestResult, error) {
+		return nil, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "get_test_failure",
+		Arguments: map[string]any{"project_id": 1, "build_id": 10, "history_id": "nope"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true for an unknown history_id")
+	}
+	found := false
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcpsdk.TextContent); ok && contains(tc.Text, `history_id "nope" not found`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want the existing not-found message, got: %v", res.Content)
+	}
+}
+
+// TestCompareBuilds_RejectsUnknownFormat verifies an unrecognised format is an
+// error rather than a silent fall-through to the full payload — a caller that
+// asked for "brief" would otherwise pay for 20x the tokens without noticing.
+func TestCompareBuilds_RejectsUnknownFormat(t *testing.T) {
+	mocks := testutil.New()
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, buildID int64) (store.Build, error) {
+		return store.Build{ID: buildID, ProjectID: 1, BuildNumber: int(buildID)}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresHistory(mocks))
+	ctx := context.Background()
+
+	for _, format := range []string{"brief", "FULL", "json"} {
+		res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+			Name: "compare_builds",
+			Arguments: map[string]any{
+				"project_id": 1, "base_build_id": 1, "target_build_id": 2, "format": format,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(%q): %v", format, err)
+		}
+		if !res.IsError {
+			t.Errorf("format=%q: want IsError=true", format)
+		}
+	}
+
+	for _, format := range []string{"", "full", "compact", "summary"} {
+		res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+			Name: "compare_builds",
+			Arguments: map[string]any{
+				"project_id": 1, "base_build_id": 1, "target_build_id": 2, "format": format,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(%q): %v", format, err)
+		}
+		if res.IsError {
+			t.Errorf("format=%q: want success, got %v", format, res.Content)
+		}
 	}
 }
 
@@ -706,10 +912,11 @@ func TestGetTestFailure_EnvironmentPropagated(t *testing.T) {
 			Environment: env,
 		}, nil
 	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 100},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 100}, nil
 	}
 
 	cs := setupTestServer(t, buildStoresHistory(mocks))
@@ -1085,10 +1292,11 @@ func TestCompareBuilds_OneBranchUnknown(t *testing.T) {
 func TestGetTestFailure_EnvironmentAbsent(t *testing.T) {
 	mocks := testutil.New()
 	// Default GetBuildByIDFn returns zero Build (no Environment).
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 100},
-		}, nil
+	mocks.TestResults.GetByHistoryIDFn = func(_ context.Context, _ int64, _ int64, historyID string) (*store.TestResult, error) {
+		if historyID != "h1" {
+			return nil, nil
+		}
+		return &store.TestResult{BuildID: 10, ProjectID: 1, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed", DurationMs: 100}, nil
 	}
 
 	cs := setupTestServer(t, buildStoresHistory(mocks))

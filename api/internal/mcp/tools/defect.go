@@ -17,8 +17,8 @@ import (
 
 // GetDefectClusterInput holds parameters for get_defect_cluster.
 type GetDefectClusterInput struct {
-	ProjectID       int    `json:"project_id"`
-	FingerprintHash string `json:"fingerprint_hash"`
+	ProjectID       int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	FingerprintHash string `json:"fingerprint_hash" jsonschema:"Defect fingerprint hash. Obtain it from list_defects or diagnose_failure output; never construct one."`
 }
 
 // GetDefectClusterOutput is the structured output for get_defect_cluster.
@@ -41,11 +41,13 @@ type GetDefectClusterOutput struct {
 
 // ListDefectsInput holds parameters for list_defects.
 type ListDefectsInput struct {
-	ProjectID  int    `json:"project_id"`
-	Category   string `json:"category,omitempty"`
-	Resolution string `json:"resolution,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
-	Cursor     string `json:"cursor,omitempty"`
+	ProjectID int `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	// Category and Resolution mirror the CHECK constraint values on
+	// defect_fingerprints (store.DefectCategory*/DefectResolution*).
+	Category   string `json:"category,omitempty" jsonschema:"Filter by defect category: product_bug, test_bug, infrastructure, or to_investigate. Omit to include all categories."`
+	Resolution string `json:"resolution,omitempty" jsonschema:"Filter by resolution: open, fixed, muted, or wont_fix. Omit to include all resolutions."`
+	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum number of defects to return per page. Defaults to 50, clamped to 200."`
+	Cursor     string `json:"cursor,omitempty" jsonschema:"Opaque pagination cursor from a previous call's next_cursor. Omit to start from the first page."`
 }
 
 // DefectItem is one defect in the list_defects response.
@@ -63,6 +65,8 @@ type DefectItem struct {
 type ListDefectsOutput struct {
 	Items      []DefectItem `json:"items"`
 	NextCursor string       `json:"next_cursor,omitempty"`
+	// Total is the total number of defects matching the filter, across all pages.
+	Total int `json:"total"`
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +104,8 @@ func getDefectClusterHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 			return nil, GetDefectClusterOutput{}, fmt.Errorf("fetching defect cluster: %w", err)
 		}
 
-		return nil, defectToClusterOutput(fp), nil
+		digest := fmt.Sprintf("defect %s: %s/%s, %d occurrence(s)", fp.FingerprintHash, fp.Category, fp.Resolution, fp.OccurrenceCount)
+		return textResult(digest), defectToClusterOutput(fp), nil
 	}
 }
 
@@ -136,22 +141,22 @@ func listDefectsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx contex
 			return nil, ListDefectsOutput{}, fmt.Errorf("invalid cursor: %w", err)
 		}
 
+		// page is sized exactly to in.Limit (not in.Limit+1); see the matching
+		// comment in discovery.go's listProjectsHandler for why perPage must
+		// equal the cursor's stride — the old limit+1 "peek ahead" trick paired
+		// with page:=offset/limit+1 made page 2 start one row past where page 1
+		// said it would, permanently skipping a row at every boundary.
 		page := offset/in.Limit + 1
 		filter := store.DefectFilter{
 			Category:   in.Category,
 			Resolution: in.Resolution,
 			Page:       page,
-			PerPage:    in.Limit + 1,
+			PerPage:    in.Limit,
 		}
 
-		rows, _, err := stores.Defect.ListByProject(ctx, int64(in.ProjectID), filter)
+		rows, total, err := stores.Defect.ListByProject(ctx, int64(in.ProjectID), filter)
 		if err != nil {
 			return nil, ListDefectsOutput{}, fmt.Errorf("listing defects: %w", err)
-		}
-
-		hasMore := len(rows) > in.Limit
-		if hasMore {
-			rows = rows[:in.Limit]
 		}
 
 		items := make([]DefectItem, len(rows))
@@ -168,10 +173,11 @@ func listDefectsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx contex
 		}
 
 		var nextCursor string
-		if hasMore {
-			nextCursor = encodeCursor(offset + in.Limit)
+		if offset+len(rows) < total {
+			nextCursor = encodeCursor(offset + len(rows))
 		}
 
-		return nil, ListDefectsOutput{Items: items, NextCursor: nextCursor}, nil
+		digest := fmt.Sprintf("%d defect(s) for project %d, showing %d", total, in.ProjectID, len(items))
+		return textResult(digest), ListDefectsOutput{Items: items, NextCursor: nextCursor, Total: total}, nil
 	}
 }

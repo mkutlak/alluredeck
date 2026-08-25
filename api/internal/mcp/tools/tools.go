@@ -2,6 +2,8 @@
 package tools
 
 import (
+	"strings"
+
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
 
@@ -20,6 +22,7 @@ func RegisterAll(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger,
 	RegisterDiscoveryTools(s, stores, logger)
 	RegisterHistoryTools(s, stores, logger)
 	RegisterDiagnoseTools(s, stores, logger)
+	RegisterPipelineTools(s, stores, logger)
 	RegisterDefectTools(s, stores, logger)
 	RegisterKnownIssueTools(s, stores, logger)
 	RegisterAttachmentTools(s, stores, logger)
@@ -41,6 +44,28 @@ func readOnlyAnnotations() *mcpsdk.ToolAnnotations {
 		IdempotentHint: true,
 		OpenWorldHint:  new(false),
 	}
+}
+
+// digestMaxLen bounds the unstructured text digest a read tool returns. The
+// digest is a headline, not a second copy of the payload; anything longer is
+// truncated rather than allowed to grow with the data.
+const digestMaxLen = 200
+
+// textResult returns a CallToolResult carrying digest as its only unstructured
+// content.
+//
+// The SDK fills CallToolResult.Content with the JSON serialization of the whole
+// structured output whenever a handler leaves it nil, so a tool that returns
+// nil ships its entire payload twice — once as structuredContent and once as
+// text — and the client pays tokens for both. Returning an explicit one-line
+// digest keeps the text channel to a headline while structuredContent still
+// carries the full result.
+func textResult(digest string) *mcpsdk.CallToolResult {
+	if len(digest) > digestMaxLen {
+		// Cut on bytes, then drop any partial rune the cut created.
+		digest = strings.ToValidUTF8(digest[:digestMaxLen-3], "") + "..."
+	}
+	return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: digest}}}
 }
 
 // proposalAnnotations describes the propose_* tools. They write, so they are

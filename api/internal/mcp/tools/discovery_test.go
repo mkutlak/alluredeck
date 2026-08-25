@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -119,7 +120,7 @@ func TestListProjects_Pagination(t *testing.T) {
 
 	cs := setupTestServer(t, buildStoresDiscovery(mocks))
 
-	// Page 1 — limit=2 requests perPage=3 internally (limit+1), should return 2 items + cursor.
+	// Page 1 — limit=2 requests perPage=2 (no +1 peek), should return 2 items + cursor.
 	res1, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "list_projects",
 		Arguments: map[string]any{"limit": 2},
@@ -136,6 +137,66 @@ func TestListProjects_Pagination(t *testing.T) {
 	}
 	if out1.NextCursor == "" {
 		t.Error("page1: want non-empty next_cursor")
+	}
+	if out1.Total != 3 {
+		t.Errorf("want total=3, got %d", out1.Total)
+	}
+}
+
+// TestListProjects_PaginationNoGaps walks all pages of a 7-item seed with
+// limit=3 and asserts the union of items across pages exactly covers the
+// seed with no gaps and no duplicates. This is a regression test for the
+// off-by-one page-math bug: page := offset/limit + 1 combined with
+// PerPage: limit+1 made page 2 start at row limit+1, permanently skipping
+// one row per page boundary.
+func TestListProjects_PaginationNoGaps(t *testing.T) {
+	mocks := testutil.New()
+	ctx := context.Background()
+	want := []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+	for _, slug := range want {
+		if _, err := mocks.Projects.CreateProject(ctx, slug); err != nil {
+			t.Fatalf("seed %s: %v", slug, err)
+		}
+	}
+
+	cs := setupTestServer(t, buildStoresDiscovery(mocks))
+
+	seen := make(map[string]int) // slug -> times seen
+	cursor := ""
+	pages := 0
+	for {
+		pages++
+		if pages > 10 {
+			t.Fatalf("too many pages (possible infinite loop); seen so far: %v", seen)
+		}
+		args := map[string]any{"limit": 3}
+		if cursor != "" {
+			args["cursor"] = cursor
+		}
+		res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_projects", Arguments: args})
+		if err != nil {
+			t.Fatalf("page %d CallTool: %v", pages, err)
+		}
+		if res.IsError {
+			t.Fatalf("page %d unexpected error: %v", pages, res.Content)
+		}
+		out := decodeListProjects(t, res)
+		for _, item := range out.Items {
+			seen[item.Slug]++
+		}
+		if out.NextCursor == "" {
+			break
+		}
+		cursor = out.NextCursor
+	}
+
+	if len(seen) != len(want) {
+		t.Errorf("want %d distinct slugs seen, got %d: %v", len(want), len(seen), seen)
+	}
+	for _, slug := range want {
+		if seen[slug] != 1 {
+			t.Errorf("slug %q: want seen exactly once, got %d times (gap or duplicate)", slug, seen[slug])
+		}
 	}
 }
 
@@ -207,8 +268,7 @@ func TestListRecentBuilds_Pagination(t *testing.T) {
 	}
 	mocks := testutil.New()
 	mocks.Builds.ListBuildsPaginatedBranchFn = func(_ context.Context, _ int64, page, perPage int, _ *int64) ([]store.Build, int, error) {
-		// perPage includes the +1 has-more sentinel.
-		start := (page - 1) * (perPage - 1)
+		start := (page - 1) * perPage
 		if start >= len(all) {
 			return nil, len(all), nil
 		}
@@ -235,6 +295,135 @@ func TestListRecentBuilds_Pagination(t *testing.T) {
 	}
 	if out1.NextCursor == "" {
 		t.Error("page1: want non-empty next_cursor")
+	}
+
+	res2, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_recent_builds",
+		Arguments: map[string]any{"project_id": 1, "limit": 2, "cursor": out1.NextCursor},
+	})
+	if err != nil {
+		t.Fatalf("page2 CallTool: %v", err)
+	}
+	if res2.IsError {
+		t.Fatalf("page2 unexpected error: %v", res2.Content)
+	}
+	out2 := decodeListRecentBuilds(t, res2)
+	if len(out2.Items) != 2 {
+		t.Errorf("page2: want 2 items, got %d", len(out2.Items))
+	}
+	if out2.Items[0].BuildID != 3 {
+		t.Errorf("page2: want first build_id=3 (no gap/duplicate at the boundary), got %d", out2.Items[0].BuildID)
+	}
+	if out2.NextCursor != "" {
+		t.Errorf("page2: want empty next_cursor (last page), got %q", out2.NextCursor)
+	}
+}
+
+// TestListRecentBuilds_PaginationNoGaps walks all pages of a 7-build seed
+// with limit=3 using the stateful MemBuildStore and asserts no gaps or
+// duplicates — the same regression coverage as
+// TestListProjects_PaginationNoGaps for the sibling off-by-one fix.
+func TestListRecentBuilds_PaginationNoGaps(t *testing.T) {
+	mocks := testutil.New()
+	ctx := context.Background()
+	for i := 1; i <= 7; i++ {
+		if err := mocks.MemBuilds.InsertBuild(ctx, 1, i); err != nil {
+			t.Fatalf("seed build %d: %v", i, err)
+		}
+	}
+
+	stores := &bootstrap.Stores{Build: mocks.MemBuilds}
+	cs := setupTestServer(t, stores)
+
+	seen := make(map[int]int) // build_number -> times seen
+	cursor := ""
+	pages := 0
+	for {
+		pages++
+		if pages > 10 {
+			t.Fatalf("too many pages (possible infinite loop); seen so far: %v", seen)
+		}
+		args := map[string]any{"project_id": 1, "limit": 3}
+		if cursor != "" {
+			args["cursor"] = cursor
+		}
+		res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "list_recent_builds", Arguments: args})
+		if err != nil {
+			t.Fatalf("page %d CallTool: %v", pages, err)
+		}
+		if res.IsError {
+			t.Fatalf("page %d unexpected error: %v", pages, res.Content)
+		}
+		out := decodeListRecentBuilds(t, res)
+		for _, item := range out.Items {
+			seen[item.BuildNumber]++
+		}
+		if out.NextCursor == "" {
+			break
+		}
+		cursor = out.NextCursor
+	}
+
+	if len(seen) != 7 {
+		t.Errorf("want 7 distinct build numbers seen, got %d: %v", len(seen), seen)
+	}
+	for i := 1; i <= 7; i++ {
+		if seen[i] != 1 {
+			t.Errorf("build_number %d: want seen exactly once, got %d times (gap or duplicate)", i, seen[i])
+		}
+	}
+}
+
+// TestListRecentBuilds_BranchNotFound verifies an unknown branch returns an
+// empty list, not an error.
+func TestListRecentBuilds_BranchNotFound(t *testing.T) {
+	mocks := testutil.New()
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, _ string) (*store.Branch, error) {
+		return nil, store.ErrBranchNotFound
+	}
+
+	cs := setupTestServer(t, buildStoresDiscovery(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_recent_builds",
+		Arguments: map[string]any{"project_id": 1, "branch": "nonexistent"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error for unknown branch: %v", res.Content)
+	}
+	out := decodeListRecentBuilds(t, res)
+	if len(out.Items) != 0 {
+		t.Errorf("want 0 items for unknown branch, got %d", len(out.Items))
+	}
+}
+
+// TestListRecentBuilds_BranchStoreError verifies a genuine (non-not-found)
+// branch lookup error propagates as a tool error instead of being swallowed
+// into an empty result — the pre-fix behavior treated every GetByName error
+// (including infrastructure failures) as "branch not found".
+func TestListRecentBuilds_BranchStoreError(t *testing.T) {
+	storeErr := errors.New("db connection reset")
+	mocks := testutil.New()
+	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, _ string) (*store.Branch, error) {
+		return nil, storeErr
+	}
+
+	cs := setupTestServer(t, buildStoresDiscovery(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_recent_builds",
+		Arguments: map[string]any{"project_id": 1, "branch": "main"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want IsError=true when the branch lookup fails for a non-not-found reason")
 	}
 }
 
@@ -521,6 +710,54 @@ func TestResolveURL_SubPathRejected(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatal("want IsError=true for path /foo/projects/1/reports/28 (not anchored at root)")
+	}
+}
+
+// TestResolveURL_TrailingPathTolerated verifies that a deeper UI path under
+// the report (a sub-view like /suites or /test/<id>, or a trailing slash) is
+// accepted and the tail ignored, rather than rejected as a non-match.
+func TestResolveURL_TrailingPathTolerated(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"trailing slash", "http://host/projects/1/reports/28/"},
+		{"suites subview", "http://host/projects/1/reports/28/suites"},
+		{"test subview", "http://host/projects/1/reports/28/test/abc-123"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			projMock := &testutil.MockProjectStore{}
+			projMock.GetProjectFn = func(_ context.Context, id int64) (*store.Project, error) {
+				return &store.Project{ID: id, Slug: "proj", DisplayName: "Proj"}, nil
+			}
+			buildMock := &testutil.MockBuildStore{}
+			buildMock.GetBuildByNumberFn = func(_ context.Context, _ int64, buildNumber int) (store.Build, error) {
+				return store.Build{ID: 55, ProjectID: 1, BuildNumber: buildNumber}, nil
+			}
+
+			cs := setupTestServer(t, buildStoresResolveURL(projMock, buildMock))
+			ctx := context.Background()
+
+			res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+				Name:      "resolve_url",
+				Arguments: map[string]any{"url": tc.url},
+			})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if res.IsError {
+				t.Fatalf("unexpected tool error for %q: %v", tc.url, res.Content)
+			}
+			out := decodeResolveURL(t, res)
+			if out.BuildNumber != 28 {
+				t.Errorf("want build_number=28, got %d", out.BuildNumber)
+			}
+			if out.BuildID != 55 {
+				t.Errorf("want build_id=55, got %d", out.BuildID)
+			}
+		})
 	}
 }
 

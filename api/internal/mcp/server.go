@@ -49,6 +49,9 @@ Workflow rules:
   - history_id is mandatory wherever it appears and must be non-empty. Obtain it from find_test_by_name or list_failing_tests; do not construct one.
   - Order builds by build_order, never by id. The id column reflects ingestion order and diverges from build order after a backfill.
   - diagnose_failure is the highest-signal entry point for "why did this build fail" — it returns per-test error messages, failed-step paths, triage signals, and a last_good pointer in one call. Prefer it over calling get_test_failure in a loop.
+  - Legacy builds may contain duplicate test rows under two history_id schemes (the same test ingested twice, once per scheme). diagnose_failure and diagnose_pipeline collapse those twins by full_name and expose the dropped ids as merged_history_ids; list_failing_tests does NOT dedupe — it reports distinct_failed alongside the raw row count instead. When correlating results externally (e.g. against CI logs), key on full_name, never history_id.
+  - Use the get_attachment TOOL, not the alluredeck://attachment/{id} resource, to read attachment content (error-context markdown, stdout, screenshots). Some MCP gateway deployments proxy tools but not resources, so the resource URI may be unreachable even though the tool call succeeds. Pass project_id alongside attachment_id: attachment ids are not project-scoped, so the tool checks the id against the project you name and reports a mismatch as not found.
+  - CI shards upload one build each under a shared ci_pipeline_id. When a report is one shard of a larger run (list_recent_builds/resolve_url show ci_pipeline_id), prefer diagnose_pipeline to see every shard's failures clustered together instead of diagnosing a single shard in isolation.
 
 The propose_* tools never apply a change directly. They record a proposal that a human must approve in the AllureDeck admin UI, and they require an editor/admin role plus an API key with allow_mcp_writes enabled.`
 
@@ -171,6 +174,14 @@ func NewServer(
 
 	// Register resource handlers.
 	RegisterResources(mcpServer, stores, logger, cfg.SigningKey, cfg.PublicURL, cfg.DataStore)
+
+	// Register get_attachment separately from RegisterTools: it needs the
+	// signing/storage dependencies (signingKey, publicURL, dataStore) that
+	// RegisterAll's other tools don't, the same set RegisterResources takes
+	// above for the equivalent alluredeck://attachment/{id} resource. Some
+	// MCP gateway deployments proxy tools but not resources, so this tool is
+	// the only reachable way to fetch attachment content there.
+	tools.RegisterAttachmentContentTool(mcpServer, stores, logger, cfg.SigningKey, cfg.PublicURL, cfg.DataStore)
 
 	// Streamable HTTP transport — one MCP server instance shared across all requests.
 	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(_ *http.Request) *mcpsdk.Server {

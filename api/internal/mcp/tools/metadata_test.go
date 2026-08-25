@@ -76,8 +76,8 @@ func TestEveryToolHasADisplayTitle(t *testing.T) {
 // because it would be auto-approved.
 func TestToolAnnotationsMatchBehaviour(t *testing.T) {
 	all := listRegisteredTools(t)
-	if len(all) != 16 {
-		t.Fatalf("registered %d tools, want 16; update this test if the set changed", len(all))
+	if len(all) != 18 {
+		t.Fatalf("registered %d tools, want 18; update this test if the set changed", len(all))
 	}
 
 	var readOnly, writes int
@@ -113,7 +113,7 @@ func TestToolAnnotationsMatchBehaviour(t *testing.T) {
 	if writes != len(writeTools) {
 		t.Errorf("found %d write tools, want %d", writes, len(writeTools))
 	}
-	if readOnly != 13 {
-		t.Errorf("found %d read-only tools, want 13", readOnly)
+	if readOnly != 15 {
+		t.Errorf("found %d read-only tools, want 15", readOnly)
 	}
 }

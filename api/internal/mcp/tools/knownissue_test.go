@@ -67,6 +67,18 @@ func TestMatchKnownIssues_HappyPath(t *testing.T) {
 	if out.Items[0].MatchedSubstring != "connection refused" {
 		t.Errorf("want matched_substring=connection refused, got %q", out.Items[0].MatchedSubstring)
 	}
+
+	// The unstructured text content should carry a short digest, not a second
+	// copy of the structured payload (see textResult's doc comment).
+	found := false
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcpsdk.TextContent); ok && tc.Text == "1 known-issue match(es)" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want a one-line digest in Content, got: %v", res.Content)
+	}
 }
 
 func TestMatchKnownIssues_InvalidInput(t *testing.T) {

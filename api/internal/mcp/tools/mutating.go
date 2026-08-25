@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -26,27 +28,31 @@ const dryRunMatchCap = 1000
 
 // ProposeClassifyDefectInput holds parameters for the propose_classify_defect tool.
 type ProposeClassifyDefectInput struct {
-	ProjectID          int    `json:"project_id"`
-	FingerprintHash    string `json:"fingerprint_hash"`
-	ProposedCategory   string `json:"proposed_category"`
-	ProposedResolution string `json:"proposed_resolution,omitempty"`
-	Rationale          string `json:"rationale,omitempty"`
+	ProjectID          int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	FingerprintHash    string `json:"fingerprint_hash" jsonschema:"Defect fingerprint hash. Obtain it from list_defects or diagnose_failure output; never construct one."`
+	ProposedCategory   string `json:"proposed_category" jsonschema:"New defect category: product_bug, test_bug, infrastructure, or to_investigate."`
+	ProposedResolution string `json:"proposed_resolution,omitempty" jsonschema:"New defect resolution: open, fixed, muted, or wont_fix. Omit to leave the resolution unchanged."`
+	Rationale          string `json:"rationale,omitempty" jsonschema:"Optional free-text explanation for the reclassification, shown to the human reviewer."`
 }
 
 // ProposeClassifyDefectOutput is the structured output for propose_classify_defect.
 type ProposeClassifyDefectOutput struct {
 	ProposalID int64  `json:"proposal_id"`
 	ReviewURL  string `json:"review_url"`
+	// DuplicateOf is set when an identical pending proposal already existed;
+	// ProposalID/ReviewURL above then echo that existing proposal and nothing
+	// new was written. Absent on a genuine insert.
+	DuplicateOf *DuplicateProposal `json:"duplicate_of,omitempty"`
 }
 
 // ProposeKnownIssueInput holds parameters for the propose_known_issue tool.
 type ProposeKnownIssueInput struct {
-	ProjectID          int      `json:"project_id"`
-	ErrorMessageSample string   `json:"error_message_sample"`
-	ProposedCategory   string   `json:"proposed_category"`
-	RegexPattern       string   `json:"regex_pattern"`
-	AppliesToStatus    []string `json:"applies_to_status,omitempty"`
-	Rationale          string   `json:"rationale,omitempty"`
+	ProjectID          int      `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	ErrorMessageSample string   `json:"error_message_sample" jsonschema:"Sample error message this rule is meant to match; shown to the human reviewer alongside the pattern."`
+	ProposedCategory   string   `json:"proposed_category" jsonschema:"Known-issue category (e.g. infrastructure). Free text, distinct from a defect category."`
+	RegexPattern       string   `json:"regex_pattern" jsonschema:"Go-syntax regular expression matched against failure messages. Must compile."`
+	AppliesToStatus    []string `json:"applies_to_status,omitempty" jsonschema:"Optional subset of test statuses this rule applies to (e.g. failed, broken). Omit to apply to all statuses."`
+	Rationale          string   `json:"rationale,omitempty" jsonschema:"Optional free-text explanation for the rule, shown to the human reviewer."`
 }
 
 // ProposeKnownIssueOutput is the structured output for propose_known_issue.
@@ -54,20 +60,38 @@ type ProposeKnownIssueOutput struct {
 	ProposalID       int64  `json:"proposal_id"`
 	ReviewURL        string `json:"review_url"`
 	DryRunMatchCount int    `json:"dry_run_match_count"`
+	// DuplicateOf is set when an identical pending proposal already existed;
+	// ProposalID/ReviewURL above then echo that existing proposal and nothing
+	// new was written. Absent on a genuine insert.
+	DuplicateOf *DuplicateProposal `json:"duplicate_of,omitempty"`
 }
 
 // ProposeMarkFlakyInput holds parameters for the propose_mark_flaky tool.
 type ProposeMarkFlakyInput struct {
-	ProjectID    int    `json:"project_id"`
-	TestFullName string `json:"test_full_name"`
-	HistoryID    string `json:"history_id"`
-	Rationale    string `json:"rationale,omitempty"`
+	ProjectID    int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	TestFullName string `json:"test_full_name" jsonschema:"Full name of the test to mark flaky, as shown in AllureDeck."`
+	HistoryID    string `json:"history_id" jsonschema:"history_id of the test. Obtain it from find_test_by_name or list_failing_tests; do not construct one."`
+	Rationale    string `json:"rationale,omitempty" jsonschema:"Optional free-text explanation for the flaky flag, shown to the human reviewer."`
 }
 
 // ProposeMarkFlakyOutput is the structured output for propose_mark_flaky.
 type ProposeMarkFlakyOutput struct {
 	ProposalID int64  `json:"proposal_id"`
 	ReviewURL  string `json:"review_url"`
+	// DuplicateOf is set when an identical pending proposal already existed;
+	// ProposalID/ReviewURL above then echo that existing proposal and nothing
+	// new was written. Absent on a genuine insert.
+	DuplicateOf *DuplicateProposal `json:"duplicate_of,omitempty"`
+}
+
+// DuplicateProposal describes an existing pending proposal that already
+// matches the identity of a newly requested one. Its presence on a propose_*
+// output means the call performed no write: the identical proposal is
+// already awaiting human review.
+type DuplicateProposal struct {
+	ProposalID int64     `json:"proposal_id"`
+	ReviewURL  string    `json:"review_url"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -86,28 +110,36 @@ const (
 	kindMarkFlaky      = "propose_mark_flaky"
 )
 
-// RegisterMutatingToolsWithURL registers the three MCP mutating tools on s.
+// RegisterMutatingToolsWithURL registers the three MCP mutating tools and the
+// list_proposals read tool on s.
 func RegisterMutatingToolsWithURL(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string, signingKey []byte) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        kindClassifyDefect,
 		Title:       "Propose AllureDeck defect classification",
 		Annotations: proposalAnnotations(),
-		Description: "Propose a defect reclassification for a failing test fingerprint. Requires editor role and an API key with allow_mcp_writes=true. Creates a pending proposal that a human reviewer must approve before it takes effect.",
+		Description: "Propose a defect reclassification for a failing test fingerprint. Requires editor role and an API key with allow_mcp_writes=true. Creates a pending proposal that a human reviewer must approve before it takes effect. Safe to call repeatedly: if an identical proposal is already pending for the same project/fingerprint/category, no new proposal is created and the existing one is returned in duplicate_of. Call list_proposals first to check what is already pending.",
 	}, proposeClassifyDefectHandler(stores, logger, publicURL, signingKey))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        kindKnownIssue,
 		Title:       "Propose AllureDeck known-issue rule",
 		Annotations: proposalAnnotations(),
-		Description: "Propose a new known-issue regex rule for a project. Requires editor role and an API key with allow_mcp_writes=true. Performs a dry-run match count against recent failures before inserting the proposal.",
+		Description: "Propose a new known-issue regex rule for a project. Requires editor role and an API key with allow_mcp_writes=true. Performs a dry-run match count against recent failures before inserting the proposal. Safe to call repeatedly: if an identical rule is already pending for the same project/pattern, no new proposal is created and the existing one is returned in duplicate_of. Call list_proposals first to check what is already pending.",
 	}, proposeKnownIssueHandler(stores, logger, publicURL, signingKey))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        kindMarkFlaky,
 		Title:       "Propose AllureDeck flaky-test marking",
 		Annotations: proposalAnnotations(),
-		Description: "Propose marking a specific test as flaky by (test_full_name, history_id). Requires editor role and an API key with allow_mcp_writes=true. Creates a pending proposal for human review.",
+		Description: "Propose marking a specific test as flaky by (test_full_name, history_id). Requires editor role and an API key with allow_mcp_writes=true. Creates a pending proposal for human review. Safe to call repeatedly: if an identical proposal is already pending for the same project/history_id, no new proposal is created and the existing one is returned in duplicate_of. Call list_proposals first to check what is already pending.",
 	}, proposeMarkFlakyHandler(stores, logger, publicURL, signingKey))
+
+	mcpsdk.AddTool(s, &mcpsdk.Tool{
+		Name:        "list_proposals",
+		Title:       "List AllureDeck MCP proposals",
+		Annotations: readOnlyAnnotations(),
+		Description: "List MCP-proposed defect classifications, known-issue rules, and flaky-test markings for a project, optionally filtered by kind and review status. Call this before propose_classify_defect, propose_known_issue, or propose_mark_flaky to check whether an equivalent proposal is already pending, rather than re-proposing the same thing on every run.",
+	}, listProposalsHandler(stores, logger, publicURL))
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +327,26 @@ func execProposeClassifyDefect(
 		return nil, ProposeClassifyDefectOutput{}, err
 	}
 
+	// Idempotency: an identical pending proposal already awaiting review means
+	// this call is a re-run (e.g. a nightly agent), not a new finding. Return
+	// it instead of queuing a duplicate for the same human reviewer.
+	if dup, err := stores.DefectProposals.FindPendingDuplicate(ctx, in.ProjectID, in.FingerprintHash, in.ProposedCategory); err != nil {
+		return nil, ProposeClassifyDefectOutput{}, fmt.Errorf("checking for duplicate defect-classification proposal: %w", err)
+	} else if dup != nil {
+		dupURL := reviewURL(publicURL, "defect", dup.ID)
+		out := ProposeClassifyDefectOutput{
+			ProposalID: dup.ID,
+			ReviewURL:  dupURL,
+			DuplicateOf: &DuplicateProposal{
+				ProposalID: dup.ID,
+				ReviewURL:  dupURL,
+				CreatedAt:  dup.CreatedAt,
+			},
+		}
+		digest := fmt.Sprintf("An identical pending defect-classification proposal already exists (id=%d, created %s) — nothing new was written.", dup.ID, dup.CreatedAt.Format(time.RFC3339))
+		return textResult(digest), out, nil
+	}
+
 	prompt := fmt.Sprintf(
 		"Reclassify this defect in AllureDeck project %d?\n\n  Fingerprint: %s\n  New category: %s\n  New resolution: %s\n\nThis records a proposal for a human reviewer to approve; the defect's current classification is unchanged until then.",
 		in.ProjectID, in.FingerprintHash, in.ProposedCategory, orNotSet(in.ProposedResolution),
@@ -405,6 +457,27 @@ func execProposeKnownIssue(
 	// recorded.
 	if err := requireProposer(prop); err != nil {
 		return nil, ProposeKnownIssueOutput{}, err
+	}
+
+	// Idempotency: an identical pending rule already awaiting review means this
+	// call is a re-run, not a new finding. Checked before the dry-run scan so a
+	// duplicate call skips that cost too.
+	if dup, err := stores.KnownIssueProposals.FindPendingDuplicate(ctx, in.ProjectID, in.RegexPattern); err != nil {
+		return nil, ProposeKnownIssueOutput{}, fmt.Errorf("checking for duplicate known-issue proposal: %w", err)
+	} else if dup != nil {
+		dupURL := reviewURL(publicURL, "known_issue", dup.ID)
+		out := ProposeKnownIssueOutput{
+			ProposalID:       dup.ID,
+			ReviewURL:        dupURL,
+			DryRunMatchCount: dup.DryRunMatchCount,
+			DuplicateOf: &DuplicateProposal{
+				ProposalID: dup.ID,
+				ReviewURL:  dupURL,
+				CreatedAt:  dup.CreatedAt,
+			},
+		}
+		digest := fmt.Sprintf("An identical pending known-issue proposal already exists (id=%d, created %s) — nothing new was written.", dup.ID, dup.CreatedAt.Format(time.RFC3339))
+		return textResult(digest), out, nil
 	}
 
 	// Dry-run: count recent failure messages that match the regex (capped at dryRunMatchCap).
@@ -542,6 +615,26 @@ func execProposeMarkFlaky(
 		return nil, ProposeMarkFlakyOutput{}, err
 	}
 
+	// Idempotency: an identical pending proposal already awaiting review means
+	// this call is a re-run, not a new finding. Return it instead of queuing a
+	// duplicate for the same human reviewer.
+	if dup, err := stores.FlakyProposals.FindPendingDuplicate(ctx, in.ProjectID, in.HistoryID); err != nil {
+		return nil, ProposeMarkFlakyOutput{}, fmt.Errorf("checking for duplicate flaky proposal: %w", err)
+	} else if dup != nil {
+		dupURL := reviewURL(publicURL, "flaky", dup.ID)
+		out := ProposeMarkFlakyOutput{
+			ProposalID: dup.ID,
+			ReviewURL:  dupURL,
+			DuplicateOf: &DuplicateProposal{
+				ProposalID: dup.ID,
+				ReviewURL:  dupURL,
+				CreatedAt:  dup.CreatedAt,
+			},
+		}
+		digest := fmt.Sprintf("An identical pending flaky-test proposal already exists (id=%d, created %s) — nothing new was written.", dup.ID, dup.CreatedAt.Format(time.RFC3339))
+		return textResult(digest), out, nil
+	}
+
 	prompt := fmt.Sprintf(
 		"Mark this test as flaky in AllureDeck project %d?\n\n  Test: %s\n  history_id: %s\n\nThis records a proposal for a human reviewer to approve; it does not change triage on its own.",
 		in.ProjectID, in.TestFullName, in.HistoryID,
@@ -599,4 +692,224 @@ func execProposeMarkFlaky(
 		ReviewURL:  reviewURL(publicURL, "flaky", proposalID),
 	}
 	return nil, out, nil
+}
+
+// ---------------------------------------------------------------------------
+// list_proposals
+// ---------------------------------------------------------------------------
+
+// Proposal kind identifiers used in ListProposalsInput.Kind, ProposalSummary.Kind,
+// and reviewURL's proposalType argument (except kindClassifyDefect's review
+// path, which is "defect" for historical reasons — see reviewURL call sites
+// above).
+const (
+	proposalKindKnownIssue     = "known_issue"
+	proposalKindFlaky          = "flaky"
+	proposalKindDefectClassify = "defect_classify"
+)
+
+// Default and maximum row counts for list_proposals.
+const (
+	listProposalsDefaultLimit = 50
+	listProposalsMaxLimit     = 200
+)
+
+// ListProposalsInput holds parameters for the list_proposals tool.
+type ListProposalsInput struct {
+	ProjectID int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	Kind      string `json:"kind,omitempty" jsonschema:"Optional proposal kind filter: known_issue, flaky, or defect_classify. Omit to list every kind."`
+	Status    string `json:"status,omitempty" jsonschema:"Optional review status filter: pending, approved, or rejected. Omit to list every status."`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum proposals to return, most recent first. Defaults to 50, clamped to 200."`
+}
+
+// ProposalSummary is one row returned by list_proposals. Only the fields
+// relevant to Kind are populated; the others are zero.
+type ProposalSummary struct {
+	ID        int64     `json:"id"`
+	Kind      string    `json:"kind"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	// Proposer is the proposing user's display name when it can be resolved,
+	// and falls back to "user:<id>" otherwise (unknown, deleted, or unnamed
+	// user). It is deliberately never an email address: the REST proposal
+	// endpoints expose only the numeric proposer id, so this tool must not be
+	// the surface that leaks a staff directory.
+	Proposer  string `json:"proposer"`
+	ReviewURL string `json:"review_url"`
+
+	// Pattern is populated for kind=known_issue: the proposed regex_pattern.
+	Pattern string `json:"pattern,omitempty"`
+
+	// TestFullName and HistoryID are populated for kind=flaky.
+	TestFullName string `json:"test_full_name,omitempty"`
+	HistoryID    string `json:"history_id,omitempty"`
+
+	// FingerprintHash is populated for kind=defect_classify.
+	FingerprintHash string `json:"fingerprint_hash,omitempty"`
+	// ProposedCategory is populated for kind=known_issue (issue category) and
+	// kind=defect_classify (defect category); the two are different concepts
+	// sharing a field name, matching store.KnownIssueProposal/DefectProposal.
+	ProposedCategory string `json:"proposed_category,omitempty"`
+}
+
+// ListProposalsOutput is the structured output for list_proposals.
+type ListProposalsOutput struct {
+	Items []ProposalSummary `json:"items"`
+}
+
+func listProposalsHandler(stores *bootstrap.Stores, _ *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListProposalsInput) (*mcpsdk.CallToolResult, ListProposalsOutput, error) {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListProposalsInput) (*mcpsdk.CallToolResult, ListProposalsOutput, error) {
+		if in.ProjectID <= 0 {
+			return nil, ListProposalsOutput{}, fmt.Errorf("project_id must be positive")
+		}
+		if in.Kind != "" && in.Kind != proposalKindKnownIssue && in.Kind != proposalKindFlaky && in.Kind != proposalKindDefectClassify {
+			return nil, ListProposalsOutput{}, fmt.Errorf("kind must be one of %s, %s, %s", proposalKindKnownIssue, proposalKindFlaky, proposalKindDefectClassify)
+		}
+
+		var status store.ProposalStatus
+		switch in.Status {
+		case "":
+			// no filter
+		case string(store.ProposalStatusPending), string(store.ProposalStatusApproved), string(store.ProposalStatusRejected):
+			status = store.ProposalStatus(in.Status)
+		default:
+			return nil, ListProposalsOutput{}, fmt.Errorf("status must be one of %s, %s, %s",
+				store.ProposalStatusPending, store.ProposalStatusApproved, store.ProposalStatusRejected)
+		}
+
+		limit := in.Limit
+		if limit <= 0 {
+			limit = listProposalsDefaultLimit
+		}
+		if limit > listProposalsMaxLimit {
+			limit = listProposalsMaxLimit
+		}
+
+		var items []ProposalSummary
+		proposers := newProposerResolver(stores)
+
+		if in.Kind == "" || in.Kind == proposalKindKnownIssue {
+			rows, err := stores.KnownIssueProposals.List(ctx, in.ProjectID, status, limit)
+			if err != nil {
+				return nil, ListProposalsOutput{}, fmt.Errorf("listing known-issue proposals: %w", err)
+			}
+			for _, p := range rows {
+				items = append(items, ProposalSummary{
+					ID:               p.ID,
+					Kind:             proposalKindKnownIssue,
+					Status:           string(p.Status),
+					CreatedAt:        p.CreatedAt,
+					Proposer:         proposers.label(ctx, p.ProposerUserID),
+					ReviewURL:        reviewURL(publicURL, "known_issue", p.ID),
+					Pattern:          p.RegexPattern,
+					ProposedCategory: p.ProposedCategory,
+				})
+			}
+		}
+
+		if in.Kind == "" || in.Kind == proposalKindFlaky {
+			rows, err := stores.FlakyProposals.List(ctx, in.ProjectID, status, limit)
+			if err != nil {
+				return nil, ListProposalsOutput{}, fmt.Errorf("listing flaky proposals: %w", err)
+			}
+			for _, p := range rows {
+				items = append(items, ProposalSummary{
+					ID:           p.ID,
+					Kind:         proposalKindFlaky,
+					Status:       string(p.Status),
+					CreatedAt:    p.CreatedAt,
+					Proposer:     proposers.label(ctx, p.ProposerUserID),
+					ReviewURL:    reviewURL(publicURL, "flaky", p.ID),
+					TestFullName: p.TestFullName,
+					HistoryID:    p.HistoryID,
+				})
+			}
+		}
+
+		if in.Kind == "" || in.Kind == proposalKindDefectClassify {
+			rows, err := stores.DefectProposals.List(ctx, in.ProjectID, status, limit)
+			if err != nil {
+				return nil, ListProposalsOutput{}, fmt.Errorf("listing defect-classification proposals: %w", err)
+			}
+			for _, p := range rows {
+				items = append(items, ProposalSummary{
+					ID:               p.ID,
+					Kind:             proposalKindDefectClassify,
+					Status:           string(p.Status),
+					CreatedAt:        p.CreatedAt,
+					Proposer:         proposers.label(ctx, p.ProposerUserID),
+					ReviewURL:        reviewURL(publicURL, "defect", p.ID),
+					FingerprintHash:  p.FingerprintHash,
+					ProposedCategory: p.ProposedCategory,
+				})
+			}
+		}
+
+		// Each per-kind query above already returns at most `limit` rows, most
+		// recent first, so merging and re-trimming to `limit` here cannot drop
+		// a row that belongs in the true overall top-`limit`.
+		//
+		// SliceStable, not Slice: created_at ties are common (proposals written
+		// by one batch share a timestamp), and an unstable sort would order
+		// them arbitrarily, so the `[:limit]` trim below could keep a different
+		// subset on each identical call.
+		sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+		if len(items) > limit {
+			items = items[:limit]
+		}
+
+		digest := fmt.Sprintf("%d proposal(s) for project %d", len(items), in.ProjectID)
+		return textResult(digest), ListProposalsOutput{Items: items}, nil
+	}
+}
+
+// proposerResolver turns a proposals.proposer_user_id into a display label,
+// memoized for the lifetime of one list_proposals call.
+//
+// The cache matters because proposals cluster on a handful of proposers: a
+// 200-row page from one automation account would otherwise issue 200 identical
+// GetByID queries. It is deliberately per-call and not shared: a long-lived
+// cache would keep serving a renamed or deleted user's old label.
+//
+// Not safe for concurrent use; listProposalsHandler resolves sequentially.
+type proposerResolver struct {
+	stores *bootstrap.Stores
+	cache  map[int64]string
+}
+
+func newProposerResolver(stores *bootstrap.Stores) *proposerResolver {
+	return &proposerResolver{stores: stores, cache: make(map[int64]string)}
+}
+
+// label returns the display label for userID, resolving it at most once.
+func (r *proposerResolver) label(ctx context.Context, userID int64) string {
+	if cached, ok := r.cache[userID]; ok {
+		return cached
+	}
+	l := r.resolve(ctx, userID)
+	r.cache[userID] = l
+	return l
+}
+
+// resolve produces the label for one user id.
+//
+// It returns the user's display name, never their email address. The REST
+// proposal endpoints expose only the numeric proposer_user_id (and gate the
+// api-key id behind admin), so handing every MCP caller a directory of staff
+// email addresses would make this tool the weakest link in that policy. The
+// numeric fallback also covers a lookup error, a deleted user, and a user with
+// no recorded name, so an absent label never fails the whole call.
+func (r *proposerResolver) resolve(ctx context.Context, userID int64) string {
+	fallback := fmt.Sprintf("user:%d", userID)
+	if r.stores.User == nil || userID == 0 {
+		return fallback
+	}
+	u, err := r.stores.User.GetByID(ctx, userID)
+	if err != nil || u == nil {
+		return fallback
+	}
+	if name := strings.TrimSpace(u.Name); name != "" {
+		return name
+	}
+	return fallback
 }

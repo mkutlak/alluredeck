@@ -146,6 +146,14 @@ func (m *flakyCapture) ListPending(context.Context, int, int, string) ([]*store.
 	return nil, "", nil
 }
 
+func (m *flakyCapture) List(context.Context, int, store.ProposalStatus, int) ([]*store.FlakyProposal, error) {
+	return nil, nil
+}
+
+func (m *flakyCapture) FindPendingDuplicate(context.Context, int, string) (*store.FlakyProposal, error) {
+	return nil, nil
+}
+
 func (m *flakyCapture) MarkReviewed(context.Context, int64, int64, store.ProposalStatus) error {
 	return nil
 }

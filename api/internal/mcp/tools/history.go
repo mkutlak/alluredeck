@@ -18,9 +18,9 @@ import (
 
 // GetTestFailureInput holds parameters for get_test_failure.
 type GetTestFailureInput struct {
-	ProjectID int    `json:"project_id"`
-	BuildID   int64  `json:"build_id"`
-	HistoryID string `json:"history_id"`
+	ProjectID int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	BuildID   int64  `json:"build_id" jsonschema:"Internal build id from resolve_url or list_recent_builds. The build_number in a UI URL is NOT the build_id."`
+	HistoryID string `json:"history_id" jsonschema:"Cross-build test identifier. Obtain it from find_test_by_name, list_failing_tests or diagnose_failure; never construct one."`
 }
 
 // AttachmentRef is a lightweight reference to an attachment used in tool output.
@@ -39,10 +39,20 @@ type CIInfo struct {
 	PipelineURL string `json:"pipeline_url,omitempty"`
 }
 
-// FingerprintInfo holds defect fingerprint data included in get_test_failure output.
+// FingerprintInfo holds defect fingerprint data included in get_test_failure
+// and diagnose_failure output.
 type FingerprintInfo struct {
 	Hash     string `json:"hash"`
 	Category string `json:"category"`
+	// OccurrenceCount is how many times this fingerprint has been seen across
+	// the project's builds — the difference between a one-off and a standing
+	// defect.
+	OccurrenceCount int `json:"occurrence_count,omitempty"`
+	// Resolution is the triage verdict recorded for the fingerprint, if any.
+	Resolution string `json:"resolution,omitempty"`
+	// FirstSeenBuildID is the build where the fingerprint first appeared; it
+	// bounds any bisect for the change that introduced the defect.
+	FirstSeenBuildID int64 `json:"first_seen_build_id,omitempty"`
 }
 
 // KnownIssueRef holds a matched known issue reference.
@@ -70,11 +80,14 @@ type GetTestFailureOutput struct {
 
 // GetTestHistoryInput holds parameters for get_test_history.
 type GetTestHistoryInput struct {
-	ProjectID int    `json:"project_id"`
-	HistoryID string `json:"history_id"`
-	Limit     int    `json:"limit,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
-	Branch    string `json:"branch,omitempty"`
+	ProjectID int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	HistoryID string `json:"history_id" jsonschema:"Cross-build test identifier. Obtain it from find_test_by_name, list_failing_tests or diagnose_failure; never construct one."`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum number of runs to return, most recent first. Defaults to 20, clamped to 100. Older runs exist when the item count equals the limit."`
+	// Cursor is accepted and ignored. The underlying history query has no
+	// offset pagination, so the cursor never advanced; it is kept only so
+	// existing callers do not break on an unknown-argument error.
+	Cursor string `json:"cursor,omitempty" jsonschema:"Deprecated: accepted but ignored. This tool has no cursor pagination; raise limit instead."`
+	Branch string `json:"branch,omitempty" jsonschema:"Restrict the history to a single branch by name. An unknown branch returns an empty list rather than an error."`
 }
 
 // TestHistoryItem is one entry in the get_test_history response.
@@ -85,12 +98,20 @@ type TestHistoryItem struct {
 	DurationMs  int64  `json:"duration_ms"`
 	CommitSHA   string `json:"commit_sha,omitempty"`
 	CreatedAt   string `json:"created_at"`
+	// Branch names the branch the run came from. Empty for builds recorded
+	// before branch tracking, or when CI supplied no branch. Without it a
+	// cross-branch history reads as one timeline and status flips look like
+	// regressions when they are only a different line of development.
+	Branch string `json:"branch,omitempty"`
 }
 
 // GetTestHistoryOutput is the structured output for get_test_history.
+//
+// There is no next_cursor: the underlying query has no offset pagination, so
+// the cursor this tool used to emit could never be honoured. A caller detects
+// that older runs exist by len(items) == limit.
 type GetTestHistoryOutput struct {
-	Items      []TestHistoryItem `json:"items"`
-	NextCursor string            `json:"next_cursor,omitempty"`
+	Items []TestHistoryItem `json:"items"`
 }
 
 // ---------------------------------------------------------------------------
@@ -99,14 +120,14 @@ type GetTestHistoryOutput struct {
 
 // CompareBuildsInput holds parameters for compare_builds.
 type CompareBuildsInput struct {
-	ProjectID     int   `json:"project_id"`
-	BaseBuildID   int64 `json:"base_build_id"`
-	TargetBuildID int64 `json:"target_build_id"`
+	ProjectID     int   `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	BaseBuildID   int64 `json:"base_build_id" jsonschema:"Internal build id of the earlier (baseline) build. The build_number in a UI URL is NOT the build_id."`
+	TargetBuildID int64 `json:"target_build_id" jsonschema:"Internal build id of the later build being compared against the baseline."`
 	// Format controls output verbosity:
 	//   "full"    (default) — current shape with all fields
 	//   "compact" — omit history_id and test_name (~50% token reduction)
 	//   "summary" — counts only (~95% token reduction)
-	Format string `json:"format,omitempty"`
+	Format string `json:"format,omitempty" jsonschema:"Output verbosity: full (default, all fields), compact (omit history_id and test_name), or summary (counts only). Any other value is rejected."`
 }
 
 // DiffItem is one test in a compare_builds diff list.
@@ -159,14 +180,14 @@ func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *za
 		Name:        "get_test_failure",
 		Title:       "Get AllureDeck test failure",
 		Annotations: readOnlyAnnotations(),
-		Description: "Get detailed failure information for a specific test in a build: status, message, stack trace, attachments, CI context, defect fingerprint, and the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
+		Description: "Get detailed information for one test in a build: status, message, stack trace, the attachments belonging to THAT test, CI context, defect fingerprint, and the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Works for a test in any state, not only a failing one — a passing test returns its actual status rather than a not-found error. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
 	}, getTestFailureHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_history",
 		Title:       "Get AllureDeck test history",
 		Annotations: readOnlyAnnotations(),
-		Description: "Get the run history of a test across builds. Shows status trends, duration, and commit SHA per build. Optional branch parameter filters history to a single branch (unknown branch names return empty results, not an error).",
+		Description: "Get the run history of a test across builds, most recent first. Shows status trends, duration, commit SHA, and the branch each run came from. Optional branch parameter filters history to a single branch (unknown branch names return empty results, not an error). There is no cursor pagination: when the item count equals `limit`, older runs may exist — raise `limit` to see them.",
 	}, getTestHistoryHandler(stores, logger))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
@@ -200,36 +221,33 @@ func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 			)
 		}
 
-		// Fetch failing tests for this build and find the one matching history_id.
-		rows, err := stores.TestResult.ListFailedByBuild(ctx, int64(in.ProjectID), in.BuildID, 1000)
+		// Look the row up directly by its key. The previous implementation
+		// listed the build's first 1000 FAILING tests and scanned them
+		// linearly, so a passing test was reported as absent and a build with
+		// more than 1000 failures could lose the row entirely.
+		matched, err := stores.TestResult.GetByHistoryID(ctx, int64(in.ProjectID), in.BuildID, in.HistoryID)
 		if err != nil {
-			return nil, GetTestFailureOutput{}, fmt.Errorf("fetching test results: %w", err)
-		}
-
-		var matched *store.TestResult
-		for i := range rows {
-			if rows[i].HistoryID == in.HistoryID {
-				matched = &rows[i]
-				break
-			}
+			return nil, GetTestFailureOutput{}, fmt.Errorf("fetching test result: %w", err)
 		}
 		if matched == nil {
 			return nil, GetTestFailureOutput{}, fmt.Errorf("test with history_id %q not found in build %d", in.HistoryID, in.BuildID)
 		}
 
 		out := GetTestFailureOutput{
-			Status:     matched.Status,
-			DurationMs: matched.DurationMs,
+			Status:        matched.Status,
+			StatusMessage: matched.StatusMessage,
+			DurationMs:    matched.DurationMs,
 		}
 
-		// Fetch attachments for this build.
-		attachments, _, err := stores.Attachment.ListByBuild(ctx, int64(in.ProjectID), in.BuildID, "", "", 200, 0)
+		// Attachments scoped to THIS test result, not the whole build. The
+		// previous ListByBuild call handed every test in the build the same
+		// build-wide attachment list, so a screenshot from an unrelated test
+		// looked like evidence for this one.
+		attachments, err := stores.Attachment.ListByTestResult(ctx, int64(in.ProjectID), in.BuildID, in.HistoryID, testFailureAttachmentsLimit)
 		if err != nil {
 			// Non-fatal: continue without attachments.
 			attachments = nil
 		}
-		// attachments are scoped to the build, not per-test result;
-		// allure-store association is not currently tracked at this call site.
 		out.Attachments = make([]AttachmentRef, 0, len(attachments))
 		for _, a := range attachments {
 			out.Attachments = append(out.Attachments, attachmentToRef(a))
@@ -275,9 +293,16 @@ func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 			}
 		}
 
-		return nil, out, nil
+		digest := fmt.Sprintf("%s: %s in build %d (%dms), %d attachment(s)",
+			matched.FullName, matched.Status, in.BuildID, matched.DurationMs, len(out.Attachments))
+		return textResult(digest), out, nil
 	}
 }
+
+// testFailureAttachmentsLimit caps how many attachment refs get_test_failure
+// returns for a single test — ample for any realistic test while bounding the
+// output size.
+const testFailureAttachmentsLimit = 200
 
 func attachmentToRef(a store.TestAttachment) AttachmentRef {
 	return AttachmentRef{
@@ -304,11 +329,10 @@ func getTestHistoryHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 			in.Limit = 100
 		}
 
-		offset, err := decodeCursor(in.Cursor)
-		if err != nil {
-			return nil, GetTestHistoryOutput{}, fmt.Errorf("invalid cursor: %w", err)
-		}
-		_ = offset // history store does not support offset pagination; cursor is for future use
+		// in.Cursor is deliberately ignored: GetTestHistory has no offset
+		// pagination, so the cursor this tool used to emit could never move the
+		// window. It stays in the input schema, marked deprecated, so existing
+		// callers do not fail on an unknown argument.
 
 		var branchID *int64
 		if in.Branch != "" {
@@ -319,21 +343,20 @@ func getTestHistoryHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 				// infrastructure failure and must surface, otherwise a transient DB
 				// fault masquerades as "no history on this branch".
 				if errors.Is(err, store.ErrBranchNotFound) {
-					return nil, GetTestHistoryOutput{Items: nil}, nil
+					return textResult(fmt.Sprintf("branch %q not found in project %d; no history", in.Branch, in.ProjectID)),
+						GetTestHistoryOutput{Items: nil}, nil
 				}
 				return nil, GetTestHistoryOutput{}, fmt.Errorf("resolving branch %q: %w", in.Branch, err)
 			}
 			branchID = &br.ID
 		}
 
-		entries, err := stores.TestResult.GetTestHistory(ctx, int64(in.ProjectID), in.HistoryID, branchID, in.Limit+1)
+		// Fetch exactly limit rows: without a cursor there is no next page to
+		// probe for, and len(items) == limit already tells the caller older
+		// runs may exist.
+		entries, err := stores.TestResult.GetTestHistory(ctx, int64(in.ProjectID), in.HistoryID, branchID, in.Limit)
 		if err != nil {
 			return nil, GetTestHistoryOutput{}, fmt.Errorf("fetching test history: %w", err)
-		}
-
-		hasMore := len(entries) > in.Limit
-		if hasMore {
-			entries = entries[:in.Limit]
 		}
 
 		items := make([]TestHistoryItem, len(entries))
@@ -344,6 +367,7 @@ func getTestHistoryHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 				Status:      e.Status,
 				DurationMs:  e.DurationMs,
 				CreatedAt:   e.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+				Branch:      e.BranchName,
 			}
 			if e.CICommitSHA != nil {
 				item.CommitSHA = *e.CICommitSHA
@@ -351,12 +375,14 @@ func getTestHistoryHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 			items[i] = item
 		}
 
-		var nextCursor string
-		if hasMore {
-			nextCursor = encodeCursor(offset + in.Limit)
+		digest := fmt.Sprintf("%d run(s) for history_id %s", len(items), in.HistoryID)
+		if in.Branch != "" {
+			digest += " on branch " + in.Branch
 		}
-
-		return nil, GetTestHistoryOutput{Items: items, NextCursor: nextCursor}, nil
+		if len(items) == in.Limit {
+			digest += fmt.Sprintf(" (limit %d reached; older runs may exist)", in.Limit)
+		}
+		return textResult(digest), GetTestHistoryOutput{Items: items}, nil
 	}
 }
 
@@ -370,6 +396,15 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 		}
 		if in.TargetBuildID <= 0 {
 			return nil, CompareBuildsOutput{}, fmt.Errorf("target_build_id must be positive")
+		}
+		// Reject an unknown format rather than silently falling through to the
+		// full shape: a caller that asked for "brief" and got the full payload
+		// has no way to notice it paid for 20x the tokens it wanted.
+		switch in.Format {
+		case "", "full", "compact", "summary":
+		default:
+			return nil, CompareBuildsOutput{}, fmt.Errorf(
+				"format must be one of full, compact, summary (got %q)", in.Format)
 		}
 
 		// Fetch base build row — serves as both existence check and source of
@@ -408,6 +443,12 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 		}
 		if targetBuild.CICommitSHA != nil {
 			targetRef.CommitSHA = *targetBuild.CICommitSHA
+		}
+		if targetBuild.CIPipelineID != nil {
+			targetRef.CIPipelineID = *targetBuild.CIPipelineID
+		}
+		if targetBuild.CIPipelineURL != nil {
+			targetRef.CIPipelineURL = *targetBuild.CIPipelineURL
 		}
 
 		// Warn only when BOTH branches are known and differ. A NULL branch_id
@@ -470,7 +511,7 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 				NewFailed: newFailed,
 				Removed:   removed,
 			}
-			return nil, out, nil
+			return textResult(compareDigest(in, regressed, fixed, newPassed+newFailed, removed, branchMismatch != nil)), out, nil
 		}
 
 		// full or compact mode: build per-test lists.
@@ -502,8 +543,22 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 			}
 		}
 
-		return nil, out, nil
+		digest := compareDigest(in, len(out.Regressed), len(out.Fixed),
+			len(out.NewPassed)+len(out.NewFailed), len(out.Removed), branchMismatch != nil)
+		return textResult(digest), out, nil
 	}
+}
+
+// compareDigest renders the one-line unstructured summary of a build
+// comparison. It names the mismatch explicitly because a cross-branch diff's
+// "regressions" are frequently not regressions at all.
+func compareDigest(in CompareBuildsInput, regressed, fixed, added, removed int, branchMismatch bool) string {
+	d := fmt.Sprintf("build %d vs %d: %d regressed, %d fixed, %d new, %d removed",
+		in.BaseBuildID, in.TargetBuildID, regressed, fixed, added, removed)
+	if branchMismatch {
+		d += "; WARNING different branches"
+	}
+	return d
 }
 
 // diffItemFromEntry converts a store.DiffEntry to a DiffItem, honouring the

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
+	"github.com/mkutlak/alluredeck/api/internal/mcp/attachmentio"
 	"github.com/mkutlak/alluredeck/api/internal/mcp/signed"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -20,15 +20,12 @@ import (
 
 const attachmentInlineMaxBytes = 2 * 1024 * 1024 // 2 MB
 
-// attachmentURLTTL is how long a signed attachment download URL stays valid.
-const attachmentURLTTL = 10 * time.Minute
-
 // inlinedAttachmentTTLMs is the cache lifetime advertised for inlined
 // attachment bytes. Attachment content is immutable once a report is ingested,
 // so it can be cached aggressively.
 //
 // It deliberately does NOT apply to the signed-URL fallback below: that
-// response body is a link that stops working after attachmentURLTTL, and
+// response body is a link that stops working after attachmentio.URLTTL, and
 // caching it for longer would hand clients a dead URL.
 const inlinedAttachmentTTLMs = 24 * 60 * 60 * 1000 // 24 hours
 
@@ -42,7 +39,11 @@ func inlinedAttachmentCacheable() mcpsdk.Cacheable {
 
 // ErrInvalidAttachmentSource indicates an attachment source filename contains
 // path-traversal characters and must not be used to build a storage path.
-var ErrInvalidAttachmentSource = errors.New("invalid attachment source")
+//
+// It is an alias for attachmentio.ErrInvalidSource so existing callers that
+// match on this sentinel (via errors.Is) keep working unchanged now that the
+// validation itself lives in the attachmentio package.
+var ErrInvalidAttachmentSource = attachmentio.ErrInvalidSource
 
 // ValidateAttachmentSource rejects attachment source filenames that could be
 // used for path traversal. Attachment sources originate from ingested Allure
@@ -52,30 +53,13 @@ var ErrInvalidAttachmentSource = errors.New("invalid attachment source")
 //
 // It is the single canonical guard shared by every code path that builds a
 // "data/attachments/{source}" storage path (the REST ServeAttachment handler,
-// the signed-download handler, and the MCP attachment resource).
+// the signed-download handler, the MCP attachment resource, and the
+// get_attachment tool). The guard itself lives in attachmentio so
+// internal/mcp/tools can share it without importing this package (which
+// would create an import cycle); this is a thin wrapper kept for backward
+// compatibility with existing callers in internal/handlers.
 func ValidateAttachmentSource(source string) error {
-	if source == "" ||
-		strings.Contains(source, "/") ||
-		strings.Contains(source, "\\") ||
-		strings.Contains(source, "..") ||
-		strings.ContainsRune(source, 0) {
-		return ErrInvalidAttachmentSource
-	}
-	return nil
-}
-
-// isTextMIME reports whether the given MIME type should be served as inline text.
-func isTextMIME(mime string) bool {
-	lower := strings.ToLower(mime)
-	return strings.HasPrefix(lower, "text/") ||
-		lower == "application/json" ||
-		lower == "application/xml" ||
-		lower == "application/javascript"
-}
-
-// isImageMIME reports whether the given MIME type is an image.
-func isImageMIME(mime string) bool {
-	return strings.HasPrefix(strings.ToLower(mime), "image/")
+	return attachmentio.ValidateSource(source)
 }
 
 // RegisterResources registers all alluredeck MCP resource templates on s.
@@ -140,18 +124,18 @@ func attachmentResourceHandler(
 
 		// Attempt to inline small text/image content directly when storage is
 		// available, so the MCP client gets the content without a second round
-		// trip. readAttachmentBlob mirrors the storage path used by the REST
-		// ServeAttachment handler.
+		// trip. attachmentio.ReadBlobWindow mirrors the storage path used by
+		// the REST ServeAttachment handler.
 		//
 		// Both text and image inlining are bounded by attachmentInlineMaxBytes
 		// so a huge attachment cannot be read fully into memory and blow the
 		// MCP client's context. Oversized attachments fall through to the
 		// signed-download URL below.
 		if dataStore != nil {
-			inlineText := isTextMIME(loc.MimeType) && loc.SizeBytes <= attachmentInlineMaxBytes
-			inlineImage := isImageMIME(loc.MimeType) && loc.SizeBytes <= attachmentInlineMaxBytes
+			inlineText := attachmentio.IsTextMIME(loc.MimeType) && loc.SizeBytes <= attachmentInlineMaxBytes
+			inlineImage := attachmentio.IsImageMIME(loc.MimeType) && loc.SizeBytes <= attachmentInlineMaxBytes
 			if inlineText || inlineImage {
-				data, err := readAttachmentBlob(ctx, dataStore, loc)
+				data, err := attachmentio.ReadBlobWindow(ctx, dataStore, loc, 0, attachmentInlineMaxBytes)
 				switch {
 				case err != nil:
 					logger.Warn("could not read attachment content, falling back to signed URL",
@@ -187,7 +171,7 @@ func attachmentResourceHandler(
 		// Fallback: return a resource entry whose URI is the HMAC-signed download
 		// URL. Clients can follow this URL to download the attachment directly
 		// via the GET /attachments/{id} route.
-		signedURL := buildSignedURL(publicURL, id, signingKey)
+		signedURL := attachmentio.SignURL(publicURL, id, signingKey)
 		return &mcpsdk.ReadResourceResult{
 			Contents: []*mcpsdk.ResourceContents{
 				{
@@ -198,32 +182,6 @@ func attachmentResourceHandler(
 			},
 		}, nil
 	}
-}
-
-// readAttachmentBlob streams an attachment's bytes from the file-storage
-// backend. It resolves the same storage path the REST ServeAttachment handler
-// uses: {storageKey}/reports/{buildNumber}/data/attachments/{source}.
-//
-// loc.Source is attacker-influenced data from ingested Allure reports, so it is
-// validated with ValidateAttachmentSource before being joined onto the storage
-// path. The read is bounded at attachmentInlineMaxBytes as a defensive cap even
-// when the caller has already checked loc.SizeBytes.
-func readAttachmentBlob(ctx context.Context, dataStore storage.Store, loc *store.AttachmentLocation) ([]byte, error) {
-	if err := ValidateAttachmentSource(loc.Source); err != nil {
-		return nil, err
-	}
-	filePath := "data/attachments/" + loc.Source
-	reader, _, err := dataStore.OpenReportFile(ctx, loc.StorageKey, strconv.Itoa(loc.BuildNumber), filePath)
-	if err != nil {
-		return nil, fmt.Errorf("opening attachment blob: %w", err)
-	}
-	defer func() { _ = reader.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(reader, attachmentInlineMaxBytes))
-	if err != nil {
-		return nil, fmt.Errorf("reading attachment blob: %w", err)
-	}
-	return data, nil
 }
 
 func testResourceHandler(
@@ -302,36 +260,15 @@ func parseTestResourceURI(uri string) ([3]string, error) {
 	return [3]string{parts[1], parts[3], parts[5]}, nil
 }
 
-// attachmentSigPayload builds the canonical payload string that is signed for
-// an attachment download URL: "attachment:{id}". The expiry is bound to the
-// signature by signed.Sign rather than being part of this string, which yields
-// the same MAC input as the original "attachment:{id}:exp:{exp}" form — so
-// URLs already handed out stay valid across this refactor.
-func attachmentSigPayload(id int64) string {
-	return fmt.Sprintf("attachment:%d", id)
-}
-
-// signAttachment computes the HMAC-SHA256 signature (hex-encoded) over the
-// canonical payload for the given attachment id and expiry.
-func signAttachment(signingKey []byte, id, exp int64) string {
-	return signed.Sign(signingKey, attachmentSigPayload(id), exp)
-}
-
 // VerifyAttachmentSig validates a signed attachment download request. It checks
 // that exp has not passed and that sig is a constant-time match for the
 // expected HMAC. It returns nil on success, or an error describing the failure.
 //
 // It is the canonical verifier for the GET /attachments/{id} download route and
-// is the inverse of the signing performed by buildSignedURL.
+// is the inverse of the signing performed by attachmentio.SignURL. The payload
+// construction is shared via attachmentio.SigPayload so this stays in lockstep
+// with signing regardless of which package issued the URL (this resource
+// handler or the get_attachment tool).
 func VerifyAttachmentSig(signingKey []byte, id, exp int64, sig string, now time.Time) error {
-	return signed.Verify(signingKey, attachmentSigPayload(id), exp, sig, now)
-}
-
-// buildSignedURL returns a signed URL for direct attachment download.
-// The URL embeds exp (Unix timestamp) and sig (HMAC-SHA256 hex).
-func buildSignedURL(publicURL string, id int64, signingKey []byte) string {
-	exp := time.Now().Add(attachmentURLTTL).Unix()
-	sig := signAttachment(signingKey, id, exp)
-	base := strings.TrimRight(publicURL, "/")
-	return fmt.Sprintf("%s/attachments/%d?exp=%d&sig=%s", base, id, exp, sig)
+	return signed.Verify(signingKey, attachmentio.SigPayload(id), exp, sig, now)
 }

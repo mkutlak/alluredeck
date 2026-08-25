@@ -3,7 +3,9 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -306,21 +308,29 @@ func TestDiagnoseFailure_AttachmentFetchError(t *testing.T) {
 }
 
 // TestDiagnoseFailure_Truncation verifies that more failing tests than max_tests
-// are truncated and reported.
+// are truncated and reported. truncated_count is measured against the DISTINCT
+// failing-test count from the store, not the number of rows fetched, so it
+// stays truthful when duplicate rows are collapsed.
 func TestDiagnoseFailure_Truncation(t *testing.T) {
 	mocks := testutil.New()
 	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
 
-	// Return more rows than the cap; the handler asks for max_tests+1.
+	// Four distinct failing tests exist; the caller asks for three.
 	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, limit int) ([]store.TestResult, error) {
-		rows := make([]store.TestResult, 0, limit)
-		for i := range limit {
+		rows := make([]store.TestResult, 0, 4)
+		for i := range 4 {
+			if len(rows) == limit {
+				break
+			}
 			rows = append(rows, store.TestResult{
 				BuildID: 100, ProjectID: projectID, HistoryID: "h" + string(rune('a'+i)),
-				FullName: "pkg.Test", Status: "failed", DurationMs: 10,
+				FullName: "pkg.Test" + string(rune('a'+i)), Status: "failed", DurationMs: 10,
 			})
 		}
 		return rows, nil
+	}
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _ int64, _ int64) (int, error) {
+		return 4, nil
 	}
 
 	cs := setupTestServer(t, buildStoresDiagnose(mocks))
@@ -346,6 +356,306 @@ func TestDiagnoseFailure_Truncation(t *testing.T) {
 	}
 	if out.TruncatedCount != 1 {
 		t.Errorf("truncated_count: got %d, want 1", out.TruncatedCount)
+	}
+}
+
+// TestDiagnoseFailure_FetchesEnoughRowsToSurviveDedup pins the fetch budget.
+// Playwright writes two rows per test, so asking for max_tests+1 rows would
+// yield only (max_tests+1)/2 distinct tests after the collapse and silently
+// under-report a build. The handler must ask for 2*max_tests+2.
+func TestDiagnoseFailure_FetchesEnoughRowsToSurviveDedup(t *testing.T) {
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
+
+	var gotLimit int
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, limit int) ([]store.TestResult, error) {
+		gotLimit = limit
+		// Three tests, each recorded twice under the two history_id schemes.
+		rows := make([]store.TestResult, 0, 6)
+		for _, name := range []string{"pkg.A", "pkg.B", "pkg.C"} {
+			rows = append(rows,
+				store.TestResult{BuildID: 100, ProjectID: projectID, HistoryID: name + ".dup",
+					FullName: name, Status: "failed", DurationMs: 10},
+				store.TestResult{BuildID: 100, ProjectID: projectID, HistoryID: name + ":real",
+					FullName: name, Status: "failed", DurationMs: 10, StatusMessage: "boom"},
+			)
+		}
+		if len(rows) > limit {
+			rows = rows[:limit]
+		}
+		return rows, nil
+	}
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _ int64, _ int64) (int, error) {
+		return 3, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100, "max_tests": 3},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+	if gotLimit != 8 {
+		t.Errorf("store limit: got %d, want 8 (2*max_tests+2)", gotLimit)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if out.ExaminedTests != 3 {
+		t.Fatalf("examined_tests: got %d, want 3 (all twins collapsed, none lost)", out.ExaminedTests)
+	}
+	if out.Truncated {
+		t.Errorf("truncated: got true, want false — every distinct test was examined")
+	}
+}
+
+// TestDiagnoseFailure_MergesDuplicateRows is the regression guard for the live
+// bug: 8 real failures were reported as examined_tests=16 because Playwright
+// records each test twice — an enriched row (history_id "md5:md5") and an empty
+// shell ("md5.md5"). The enriched row must survive, the shell's identifier must
+// be reported under merged_history_ids, and a top-level warning must say how
+// many rows were merged.
+func TestDiagnoseFailure_MergesDuplicateRows(t *testing.T) {
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
+
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			// Empty shell first, so the ordering cannot be what saves us.
+			{BuildID: 100, ProjectID: projectID, HistoryID: "abc.abc",
+				FullName: "spec/login.ts > login", Status: "failed", DurationMs: 10},
+			{BuildID: 100, ProjectID: projectID, HistoryID: "abc:abc",
+				FullName: "spec/login.ts > login", Status: "failed", DurationMs: 10,
+				StatusMessage: "expected 200, got 500"},
+			{BuildID: 100, ProjectID: projectID, HistoryID: "def.def",
+				FullName: "spec/cart.ts > cart", Status: "broken", DurationMs: 20},
+			{BuildID: 100, ProjectID: projectID, HistoryID: "def:def",
+				FullName: "spec/cart.ts > cart", Status: "broken", DurationMs: 20,
+				StatusMessage: "timeout"},
+		}, nil
+	}
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _ int64, _ int64) (int, error) {
+		return 2, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if out.ExaminedTests != 2 {
+		t.Fatalf("examined_tests: got %d, want 2 (4 rows are 2 tests)", out.ExaminedTests)
+	}
+	if out.Truncated {
+		t.Errorf("truncated: got true, want false")
+	}
+	byName := make(map[string]tools.DiagnoseTest, len(out.FailingTests))
+	for _, d := range out.FailingTests {
+		byName[d.FullName] = d
+	}
+	login := byName["spec/login.ts > login"]
+	if login.HistoryID != "abc:abc" {
+		t.Errorf("surviving history_id: got %q, want abc:abc (the enriched row)", login.HistoryID)
+	}
+	if len(login.MergedHistoryIDs) != 1 || login.MergedHistoryIDs[0] != "abc.abc" {
+		t.Errorf("merged_history_ids: got %v, want [abc.abc]", login.MergedHistoryIDs)
+	}
+	if len(out.Warnings) != 1 {
+		t.Fatalf("warnings: got %v, want exactly one merge warning", out.Warnings)
+	}
+	if !contains(out.Warnings[0], "2 duplicate history_id rows merged by full_name") {
+		t.Errorf("warning text: got %q", out.Warnings[0])
+	}
+}
+
+// TestDiagnoseFailure_EmitsRetriesFlakyAndFingerprintDetail verifies the signals
+// the store already returns are surfaced rather than dropped on the floor.
+func TestDiagnoseFailure_EmitsRetriesFlakyAndFingerprintDetail(t *testing.T) {
+	const fpUUID = "33333333-3333-3333-3333-333333333333"
+
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
+
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 100, ProjectID: projectID, HistoryID: "h1", FullName: "pkg.Retried",
+				Status: "failed", DurationMs: 10, Retries: 2, Flaky: true},
+		}, nil
+	}
+	mocks.TestResults.GetDefectFingerprintIDFn = func(_ context.Context, _ int64, _ int64, _ string) (*string, error) {
+		id := fpUUID
+		return &id, nil
+	}
+	mocks.Defects.Seed(store.DefectFingerprint{
+		ID:               fpUUID,
+		ProjectID:        projectID,
+		FingerprintHash:  "hash-abc",
+		Category:         store.DefectCategoryProductBug,
+		Resolution:       "confirmed",
+		OccurrenceCount:  17,
+		FirstSeenBuildID: 42,
+	})
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if len(out.FailingTests) != 1 {
+		t.Fatalf("failing_tests: got %d, want 1", len(out.FailingTests))
+	}
+	d := out.FailingTests[0]
+	if d.Retries != 2 {
+		t.Errorf("retries: got %d, want 2", d.Retries)
+	}
+	if !d.Flaky {
+		t.Error("flaky: got false, want true")
+	}
+	if d.Fingerprint == nil {
+		t.Fatal("fingerprint: got nil")
+	}
+	if d.Fingerprint.OccurrenceCount != 17 {
+		t.Errorf("fingerprint.occurrence_count: got %d, want 17", d.Fingerprint.OccurrenceCount)
+	}
+	if d.Fingerprint.Resolution != "confirmed" {
+		t.Errorf("fingerprint.resolution: got %q, want confirmed", d.Fingerprint.Resolution)
+	}
+	if d.Fingerprint.FirstSeenBuildID != 42 {
+		t.Errorf("fingerprint.first_seen_build_id: got %d, want 42", d.Fingerprint.FirstSeenBuildID)
+	}
+}
+
+// TestDiagnoseFailure_ExplainsAbsentLastGood verifies that when a test has
+// never passed on the build's own branch the output says so and falls back to
+// ONE cross-branch lookup, instead of leaving last_good silently absent.
+func TestDiagnoseFailure_ExplainsAbsentLastGood(t *testing.T) {
+	mocks := testutil.New()
+	proj, err := mocks.Projects.CreateProject(context.Background(), "demo")
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	branch := "feature/x"
+	branchID := int64(7)
+	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
+		return store.Build{ID: id, ProjectID: proj.ID, BuildNumber: 28, CIBranch: &branch, BranchID: &branchID}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 100, ProjectID: proj.ID, HistoryID: "h1", FullName: "pkg.Test", Status: "failed", DurationMs: 10},
+		}, nil
+	}
+
+	crossBranchCalls := 0
+	sha := "deadbee"
+	mocks.TestResults.GetLastPassingBuildFn = func(_ context.Context, _ int64, _ string, bID *int64, _ int) (*store.TestHistoryEntry, error) {
+		if bID != nil {
+			return nil, nil // never passed on this branch
+		}
+		crossBranchCalls++
+		return &store.TestHistoryEntry{
+			BuildID: 55, BuildNumber: 20, Status: "passed",
+			CreatedAt:  time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+			BranchName: "main", CICommitSHA: &sha,
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": proj.ID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if len(out.FailingTests) != 1 {
+		t.Fatalf("failing_tests: got %d, want 1", len(out.FailingTests))
+	}
+	d := out.FailingTests[0]
+	if d.LastGood != nil {
+		t.Errorf("last_good: got %+v, want nil", d.LastGood)
+	}
+	want := "no passing run on branch feature/x in recorded history"
+	if d.LastGoodAbsentReason != want {
+		t.Errorf("last_good_absent_reason: got %q, want %q", d.LastGoodAbsentReason, want)
+	}
+	if crossBranchCalls != 1 {
+		t.Errorf("cross-branch lookups: got %d, want exactly 1", crossBranchCalls)
+	}
+	if d.CrossBranchLastGood == nil {
+		t.Fatal("cross_branch_last_good: got nil")
+	}
+	if d.CrossBranchLastGood.Branch != "main" {
+		t.Errorf("cross_branch_last_good.branch: got %q, want main", d.CrossBranchLastGood.Branch)
+	}
+	if d.CrossBranchLastGood.BuildNumber != 20 || d.CrossBranchLastGood.BuildID != 55 {
+		t.Errorf("cross_branch_last_good build: got %d/%d, want 55/20",
+			d.CrossBranchLastGood.BuildID, d.CrossBranchLastGood.BuildNumber)
+	}
+	if d.CrossBranchLastGood.CommitSHA != sha {
+		t.Errorf("cross_branch_last_good.commit_sha: got %q, want %q", d.CrossBranchLastGood.CommitSHA, sha)
+	}
+}
+
+// TestDiagnoseFailure_DigestIsShortAndNotAPayloadCopy verifies the tool returns
+// a one-line text digest rather than letting the SDK duplicate the whole
+// structured payload as JSON text.
+func TestDiagnoseFailure_DigestIsShortAndNotAPayloadCopy(t *testing.T) {
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 100, ProjectID: projectID, HistoryID: "h1", FullName: "pkg.Test", Status: "failed", DurationMs: 10},
+		}, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+	if len(res.Content) != 1 {
+		t.Fatalf("content blocks: got %d, want 1 digest block", len(res.Content))
+	}
+	tc, ok := res.Content[0].(*mcpsdk.TextContent)
+	if !ok {
+		t.Fatalf("content block type: got %T, want *TextContent", res.Content[0])
+	}
+	if len(tc.Text) >= 200 {
+		t.Errorf("digest length: got %d bytes, want under 200", len(tc.Text))
+	}
+	if !contains(tc.Text, "build #28") || !contains(tc.Text, "/projects/") {
+		t.Errorf("digest should name the build and the report URL, got %q", tc.Text)
 	}
 }
 
@@ -769,10 +1079,11 @@ func TestDiagnoseFailure_LastGoodNilWhenNeverPassed(t *testing.T) {
 	}
 }
 
-// TestDiagnoseFailure_LastGoodDiffGatedByFlag verifies that last_good_diff is
-// computed only when include_last_good_diff is set: the comparison query must
-// not run on the default path, and when enabled the this_test transition and
-// co-regression sample are populated from the last-good→current diff.
+// TestDiagnoseFailure_LastGoodDiffGatedByFlag verifies what the flag actually
+// gates. The comparison itself is memoized per distinct last-good build, so it
+// is cheap enough to run by default and always yields last_good_diff_counts;
+// what include_last_good_diff buys is the expensive part of the payload — the
+// this_test transition and the co-regression sample in last_good_diff.
 func TestDiagnoseFailure_LastGoodDiffGatedByFlag(t *testing.T) {
 	const buildID int64 = 100
 	const lastGoodBuildID int64 = 80
@@ -791,9 +1102,53 @@ func TestDiagnoseFailure_LastGoodDiffGatedByFlag(t *testing.T) {
 		return mocks, projectID
 	}
 
-	// 1. Default path: comparison must NOT be called, last_good_diff nil.
-	t.Run("flag off skips comparison", func(t *testing.T) {
+	// 1. Default path: counts are emitted, the heavy lists are not.
+	t.Run("flag off emits counts without the lists", func(t *testing.T) {
 		mocks, projectID := newMocks()
+		compareCalls := 0
+		mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
+			compareCalls++
+			return []store.DiffEntry{
+				{FullName: "pkg.LoginTest", HistoryID: "h1", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+				{FullName: "pkg.CoTest", HistoryID: "hCo", StatusA: "passed", StatusB: "failed", Category: store.DiffRegressed},
+				{FullName: "pkg.FixedTest", HistoryID: "hFix", StatusA: "failed", StatusB: "passed", Category: store.DiffFixed},
+				{FullName: "pkg.NewTest", HistoryID: "hNew", StatusB: "failed", Category: store.DiffAdded},
+			}, nil
+		}
+
+		cs := setupTestServer(t, buildStoresDiagnose(mocks))
+		res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+			Name:      "diagnose_failure",
+			Arguments: map[string]any{"project_id": projectID, "build_id": buildID},
+		})
+		if err != nil {
+			t.Fatalf("CallTool: %v", err)
+		}
+		if res.IsError {
+			t.Fatalf("unexpected tool error: %v", res.Content)
+		}
+		if compareCalls != 1 {
+			t.Errorf("CompareBuildsByHistoryID calls: got %d, want 1 (memoized per last-good build)", compareCalls)
+		}
+		out := decodeDiagnoseFailure(t, res)
+		counts := out.FailingTests[0].LastGoodDiffCounts
+		if counts == nil {
+			t.Fatal("last_good_diff_counts must be emitted whenever last_good exists")
+		}
+		if counts.Regressed != 2 || counts.Fixed != 1 || counts.Added != 1 {
+			t.Errorf("last_good_diff_counts: got %+v, want {regressed:2 fixed:1 added:1}", counts)
+		}
+		if out.FailingTests[0].LastGoodDiff != nil {
+			t.Errorf("last_good_diff must be nil without the flag, got %+v", out.FailingTests[0].LastGoodDiff)
+		}
+	})
+
+	// 1b. No last-good build means no counts and no comparison at all.
+	t.Run("no last good means no counts", func(t *testing.T) {
+		mocks, projectID := newMocks()
+		mocks.TestResults.GetLastPassingBuildFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) (*store.TestHistoryEntry, error) {
+			return nil, nil
+		}
 		compareCalled := false
 		mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
 			compareCalled = true
@@ -812,11 +1167,11 @@ func TestDiagnoseFailure_LastGoodDiffGatedByFlag(t *testing.T) {
 			t.Fatalf("unexpected tool error: %v", res.Content)
 		}
 		if compareCalled {
-			t.Error("CompareBuildsByHistoryID must not be called without include_last_good_diff")
+			t.Error("CompareBuildsByHistoryID must not run when the test has no last-good build")
 		}
 		out := decodeDiagnoseFailure(t, res)
-		if out.FailingTests[0].LastGoodDiff != nil {
-			t.Errorf("last_good_diff must be nil without the flag, got %+v", out.FailingTests[0].LastGoodDiff)
+		if out.FailingTests[0].LastGoodDiffCounts != nil {
+			t.Errorf("last_good_diff_counts must be nil without a last-good build, got %+v", out.FailingTests[0].LastGoodDiffCounts)
 		}
 	})
 
@@ -1163,5 +1518,318 @@ func TestDiagnoseFailure_NilBranchCrossBranchFallback(t *testing.T) {
 	}
 	if sig.LastStatus != triage.StatusPassed {
 		t.Errorf("last_status: got %q, want %q", sig.LastStatus, triage.StatusPassed)
+	}
+}
+
+// tokenAuth500 and toastAssertion are the two real error messages from the
+// report that motivated clustering: eight failures, four sharing a TokenAuth
+// 500 raised in beforeEach and three sharing one toast assertion, all of it
+// previously rendered as a flat list of eight equal-looking entries.
+const (
+	tokenAuth500   = "Error: API call failed with status 500. URL: https://qa.example.com/api/TokenAuth/Authenticate"
+	toastAssertion = "Error: Timed out 5000ms waiting for expect(locator).toContainText('Saved')"
+)
+
+// seedTwoRootCauses wires a build whose failures have exactly two root causes:
+// four before-hooks failures against one 500 endpoint and three test-body
+// failures on one assertion. The last-good build carries the same commit sha as
+// the diagnosed build, so the code has not changed since these tests passed.
+func seedTwoRootCauses(t *testing.T) (*testutil.MockStores, int64) {
+	t.Helper()
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
+
+	hooks := []string{"h1", "h2", "h3", "h4"}
+	toast := []string{"t1", "t2", "t3"}
+
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		rows := make([]store.TestResult, 0, len(hooks)+len(toast))
+		for _, h := range hooks {
+			rows = append(rows, store.TestResult{
+				BuildID: 100, ProjectID: projectID, HistoryID: h,
+				FullName: "spec/auth-" + h + ".ts > login", Status: "failed", DurationMs: 120,
+				StatusMessage: tokenAuth500,
+			})
+		}
+		for _, h := range toast {
+			rows = append(rows, store.TestResult{
+				BuildID: 100, ProjectID: projectID, HistoryID: h,
+				FullName: "spec/save-" + h + ".ts > save", Status: "failed", DurationMs: 5200,
+				StatusMessage: toastAssertion,
+			})
+		}
+		return rows, nil
+	}
+	mocks.TestResults.GetFailedStepPathFn = func(_ context.Context, _ int64, _ int64, historyID string) ([]string, string, error) {
+		if strings.HasPrefix(historyID, "h") {
+			return []string{"Before Hooks", "login via API"}, tokenAuth500, nil
+		}
+		return []string{"Test Body", "check toast"}, toastAssertion, nil
+	}
+	// Every test last passed at the same build, on the same commit as the one
+	// being diagnosed ("abc123" from seedDiagnoseProjectBuild).
+	sameSHA := "abc123"
+	mocks.TestResults.GetLastPassingBuildFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) (*store.TestHistoryEntry, error) {
+		return &store.TestHistoryEntry{BuildID: 80, BuildNumber: 25, Status: "passed", CICommitSHA: &sameSHA}, nil
+	}
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _ int64, _ int64) (int, error) {
+		return len(hooks) + len(toast), nil
+	}
+	return mocks, projectID
+}
+
+// TestDiagnoseFailure_ClustersSharedRootCauses is the end-to-end guard for the
+// live complaint: seven failures with two root causes must come back as two
+// clusters, with the duplicated error text carried once per cluster rather than
+// once per test.
+func TestDiagnoseFailure_ClustersSharedRootCauses(t *testing.T) {
+	mocks, projectID := seedTwoRootCauses(t)
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if len(out.Clusters) != 2 {
+		t.Fatalf("clusters: got %d, want 2 (%+v)", len(out.Clusters), out.Clusters)
+	}
+
+	auth := out.Clusters[0]
+	if auth.ClusterID != "c1" || auth.MemberCount != 4 {
+		t.Errorf("dominant cluster: got id=%q count=%d, want c1/4", auth.ClusterID, auth.MemberCount)
+	}
+	if auth.FailurePhase != triage.PhaseBeforeHooks {
+		t.Errorf("dominant cluster failure_phase: got %q, want before_hooks", auth.FailurePhase)
+	}
+	if auth.SharedError != tokenAuth500 {
+		t.Errorf("dominant cluster shared_error: got %q", auth.SharedError)
+	}
+	if auth.SharedStatusPattern == nil || auth.SharedStatusPattern.StatusCode != 500 {
+		t.Errorf("dominant cluster shared_status_pattern: got %+v, want 500", auth.SharedStatusPattern)
+	}
+	if len(auth.MemberFullNames) != 4 {
+		t.Errorf("dominant cluster member_full_names: got %v", auth.MemberFullNames)
+	}
+	if out.Clusters[1].ClusterID != "c2" || out.Clusters[1].MemberCount != 3 {
+		t.Errorf("second cluster: got id=%q count=%d, want c2/3", out.Clusters[1].ClusterID, out.Clusters[1].MemberCount)
+	}
+
+	// Every test is tagged; only the two representatives keep the heavy text.
+	withText := 0
+	byName := make(map[string]tools.DiagnoseTest, len(out.FailingTests))
+	for _, d := range out.FailingTests {
+		byName[d.FullName] = d
+		if d.ClusterID == "" {
+			t.Errorf("test %q carries no cluster_id", d.FullName)
+		}
+		if d.ErrorMessage != "" {
+			withText++
+		}
+	}
+	if withText != 2 {
+		t.Errorf("tests keeping error_message: got %d, want 2 (one representative per cluster)", withText)
+	}
+	rep := byName[auth.RepresentativeFullName]
+	if rep.ErrorMessage != tokenAuth500 || len(rep.FailedStepPath) == 0 {
+		t.Errorf("representative must keep its text and step path, got %+v", rep)
+	}
+	// A stripped member keeps everything except the duplicated text.
+	for _, name := range auth.MemberFullNames[1:] {
+		m := byName[name]
+		if m.ErrorMessage != "" || m.FailedStepPath != nil {
+			t.Errorf("member %q must be stripped, got msg=%q path=%v", name, m.ErrorMessage, m.FailedStepPath)
+		}
+		if m.Signals.FailurePhase != triage.PhaseBeforeHooks {
+			t.Errorf("member %q lost its signals: %+v", name, m.Signals)
+		}
+		if m.LastGood == nil {
+			t.Errorf("member %q lost its last_good pointer", name)
+		}
+	}
+}
+
+// TestDiagnoseFailure_BuildVerdict verifies the build-level judgement: the
+// dominant cluster decides the verdict, the disagreement with the second
+// cluster caps the confidence, and the action follows the verdict.
+func TestDiagnoseFailure_BuildVerdict(t *testing.T) {
+	mocks, projectID := seedTwoRootCauses(t)
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	v := out.BuildVerdict
+	if v.Verdict != tools.VerdictInfraEnv {
+		t.Errorf("verdict: got %q, want %q (evidence %+v, gaps %v)", v.Verdict, tools.VerdictInfraEnv, v.Evidence, v.EvidenceGaps)
+	}
+	if v.Confidence != tools.ConfidenceMedium {
+		t.Errorf("confidence: got %q, want medium (the two clusters disagree)", v.Confidence)
+	}
+	if v.RecommendedAction != tools.ActionRerun {
+		t.Errorf("recommended_action: got %q, want %q", v.RecommendedAction, tools.ActionRerun)
+	}
+	if v.AffectedTestCount != 4 {
+		t.Errorf("affected_test_count: got %d, want 4 (the dominant cluster)", v.AffectedTestCount)
+	}
+	if len(v.Evidence) == 0 {
+		t.Error("verdict must carry its evidence")
+	}
+}
+
+// TestDiagnoseFailure_VerdictNeverHighWhenTruncated pins the ceiling: a
+// diagnosis that did not see the whole build cannot be confident about it.
+func TestDiagnoseFailure_VerdictNeverHighWhenTruncated(t *testing.T) {
+	mocks, projectID := seedTwoRootCauses(t)
+	// More failures exist than were examined.
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _ int64, _ int64) (int, error) {
+		return 40, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if !out.Truncated {
+		t.Fatal("want truncated=true for this fixture")
+	}
+	if out.BuildVerdict.Confidence == tools.ConfidenceHigh {
+		t.Error("confidence must never be high when the diagnosis is truncated")
+	}
+	if len(out.BuildVerdict.EvidenceGaps) == 0 {
+		t.Error("a truncated diagnosis must record the gap")
+	}
+}
+
+// TestDiagnoseFailure_KnownIssueRegexMatchesOnCluster verifies the inline
+// known-issue matching: the project's active rules are matched against each
+// cluster's shared error, reported on the CLUSTER, and kept distinct from the
+// per-test human-confirmed FK. A broken pattern is skipped rather than failing
+// the call.
+func TestDiagnoseFailure_KnownIssueRegexMatchesOnCluster(t *testing.T) {
+	mocks := testutil.New()
+	projectID := seedDiagnoseProjectBuild(t, mocks, 100, 28)
+	ctx := context.Background()
+
+	if _, err := mocks.KnownIssues.Create(ctx, projectID, "auth-service-flap", `TokenAuth/Authenticate`, "", ""); err != nil {
+		t.Fatalf("seed known issue: %v", err)
+	}
+	if _, err := mocks.KnownIssues.Create(ctx, projectID, "broken-rule", `([unclosed`, "", ""); err != nil {
+		t.Fatalf("seed broken known issue: %v", err)
+	}
+	if _, err := mocks.KnownIssues.Create(ctx, projectID, "never-matches", `will-not-match-anything`, "", ""); err != nil {
+		t.Fatalf("seed non-matching known issue: %v", err)
+	}
+
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{BuildID: 100, ProjectID: projectID, HistoryID: "h1", FullName: "spec/a.ts > a", Status: "failed", DurationMs: 100},
+		}, nil
+	}
+	mocks.TestResults.GetFailedStepPathFn = func(_ context.Context, _ int64, _ int64, _ string) ([]string, string, error) {
+		return []string{"Test Body", "call api"}, tokenAuth500, nil
+	}
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("a broken known-issue pattern must not fail the call: %v", res.Content)
+	}
+
+	out := decodeDiagnoseFailure(t, res)
+	if len(out.Clusters) != 1 {
+		t.Fatalf("clusters: got %d, want 1", len(out.Clusters))
+	}
+	matches := out.Clusters[0].KnownIssueRegexMatches
+	if len(matches) != 1 {
+		t.Fatalf("known_issue_regex_matches: got %+v, want exactly the one matching rule", matches)
+	}
+	if matches[0].Name != "auth-service-flap" {
+		t.Errorf("match name: got %q, want auth-service-flap", matches[0].Name)
+	}
+	if matches[0].MatchedSubstring != "TokenAuth/Authenticate" {
+		t.Errorf("matched_substring: got %q", matches[0].MatchedSubstring)
+	}
+	// A regex hit is not a confirmed link: the per-test FK stays empty.
+	if out.FailingTests[0].KnownIssue != nil {
+		t.Errorf("per-test known_issue must stay nil for a regex-only match, got %+v", out.FailingTests[0].KnownIssue)
+	}
+	// A regex hit is still enough to reach the known_issue verdict.
+	if out.BuildVerdict.Verdict != tools.VerdictKnownIssue {
+		t.Errorf("verdict: got %q, want %q", out.BuildVerdict.Verdict, tools.VerdictKnownIssue)
+	}
+	if out.BuildVerdict.RecommendedAction != tools.ActionLinkKnownIssue {
+		t.Errorf("recommended_action: got %q, want %q", out.BuildVerdict.RecommendedAction, tools.ActionLinkKnownIssue)
+	}
+}
+
+// TestDiagnoseFailure_DigestLeadsWithVerdict verifies the headline: cluster
+// count and verdict first, so a reader can decide whether to open the payload
+// without opening the payload.
+func TestDiagnoseFailure_DigestLeadsWithVerdict(t *testing.T) {
+	mocks, projectID := seedTwoRootCauses(t)
+
+	cs := setupTestServer(t, buildStoresDiagnose(mocks))
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "diagnose_failure",
+		Arguments: map[string]any{"project_id": projectID, "build_id": 100},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
+	}
+	tc, ok := res.Content[0].(*mcpsdk.TextContent)
+	if !ok {
+		t.Fatalf("content block type: got %T, want *TextContent", res.Content[0])
+	}
+
+	for _, want := range []string{
+		"build #28 (main)",
+		"7 failing in 2 clusters",
+		"verdict: infra_env (medium)",
+		"4x status 500",
+		"in before_hooks",
+		"/projects/",
+	} {
+		if !contains(tc.Text, want) {
+			t.Errorf("digest missing %q, got %q", want, tc.Text)
+		}
+	}
+	// The digest must stay a headline, not become a second payload.
+	if len(tc.Text) >= 250 {
+		t.Errorf("digest length: got %d bytes, want under 250 (%q)", len(tc.Text), tc.Text)
 	}
 }

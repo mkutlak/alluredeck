@@ -17,8 +17,8 @@ import (
 
 // MatchKnownIssuesInput holds parameters for match_known_issues.
 type MatchKnownIssuesInput struct {
-	ProjectID    int    `json:"project_id"`
-	ErrorMessage string `json:"error_message"`
+	ProjectID    int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
+	ErrorMessage string `json:"error_message" jsonschema:"Error message text to match against active known-issue regex patterns for the project."`
 }
 
 // KnownIssueMatch is one match returned by match_known_issues.
@@ -77,6 +77,7 @@ func matchKnownIssuesHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 			})
 		}
 
-		return nil, MatchKnownIssuesOutput{Items: matches}, nil
+		digest := fmt.Sprintf("%d known-issue match(es)", len(matches))
+		return textResult(digest), MatchKnownIssuesOutput{Items: matches}, nil
 	}
 }

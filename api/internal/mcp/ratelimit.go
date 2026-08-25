@@ -23,6 +23,9 @@ const maxRateLimitEntries = 10_000
 // Costs are relative, not absolute: they express how many ordinary requests a
 // call is worth, and are deliberately coarse.
 var defaultToolCosts = map[string]int{
+	// Runs diagnose_failure's per-test work across EVERY shard build of a
+	// pipeline, so it is a multiple of the heaviest single-build tool.
+	"diagnose_pipeline": 8,
 	// Resolves a build, lists every failing test, and runs per-test triage
 	// with a last-good lookup each — by far the heaviest tool.
 	"diagnose_failure": 5,
@@ -30,8 +33,13 @@ var defaultToolCosts = map[string]int{
 	"get_test_history": 3,
 	// Full diff of two builds' result sets.
 	"compare_builds": 3,
+	// Reads an attachment blob out of file storage (or S3) on top of the
+	// metadata lookups — the only tool that leaves the database.
+	"get_attachment": 3,
 	// Scans recent failure messages for a substring match.
 	"find_test_by_name": 2,
+	// Fans out over three proposal tables plus a user lookup per proposer.
+	"list_proposals": 2,
 }
 
 // RateLimiter is a per-identity token-bucket rate limiter. The identity key is

@@ -92,9 +92,6 @@ func TestListFailingTests_HappyPath(t *testing.T) {
 	if len(out.Items) != 3 {
 		t.Errorf("want 3 items, got %d", len(out.Items))
 	}
-	if out.NextCursor != "" {
-		t.Errorf("want empty next_cursor, got %q", out.NextCursor)
-	}
 	if out.Items[1].FullName != "pkg.Test2" {
 		t.Errorf("want pkg.Test2, got %q", out.Items[1].FullName)
 	}
@@ -103,97 +100,79 @@ func TestListFailingTests_HappyPath(t *testing.T) {
 	}
 }
 
-// TestListFailingTests_Pagination seeds 5 failures, uses limit=2, and walks all pages.
-func TestListFailingTests_Pagination(t *testing.T) {
-	allResults := []store.TestResult{
-		{BuildID: 1, HistoryID: "h1", FullName: "Test1", Status: "failed"},
-		{BuildID: 1, HistoryID: "h2", FullName: "Test2", Status: "failed"},
-		{BuildID: 1, HistoryID: "h3", FullName: "Test3", Status: "failed"},
-		{BuildID: 1, HistoryID: "h4", FullName: "Test4", Status: "failed"},
-		{BuildID: 1, HistoryID: "h5", FullName: "Test5", Status: "failed"},
-	}
-
+// TestListFailingTests_TestResultIDPopulated verifies test_result_id is taken
+// from the store row's ID (previously always zero — a fabricated value a
+// caller could mistake for a real id).
+func TestListFailingTests_TestResultIDPopulated(t *testing.T) {
 	mocks := testutil.New()
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, _ int64) (store.Build, error) {
-		return store.Build{ID: 1, BuildNumber: 1}, nil
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, projectID int64) (store.Build, error) {
+		return store.Build{ID: 42, ProjectID: projectID, BuildNumber: 7}, nil
 	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, limit int) ([]store.TestResult, error) {
-		// Return up to limit items (handler requests limit+1 for has-more detection).
-		if limit > len(allResults) {
-			limit = len(allResults)
-		}
-		return allResults[:limit], nil
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{
+			{ID: 501, BuildID: 42, HistoryID: "h1", FullName: "pkg.Test1", Status: "failed"},
+		}, nil
 	}
 
 	cs := setupTestServer(t, buildStores(mocks))
 	ctx := context.Background()
 
-	// Page 1: limit=2, no cursor → expect 2 items + cursor.
-	res1, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "list_failing_tests",
-		Arguments: map[string]any{"project_id": 1, "build_id": 1, "limit": 2},
+		Arguments: map[string]any{"project_id": 1},
 	})
 	if err != nil {
-		t.Fatalf("page1 CallTool: %v", err)
+		t.Fatalf("CallTool error: %v", err)
 	}
-	if res1.IsError {
-		t.Fatalf("page1 unexpected error: %v", res1.Content)
-	}
-	out1 := decodeOutput(t, res1)
-	if len(out1.Items) != 2 {
-		t.Errorf("page1: want 2 items, got %d", len(out1.Items))
-	}
-	if out1.NextCursor == "" {
-		t.Error("page1: want non-empty next_cursor")
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %v", res.Content)
 	}
 
-	// Page 2: use cursor from page 1, expect 2 items + cursor.
-	// We simulate the store returning items [2..4] by adjusting the mock.
+	out := decodeOutput(t, res)
+	if len(out.Items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(out.Items))
+	}
+	if out.Items[0].TestResultID != 501 {
+		t.Errorf("want test_result_id=501, got %d", out.Items[0].TestResultID)
+	}
+}
+
+// TestListFailingTests_CursorIgnored verifies that a cursor value never
+// affects the request the tool issues to the store — list_failing_tests has
+// no offset pagination, so the input schema accepts and ignores it rather
+// than lying about a "next page" that would just re-return page one.
+func TestListFailingTests_CursorIgnored(t *testing.T) {
+	var gotLimit int
+	mocks := testutil.New()
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, _ int64) (store.Build, error) {
+		return store.Build{ID: 1, BuildNumber: 1}, nil
+	}
 	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, limit int) ([]store.TestResult, error) {
-		offset := 2 // page2 offset
-		end := min(offset+limit, len(allResults))
-		return allResults[offset:end], nil
-	}
-	res2, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
-		Name:      "list_failing_tests",
-		Arguments: map[string]any{"project_id": 1, "build_id": 1, "limit": 2, "cursor": out1.NextCursor},
-	})
-	if err != nil {
-		t.Fatalf("page2 CallTool: %v", err)
-	}
-	if res2.IsError {
-		t.Fatalf("page2 unexpected error: %v", res2.Content)
-	}
-	out2 := decodeOutput(t, res2)
-	if len(out2.Items) != 2 {
-		t.Errorf("page2: want 2 items, got %d", len(out2.Items))
-	}
-	if out2.NextCursor == "" {
-		t.Error("page2: want non-empty next_cursor")
+		gotLimit = limit
+		return []store.TestResult{{BuildID: 1, HistoryID: "h1", FullName: "Test1", Status: "failed"}}, nil
 	}
 
-	// Page 3: last page, expect 1 item + empty cursor.
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, limit int) ([]store.TestResult, error) {
-		offset := 4 // page3 offset
-		end := min(offset+limit, len(allResults))
-		return allResults[offset:end], nil
-	}
-	res3, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+	cs := setupTestServer(t, buildStores(mocks))
+	ctx := context.Background()
+
+	// An arbitrary, non-base64 cursor must not cause a validation error.
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "list_failing_tests",
-		Arguments: map[string]any{"project_id": 1, "build_id": 1, "limit": 2, "cursor": out2.NextCursor},
+		Arguments: map[string]any{"project_id": 1, "limit": 2, "cursor": "not-a-real-cursor!!"},
 	})
 	if err != nil {
-		t.Fatalf("page3 CallTool: %v", err)
+		t.Fatalf("CallTool error: %v", err)
 	}
-	if res3.IsError {
-		t.Fatalf("page3 unexpected error: %v", res3.Content)
+	if res.IsError {
+		t.Fatalf("unexpected tool error (cursor should be ignored, not validated): %v", res.Content)
 	}
-	out3 := decodeOutput(t, res3)
-	if len(out3.Items) != 1 {
-		t.Errorf("page3: want 1 item, got %d", len(out3.Items))
+	if gotLimit != 2 {
+		t.Errorf("want store called with limit=2 regardless of cursor, got %d", gotLimit)
 	}
-	if out3.NextCursor != "" {
-		t.Errorf("page3: want empty next_cursor, got %q", out3.NextCursor)
+
+	out := decodeOutput(t, res)
+	if len(out.Items) != 1 {
+		t.Errorf("want 1 item, got %d", len(out.Items))
 	}
 }
 
@@ -221,9 +200,6 @@ func TestListFailingTests_NoBuilds(t *testing.T) {
 	out := decodeOutput(t, res)
 	if len(out.Items) != 0 {
 		t.Errorf("want 0 items, got %d", len(out.Items))
-	}
-	if out.NextCursor != "" {
-		t.Errorf("want empty next_cursor, got %q", out.NextCursor)
 	}
 }
 
@@ -323,8 +299,11 @@ func TestListFailingTests_BuildIDNotInProject(t *testing.T) {
 	}
 }
 
-// TestListFailingTests_SummaryOnly verifies summary_only=true returns counts without item list.
-func TestListFailingTests_SummaryOnly(t *testing.T) {
+// TestListFailingTests_SummaryOnly_FallsBackToCount verifies summary_only=true
+// returns counts without an item list, and that total_failed falls back to
+// CountFailedByBuild's distinct count when the build has no stat_failed/
+// stat_broken (predates stat tracking).
+func TestListFailingTests_SummaryOnly_FallsBackToCount(t *testing.T) {
 	mocks := testutil.New()
 	mocks.Builds.GetLatestBuildFn = func(_ context.Context, projectID int64) (store.Build, error) {
 		return store.Build{ID: 10, ProjectID: projectID, BuildNumber: 3}, nil
@@ -335,6 +314,9 @@ func TestListFailingTests_SummaryOnly(t *testing.T) {
 			{Status: "failed"},
 			{Status: "broken"},
 		}, nil
+	}
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _, _ int64) (int, error) {
+		return 3, nil
 	}
 
 	cs := setupTestServer(t, buildStores(mocks))
@@ -356,13 +338,60 @@ func TestListFailingTests_SummaryOnly(t *testing.T) {
 		t.Fatal("want non-nil summary")
 	}
 	if out.Summary.TotalFailed != 3 {
-		t.Errorf("want total_failed=3, got %d", out.Summary.TotalFailed)
+		t.Errorf("want total_failed=3 (fallback to distinct count), got %d", out.Summary.TotalFailed)
+	}
+	if out.Summary.DistinctFailed != 3 {
+		t.Errorf("want distinct_failed=3, got %d", out.Summary.DistinctFailed)
 	}
 	if out.Summary.Statuses["failed"] != 2 {
 		t.Errorf("want statuses.failed=2, got %d", out.Summary.Statuses["failed"])
 	}
 	if out.Summary.Statuses["broken"] != 1 {
 		t.Errorf("want statuses.broken=1, got %d", out.Summary.Statuses["broken"])
+	}
+}
+
+// TestListFailingTests_SummaryOnly_UsesBuildStats verifies total_failed
+// prefers the build's own stat_failed+stat_broken over the (possibly
+// row-capped) distinct count, while distinct_failed always reflects
+// CountFailedByBuild — the two legitimately differ when a test is ingested
+// twice under two history_id schemes (see DistinctFailed doc comment).
+func TestListFailingTests_SummaryOnly_UsesBuildStats(t *testing.T) {
+	failed, broken := 5, 2
+	mocks := testutil.New()
+	mocks.Builds.GetLatestBuildFn = func(_ context.Context, projectID int64) (store.Build, error) {
+		return store.Build{ID: 10, ProjectID: projectID, BuildNumber: 3, StatFailed: &failed, StatBroken: &broken}, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, _ int) ([]store.TestResult, error) {
+		return []store.TestResult{{Status: "failed"}}, nil
+	}
+	mocks.TestResults.CountFailedByBuildFn = func(_ context.Context, _, _ int64) (int, error) {
+		return 4, nil // dedup-aware count differs from the raw stat sum (7)
+	}
+
+	cs := setupTestServer(t, buildStores(mocks))
+	ctx := context.Background()
+
+	res, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "list_failing_tests",
+		Arguments: map[string]any{"project_id": 1, "summary_only": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+
+	out := decodeOutput(t, res)
+	if out.Summary == nil {
+		t.Fatal("want non-nil summary")
+	}
+	if out.Summary.TotalFailed != 7 {
+		t.Errorf("want total_failed=7 (stat_failed+stat_broken), got %d", out.Summary.TotalFailed)
+	}
+	if out.Summary.DistinctFailed != 4 {
+		t.Errorf("want distinct_failed=4, got %d", out.Summary.DistinctFailed)
 	}
 }
 
