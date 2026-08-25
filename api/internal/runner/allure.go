@@ -216,6 +216,68 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, storageKey, reportID
 	return results, nil
 }
 
+// historyIDsByFullName indexes the raw uploaded Allure results by fullName so
+// the stability rows derived from the *generated* report can adopt the same
+// historyId.
+//
+// Both writes upsert on (build_id, history_id): InsertBatch from the generated
+// report's data/test-results, InsertBatchFull from the raw *-result.json files.
+// The Allure generator does not always preserve the reporter's historyId, and
+// when it diverges each test lands twice in one build — a bare stability row
+// plus an enriched row. Reconciling on fullName (never on history_id) collapses
+// them back onto a single row.
+//
+// A fullName that maps to more than one distinct historyId is recorded as ""
+// and left alone: parameterized tests share a fullName and differ only by their
+// parameter hash, so there is no single id to adopt and rewriting would merge
+// distinct cases.
+//
+// This covers ambiguity on the RAW side only. The stability side needs the same
+// guard independently — see ambiguousStabilityFullNames.
+func historyIDsByFullName(results []*parser.Result) map[string]string {
+	ids := make(map[string]string, len(results))
+	for _, r := range results {
+		if r.FullName == "" || r.HistoryID == "" {
+			continue
+		}
+		prev, seen := ids[r.FullName]
+		if seen && prev != r.HistoryID {
+			ids[r.FullName] = "" // ambiguous — do not rewrite
+			continue
+		}
+		ids[r.FullName] = r.HistoryID
+	}
+	return ids
+}
+
+// ambiguousStabilityFullNames returns the fullNames carried by more than one
+// stability entry.
+//
+// historyIDsByFullName guards the source of the rewrite; this guards its
+// target. The two are independent: a fullName can be unambiguous among the raw
+// results and still be shared by several entries of the generated report — the
+// generator splits or renames cases the reporter wrote once. Rewriting those
+// entries would point them all at one historyId, and since both writes upsert
+// on (build_id, history_id) the last one to land would overwrite the others,
+// silently reducing several tests to a single row. Entries with such a fullName
+// keep their generated historyId instead.
+func ambiguousStabilityFullNames(entries []stabilityEntry) map[string]bool {
+	counts := make(map[string]int, len(entries))
+	for i := range entries {
+		if entries[i].FullName == "" {
+			continue
+		}
+		counts[entries[i].FullName]++
+	}
+	ambiguous := make(map[string]bool)
+	for name, n := range counts {
+		if n > 1 {
+			ambiguous[name] = true
+		}
+	}
+	return ambiguous
+}
+
 // storeAndPruneBuild stores a report snapshot and records it in the database.
 // storageKey is used for storage (filesystem/S3) operations; projectID (int64) is used for DB operations.
 // slug is the human-readable identifier used for logging only.
@@ -272,6 +334,17 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 			if a.testResultStore != nil {
 				buildID, err := a.testResultStore.GetBuildID(ctx, projectID, buildNumber)
 				if err == nil {
+					// Parse the raw uploaded results first: their historyId is the
+					// authoritative one, and the stability rows below must adopt it.
+					resultsDir := filepath.Join(localProjectDir, "results", batchID)
+					parsedResults, parseErr := parser.ParseDir(resultsDir)
+					if parseErr != nil {
+						a.logger.Warn("failed to parse raw results for enrichment",
+							zap.String("slug", slug), zap.Error(parseErr))
+					}
+					rawHistoryIDs := historyIDsByFullName(parsedResults)
+					ambiguousStability := ambiguousStabilityFullNames(stabilityEntries)
+
 					testResults := make([]store.TestResult, 0, len(stabilityEntries))
 					for i := range stabilityEntries {
 						se := &stabilityEntries[i]
@@ -302,13 +375,24 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 							}
 						}
 
+						// The Allure generator can rewrite historyId in the report it
+						// emits. Adopt the raw result's id so this row and the
+						// enrichment row below collapse onto one (build_id, history_id) —
+						// but only when the fullName identifies exactly one test on BOTH
+						// sides, or the rewrite would merge distinct tests instead of
+						// reuniting one.
+						historyID := se.HistoryID
+						if raw := rawHistoryIDs[se.FullName]; raw != "" && !ambiguousStability[se.FullName] {
+							historyID = raw
+						}
+
 						testResults = append(testResults, store.TestResult{
 							BuildID:    buildID,
 							ProjectID:  projectID,
 							TestName:   se.Name,
 							FullName:   se.FullName,
 							Status:     se.Status,
-							HistoryID:  se.HistoryID,
+							HistoryID:  historyID,
 							DurationMs: dur,
 							Flaky:      flaky,
 							Retries:    se.RetriesCount,
@@ -325,11 +409,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 							zap.String("slug", slug), zap.Int("build_number", buildNumber), zap.Error(err))
 					}
 					// Enrich with full parsed data (labels, parameters, steps, attachments).
-					resultsDir := filepath.Join(localProjectDir, "results", batchID)
-					if parsedResults, parseErr := parser.ParseDir(resultsDir); parseErr != nil {
-						a.logger.Warn("failed to parse raw results for enrichment",
-							zap.String("slug", slug), zap.Error(parseErr))
-					} else if len(parsedResults) > 0 {
+					if len(parsedResults) > 0 {
 						reportDataDir := filepath.Join(localProjectDir, "reports", "latest", "data")
 						parser.ResolveAttachments(parsedResults, reportDataDir)
 						if enrichErr := a.testResultStore.InsertBatchFull(ctx, buildID, projectID, parsedResults); enrichErr != nil {
