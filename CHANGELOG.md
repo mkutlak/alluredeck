@@ -1,3 +1,15 @@
+## [0.47.0](https://github.com/mkutlak/alluredeck/compare/v0.46.0...v0.47.0) (2026-08-25)
+
+### Features
+
+* **api:** per-retry attempt persistence, branch-aware history, and triage signal accuracy ([385dbdd](https://github.com/mkutlak/alluredeck/commit/385dbdd9a34d567301631a8b975628dd08b6c805))
+* **mcp:** clustering, build verdicts, attachment content, and pipeline-wide diagnosis ([075eb73](https://github.com/mkutlak/alluredeck/commit/075eb735ef22f07bda01a557a330820ee9a768ba))
+
+### Bug Fixes
+
+* **ci:** make the e2e stack writable and key project storage by storage_key ([7741a20](https://github.com/mkutlak/alluredeck/commit/7741a20e9d98897585f9f6674ce54e552ffdda3b))
+* **ingest:** reconcile Allure dual-write history_id schemes and purge shell twins ([0501196](https://github.com/mkutlak/alluredeck/commit/05011965f0ae0dc9813fb078713998b84e50dae4))
+
 ## [0.46.0](https://github.com/mkutlak/alluredeck/compare/v0.45.0...v0.46.0) (2026-07-30)
 
 ## [0.45.0](https://github.com/mkutlak/alluredeck/compare/v0.44.1...v0.45.0) (2026-07-29)
