@@ -124,9 +124,22 @@ type BuildPruner interface {
 	// branch of a project whose most recent build is older than cutoff, dropping
 	// the branches row only once no builds remain for that name. A build ingested
 	// after the stale-name check (created_at >= cutoff) is preserved, keeping the
-	// call safe for the unlocked retention scheduler. Returns the build_orders
-	// removed so the caller can prune their storage objects.
+	// call safe for the unlocked retention scheduler.
+	//
+	// The sweep is batched and best-effort: implementations process a bounded
+	// number of branches per call, each in its own short transaction, and join
+	// per-branch failures into the returned error while continuing with the
+	// rest. The returned build_orders are the builds actually deleted — callers
+	// MUST prune the corresponding storage objects even when err != nil, and a
+	// large backlog drains across successive calls rather than in one shot.
 	PruneStaleBranches(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error)
+	// DeleteOrphanBranches removes non-default branches rows no build references
+	// via ci_branch (failed ingests, prunes predating branch-row GC). Such rows
+	// are invisible to PruneStaleBranches, whose stale-name scan starts FROM
+	// builds. Rows younger than one hour are spared — a fresh build-less row is
+	// usually an ingest still in flight, which creates the branch row long
+	// before it writes the build's ci_branch. Returns the number of rows deleted.
+	DeleteOrphanBranches(ctx context.Context, projectID int64) (int64, error)
 	DeleteBuild(ctx context.Context, projectID int64, buildNumber int) error
 	DeleteAllBuilds(ctx context.Context, projectID int64) error
 }

@@ -514,9 +514,11 @@ AllureDeck supports two retention strategies that work together. A build is dele
 | **Count-based** | `KEEP_HISTORY_LATEST` | `100` | Maximum number of historical reports to keep per project. Set to `0` to disable count-based pruning (unlimited) |
 | **Age-based** | `KEEP_HISTORY_MAX_AGE_DAYS` | `0` (disabled) | Delete reports older than N days. Set to `0` to disable age-based pruning |
 
-**Stale-branch garbage collection:** When age-based pruning is enabled (`KEEP_HISTORY_MAX_AGE_DAYS` > 0), AllureDeck also removes entire non-default branches — their builds and the branch entry itself — once the branch's most recent build is older than the age cutoff. This keeps the branch selector dropdown from accumulating branches that stopped reporting long ago. The default branch is never removed, and a branch row is only dropped once none of its builds remain.
+**Stale-branch garbage collection:** When age-based pruning is enabled (`KEEP_HISTORY_MAX_AGE_DAYS` > 0), AllureDeck also removes entire non-default branches — their builds and the branch entry itself — once the branch's most recent build is older than the age cutoff. This keeps the branch selector dropdown from accumulating branches that stopped reporting long ago. The default branch is never removed, and a branch row is only dropped once none of its builds remain. The GC is batched: each sweep processes at most 50 stale branches, each in its own short transaction, so a large backlog drains incrementally across sweeps instead of requiring one oversized transaction (which databases with an aggressive `lock_timeout` would cancel forever).
 
-A **background scheduler** runs all three (count-based pruning, age-based pruning, and stale-branch GC) for every project. It runs an immediate sweep on API startup, then repeats every 24 hours, and respects graceful shutdown.
+**Orphan branch cleanup:** Branch entries that no build references (left behind by a failed upload, or by prunes that predate branch-row GC) are deleted on every scheduler sweep, regardless of which retention strategies are enabled.
+
+A **background scheduler** runs all of the above (count-based pruning, age-based pruning, stale-branch GC, and orphan branch cleanup) for every project. It runs an immediate sweep on API startup, then repeats every 24 hours, and respects graceful shutdown.
 
 Set `KEEP_HISTORY=false` to disable report history entirely (only the latest report is kept).
 

@@ -571,3 +571,262 @@ func TestPruneStaleBranches(t *testing.T) {
 		t.Errorf("expected feature-fresh branch row to survive, got err=%v", err)
 	}
 }
+
+// TestPruneStaleBranches_BatchedAcrossCalls seeds 55 stale non-default branches
+// (one build each) — five more than the per-call batch cap of 50 — plus a stale
+// default branch and a fresh non-default branch. The first call must prune
+// exactly 50 branches and the second call the remaining 5, proving a large
+// backlog drains incrementally across calls instead of requiring one oversized
+// transaction. The default and fresh branches must survive both sweeps.
+func TestPruneStaleBranches_BatchedAcrossCalls(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	branchStore := pg.NewBranchStore(s)
+
+	slug := fmt.Sprintf("test-prune-stale-batched-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	// "main" is created first → becomes the default branch.
+	if _, _, err := branchStore.GetOrCreate(ctx, projectID, "main"); err != nil {
+		t.Fatalf("GetOrCreate main: %v", err)
+	}
+
+	now := time.Now().UTC()
+	seedBranchBuild := func(order int, branch string, ts time.Time) {
+		t.Helper()
+		if _, _, err := branchStore.GetOrCreate(ctx, projectID, branch); err != nil {
+			t.Fatalf("GetOrCreate %s: %v", branch, err)
+		}
+		if err := buildStore.InsertBuild(ctx, projectID, order); err != nil {
+			t.Fatalf("InsertBuild %d: %v", order, err)
+		}
+		if _, err := s.Pool().Exec(ctx,
+			"UPDATE builds SET ci_branch=$1, created_at=$2 WHERE project_id=$3 AND build_order=$4",
+			branch, ts, projectID, order); err != nil {
+			t.Fatalf("seed build %d: %v", order, err)
+		}
+	}
+
+	// 55 stale non-default branches, one 40-day-old build each (orders 1..55).
+	const staleCount = 55
+	for i := range staleCount {
+		seedBranchBuild(i+1, fmt.Sprintf("bstale-%02d", i), now.AddDate(0, 0, -40))
+	}
+	// Stale default branch build — exempt — and a fresh non-default branch.
+	seedBranchBuild(100, "main", now.AddDate(0, 0, -40))
+	seedBranchBuild(101, "feature-fresh", now)
+
+	cutoff := now.AddDate(0, 0, -3)
+
+	removed1, err := buildStore.PruneStaleBranches(ctx, projectID, cutoff)
+	if err != nil {
+		t.Fatalf("PruneStaleBranches call 1: %v", err)
+	}
+	if len(removed1) != 50 {
+		t.Errorf("call 1: expected 50 removed builds (batch cap), got %d", len(removed1))
+	}
+
+	removed2, err := buildStore.PruneStaleBranches(ctx, projectID, cutoff)
+	if err != nil {
+		t.Fatalf("PruneStaleBranches call 2: %v", err)
+	}
+	if len(removed2) != 5 {
+		t.Errorf("call 2: expected 5 removed builds (backlog remainder), got %d", len(removed2))
+	}
+
+	// Together the two sweeps must have removed exactly orders 1..55.
+	all := append(append([]int{}, removed1...), removed2...)
+	sort.Ints(all)
+	for i := range staleCount {
+		if i >= len(all) || all[i] != i+1 {
+			t.Fatalf("expected removed orders 1..55, got %v", all)
+		}
+	}
+
+	// Every stale branch row is gone; default and fresh rows survive.
+	for i := range staleCount {
+		name := fmt.Sprintf("bstale-%02d", i)
+		if _, err := branchStore.GetByName(ctx, projectID, name); !errors.Is(err, store.ErrBranchNotFound) {
+			t.Errorf("expected %s branch row gone (ErrBranchNotFound), got err=%v", name, err)
+		}
+	}
+	if _, err := branchStore.GetByName(ctx, projectID, "main"); err != nil {
+		t.Errorf("expected main branch row to survive, got err=%v", err)
+	}
+	if _, err := buildStore.GetBuildByNumber(ctx, projectID, 100); err != nil {
+		t.Errorf("expected build 100 (stale default) to survive, got err=%v", err)
+	}
+	if _, err := buildStore.GetBuildByNumber(ctx, projectID, 101); err != nil {
+		t.Errorf("expected build 101 (fresh branch) to survive, got err=%v", err)
+	}
+}
+
+// TestDeleteOrphanBranches seeds a default branch, a branch with a build, an
+// aged orphan branch row with no builds (as left behind by a failed ingest or
+// a pre-GC prune), and a freshly-created orphan row (as an in-flight ingest
+// produces before it writes the build's ci_branch), then asserts
+// DeleteOrphanBranches removes only the aged orphan — the fresh row is spared
+// by the one-hour age guard — and reports the deleted count. A second call
+// must find nothing to delete.
+func TestDeleteOrphanBranches(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	branchStore := pg.NewBranchStore(s)
+
+	slug := fmt.Sprintf("test-delete-orphan-branches-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	// "main" first → default (no builds; must survive on is_default alone).
+	if _, _, err := branchStore.GetOrCreate(ctx, projectID, "main"); err != nil {
+		t.Fatalf("GetOrCreate main: %v", err)
+	}
+	// Aged orphan: row exists, no build ever references it, older than the
+	// one-hour in-flight-ingest guard.
+	if _, _, err := branchStore.GetOrCreate(ctx, projectID, "ghost"); err != nil {
+		t.Fatalf("GetOrCreate ghost: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		"UPDATE branches SET created_at = now() - interval '2 hours' WHERE project_id=$1 AND name='ghost'", projectID); err != nil {
+		t.Fatalf("backdate ghost: %v", err)
+	}
+	// Fresh orphan: also build-less, but created just now — an in-flight ingest
+	// looks exactly like this, so the age guard must spare it.
+	if _, _, err := branchStore.GetOrCreate(ctx, projectID, "newghost"); err != nil {
+		t.Fatalf("GetOrCreate newghost: %v", err)
+	}
+	// Active: row plus one build referencing it via ci_branch.
+	if _, _, err := branchStore.GetOrCreate(ctx, projectID, "active"); err != nil {
+		t.Fatalf("GetOrCreate active: %v", err)
+	}
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		"UPDATE builds SET ci_branch='active' WHERE project_id=$1 AND build_order=1", projectID); err != nil {
+		t.Fatalf("set ci_branch: %v", err)
+	}
+
+	n, err := buildStore.DeleteOrphanBranches(ctx, projectID)
+	if err != nil {
+		t.Fatalf("DeleteOrphanBranches: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 orphan row deleted, got %d", n)
+	}
+
+	if _, err := branchStore.GetByName(ctx, projectID, "ghost"); !errors.Is(err, store.ErrBranchNotFound) {
+		t.Errorf("expected ghost branch row gone (ErrBranchNotFound), got err=%v", err)
+	}
+	if _, err := branchStore.GetByName(ctx, projectID, "newghost"); err != nil {
+		t.Errorf("expected fresh newghost branch row to survive the age guard, got err=%v", err)
+	}
+	if _, err := branchStore.GetByName(ctx, projectID, "main"); err != nil {
+		t.Errorf("expected default main branch row to survive, got err=%v", err)
+	}
+	if _, err := branchStore.GetByName(ctx, projectID, "active"); err != nil {
+		t.Errorf("expected active branch row to survive, got err=%v", err)
+	}
+
+	n, err = buildStore.DeleteOrphanBranches(ctx, projectID)
+	if err != nil {
+		t.Fatalf("DeleteOrphanBranches second call: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 rows on second call, got %d", n)
+	}
+}
+
+// TestPruneStaleBranches_PromotedToDefaultMidSweepSurvives simulates the race
+// where a stale branch is promoted to default (SetDefault) between the
+// stale-name SELECT and its per-branch transaction. The public call must skip
+// it via the outer is_default filter, and — the actual regression under test —
+// the per-branch delete's in-transaction is_default re-check (driven directly
+// through the test hook, as the mid-sweep flip would reach it) must also leave
+// the branch's builds and row untouched and return no build_orders, so storage
+// pruning cannot run for the surviving builds.
+func TestPruneStaleBranches_PromotedToDefaultMidSweepSurvives(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	branchStore := pg.NewBranchStore(s)
+
+	slug := fmt.Sprintf("test-prune-stale-promoted-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	// "main" first → default; "flip" is non-default with one stale build.
+	if _, _, err := branchStore.GetOrCreate(ctx, projectID, "main"); err != nil {
+		t.Fatalf("GetOrCreate main: %v", err)
+	}
+	flip, _, err := branchStore.GetOrCreate(ctx, projectID, "flip")
+	if err != nil {
+		t.Fatalf("GetOrCreate flip: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		"UPDATE builds SET ci_branch='flip', created_at=$1 WHERE project_id=$2 AND build_order=1",
+		now.AddDate(0, 0, -40), projectID); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+
+	// Promote the stale branch to default — the mid-sweep flip.
+	if err := branchStore.SetDefault(ctx, projectID, flip.ID); err != nil {
+		t.Fatalf("SetDefault: %v", err)
+	}
+
+	cutoff := now.AddDate(0, 0, -3)
+
+	// Public sweep: outer stale-name SELECT must already exclude the branch.
+	removed, err := buildStore.PruneStaleBranches(ctx, projectID, cutoff)
+	if err != nil {
+		t.Fatalf("PruneStaleBranches: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Errorf("expected no builds removed for promoted default branch, got %v", removed)
+	}
+
+	// Per-branch step driven directly, as the mid-sweep flip would reach it:
+	// the in-transaction is_default re-check must skip the delete.
+	removed, err = pg.PruneStaleBranchForTest(buildStore, ctx, projectID, "flip", cutoff)
+	if err != nil {
+		t.Fatalf("pruneStaleBranch: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Errorf("expected per-branch delete to skip promoted default branch, got orders %v", removed)
+	}
+
+	if _, err := buildStore.GetBuildByNumber(ctx, projectID, 1); err != nil {
+		t.Errorf("expected promoted branch's build to survive, got err=%v", err)
+	}
+	if _, err := branchStore.GetByName(ctx, projectID, "flip"); err != nil {
+		t.Errorf("expected promoted branch row to survive, got err=%v", err)
+	}
+}

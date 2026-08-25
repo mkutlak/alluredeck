@@ -146,6 +146,9 @@ func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ int64, 
 func (m *mockAttachmentBuildStore) PruneStaleBranches(_ context.Context, _ int64, _ time.Time) ([]int, error) {
 	panic("not implemented")
 }
+func (m *mockAttachmentBuildStore) DeleteOrphanBranches(_ context.Context, _ int64) (int64, error) {
+	panic("not implemented")
+}
 func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
 	panic("not implemented")
 }

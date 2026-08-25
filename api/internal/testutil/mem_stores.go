@@ -884,6 +884,12 @@ func (m *MemBuildStore) PruneStaleBranches(ctx context.Context, projectID int64,
 	return removed, nil
 }
 
+// DeleteOrphanBranches is a no-op: MemBuildStore models builds only and has no
+// branches-row state to orphan, so there is never anything to delete.
+func (m *MemBuildStore) DeleteOrphanBranches(_ context.Context, _ int64) (int64, error) {
+	return 0, nil
+}
+
 func (m *MemBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
 	return nil, 0, nil
 }

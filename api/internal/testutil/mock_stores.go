@@ -248,6 +248,7 @@ type MockBuildStore struct {
 	PruneBuildsBranchFn         func(ctx context.Context, projectID int64, keep int, branchID *int64) ([]int, error)
 	PruneBuildsByAgeFn          func(ctx context.Context, projectID int64, olderThan time.Time) ([]int, error)
 	PruneStaleBranchesFn        func(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error)
+	DeleteOrphanBranchesFn      func(ctx context.Context, projectID int64) (int64, error)
 	ListBuildsPaginatedBranchFn func(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]store.Build, int, error)
 	ListBuildsInRangeFn         func(ctx context.Context, projectID int64, branchID *int64, from, to time.Time, limit int) ([]store.Build, int, error)
 	SetHasPlaywrightReportFn    func(ctx context.Context, projectID int64, buildNumber int, value bool) error
@@ -400,6 +401,13 @@ func (m *MockBuildStore) PruneStaleBranches(ctx context.Context, projectID int64
 		return m.PruneStaleBranchesFn(ctx, projectID, cutoff)
 	}
 	return nil, nil
+}
+
+func (m *MockBuildStore) DeleteOrphanBranches(ctx context.Context, projectID int64) (int64, error) {
+	if m.DeleteOrphanBranchesFn != nil {
+		return m.DeleteOrphanBranchesFn(ctx, projectID)
+	}
+	return 0, nil
 }
 
 func (m *MockBuildStore) ListBuildsPaginatedBranch(ctx context.Context, projectID int64, page, perPage int, branchID *int64) ([]store.Build, int, error) {

@@ -169,6 +169,27 @@ api:
     existingSecret: "alluredeck-s3-credentials"
 ```
 
+## Orphaned Report Cleanup (`gcstorage`)
+
+Versions before the storage-key retention fix pruned storage under each
+project's *slug* while reports are stored under the project's *storage key*
+(numeric for child projects), silently orphaning the report data of every
+scheduler-pruned child build. The one-shot `gcstorage` command deletes those
+orphans: it diffs every storage project prefix's `reports/<build_order>/`
+directories against the `builds` table and removes directories whose build no
+longer exists in the database.
+
+```bash
+gcstorage              # dry-run: report orphaned report dirs
+gcstorage -apply       # actually delete them
+gcstorage -project 7   # restrict to project_id 7
+```
+
+It reads the same environment variables as the API (database, `STORAGE_TYPE`,
+S3 settings), defaults to a dry-run, and never deletes storage prefixes that
+match no project storage key — those (deleted or renamed projects) are only
+reported. Run it once after upgrading; ongoing retention no longer orphans data.
+
 ## Related
 
 - [configuration.md](configuration.md) — full environment variable reference

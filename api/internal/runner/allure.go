@@ -927,11 +927,14 @@ func (a *Allure) KeepLatestHistory(ctx context.Context, projectID int64, slug, s
 		// Garbage-collect non-default branches whose newest build is older than
 		// the age cutoff (builds + branches row). Best-effort: log but do not
 		// fail the ingest, otherwise a GC hiccup would roll back a good build.
+		// The call is batched and may return deleted build_orders alongside
+		// per-branch errors — prune storage for whatever was removed either way.
 		staleOrders, err := a.buildStore.PruneStaleBranches(ctx, projectID, cutoff)
 		if err != nil {
 			a.logger.Warn("failed to prune stale branches",
 				zap.String("slug", slug), zap.Error(err))
-		} else if len(staleOrders) > 0 {
+		}
+		if len(staleOrders) > 0 {
 			if err := a.store.PruneReportDirs(ctx, storageKey, staleOrders); err != nil {
 				a.logger.Warn("failed to prune stale branch report dirs",
 					zap.String("slug", slug), zap.Error(err))

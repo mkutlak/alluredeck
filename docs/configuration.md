@@ -108,7 +108,7 @@ For details on roles, token types, CSRF protection, and the production security 
 | `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `5m` | Maximum connection lifetime before the pool recycles it (Go duration string, e.g., `30m`, `1h`) |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
 | `KEEP_HISTORY_LATEST` | `keep_history_latest` | `100` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning entirely (unlimited history) — `0` does not mean "keep zero" |
-| `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted. When set above `0`, this also drives stale-branch garbage collection: non-default branches whose most recent build is older than the cutoff are deleted entirely (their builds and the branch entry). The default branch is never garbage-collected |
+| `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted. When set above `0`, this also drives stale-branch garbage collection: non-default branches whose most recent build is older than the cutoff are deleted entirely (their builds and the branch entry), processed in batches of 50 per sweep. The default branch is never garbage-collected |
 | `PENDING_RESULTS_MAX_AGE_DAYS` | `pending_results_max_age_days` | `3` | Delete uploaded but never-generated result files older than N days. Pending results are files that were uploaded via `POST /results` but never had a report generated from them. Cleaned up by the same background scheduler that prunes report history |
 
 ### Example
@@ -122,7 +122,7 @@ export KEEP_HISTORY_LATEST="50"
 export KEEP_HISTORY_MAX_AGE_DAYS="90"  # delete reports older than 90 days
 ```
 
-A **background scheduler** runs both retention strategies (plus stale-branch GC) automatically for all projects — an initial sweep runs immediately on API startup, then repeats every 24 hours.
+A **background scheduler** runs both retention strategies (plus stale-branch GC and orphan branch-row cleanup) automatically for all projects — an initial sweep runs immediately on API startup, then repeats every 24 hours. Stale-branch GC is batched (at most 50 branches per sweep, one short transaction each), so a large backlog drains across sweeps rather than in one oversized transaction.
 
 ## Storage Configuration (S3 / MinIO)
 

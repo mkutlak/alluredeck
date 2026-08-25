@@ -289,11 +289,15 @@ func (pr *PlaywrightRunner) IngestReport(ctx context.Context, projectID int64, s
 
 			// Garbage-collect non-default branches whose newest build is older
 			// than the age cutoff (builds + branches row).
+			// PruneStaleBranches is batched and best-effort: it may return
+			// deleted build_orders alongside per-branch errors, so storage must
+			// be pruned for whatever was removed even when err != nil.
 			staleOrders, err := pr.buildStore.PruneStaleBranches(ctx, projectID, cutoff)
 			if err != nil {
 				pr.logger.Error("failed to prune stale branches",
 					zap.String("slug", slug), zap.Error(err))
-			} else if len(staleOrders) > 0 {
+			}
+			if len(staleOrders) > 0 {
 				if err := pr.store.PruneReportDirs(ctx, storageKey, staleOrders); err != nil {
 					pr.logger.Error("failed to prune stale branch report dirs",
 						zap.String("slug", slug), zap.Error(err))

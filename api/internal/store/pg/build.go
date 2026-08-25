@@ -660,6 +660,15 @@ func (bs *BuildStore) PruneBuildsByAge(ctx context.Context, projectID int64, old
 	return toRemove, nil
 }
 
+// maxStaleBranchesPerCall bounds how many stale branches a single
+// PruneStaleBranches call processes. A months-old backlog (hundreds of stale
+// branches, each cascading into test_results and children) previously had to
+// clear in ONE transaction — on a database with an aggressive lock_timeout and
+// concurrent ingestion that transaction never committed, so the backlog only
+// grew. Capping the batch keeps every call small enough to always make
+// progress; leftover branches are picked up by the next ingest or daily sweep.
+const maxStaleBranchesPerCall = 50
+
 // PruneStaleBranches deletes the builds and, once empty, the branches row for
 // every non-default branch of a project whose most recent build is older than
 // cutoff. It operates on builds.ci_branch (the value the dropdown groups on —
@@ -668,28 +677,33 @@ func (bs *BuildStore) PruneBuildsByAge(ctx context.Context, projectID int64, old
 // the dropdown entry) behind. The default branch and empty ci_branch are never
 // touched.
 //
-// The delete is self-guarding: it only removes builds older than cutoff, and it
-// only drops a branch row once no builds remain for that name. This makes it
-// safe for the unlocked retention scheduler — a build ingested for an otherwise
-// "stale" branch between the stale-name SELECT and the DELETE (created_at >=
-// cutoff) is preserved, and its branch row is kept. Returns the removed
-// build_orders so the caller can prune their storage objects.
+// Each stale branch is pruned in its own short transaction, and at most
+// maxStaleBranchesPerCall branches are processed per call, so one oversized or
+// failing branch can neither exceed the database's lock/statement timeouts nor
+// block the rest. Per-branch failures are collected and joined into the
+// returned error while the sweep continues; the returned build_orders are the
+// ones actually deleted, so callers MUST prune the corresponding storage
+// objects even when err != nil.
+//
+// The per-branch delete is self-guarding: it only removes builds older than
+// cutoff, and it only drops a branch row once no builds remain for that name.
+// This makes it safe for the unlocked retention scheduler — a build ingested
+// for an otherwise "stale" branch between the stale-name SELECT and the DELETE
+// (created_at >= cutoff) is preserved, and its branch row is kept.
 func (bs *BuildStore) PruneStaleBranches(ctx context.Context, projectID int64, cutoff time.Time) ([]int, error) {
-	tx, err := bs.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("prune stale branches begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	// 1. Find non-default branch names whose newest build is older than cutoff.
-	staleRows, err := tx.Query(ctx, `
+	// Plain read, no transaction needed — every guard is re-applied per branch.
+	// ORDER BY makes batching deterministic across calls.
+	staleRows, err := bs.pool.Query(ctx, `
 		SELECT b.ci_branch
 		FROM builds b
 		LEFT JOIN branches br ON br.project_id = b.project_id AND br.name = b.ci_branch
 		WHERE b.project_id = $1 AND b.ci_branch IS NOT NULL AND b.ci_branch <> ''
 		  AND COALESCE(br.is_default, FALSE) = FALSE
 		GROUP BY b.ci_branch
-		HAVING MAX(b.created_at) < $2`, projectID, cutoff)
+		HAVING MAX(b.created_at) < $2
+		ORDER BY b.ci_branch
+		LIMIT $3`, projectID, cutoff, maxStaleBranchesPerCall)
 	if err != nil {
 		return nil, fmt.Errorf("prune stale branches select: %w", err)
 	}
@@ -706,17 +720,48 @@ func (bs *BuildStore) PruneStaleBranches(ctx context.Context, projectID int64, c
 	if err := staleRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate stale branches: %w", err)
 	}
-	if len(names) == 0 {
-		return nil, tx.Commit(ctx) // nothing to do
-	}
 
-	// 2. Collect the build_orders to remove (for storage cleanup by the caller).
-	// Only builds older than cutoff are collected, so a build ingested after the
-	// stale-name SELECT (created_at >= cutoff) is never scheduled for cleanup.
-	ordRows, err := tx.Query(ctx,
-		"SELECT build_order FROM builds WHERE project_id=$1 AND ci_branch = ANY($2) AND created_at < $3", projectID, names, cutoff)
+	// 2. Prune each branch independently; collect failures without stopping.
+	var removed []int
+	var errs []error
+	for _, name := range names {
+		orders, err := bs.pruneStaleBranch(ctx, projectID, name, cutoff)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("branch %q: %w", name, err))
+			continue
+		}
+		removed = append(removed, orders...)
+	}
+	return removed, errors.Join(errs...)
+}
+
+// pruneStaleBranch deletes one stale branch's builds older than cutoff and, if
+// no builds remain for the name afterwards, its branches row — all in a single
+// short transaction. Returns the deleted build_orders.
+func (bs *BuildStore) pruneStaleBranch(ctx context.Context, projectID int64, name string, cutoff time.Time) ([]int, error) {
+	tx, err := bs.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("prune stale branches collect orders: %w", err)
+		return nil, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Delete only this branch's builds older than cutoff (cascades test_results
+	// + children). A freshly-ingested build (created_at >= cutoff) is preserved.
+	// The NOT EXISTS re-checks is_default at delete time: the stale-name SELECT
+	// ran outside this transaction, so a branch promoted to default mid-sweep
+	// (SetDefault) must not have its history wiped. RETURNING yields exactly the
+	// deleted build_orders for the caller's storage cleanup — a skipped branch
+	// contributes none, so storage pruning can never run for surviving builds.
+	ordRows, err := tx.Query(ctx, `
+		DELETE FROM builds
+		WHERE project_id=$1 AND ci_branch=$2 AND created_at < $3
+		  AND NOT EXISTS (
+		      SELECT 1 FROM branches br
+		      WHERE br.project_id=$1 AND br.name=$2 AND br.is_default=TRUE
+		  )
+		RETURNING build_order`, projectID, name, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("delete builds: %w", err)
 	}
 	var removed []int
 	for ordRows.Next() {
@@ -731,28 +776,45 @@ func (bs *BuildStore) PruneStaleBranches(ctx context.Context, projectID int64, c
 	if err := ordRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate build_orders: %w", err)
 	}
-
-	// 3. Delete only the stale builds older than cutoff (cascades test_results +
-	// children). A freshly-ingested build (created_at >= cutoff) is preserved.
-	if _, err := tx.Exec(ctx,
-		"DELETE FROM builds WHERE project_id=$1 AND ci_branch = ANY($2) AND created_at < $3", projectID, names, cutoff); err != nil {
-		return nil, fmt.Errorf("delete stale branch builds: %w", err)
-	}
-	// 4. Delete the branch row only when no builds remain for that name — a new
+	// Delete the branch row only when no builds remain for the name — a new
 	// build arriving mid-prune keeps the branch (and its dropdown entry) alive.
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM branches
-		WHERE project_id=$1 AND name = ANY($2) AND is_default=FALSE
+		WHERE project_id=$1 AND name=$2 AND is_default=FALSE
 		  AND NOT EXISTS (
 		      SELECT 1 FROM builds b2
 		      WHERE b2.project_id=$1 AND b2.ci_branch = branches.name
-		  )`, projectID, names); err != nil {
-		return nil, fmt.Errorf("delete stale branch rows: %w", err)
+		  )`, projectID, name); err != nil {
+		return nil, fmt.Errorf("delete branch row: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("prune stale branches commit: %w", err)
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return removed, nil
+}
+
+// DeleteOrphanBranches removes non-default branches rows that no build
+// references via ci_branch. Such rows are invisible to PruneStaleBranches
+// (whose stale-name scan starts FROM builds) and otherwise accumulate forever:
+// GetOrCreate inserts the row at ingest start, so a failed ingest — or any
+// prune path that removed a branch's last build without dropping the row —
+// leaves an orphan behind. Rows younger than one hour are left alone: an
+// in-flight ingest creates the branch row long before it writes the build's
+// ci_branch, so a fresh row with no builds is usually just an upload still in
+// progress, not an orphan. Returns the number of rows deleted.
+func (bs *BuildStore) DeleteOrphanBranches(ctx context.Context, projectID int64) (int64, error) {
+	tag, err := bs.pool.Exec(ctx, `
+		DELETE FROM branches
+		WHERE project_id=$1 AND is_default=FALSE
+		  AND created_at < now() - interval '1 hour'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM builds b
+		      WHERE b.project_id = branches.project_id AND b.ci_branch = branches.name
+		  )`, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("delete orphan branches: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ListBuildsPaginatedBranch returns a page of builds, optionally filtered by branch.
