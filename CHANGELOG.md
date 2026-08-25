@@ -1,3 +1,9 @@
+## [0.47.1](https://github.com/mkutlak/alluredeck/compare/v0.47.0...v0.47.1) (2026-08-25)
+
+### Bug Fixes
+
+* **store:** move shell-twin cleanup off the startup migration path ([c8c3a34](https://github.com/mkutlak/alluredeck/commit/c8c3a3432924121e77807e1111989a6670baa072))
+
 ## [0.47.0](https://github.com/mkutlak/alluredeck/compare/v0.46.0...v0.47.0) (2026-08-25)
 
 ### Features
