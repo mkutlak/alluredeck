@@ -493,16 +493,18 @@ func TestCategorizeError(t *testing.T) {
 			message:  "AttributeError: 'NoneType' object has no attribute 'id'",
 			category: store.DefectCategoryProductBug,
 		},
+		// A bare 5xx that is not phrased as an assertion reads as a dependency
+		// failing under the test, not as the product asserting wrongly.
 		{
 			name:     "5xx status code in message",
 			message:  "request failed with status code 500",
-			category: store.DefectCategoryProductBug,
+			category: store.DefectCategoryInfrastructure,
 		},
 		{
 			name:     "5xx in trace",
 			message:  "request failed",
 			trace:    "HTTP status 503 returned",
-			category: store.DefectCategoryProductBug,
+			category: store.DefectCategoryInfrastructure,
 		},
 		// to_investigate (default)
 		{
@@ -659,4 +661,283 @@ func TestComputeFingerprintsForResults(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestNormalizeMessage_ByteStable pins NormalizeMessage's output byte-for-byte.
+// Defect fingerprints are SHA-256 digests of this string and are PERSISTED in
+// defect_fingerprints.fingerprint_hash, so any change here silently orphans
+// every stored fingerprint and re-splits existing defect clusters. Widening
+// CategorizeError's keyword set must not disturb these outputs.
+func TestNormalizeMessage_ByteStable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "token auth 500 keeps the status digits and collapses the url path",
+			in:   "Error: API call failed with status 500. URL: https://qa.example.com/api/TokenAuth/Authenticate",
+			want: "Error: API call failed with status 500. URL: https:/Authenticate",
+		},
+		{
+			name: "playwright expect timeout is left untouched",
+			in:   "Error: Timed out 5000ms waiting for expect(locator).toContainText('Saved')",
+			want: "Error: Timed out 5000ms waiting for expect(locator).toContainText('Saved')",
+		},
+		{
+			name: "ip and iso timestamp are substituted",
+			in:   "connection refused to 10.0.0.5:8080 at 2026-01-02T03:04:05Z",
+			want: "connection refused to <IP>:8080 at <TIMESTAMP>",
+		},
+		{
+			name: "beforeEach camelCase survives normalization",
+			in:   "beforeEach hook failed: API call failed with status 502",
+			want: "beforeEach hook failed: API call failed with status 502",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := NormalizeMessage(tc.in); got != tc.want {
+				t.Errorf("NormalizeMessage(%q)\n  got:  %q\n  want: %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCategorizeError_Brittleness covers the widened CategorizeError rules: the
+// camelCase Playwright/Jest hook names, and a bare 5xx code sitting next to a
+// failure word. Both real messages below come from a live report where four
+// tests failed on a TokenAuth 500 raised in beforeEach and three more failed on
+// an auto-retrying toast assertion; the first must read as infrastructure and
+// the second must not.
+func TestCategorizeError_Brittleness(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		message  string
+		trace    string
+		category string
+	}{
+		{
+			name:     "real TokenAuth 500 is infrastructure",
+			message:  "Error: API call failed with status 500. URL: https://qa.example.com/api/TokenAuth/Authenticate, Method: POST",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "real toContainText timeout is not infrastructure",
+			message:  "Error: Timed out 5000ms waiting for expect(locator).toContainText('Saved')",
+			category: store.DefectCategoryProductBug,
+		},
+		{
+			name:     "5000ms duration is not read as a 5xx code",
+			message:  "step timed out after 5000ms",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "bare code colon 502",
+			message:  "gateway rejected the request, code: 502",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "bare HTTP 503",
+			message:  "upstream returned HTTP 503",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "response with 504",
+			message:  "response 504 while loading the dashboard",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "camelCase beforeEach is a test bug",
+			message:  "beforeEach hook timed out",
+			category: store.DefectCategoryTestBug,
+		},
+		{
+			name:     "camelCase beforeAll is a test bug",
+			message:  "Error in beforeAll: fixture unavailable",
+			category: store.DefectCategoryTestBug,
+		},
+		{
+			name:     "camelCase afterEach is a test bug",
+			message:  "afterEach cleanup threw",
+			category: store.DefectCategoryTestBug,
+		},
+		{
+			name:     "uppercase infra keyword still matches",
+			message:  "DIAL TCP: CONNECTION REFUSED",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "mixed case product keyword still matches",
+			message:  "AssertionError: Expected 200",
+			category: store.DefectCategoryProductBug,
+		},
+		{
+			name:     "assertion mentioning a 500 stays a product bug",
+			message:  "expected status 200 but received status 500",
+			category: store.DefectCategoryProductBug,
+		},
+		{
+			name:     "4xx is not a 5xx",
+			message:  "request failed with status 404",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "5xx detected in the trace",
+			message:  "request failed",
+			trace:    "HTTP status 503 returned",
+			category: store.DefectCategoryInfrastructure,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CategorizeError(tc.message, tc.trace); got != tc.category {
+				t.Errorf("CategorizeError(%q, %q)\n  got:  %q\n  want: %q", tc.message, tc.trace, got, tc.category)
+			}
+		})
+	}
+}
+
+// TestCategorizeError_FiveXXAnchoring pins the anchoring rules of the bare-5xx
+// fallback. Every message below was hand-checked against the rule: the first
+// four are numbers that merely sit near a failure word and must NOT read as
+// infrastructure, the rest exercise the anchor set, the assertion-precedence
+// decision, and the word boundary on the code itself.
+//
+// Precedence note: "Expected status 200, received 503" stays a product bug.
+// The server answered a correct expectation with the wrong status, which is the
+// product misbehaving; productBugKeywords running before the 5xx rule is what
+// produces that verdict and is deliberate, not an accident of ordering.
+func TestCategorizeError_FiveXXAnchoring(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		message  string
+		trace    string
+		category string
+	}{
+		{
+			name:     "duration next to a failure word is not a status",
+			message:  "test failed after 500 ms",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "latency in ms next to response is not a status",
+			message:  "response time was 503 ms, over the 200ms budget",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "code inside decode is not an anchor",
+			message:  "failed to decode 512 bytes",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "code inside encoded is not an anchor",
+			message:  "encoded 550 rows",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "status prose with a distant code is infrastructure",
+			message:  "status: Internal Server Error, transaction 502 aborted",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "assertion phrased 5xx stays a product bug",
+			message:  "Expected status 200, received 503",
+			category: store.DefectCategoryProductBug,
+		},
+		{
+			name:     "playwright locator timeout is not infrastructure",
+			message:  "Timed out 5000ms waiting for locator",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "bare HTTP 503 is infrastructure",
+			message:  "HTTP 503 Service Unavailable",
+			category: store.DefectCategoryInfrastructure,
+		},
+		// The anchor set keeps a leading word boundary only, so the glued
+		// spellings real clients print still resolve.
+		{
+			name:     "camelCase statusCode still anchors",
+			message:  "API call failed with statusCode: 500",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "snake_case status_code still anchors",
+			message:  "request rejected, status_code=503",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "responded anchor",
+			message:  "gateway responded with 502",
+			category: store.DefectCategoryInfrastructure,
+		},
+		{
+			name:     "code glued to digits is not a status",
+			message:  "http 5000 requests queued",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "digits between anchor and code break the association",
+			message:  "http request 12 of 40 in batch 7 hit 500",
+			category: store.DefectCategoryToInvestigate,
+		},
+		{
+			name:     "numeric URL path segment is not a status",
+			message:  "GET https://api.example.com/orders/500 did not return the order",
+			category: store.DefectCategoryToInvestigate,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CategorizeError(tc.message, tc.trace); got != tc.category {
+				t.Errorf("CategorizeError(%q, %q)\n  got:  %q\n  want: %q", tc.message, tc.trace, got, tc.category)
+			}
+		})
+	}
+}
+
+// TestCategorizeError_HookNameCoverage closes the asymmetry in testBugKeywords:
+// the before-side spellings were listed without their after-side twins, and the
+// suite-level and class-level hooks were missing entirely.
+func TestCategorizeError_HookNameCoverage(t *testing.T) {
+	t.Parallel()
+
+	messages := []string{
+		"@BeforeMethod setUp() failed",
+		"@AfterMethod tearDown() failed",
+		"@BeforeSuite failed to start the grid",
+		"@AfterSuite failed to stop the grid",
+		"@BeforeClass setUp() failed",
+		"@AfterClass tearDown() failed",
+		"setup_class raised an exception",
+		"teardown_class raised an exception",
+		"setup_method raised an exception",
+		"teardown_method raised an exception",
+		"beforeEach hook failed",
+		"afterEach hook failed",
+		"beforeAll hook failed",
+		"afterAll hook failed",
+	}
+
+	for _, msg := range messages {
+		t.Run(msg, func(t *testing.T) {
+			t.Parallel()
+			if got := CategorizeError(msg, ""); got != store.DefectCategoryTestBug {
+				t.Errorf("CategorizeError(%q, \"\")\n  got:  %q\n  want: %q", msg, got, store.DefectCategoryTestBug)
+			}
+		})
+	}
 }

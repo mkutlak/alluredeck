@@ -171,6 +171,110 @@ func (s *DefectProposalStore) ListPending(ctx context.Context, projectID int, li
 	return items, nextCursor, nil
 }
 
+// List returns up to limit defect proposals for a project, most recent first.
+// status == "" matches every status; otherwise only that status.
+func (s *DefectProposalStore) List(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.DefectProposal, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	args := []any{projectID}
+	q := `
+		SELECT id, project_id, fingerprint_hash, proposed_category, proposed_resolution,
+		       rationale, proposer_user_id, proposer_api_key_id, status,
+		       reviewed_by_user_id, reviewed_at, created_at
+		FROM defect_proposals
+		WHERE project_id = $1`
+
+	if status != "" {
+		args = append(args, status)
+		q += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+
+	args = append(args, limit)
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list defect proposals: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*store.DefectProposal
+	for rows.Next() {
+		p := &store.DefectProposal{}
+		var resolution, rationale *string
+		var apiKeyID, reviewedBy *int64
+
+		if err := rows.Scan(
+			&p.ID, &p.ProjectID, &p.FingerprintHash, &p.ProposedCategory, &resolution,
+			&rationale, &p.ProposerUserID, &apiKeyID, &p.Status,
+			&reviewedBy, &p.ReviewedAt, &p.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan defect proposal: %w", err)
+		}
+		if resolution != nil {
+			p.ProposedResolution = *resolution
+		}
+		if rationale != nil {
+			p.Rationale = *rationale
+		}
+		if apiKeyID != nil {
+			p.ProposerAPIKeyID = *apiKeyID
+		}
+		if reviewedBy != nil {
+			p.ReviewedByUserID = *reviewedBy
+		}
+		items = append(items, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate defect proposal rows: %w", err)
+	}
+	return items, nil
+}
+
+// FindPendingDuplicate returns the existing pending proposal that matches
+// (projectID, fingerprintHash, proposedCategory), or nil if none exists.
+func (s *DefectProposalStore) FindPendingDuplicate(ctx context.Context, projectID int, fingerprintHash, proposedCategory string) (*store.DefectProposal, error) {
+	var p store.DefectProposal
+	var resolution, rationale *string
+	var apiKeyID, reviewedBy *int64
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, project_id, fingerprint_hash, proposed_category, proposed_resolution,
+		       rationale, proposer_user_id, proposer_api_key_id, status,
+		       reviewed_by_user_id, reviewed_at, created_at
+		FROM defect_proposals
+		WHERE project_id = $1 AND fingerprint_hash = $2 AND proposed_category = $3 AND status = $4
+		LIMIT 1`,
+		projectID, fingerprintHash, proposedCategory, store.ProposalStatusPending,
+	).Scan(
+		&p.ID, &p.ProjectID, &p.FingerprintHash, &p.ProposedCategory, &resolution,
+		&rationale, &p.ProposerUserID, &apiKeyID, &p.Status,
+		&reviewedBy, &p.ReviewedAt, &p.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find pending defect proposal duplicate: %w", err)
+	}
+
+	if resolution != nil {
+		p.ProposedResolution = *resolution
+	}
+	if rationale != nil {
+		p.Rationale = *rationale
+	}
+	if apiKeyID != nil {
+		p.ProposerAPIKeyID = *apiKeyID
+	}
+	if reviewedBy != nil {
+		p.ReviewedByUserID = *reviewedBy
+	}
+	return &p, nil
+}
+
 // MarkReviewed sets status, reviewed_by_user_id, and reviewed_at on a proposal.
 func (s *DefectProposalStore) MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error {
 	now := time.Now()

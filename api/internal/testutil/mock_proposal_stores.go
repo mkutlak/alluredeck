@@ -19,10 +19,12 @@ var (
 
 // MockDefectProposalStore is a test double for store.DefectProposalStorer.
 type MockDefectProposalStore struct {
-	CreateFn       func(ctx context.Context, p *store.DefectProposal) (int64, error)
-	GetFn          func(ctx context.Context, id int64) (*store.DefectProposal, error)
-	ListPendingFn  func(ctx context.Context, projectID int, limit int, cursor string) ([]*store.DefectProposal, string, error)
-	MarkReviewedFn func(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error
+	CreateFn               func(ctx context.Context, p *store.DefectProposal) (int64, error)
+	GetFn                  func(ctx context.Context, id int64) (*store.DefectProposal, error)
+	ListPendingFn          func(ctx context.Context, projectID int, limit int, cursor string) ([]*store.DefectProposal, string, error)
+	ListFn                 func(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.DefectProposal, error)
+	FindPendingDuplicateFn func(ctx context.Context, projectID int, fingerprintHash, proposedCategory string) (*store.DefectProposal, error)
+	MarkReviewedFn         func(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error
 }
 
 func (m *MockDefectProposalStore) Create(ctx context.Context, p *store.DefectProposal) (int64, error) {
@@ -46,6 +48,20 @@ func (m *MockDefectProposalStore) ListPending(ctx context.Context, projectID int
 	return nil, "", nil
 }
 
+func (m *MockDefectProposalStore) List(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.DefectProposal, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx, projectID, status, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockDefectProposalStore) FindPendingDuplicate(ctx context.Context, projectID int, fingerprintHash, proposedCategory string) (*store.DefectProposal, error) {
+	if m.FindPendingDuplicateFn != nil {
+		return m.FindPendingDuplicateFn(ctx, projectID, fingerprintHash, proposedCategory)
+	}
+	return nil, nil
+}
+
 func (m *MockDefectProposalStore) MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error {
 	if m.MarkReviewedFn != nil {
 		return m.MarkReviewedFn(ctx, id, reviewedBy, status)
@@ -59,10 +75,12 @@ func (m *MockDefectProposalStore) MarkReviewed(ctx context.Context, id int64, re
 
 // MockKnownIssueProposalStore is a test double for store.KnownIssueProposalStorer.
 type MockKnownIssueProposalStore struct {
-	CreateFn       func(ctx context.Context, p *store.KnownIssueProposal) (int64, error)
-	GetFn          func(ctx context.Context, id int64) (*store.KnownIssueProposal, error)
-	ListPendingFn  func(ctx context.Context, projectID int, limit int, cursor string) ([]*store.KnownIssueProposal, string, error)
-	MarkReviewedFn func(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error
+	CreateFn               func(ctx context.Context, p *store.KnownIssueProposal) (int64, error)
+	GetFn                  func(ctx context.Context, id int64) (*store.KnownIssueProposal, error)
+	ListPendingFn          func(ctx context.Context, projectID int, limit int, cursor string) ([]*store.KnownIssueProposal, string, error)
+	ListFn                 func(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.KnownIssueProposal, error)
+	FindPendingDuplicateFn func(ctx context.Context, projectID int, regexPattern string) (*store.KnownIssueProposal, error)
+	MarkReviewedFn         func(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error
 }
 
 func (m *MockKnownIssueProposalStore) Create(ctx context.Context, p *store.KnownIssueProposal) (int64, error) {
@@ -86,6 +104,20 @@ func (m *MockKnownIssueProposalStore) ListPending(ctx context.Context, projectID
 	return nil, "", nil
 }
 
+func (m *MockKnownIssueProposalStore) List(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.KnownIssueProposal, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx, projectID, status, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockKnownIssueProposalStore) FindPendingDuplicate(ctx context.Context, projectID int, regexPattern string) (*store.KnownIssueProposal, error) {
+	if m.FindPendingDuplicateFn != nil {
+		return m.FindPendingDuplicateFn(ctx, projectID, regexPattern)
+	}
+	return nil, nil
+}
+
 func (m *MockKnownIssueProposalStore) MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error {
 	if m.MarkReviewedFn != nil {
 		return m.MarkReviewedFn(ctx, id, reviewedBy, status)
@@ -99,10 +131,12 @@ func (m *MockKnownIssueProposalStore) MarkReviewed(ctx context.Context, id int64
 
 // MockFlakyProposalStore is a test double for store.FlakyProposalStorer.
 type MockFlakyProposalStore struct {
-	CreateFn       func(ctx context.Context, p *store.FlakyProposal) (int64, error)
-	GetFn          func(ctx context.Context, id int64) (*store.FlakyProposal, error)
-	ListPendingFn  func(ctx context.Context, projectID int, limit int, cursor string) ([]*store.FlakyProposal, string, error)
-	MarkReviewedFn func(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error
+	CreateFn               func(ctx context.Context, p *store.FlakyProposal) (int64, error)
+	GetFn                  func(ctx context.Context, id int64) (*store.FlakyProposal, error)
+	ListPendingFn          func(ctx context.Context, projectID int, limit int, cursor string) ([]*store.FlakyProposal, string, error)
+	ListFn                 func(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.FlakyProposal, error)
+	FindPendingDuplicateFn func(ctx context.Context, projectID int, historyID string) (*store.FlakyProposal, error)
+	MarkReviewedFn         func(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error
 }
 
 func (m *MockFlakyProposalStore) Create(ctx context.Context, p *store.FlakyProposal) (int64, error) {
@@ -124,6 +158,20 @@ func (m *MockFlakyProposalStore) ListPending(ctx context.Context, projectID int,
 		return m.ListPendingFn(ctx, projectID, limit, cursor)
 	}
 	return nil, "", nil
+}
+
+func (m *MockFlakyProposalStore) List(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.FlakyProposal, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx, projectID, status, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockFlakyProposalStore) FindPendingDuplicate(ctx context.Context, projectID int, historyID string) (*store.FlakyProposal, error) {
+	if m.FindPendingDuplicateFn != nil {
+		return m.FindPendingDuplicateFn(ctx, projectID, historyID)
+	}
+	return nil, nil
 }
 
 func (m *MockFlakyProposalStore) MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status store.ProposalStatus) error {

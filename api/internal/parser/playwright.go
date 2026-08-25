@@ -295,6 +295,7 @@ func convertPWTest(fileName string, test *pwTestJSON) *Result {
 	var retries int
 	var steps []Step
 	var attachments []Attachment
+	var attempts []Attempt
 
 	if len(test.Results) > 0 {
 		last := test.Results[len(test.Results)-1]
@@ -308,12 +309,7 @@ func convertPWTest(fileName string, test *pwTestJSON) *Result {
 		stopMs = startMs + durationMs
 
 		// Extract errors.
-		errorStrings := make([]string, 0, len(last.Errors))
-		for _, raw := range last.Errors {
-			if s := extractErrorString(raw); s != "" {
-				errorStrings = append(errorStrings, s)
-			}
-		}
+		errorStrings := pwErrorStrings(last.Errors)
 		if len(errorStrings) > 0 {
 			statusMessage = errorStrings[0]
 			statusTrace = strings.Join(errorStrings, "\n")
@@ -321,6 +317,20 @@ func convertPWTest(fileName string, test *pwTestJSON) *Result {
 
 		steps = convertPWSteps(last.Steps, 0)
 		attachments = convertPWAttachments(last.Attachments)
+
+		// Every attempt, not just the last: the fields above describe the final
+		// outcome, which cannot say whether the retries all failed the same way.
+		// The attempt index is the entry's position rather than its `retry`
+		// field so the sequence is always dense and collision-free even if a
+		// report repeats a retry number.
+		attempts = make([]Attempt, 0, len(test.Results))
+		for i := range test.Results {
+			attempts = append(attempts, Attempt{
+				Index:         i,
+				Status:        test.Results[i].Status,
+				StatusMessage: strings.Join(pwErrorStrings(test.Results[i].Errors), "\n"),
+			})
+		}
 	}
 
 	// Build labels.
@@ -352,7 +362,20 @@ func convertPWTest(fileName string, test *pwTestJSON) *Result {
 		Parameters:    nil,
 		Steps:         steps,
 		Attachments:   attachments,
+		Attempts:      attempts,
 	}
+}
+
+// pwErrorStrings renders a Playwright result's raw error values as plain
+// strings, dropping the ones that yield no text.
+func pwErrorStrings(raw []json.RawMessage) []string {
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		if s := extractErrorString(r); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // mapPWOutcome maps a Playwright outcome string to an Allure-compatible status.

@@ -54,6 +54,12 @@ func (s *spyTestResultStore) ListTimeline(_ context.Context, _ int64, _ int64, _
 func (s *spyTestResultStore) ListFailedByBuild(_ context.Context, _ int64, _ int64, _ int) ([]store.TestResult, error) {
 	return nil, nil
 }
+func (s *spyTestResultStore) CountFailedByBuild(_ context.Context, _ int64, _ int64) (int, error) {
+	return 0, nil
+}
+func (s *spyTestResultStore) GetByHistoryID(_ context.Context, _ int64, _ int64, _ string) (*store.TestResult, error) {
+	return nil, nil
+}
 func (s *spyTestResultStore) GetTestHistory(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
 	return nil, nil
 }
@@ -88,6 +94,9 @@ func (s *spyTestResultStore) GetDefectFingerprintID(_ context.Context, _ int64, 
 }
 func (s *spyTestResultStore) GetFailedStepPath(_ context.Context, _ int64, _ int64, _ string) ([]string, string, error) {
 	return nil, "", nil
+}
+func (s *spyTestResultStore) GetAttempts(_ context.Context, _ int64, _ int64, _ string) ([]store.TestAttemptRow, error) {
+	return nil, nil
 }
 
 // mockStore returns a storage.MockStore wired for storeAndPruneBuild success:

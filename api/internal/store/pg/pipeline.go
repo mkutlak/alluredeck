@@ -269,3 +269,49 @@ func (s *PipelineStore) ListAllPipelineRuns(ctx context.Context, branch string, 
 
 	return result, total, nil
 }
+
+// defaultPipelineBuildsLimit bounds ListBuildsByPipelineID when the caller
+// passes no limit of its own. It matches the cap the MCP layer applies, which
+// is in turn sized to the largest shard count a single CI pipeline realistically
+// produces.
+const defaultPipelineBuildsLimit = 50
+
+// ListBuildsByPipelineID returns the builds within a single project that share
+// the given ci_pipeline_id, ordered by build_order ascending. Unlike
+// ListPipelineRuns/ListAllPipelineRuns above (which group builds across a
+// parent's child projects via p.parent_id), this scopes directly to one
+// project — the shape Playwright CI shards produce: several builds, one
+// project, one ci_pipeline_id, one build per shard. Reuses buildSelectCols
+// and scanBuildRowsAll from build.go (same package) rather than duplicating
+// the builds-row shape here. Served by idx_builds_project_pipeline (migration
+// 0051), which covers both filter columns.
+//
+// It returns up to limit+1 rows, not limit. A caller that asked for limit and
+// received limit+1 knows the pipeline holds more builds than it displayed and
+// can say so; capping at exactly limit would make a truncated list
+// indistinguishable from a complete one. Callers are expected to drop the extra
+// row before presenting the result.
+//
+// A non-positive limit means "unspecified" and is served with
+// defaultPipelineBuildsLimit: PostgreSQL rejects a negative LIMIT and reads
+// LIMIT 0 as "no rows", so passing the argument straight through would turn a
+// caller's omission into an error or a silently empty answer.
+func (s *PipelineStore) ListBuildsByPipelineID(ctx context.Context, projectID int64, pipelineID string, limit int) ([]store.Build, error) {
+	if limit <= 0 {
+		limit = defaultPipelineBuildsLimit
+	}
+	rows, err := s.pool.Query(ctx, buildSelectCols+`
+		WHERE project_id=$1 AND ci_pipeline_id=$2
+		ORDER BY build_order ASC
+		LIMIT $3`, projectID, pipelineID, limit+1)
+	if err != nil {
+		return nil, fmt.Errorf("list builds by pipeline id: %w", err)
+	}
+	defer rows.Close()
+
+	builds, err := scanBuildRowsAll(rows)
+	if err != nil {
+		return nil, err
+	}
+	return builds, nil
+}

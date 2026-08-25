@@ -41,8 +41,26 @@ const (
 // Category hint constants.
 const (
 	CategoryToInvestigate = "to_investigate"
-	confidenceLow         = "low"
-	sourceHeuristic       = "heuristic"
+	// CategoryInfrastructure is the only category triage will assert on its
+	// own, and only from the signal combination in [computeCategoryHint].
+	CategoryInfrastructure = "infrastructure"
+	confidenceLow          = "low"
+	confidenceMedium       = "medium"
+	sourceHeuristic        = "heuristic"
+	// sourceSignals marks a hint derived from the signals computed in this same
+	// call rather than passed through from the caller's defect record.
+	sourceSignals = "signals"
+)
+
+// Status-code bounds. infraStatusFloor is the lowest code that counts as a
+// server-side failure, both when ranking extracted codes and when deciding the
+// category-hint upgrade; clientErrorFloor is its 4xx equivalent. Codes outside
+// [statusCodeFloor, statusCodeCeiling] are not HTTP statuses at all.
+const (
+	statusCodeFloor   = 100
+	clientErrorFloor  = 400
+	infraStatusFloor  = 500
+	statusCodeCeiling = 599
 )
 
 // fastFailRatioThreshold is the maximum duration ratio (failing / last passing)
@@ -141,16 +159,20 @@ type StatusPattern struct {
 	SameStatusAcrossRetries bool `json:"same_status_across_retries"`
 }
 
-// CategoryHint wraps the caller-supplied defect category. The triage package
-// does not classify; it only annotates the provided value with low confidence
-// and a heuristic source.
+// CategoryHint carries a defect category. Normally it is a passthrough of the
+// caller-supplied category annotated with low confidence; when the caller has
+// no category beyond the "to_investigate" default and the signals computed in
+// this same call supply one, triage fills in its own value instead (see
+// [computeCategoryHint]).
 type CategoryHint struct {
 	// Value is the category string (defaults to "to_investigate" when the
 	// caller supplies an empty category).
 	Value string `json:"value"`
-	// Confidence is always "low" — this is a passthrough hint, not a verdict.
+	// Confidence is "low" for a passthrough and "medium" for a signal-derived
+	// value. It is never "high": this is a hint, not a verdict.
 	Confidence string `json:"confidence"`
-	// Source is always "heuristic".
+	// Source is "heuristic" for a passthrough of the caller's category, or
+	// "signals" when the value was derived from this call's own signals.
 	Source string `json:"source"`
 }
 
@@ -183,9 +205,30 @@ type Signals struct {
 	CategoryHint CategoryHint `json:"category_hint"`
 }
 
-// statusRe matches an HTTP-status mention such as "status 404" or
-// "status: 503" (case-insensitive). Group 1 is the three-digit code.
-var statusRe = regexp.MustCompile(`(?i)status(?:[ _]?code)?\s*[:=]?\s*(\d{3})`)
+// statusRe matches an HTTP-status mention such as "status 404", "status: 503"
+// or "HTTP 500" (case-insensitive). Group 1 is the three-digit code, group 2 a
+// trailing duration unit when the "code" is really a timing.
+//
+// The anchor set, the digit-free gap, the mandatory non-alphanumeric separator
+// and the duration unit deliberately mirror runner.re5xx. The two are applied
+// to the same error text — runner stamps the persisted defect category, this
+// package feeds the live category hint — so a divergence between them shows up
+// as the stored category and the hint disagreeing about one error. triage
+// imports nothing from runner, so the pairing is held by
+// TestStatusCodeAgreesWithFingerprintCategory rather than by shared code. The
+// one intentional difference: runner also anchors on a standalone "code", which
+// only ever yields a 5xx there, while here it would read "exit code 137" as an
+// HTTP status.
+//
+// The anchors carry a leading word boundary only, so "statusCode: 500" and
+// "status_code=503" still match while "decode"/"encoded" do not. The code needs
+// a trailing boundary of its own: without one, "status 5000ms elapsed" reported
+// 500 and "status: 8080 listener died" reported 808.
+var statusRe = regexp.MustCompile(
+	`(?i)\b(?:status|http|response|responded|returned)` + // anchor word
+		`[^0-9\n]{0,40}[^0-9A-Za-z\n]` + // digit-free gap, then a separator
+		`(\d{3})\b` + // the status code itself
+		`(?:\s?(ms|msec|msecs|millis|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b)?`)
 
 // endpointRe matches a URL or an absolute path so the offending endpoint can be
 // surfaced alongside the status code.
@@ -194,15 +237,18 @@ var endpointRe = regexp.MustCompile(`https?://[^\s"'` + "`" + `)]+|(?:^|[\s"'` +
 // Analyze computes [Signals] from the given [Input]. It never returns an error
 // and is safe to call with zero-valued or partially populated input.
 func Analyze(in Input) Signals {
-	return Signals{
+	s := Signals{
 		FastFail:              computeFastFail(in),
 		FailurePhase:          computeFailurePhase(in.FailedStepPath),
 		RetryConsistency:      computeRetryConsistency(in.RetryAttempts),
 		RepeatedStatusPattern: computeStatusPattern(in.ErrorMessage, in.RetryAttempts),
 		LastStatus:            in.PreviousBuildStatus,
 		BuildsSincePass:       computeBuildsSincePass(in.BuildHistory),
-		CategoryHint:          computeCategoryHint(in.Category),
 	}
+	// The category hint reads the signals computed above, so it is filled in
+	// last rather than inline in the literal.
+	s.CategoryHint = computeCategoryHint(in.Category, s)
+	return s
 }
 
 // computeFastFail detects the anomaly where a failure aborts in a tiny fraction
@@ -308,17 +354,43 @@ func computeStatusPattern(errMsg string, attempts []RetryAttempt) *StatusPattern
 	return pattern
 }
 
-// extractStatusCode parses the first HTTP-status mention from msg.
+// extractStatusCode picks the most diagnostic HTTP status mentioned in msg.
+//
+// Every mention is scanned rather than just the first, because the first is
+// routinely the expectation rather than the failure: "Expected status 200 but
+// got status 500" must report the 500 that actually came back. A server error
+// therefore wins outright, then a client error, and only failing both does the
+// first in-range code stand. Anything outside 100-599, and any code that is
+// really a duration, is discarded.
 func extractStatusCode(msg string) (int, bool) {
-	m := statusRe.FindStringSubmatch(msg)
-	if m == nil {
-		return 0, false
+	var firstInRange, firstClientError int
+
+	for _, m := range statusRe.FindAllStringSubmatch(msg, -1) {
+		if m[2] != "" {
+			continue // "503 ms" is a timing, not a status
+		}
+		code, err := strconv.Atoi(m[1])
+		if err != nil || code < statusCodeFloor || code > statusCodeCeiling {
+			continue
+		}
+		if code >= infraStatusFloor {
+			return code, true
+		}
+		if firstClientError == 0 && code >= clientErrorFloor {
+			firstClientError = code
+		}
+		if firstInRange == 0 {
+			firstInRange = code
+		}
 	}
-	code, err := strconv.Atoi(m[1])
-	if err != nil {
-		return 0, false
+
+	if firstClientError != 0 {
+		return firstClientError, true
 	}
-	return code, true
+	if firstInRange != 0 {
+		return firstInRange, true
+	}
+	return 0, false
 }
 
 // extractEndpoint pulls a URL or absolute path out of msg, if one is present.
@@ -348,15 +420,48 @@ func computeBuildsSincePass(history []BuildHistoryEntry) int {
 }
 
 // computeCategoryHint wraps the caller-supplied category, defaulting an empty
-// value to "to_investigate".
-func computeCategoryHint(category string) CategoryHint {
+// value to "to_investigate" — except when the caller has no real category to
+// offer and the signals computed in this same call supply one.
+//
+// The one such combination is a fast abort in the before-hooks phase whose
+// error message carries a 5xx status: the test never reached its own body, gave
+// up almost immediately, and the thing it was talking to answered with a server
+// error. Absent any other information that reads as an environment failure, so
+// the value is filled in and marked source="signals" at "medium" confidence —
+// never "high": this is a hint, and the build-level verdict is where a real
+// judgement is made.
+//
+// A stored category other than "to_investigate" always wins, however loud the
+// signals are. Input.Category comes from the defect row, where a non-default
+// value means a human approved a classify proposal; overruling that with an
+// inference — and at a higher confidence than the human value is ever surfaced
+// with — would silently bury the human's answer. Such a passthrough keeps
+// source="heuristic", the value this field has always carried for a
+// caller-supplied category, so existing consumers are unaffected.
+func computeCategoryHint(category string, s Signals) CategoryHint {
 	value := strings.TrimSpace(category)
 	if value == "" {
 		value = CategoryToInvestigate
 	}
+
+	if value == CategoryToInvestigate && signalsSayInfrastructure(s) {
+		return CategoryHint{
+			Value:      CategoryInfrastructure,
+			Confidence: confidenceMedium,
+			Source:     sourceSignals,
+		}
+	}
+
 	return CategoryHint{
 		Value:      value,
 		Confidence: confidenceLow,
 		Source:     sourceHeuristic,
 	}
+}
+
+// signalsSayInfrastructure reports whether the signals alone are strong enough
+// to call a failure an environment problem.
+func signalsSayInfrastructure(s Signals) bool {
+	return s.FailurePhase == PhaseBeforeHooks && s.FastFail.FastFail &&
+		s.RepeatedStatusPattern != nil && s.RepeatedStatusPattern.StatusCode >= infraStatusFloor
 }

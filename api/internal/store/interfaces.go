@@ -164,6 +164,19 @@ type TestResultReader interface {
 	ListTimeline(ctx context.Context, projectID int64, buildID int64, limit int) ([]TimelineRow, error)
 	ListTimelineMulti(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]MultiTimelineRow, error)
 	ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]TestResult, error)
+	// CountFailedByBuild returns the number of DISTINCT full_name values among
+	// the failed+broken rows of a build. It is deliberately not COUNT(*):
+	// Playwright ingestion writes two rows per test (an enriched row and an
+	// empty shell under a second history_id scheme), so COUNT(*) reports twice
+	// the number of failures a human sees in the report.
+	CountFailedByBuild(ctx context.Context, projectID int64, buildID int64) (int, error)
+	// GetByHistoryID returns the single test_results row identified by
+	// (projectID, buildID, historyID) whatever its status — passed rows
+	// included, so callers can look up a test that is no longer failing. It
+	// returns (nil, nil) when no row matches, and immediately when historyID is
+	// empty: an empty history_id matches every test lacking one, so it is never
+	// a valid lookup key.
+	GetByHistoryID(ctx context.Context, projectID int64, buildID int64, historyID string) (*TestResult, error)
 	ListStabilityByBuild(ctx context.Context, projectID int64, buildID int64) ([]TestResult, error)
 	GetTestHistory(ctx context.Context, projectID int64, historyID string, branchID *int64, limit int) ([]TestHistoryEntry, error)
 	CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]DiffEntry, error)
@@ -180,6 +193,15 @@ type TestResultReader interface {
 	// (GetTestHistory, CompareBuildsByHistoryID's implicit ordering) keys on
 	// build_order for the same reason.
 	GetLastPassingBuild(ctx context.Context, projectID int64, historyID string, branchID *int64, beforeBuildOrder int) (*TestHistoryEntry, error)
+	// GetAttempts returns every recorded execution attempt of the test
+	// identified by (projectID, buildID, historyID), ordered by attempt_index
+	// ascending. It returns an empty slice — not an error — when the test has
+	// no attempt rows: only the Playwright ingestion path records them, and
+	// only reports that actually carry per-attempt detail produce any. Returns
+	// immediately with no rows when historyID is empty, matching
+	// GetByHistoryID: an empty history_id matches every test lacking one and so
+	// is never a valid lookup key.
+	GetAttempts(ctx context.Context, projectID int64, buildID int64, historyID string) ([]TestAttemptRow, error)
 }
 
 // TestResultDefectReader covers fingerprinting and defect-oriented test result queries.
@@ -384,6 +406,19 @@ type PipelineStorer interface {
 	// call covers a whole run including sharded suites, which contribute
 	// several builds each. Rows carry the suite and build they came from.
 	ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]RunFailureRow, error)
+	// ListBuildsByPipelineID returns the builds within a single project that
+	// share the given ci_pipeline_id, ordered by build_order ascending. This
+	// is the single-project shard case: Playwright CI shards upload one build
+	// each under a shared ci_pipeline_id, all within the same project — unlike
+	// ListPipelineRuns/ListAllPipelineRuns, which group builds across a
+	// parent's child projects.
+	//
+	// It returns up to limit+1 rows, so a caller receiving limit+1 knows the
+	// pipeline holds more builds than it asked for and can report the result as
+	// truncated rather than as complete; it should drop the extra row before
+	// presenting the list. A non-positive limit means "unspecified" and is
+	// served with the implementation's own default.
+	ListBuildsByPipelineID(ctx context.Context, projectID int64, pipelineID string, limit int) ([]Build, error)
 }
 
 // AttachmentStorer provides queries over test attachment metadata.
@@ -402,10 +437,15 @@ type AttachmentStorer interface {
 	GetByID(ctx context.Context, id int64) (*TestAttachment, error)
 	// GetLocation resolves the file-storage location of an attachment by joining
 	// test_attachments → test_results → builds → projects. It returns the
-	// owning project's storage key, the build order number, the source
+	// owning project's id and storage key, the build order number, the source
 	// filename and the MIME type. Returns ErrAttachmentNotFound when no row
 	// exists. Used to stream attachment blobs via signed download URLs and to
 	// inline attachment content in MCP resources.
+	//
+	// AttachmentLocation.ProjectID is the authorisation anchor: attachment ids
+	// come from a global sequence, so a caller resolving one MUST check the
+	// returned project against the project scope it was granted rather than
+	// trusting the id alone.
 	GetLocation(ctx context.Context, id int64) (*AttachmentLocation, error)
 	// InsertBuildAttachments inserts build-level attachments (e.g. from Playwright
 	// data/ directory) that are not linked to a specific test result.
@@ -697,6 +737,13 @@ type DefectProposalStorer interface {
 	// cursor is an opaque token from the previous call; "" starts from the beginning.
 	// Returns items, the next cursor (empty when no more pages), and any error.
 	ListPending(ctx context.Context, projectID int, limit int, cursor string) ([]*DefectProposal, string, error)
+	// List returns up to limit proposals for a project, most recent first.
+	// status == "" matches every status; otherwise only that status.
+	List(ctx context.Context, projectID int, status ProposalStatus, limit int) ([]*DefectProposal, error)
+	// FindPendingDuplicate returns the existing pending proposal that matches
+	// (projectID, fingerprintHash, proposedCategory), or nil if none exists.
+	// Used by propose_classify_defect to avoid queuing a duplicate.
+	FindPendingDuplicate(ctx context.Context, projectID int, fingerprintHash, proposedCategory string) (*DefectProposal, error)
 	// MarkReviewed sets status + reviewed_by_user_id + reviewed_at on a proposal.
 	MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status ProposalStatus) error
 }
@@ -709,6 +756,13 @@ type KnownIssueProposalStorer interface {
 	Get(ctx context.Context, id int64) (*KnownIssueProposal, error)
 	// ListPending returns pending proposals for a project with cursor-based pagination.
 	ListPending(ctx context.Context, projectID int, limit int, cursor string) ([]*KnownIssueProposal, string, error)
+	// List returns up to limit proposals for a project, most recent first.
+	// status == "" matches every status; otherwise only that status.
+	List(ctx context.Context, projectID int, status ProposalStatus, limit int) ([]*KnownIssueProposal, error)
+	// FindPendingDuplicate returns the existing pending proposal that matches
+	// (projectID, regexPattern), or nil if none exists. Used by
+	// propose_known_issue to avoid queuing a duplicate rule.
+	FindPendingDuplicate(ctx context.Context, projectID int, regexPattern string) (*KnownIssueProposal, error)
 	// MarkReviewed sets status + reviewed_by_user_id + reviewed_at on a proposal.
 	MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status ProposalStatus) error
 }
@@ -721,6 +775,13 @@ type FlakyProposalStorer interface {
 	Get(ctx context.Context, id int64) (*FlakyProposal, error)
 	// ListPending returns pending proposals for a project with cursor-based pagination.
 	ListPending(ctx context.Context, projectID int, limit int, cursor string) ([]*FlakyProposal, string, error)
+	// List returns up to limit proposals for a project, most recent first.
+	// status == "" matches every status; otherwise only that status.
+	List(ctx context.Context, projectID int, status ProposalStatus, limit int) ([]*FlakyProposal, error)
+	// FindPendingDuplicate returns the existing pending proposal that matches
+	// (projectID, historyID), or nil if none exists. Used by
+	// propose_mark_flaky to avoid queuing a duplicate.
+	FindPendingDuplicate(ctx context.Context, projectID int, historyID string) (*FlakyProposal, error)
 	// MarkReviewed sets status + reviewed_by_user_id + reviewed_at on a proposal.
 	MarkReviewed(ctx context.Context, id int64, reviewedBy int64, status ProposalStatus) error
 }

@@ -183,6 +183,10 @@ type RunFailureRow struct {
 
 // TestResult represents a single test execution result stored in the database.
 type TestResult struct {
+	// ID is the test_results surrogate primary key. Only the queries that
+	// select it populate it (ListFailedByBuild, GetByHistoryID); it is zero
+	// everywhere else, including on rows built for ingestion.
+	ID         int64
 	BuildID    int64
 	ProjectID  int64
 	TestName   string
@@ -201,6 +205,24 @@ type TestResult struct {
 	// StatusMessage is the raw failure message, bounded to 500 characters by
 	// the callers that populate it (see ListFailedByBuild). Empty when the
 	// caller does not select it.
+	StatusMessage string
+}
+
+// TestAttemptRow is one execution attempt of a test within a build, read back
+// from test_attempts. TestResult.Status and TestResult.StatusMessage describe
+// only the FINAL attempt; these rows describe every attempt, which is what lets
+// a caller tell a test that failed identically on every retry from one that
+// failed differently each time.
+//
+// Status is verbatim from the source report, NOT normalized to the Allure
+// vocabulary — a Playwright attempt reports "timedOut" or "interrupted".
+type TestAttemptRow struct {
+	// AttemptIndex is the zero-based attempt number: 0 is the first run.
+	AttemptIndex int
+	// Status is the attempt's outcome as the source report spelled it.
+	Status string
+	// StatusMessage is the attempt's error text, capped at 2000 characters on
+	// write. Empty for a passing attempt.
 	StatusMessage string
 }
 
@@ -223,6 +245,12 @@ type TestAttachment struct {
 // AttachmentStorer.GetLocation by joining test_attachments → test_results →
 // builds → projects.
 type AttachmentLocation struct {
+	// ProjectID is the project that owns the attachment, resolved through
+	// test_results. It exists so callers holding only an attachment id can
+	// authorise the read against the project the caller actually asked about:
+	// the attachment primary key is a global sequence, so without it any
+	// bare-id lookup is readable instance-wide by enumeration.
+	ProjectID   int64
 	StorageKey  string
 	BuildNumber int
 	Source      string
@@ -261,6 +289,10 @@ type TestHistoryEntry struct {
 	CICommitSHA *string
 	Flaky       bool
 	Retries     int
+	// BranchName is the name of the branch the run belongs to, resolved via a
+	// LEFT JOIN onto branches. Empty when the build has no branch_id (builds
+	// predating branch tracking, or CI that supplied no branch).
+	BranchName string
 }
 
 // KnownIssue represents a known test failure that has been acknowledged.

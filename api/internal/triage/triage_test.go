@@ -355,6 +355,159 @@ func TestComputeStatusPattern(t *testing.T) {
 	}
 }
 
+// TestStatusCodeSelection covers the anchoring and selection rules of the
+// status-code extractor. First-match-wins used to hand back the expectation
+// rather than the failure ("Expected status 200 but got status 500" -> 200) and
+// an unbounded three-digit match used to slice a code out of a longer number
+// ("status 5000ms elapsed" -> 500, "status: 8080 listener died" -> 808).
+func TestStatusCodeSelection(t *testing.T) {
+	tests := []struct {
+		name     string
+		errMsg   string
+		wantNil  bool
+		wantCode int
+	}{
+		{
+			name:     "prefers the served 5xx over the expected 2xx",
+			errMsg:   "Expected status 200 but got status 500",
+			wantCode: 500,
+		},
+		{
+			name:     "prefers a 5xx regardless of position",
+			errMsg:   "returned 404 on retry, then status 503",
+			wantCode: 503,
+		},
+		{
+			name:     "prefers a 4xx over other classes",
+			errMsg:   "status 301 redirect, then status 404 missing",
+			wantCode: 404,
+		},
+		{
+			name:     "falls back to the first code in range",
+			errMsg:   "status 301 redirect",
+			wantCode: 301,
+		},
+		{
+			name:    "duration is not sliced into a status",
+			errMsg:  "status 5000ms elapsed",
+			wantNil: true,
+		},
+		{
+			name:    "port number is not sliced into a status",
+			errMsg:  "status: 8080 listener died",
+			wantNil: true,
+		},
+		{
+			name:    "a code followed by a time unit is a duration",
+			errMsg:  "status polling: 503 ms since the last probe",
+			wantNil: true,
+		},
+		{
+			name:    "out-of-range codes are rejected",
+			errMsg:  "status 099 is not a status",
+			wantNil: true,
+		},
+		{
+			name:    "exit codes are not HTTP statuses",
+			errMsg:  "process died with exit code 137",
+			wantNil: true,
+		},
+		{
+			name:     "http anchor without the word status",
+			errMsg:   "HTTP 503 Service Unavailable",
+			wantCode: 503,
+		},
+		{
+			name:     "responded anchor",
+			errMsg:   "gateway responded with 502",
+			wantCode: 502,
+		},
+		{
+			name:     "status prose with a distant code",
+			errMsg:   "status: Internal Server Error, transaction 502 aborted",
+			wantCode: 502,
+		},
+		{
+			name:     "camelCase statusCode still anchors",
+			errMsg:   "API call failed with statusCode: 500",
+			wantCode: 500,
+		},
+		{
+			name:     "snake_case status_code still anchors",
+			errMsg:   "request rejected, status_code=503",
+			wantCode: 503,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := triage.Analyze(triage.Input{ErrorMessage: tt.errMsg}).RepeatedStatusPattern
+			if tt.wantNil {
+				if got != nil {
+					t.Fatalf("RepeatedStatusPattern = %+v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("RepeatedStatusPattern = nil, want non-nil")
+			}
+			if got.StatusCode != tt.wantCode {
+				t.Errorf("StatusCode = %d, want %d", got.StatusCode, tt.wantCode)
+			}
+		})
+	}
+}
+
+// TestStatusCodeAgreesWithFingerprintCategory pairs this package's status
+// extraction with runner.CategorizeError, which stamps the persisted defect
+// category on the same text. The two must never contradict each other: a
+// message the fingerprinter calls infrastructure must yield a 5xx here, and a
+// message it does not must not yield one, otherwise the stored category and the
+// live hint disagree about the same error.
+//
+// triage deliberately imports nothing from runner, so the expected categories
+// are copied. Keep them in sync with TestCategorizeError_FiveXXAnchoring in
+// internal/runner/fingerprint_test.go — the message list is the same one.
+func TestStatusCodeAgreesWithFingerprintCategory(t *testing.T) {
+	const categoryInfrastructure = "infrastructure"
+
+	tests := []struct {
+		name string
+		msg  string
+		// runnerCategory is what runner.CategorizeError returns for msg.
+		runnerCategory string
+	}{
+		{name: "duration next to a failure word", msg: "test failed after 500 ms", runnerCategory: "to_investigate"},
+		{name: "latency in ms", msg: "response time was 503 ms, over the 200ms budget", runnerCategory: "to_investigate"},
+		{name: "code inside decode", msg: "failed to decode 512 bytes", runnerCategory: "to_investigate"},
+		{name: "code inside encoded", msg: "encoded 550 rows", runnerCategory: "to_investigate"},
+		{name: "status prose with a distant code", msg: "status: Internal Server Error, transaction 502 aborted", runnerCategory: categoryInfrastructure},
+		{name: "assertion phrased 5xx", msg: "Expected status 200, received 503", runnerCategory: "product_bug"},
+		{name: "playwright locator timeout", msg: "Timed out 5000ms waiting for locator", runnerCategory: "to_investigate"},
+		{name: "bare HTTP 503", msg: "HTTP 503 Service Unavailable", runnerCategory: categoryInfrastructure},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := triage.Analyze(triage.Input{ErrorMessage: tt.msg}).RepeatedStatusPattern
+
+			if tt.runnerCategory == categoryInfrastructure {
+				if got == nil {
+					t.Fatalf("RepeatedStatusPattern = nil for %q, but the fingerprinter calls it infrastructure", tt.msg)
+				}
+				if got.StatusCode < 500 {
+					t.Errorf("StatusCode = %d for %q, want >= 500 to match the infrastructure verdict", got.StatusCode, tt.msg)
+				}
+				return
+			}
+			if got != nil && got.StatusCode >= 500 {
+				t.Errorf("StatusCode = %d for %q, but the fingerprinter calls it %q, not infrastructure",
+					got.StatusCode, tt.msg, tt.runnerCategory)
+			}
+		})
+	}
+}
+
 func TestComputeBuildsSincePass(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -550,4 +703,233 @@ func fmtF64(p *float64) any {
 		return "nil"
 	}
 	return *p
+}
+
+// TestCategoryHint_SignalUpgrade covers the one case where triage fills in a
+// category of its own: a fast abort in the before-hooks phase whose error
+// message carries a 5xx status is an environment failure. It only applies when
+// the caller has no real category to offer (empty or "to_investigate");
+// everything else stays a low-confidence passthrough.
+func TestCategoryHint_SignalUpgrade(t *testing.T) {
+	// beforeHooks + a long prior pass makes the failure both phase-tagged and
+	// fast-failing; the message supplies the status code.
+	beforeHooks := []string{"Before Hooks", "login via API"}
+	testBody := []string{"Test Body", "click save"}
+	fastHistory := []triage.BuildHistoryEntry{{Status: triage.StatusPassed, DurationMs: 5000}}
+
+	tests := []struct {
+		name           string
+		in             triage.Input
+		wantValue      string
+		wantConfidence string
+		wantSource     string
+	}{
+		{
+			name: "before_hooks + fast_fail + 500 upgrades to infrastructure",
+			in: triage.Input{
+				DurationMs:     120,
+				ErrorMessage:   "API call failed with status 500. URL: /api/TokenAuth/Authenticate",
+				FailedStepPath: beforeHooks,
+				BuildHistory:   fastHistory,
+				Category:       "to_investigate",
+			},
+			wantValue:      triage.CategoryInfrastructure,
+			wantConfidence: "medium",
+			wantSource:     "signals",
+		},
+		{
+			// A stored category other than the default was put there by a human
+			// approving a classification proposal. The signals must not quietly
+			// outrank it at a higher confidence than the human value gets.
+			name: "stored test_bug survives the signal upgrade",
+			in: triage.Input{
+				DurationMs:     120,
+				ErrorMessage:   "status 503 from the auth service",
+				FailedStepPath: beforeHooks,
+				BuildHistory:   fastHistory,
+				Category:       "test_bug",
+			},
+			wantValue:      "test_bug",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name: "599 is still 5xx",
+			in: triage.Input{
+				DurationMs:     50,
+				ErrorMessage:   "status 599 from gateway",
+				FailedStepPath: beforeHooks,
+				BuildHistory:   fastHistory,
+				Category:       "",
+			},
+			wantValue:      triage.CategoryInfrastructure,
+			wantConfidence: "medium",
+			wantSource:     "signals",
+		},
+		{
+			name: "4xx does not upgrade",
+			in: triage.Input{
+				DurationMs:     120,
+				ErrorMessage:   "status 404 from /api/users",
+				FailedStepPath: beforeHooks,
+				BuildHistory:   fastHistory,
+				Category:       "test_bug",
+			},
+			wantValue:      "test_bug",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name: "no status pattern does not upgrade",
+			in: triage.Input{
+				DurationMs:     120,
+				ErrorMessage:   "socket hang up",
+				FailedStepPath: beforeHooks,
+				BuildHistory:   fastHistory,
+				Category:       "infrastructure",
+			},
+			wantValue:      "infrastructure",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name: "slow before-hooks failure does not upgrade",
+			in: triage.Input{
+				DurationMs:     4800,
+				ErrorMessage:   "status 500 from /api/TokenAuth/Authenticate",
+				FailedStepPath: beforeHooks,
+				BuildHistory:   fastHistory,
+				Category:       "",
+			},
+			wantValue:      triage.CategoryToInvestigate,
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name: "test_body phase does not upgrade",
+			in: triage.Input{
+				DurationMs:     120,
+				ErrorMessage:   "status 500 from /api/orders",
+				FailedStepPath: testBody,
+				BuildHistory:   fastHistory,
+				Category:       "product_bug",
+			},
+			wantValue:      "product_bug",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name: "no prior pass means no fast_fail and no upgrade",
+			in: triage.Input{
+				DurationMs:     120,
+				ErrorMessage:   "status 500 from /api/TokenAuth/Authenticate",
+				FailedStepPath: beforeHooks,
+				Category:       "",
+			},
+			wantValue:      triage.CategoryToInvestigate,
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := triage.Analyze(tt.in).CategoryHint
+			if got.Value != tt.wantValue {
+				t.Errorf("Value = %q, want %q", got.Value, tt.wantValue)
+			}
+			if got.Confidence != tt.wantConfidence {
+				t.Errorf("Confidence = %q, want %q", got.Confidence, tt.wantConfidence)
+			}
+			if got.Source != tt.wantSource {
+				t.Errorf("Source = %q, want %q", got.Source, tt.wantSource)
+			}
+		})
+	}
+}
+
+// TestCategoryHint_StoredCategoryWins pins the precedence between a stored
+// category and the signal upgrade. Input.Category carries whatever sits on the
+// defect row, and a value other than the default got there because a human
+// approved a classify proposal. Screaming infrastructure signals must not
+// replace that human verdict — and must certainly not do so at "medium" while
+// the human value is only ever surfaced at "low".
+func TestCategoryHint_StoredCategoryWins(t *testing.T) {
+	// Every input below carries the full upgrade trigger: a before-hooks phase,
+	// a fast abort against a long prior pass, and a 5xx in the message.
+	infraSignals := func(category string) triage.Input {
+		return triage.Input{
+			DurationMs:     120,
+			ErrorMessage:   "API call failed with status 503. URL: /api/TokenAuth/Authenticate",
+			FailedStepPath: []string{"Before Hooks", "login via API"},
+			BuildHistory:   []triage.BuildHistoryEntry{{Status: triage.StatusPassed, DurationMs: 5000}},
+			Category:       category,
+		}
+	}
+
+	tests := []struct {
+		name           string
+		category       string
+		wantValue      string
+		wantConfidence string
+		wantSource     string
+	}{
+		{
+			name:           "human product_bug outranks the signals",
+			category:       "product_bug",
+			wantValue:      "product_bug",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name:           "human test_bug outranks the signals",
+			category:       "test_bug",
+			wantValue:      "test_bug",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name:           "human infrastructure stays a passthrough",
+			category:       "infrastructure",
+			wantValue:      "infrastructure",
+			wantConfidence: "low",
+			wantSource:     "heuristic",
+		},
+		{
+			name:           "empty category leaves room for the upgrade",
+			category:       "",
+			wantValue:      triage.CategoryInfrastructure,
+			wantConfidence: "medium",
+			wantSource:     "signals",
+		},
+		{
+			name:           "to_investigate leaves room for the upgrade",
+			category:       triage.CategoryToInvestigate,
+			wantValue:      triage.CategoryInfrastructure,
+			wantConfidence: "medium",
+			wantSource:     "signals",
+		},
+		{
+			name:           "padded to_investigate is still the default",
+			category:       "  to_investigate  ",
+			wantValue:      triage.CategoryInfrastructure,
+			wantConfidence: "medium",
+			wantSource:     "signals",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := triage.Analyze(infraSignals(tt.category)).CategoryHint
+			if got.Value != tt.wantValue {
+				t.Errorf("Value = %q, want %q", got.Value, tt.wantValue)
+			}
+			if got.Confidence != tt.wantConfidence {
+				t.Errorf("Confidence = %q, want %q", got.Confidence, tt.wantConfidence)
+			}
+			if got.Source != tt.wantSource {
+				t.Errorf("Source = %q, want %q", got.Source, tt.wantSource)
+			}
+		})
+	}
 }

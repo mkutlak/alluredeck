@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -382,14 +383,20 @@ func (ts *TestResultStore) ListTimelineMulti(ctx context.Context, projectID int6
 // message for a short error preview, not the full text. GetReportKnownFailures
 // also calls this with a limit of 10000, so every row it fetches now carries a
 // status_message capped at 500 chars rather than the full column value.
+//
+// id ASC breaks duration ties. Durations collide often (fast tests round to the
+// same millisecond, skipped ones are all zero), and without a second sort key
+// PostgreSQL is free to return tied rows in any order — so which of them fall
+// inside the LIMIT window could change between two runs over identical data.
+// Callers that derive a verdict from this list need it to be reproducible.
 func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error) {
 	rows, err := ts.pool.Query(ctx, `
-		SELECT build_id, project_id, test_name, full_name, status, duration_ms,
+		SELECT id, build_id, project_id, test_name, full_name, status, duration_ms,
 		       history_id, flaky, retries, new_failed, new_passed,
 		       COALESCE(LEFT(status_message, 500), '')
 		FROM test_results
 		WHERE build_id=$1 AND project_id=$2 AND status IN ('failed','broken')
-		ORDER BY duration_ms DESC
+		ORDER BY duration_ms DESC, id ASC
 		LIMIT $3`, buildID, projectID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list failed by build: %w", err)
@@ -400,7 +407,7 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int6
 	for rows.Next() {
 		var r store.TestResult
 		if err := rows.Scan(
-			&r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status, &r.DurationMs,
+			&r.ID, &r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status, &r.DurationMs,
 			&r.HistoryID, &r.Flaky, &r.Retries, &r.NewFailed, &r.NewPassed,
 			&r.StatusMessage,
 		); err != nil {
@@ -415,6 +422,61 @@ func (ts *TestResultStore) ListFailedByBuild(ctx context.Context, projectID int6
 		results = []store.TestResult{}
 	}
 	return results, nil
+}
+
+// CountFailedByBuild returns the number of distinct failing tests in a build.
+// It counts DISTINCT full_name, not rows, because the table can still hold two
+// rows per test: an enriched row and an empty shell carrying a second
+// history_id scheme, which would make COUNT(*) report twice the failures a
+// human sees. Ingestion no longer produces those twins — the Allure path
+// reconciles both writes onto one history_id (historyIDsByFullName in
+// api/internal/runner/allure.go) and the Playwright path always wrote a single
+// scheme — but builds ingested before that fix keep their twins until migration
+// 0049 deletes them, and this count has to be right on historical data too.
+// full_name is the stable per-test identity across both schemes.
+func (ts *TestResultStore) CountFailedByBuild(ctx context.Context, projectID int64, buildID int64) (int, error) {
+	var n int
+	if err := ts.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT full_name)
+		FROM test_results
+		WHERE build_id=$1 AND project_id=$2 AND status IN ('failed','broken')`,
+		buildID, projectID,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count failed by build: %w", err)
+	}
+	return n, nil
+}
+
+// GetByHistoryID returns the test_results row identified by (projectID,
+// buildID, historyID) regardless of status, so a caller can look up a test
+// that passed as readily as one that failed. status_message is bounded to 500
+// characters, matching ListFailedByBuild. Returns (nil, nil) when no row
+// matches, and immediately when historyID is empty — an empty history_id
+// matches every test lacking one and so is never a valid lookup key.
+func (ts *TestResultStore) GetByHistoryID(ctx context.Context, projectID int64, buildID int64, historyID string) (*store.TestResult, error) {
+	if historyID == "" {
+		return nil, nil
+	}
+	var r store.TestResult
+	err := ts.pool.QueryRow(ctx, `
+		SELECT id, build_id, project_id, test_name, full_name, status, duration_ms,
+		       history_id, flaky, retries, new_failed, new_passed,
+		       COALESCE(LEFT(status_message, 500), '')
+		FROM test_results
+		WHERE project_id=$1 AND build_id=$2 AND history_id=$3
+		LIMIT 1`, projectID, buildID, historyID,
+	).Scan(
+		&r.ID, &r.BuildID, &r.ProjectID, &r.TestName, &r.FullName, &r.Status, &r.DurationMs,
+		&r.HistoryID, &r.Flaky, &r.Retries, &r.NewFailed, &r.NewPassed,
+		&r.StatusMessage,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get test result by history id: %w", err)
+	}
+	return &r, nil
 }
 
 // ListStabilityByBuild returns tests with stability signals (flaky, retried, new-failed, new-passed) for a build.
@@ -456,19 +518,25 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, 
 	var rows pgx.Rows
 	var err error
 
+	// br is LEFT-joined: builds predating branch tracking have a NULL branch_id
+	// and must still appear in the history, with an empty branch name.
 	if branchID != nil {
 		rows, err = ts.pool.Query(ctx, `
-			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries,
+			       COALESCE(br.name, '')
 			FROM test_results tr
 			JOIN builds b ON tr.build_id=b.id
+			LEFT JOIN branches br ON b.branch_id=br.id
 			WHERE tr.project_id=$1 AND tr.history_id=$2 AND b.branch_id=$3
 			ORDER BY b.build_order DESC
 			LIMIT $4`, projectID, historyID, *branchID, limit)
 	} else {
 		rows, err = ts.pool.Query(ctx, `
-			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries,
+			       COALESCE(br.name, '')
 			FROM test_results tr
 			JOIN builds b ON tr.build_id=b.id
+			LEFT JOIN branches br ON b.branch_id=br.id
 			WHERE tr.project_id=$1 AND tr.history_id=$2
 			ORDER BY b.build_order DESC
 			LIMIT $3`, projectID, historyID, limit)
@@ -483,7 +551,7 @@ func (ts *TestResultStore) GetTestHistory(ctx context.Context, projectID int64, 
 		var e store.TestHistoryEntry
 		var createdAt time.Time
 		var ciCommitSHA *string
-		if err := rows.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA, &e.Flaky, &e.Retries); err != nil {
+		if err := rows.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA, &e.Flaky, &e.Retries, &e.BranchName); err != nil {
 			return nil, fmt.Errorf("scan test history row: %w", err)
 		}
 		e.CreatedAt = createdAt
@@ -515,21 +583,27 @@ func (ts *TestResultStore) GetLastPassingBuild(ctx context.Context, projectID in
 		return nil, nil
 	}
 
+	// br is LEFT-joined for the same reason as in GetTestHistory: a pass on a
+	// build with no branch_id is still a pass.
 	var row pgx.Row
 	if branchID != nil {
 		row = ts.pool.QueryRow(ctx, `
-			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries,
+			       COALESCE(br.name, '')
 			FROM test_results tr
 			JOIN builds b ON tr.build_id=b.id
+			LEFT JOIN branches br ON b.branch_id=br.id
 			WHERE tr.project_id=$1 AND tr.history_id=$2 AND tr.status=$3
 			  AND b.branch_id=$4 AND b.build_order < $5
 			ORDER BY b.build_order DESC
 			LIMIT 1`, projectID, historyID, string(store.TestStatusPassed), *branchID, beforeBuildOrder)
 	} else {
 		row = ts.pool.QueryRow(ctx, `
-			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries
+			SELECT b.build_order, b.id, tr.status, tr.duration_ms, b.created_at, b.ci_commit_sha, tr.flaky, tr.retries,
+			       COALESCE(br.name, '')
 			FROM test_results tr
 			JOIN builds b ON tr.build_id=b.id
+			LEFT JOIN branches br ON b.branch_id=br.id
 			WHERE tr.project_id=$1 AND tr.history_id=$2 AND tr.status=$3
 			  AND b.build_order < $4
 			ORDER BY b.build_order DESC
@@ -539,7 +613,7 @@ func (ts *TestResultStore) GetLastPassingBuild(ctx context.Context, projectID in
 	var e store.TestHistoryEntry
 	var createdAt time.Time
 	var ciCommitSHA *string
-	if err := row.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA, &e.Flaky, &e.Retries); err != nil {
+	if err := row.Scan(&e.BuildNumber, &e.BuildID, &e.Status, &e.DurationMs, &createdAt, &ciCommitSHA, &e.Flaky, &e.Retries, &e.BranchName); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -573,28 +647,84 @@ func (ts *TestResultStore) DeleteByProject(ctx context.Context, projectID int64)
 // inserts labels, parameters, steps (recursive), and attachments.
 // dedupeResultsByHistoryID collapses results that share the same non-empty
 // historyId down to a single entry, keeping the latest attempt (greatest
-// StopMs). This mirrors the latest-attempt-wins rule InsertBatch applies in SQL,
-// so the stability row and its enrichment come from the same Allure attempt.
+// StopMs), with ties resolved in favour of the first result read. This mirrors
+// the latest-attempt-wins rule InsertBatch applies in SQL, so the stability row
+// and its enrichment come from the same Allure attempt.
 // Entries with an empty historyId are excluded from the unique index and so are
 // never collapsed — each is preserved in its original order.
+// The collapsed siblings are not discarded outright: on the Allure path they
+// ARE the per-attempt record. An Allure reporter writes one standalone
+// *-result.json per attempt with no in-file retry structure, so "the attempts of
+// a retried test" is expressed purely as several files sharing one historyId —
+// exactly the group this function collapses. Each survivor therefore carries an
+// Attempts slice synthesized from its whole group (see attemptsFromSiblings), so
+// the retry-consistency signal works for Allure uploads and not only for
+// Playwright ones, which get Attempts straight from the parser.
 func dedupeResultsByHistoryID(results []*parser.Result) []*parser.Result {
 	out := make([]*parser.Result, 0, len(results))
-	idx := make(map[string]int, len(results)) // historyId -> index into out
+	groups := make([][]*parser.Result, 0, len(results)) // parallel to out
+	idx := make(map[string]int, len(results))           // historyId -> index into out
 	for _, r := range results {
 		if r.HistoryID == "" {
 			out = append(out, r)
+			groups = append(groups, nil)
 			continue
 		}
 		if i, ok := idx[r.HistoryID]; ok {
-			if r.StopMs >= out[i].StopMs {
-				out[i] = r // a later (or equally recent) attempt wins
+			groups[i] = append(groups[i], r)
+			// Strictly greater, never equal: the survivor is the attempt with the
+			// highest stop timestamp, and ties keep the FIRST result read. A
+			// reporter may omit the stop timestamp entirely, which leaves StopMs
+			// at zero, so ">=" would have made every untimestamped group resolve
+			// on ParseDir's filename order — a different survivor for the same
+			// upload depending on how the files happened to be named. Zero also
+			// loses to any real timestamp under ">", so a timestamped attempt
+			// always outranks an untimestamped one whichever is read first.
+			if r.StopMs > out[i].StopMs {
+				out[i] = r
 			}
 			continue
 		}
 		idx[r.HistoryID] = len(out)
 		out = append(out, r)
+		groups = append(groups, []*parser.Result{r})
+	}
+
+	for i, group := range groups {
+		// A parser that supplied its own attempts (Playwright) is authoritative;
+		// a lone result is not a retry sequence and is skipped so the common
+		// single-attempt case allocates nothing.
+		if len(group) < attemptsMinToPersist || len(out[i].Attempts) > 0 {
+			continue
+		}
+		// Copy rather than mutate: the caller's slice elements are shared with
+		// the ingestion path that produced them, which never asked for attempts
+		// to be attached to its results.
+		enriched := *out[i]
+		enriched.Attempts = attemptsFromSiblings(group)
+		out[i] = &enriched
 	}
 	return out
+}
+
+// attemptsFromSiblings turns the result files of one retried Allure test into an
+// ordered attempt list. Attempts are ordered by StopMs ascending — the same
+// "later attempt has the greater StopMs" rule the survivor selection above
+// relies on — with ties broken by the original file order.
+func attemptsFromSiblings(group []*parser.Result) []parser.Attempt {
+	ordered := make([]*parser.Result, len(group))
+	copy(ordered, group)
+	sort.SliceStable(ordered, func(a, b int) bool { return ordered[a].StopMs < ordered[b].StopMs })
+
+	attempts := make([]parser.Attempt, 0, len(ordered))
+	for i, r := range ordered {
+		attempts = append(attempts, parser.Attempt{
+			Index:         i,
+			Status:        r.Status,
+			StatusMessage: r.StatusMessage,
+		})
+	}
+	return attempts
 }
 
 func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, projectID int64, results []*parser.Result) error {
@@ -615,6 +745,11 @@ func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, p
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Attempt rows are collected here and written once for the whole batch after
+	// the loop, rather than per result inside it — see replaceAttempts.
+	resultIDs := make([]int64, 0, len(results))
+	var attempts []attemptRow
 
 	for _, r := range results {
 		var testResultID int64
@@ -675,12 +810,144 @@ func (ts *TestResultStore) InsertBatchFull(ctx context.Context, buildID int64, p
 				return fmt.Errorf("insert attachment: %w", err)
 			}
 		}
+
+		resultIDs = append(resultIDs, testResultID)
+		if len(r.Attempts) >= attemptsMinToPersist {
+			for _, a := range r.Attempts {
+				attempts = append(attempts, attemptRow{testResultID: testResultID, attempt: a})
+			}
+		}
+	}
+
+	if err := replaceAttempts(ctx, tx, resultIDs, attempts); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
+}
+
+// attemptMessageMax bounds a stored attempt message. The full text of the final
+// attempt already lives in test_results.status_message/status_trace; these rows
+// only need enough text for attempts to be compared against each other.
+const attemptMessageMax = 2000
+
+// attemptsMinToPersist is the smallest attempt count worth a row. A lone
+// attempt supports no comparison — triage classifies anything under two as
+// "single" — and its outcome is already on the test_results row, so persisting
+// one would add a row per test per build for information nothing reads.
+const attemptsMinToPersist = 2
+
+// attemptRow pairs one parsed attempt with the test_results row it belongs to,
+// so a whole InsertBatchFull batch's attempts can be queued together after the
+// per-result loop instead of a round trip at a time.
+type attemptRow struct {
+	testResultID int64
+	attempt      parser.Attempt
+}
+
+// replaceAttempts rewrites the attempt rows of an entire InsertBatchFull batch:
+// one DELETE covering every test result the batch touched, then one pgx.Batch
+// carrying all the inserts.
+//
+// Unlike the other child tables it deletes first, because UNIQUE
+// (test_result_id, attempt_index) makes a plain insert fail outright on the
+// second ingestion of the same report — the parent INSERT is an upsert, so a
+// re-upload lands on the SAME test_result_id. Delete-then-insert makes the
+// attempt sequence converge on whatever the latest upload says instead.
+//
+// The DELETE covers resultIDs, every result in the batch, not just the ones
+// contributing rows. That is what lets a result below attemptsMinToPersist
+// still clear its old rows: dropping to a single attempt is a statement that
+// the report no longer claims a retry sequence, and leaving the previous
+// upload's rows behind would attribute them to data that has withdrawn them.
+// Those results are simply absent from attempts.
+//
+// Batch-wide rather than per-result because nearly every test result has fewer
+// than two attempts and so contributes no rows at all: issued per result, the
+// DELETE was an unconditional network round trip per test — ten thousand of
+// them for a large build, all inside the ingestion transaction, holding its
+// locks open for the duration.
+func replaceAttempts(ctx context.Context, tx pgx.Tx, resultIDs []int64, attempts []attemptRow) error {
+	if len(resultIDs) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM test_attempts WHERE test_result_id = ANY($1)`, resultIDs,
+	); err != nil {
+		return fmt.Errorf("delete existing attempts: %w", err)
+	}
+	if len(attempts) == 0 {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	for _, row := range attempts {
+		batch.Queue(
+			`INSERT INTO test_attempts(test_result_id, attempt_index, status, status_message)
+			 VALUES ($1,$2,$3,$4)`,
+			row.testResultID, row.attempt.Index, row.attempt.Status,
+			truncateRunes(row.attempt.StatusMessage, attemptMessageMax),
+		)
+	}
+	br := tx.SendBatch(ctx, batch)
+	defer func() { _ = br.Close() }()
+	// Results are read in queue order so a failure names the attempt that caused
+	// it rather than the batch as a whole.
+	for _, row := range attempts {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("insert attempt %d of test result %d: %w", row.attempt.Index, row.testResultID, err)
+		}
+	}
+	return br.Close()
+}
+
+// truncateRunes caps s at max runes. It counts runes rather than bytes so a
+// multi-byte character is never split into invalid UTF-8 on the way to a TEXT
+// column.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
+}
+
+// GetAttempts returns every recorded execution attempt of the test identified
+// by (projectID, buildID, historyID), ordered by attempt_index ascending. The
+// result is empty rather than an error when the test has no attempt rows —
+// only reports carrying per-attempt detail produce any. An empty historyID
+// short-circuits: it matches every test lacking one, so it is never a valid
+// lookup key (matching GetByHistoryID).
+func (ts *TestResultStore) GetAttempts(ctx context.Context, projectID int64, buildID int64, historyID string) ([]store.TestAttemptRow, error) {
+	if historyID == "" {
+		return nil, nil
+	}
+	rows, err := ts.pool.Query(ctx, `
+		SELECT ta.attempt_index, ta.status, ta.status_message
+		FROM test_attempts ta
+		JOIN test_results tr ON tr.id = ta.test_result_id
+		WHERE tr.project_id=$1 AND tr.build_id=$2 AND tr.history_id=$3
+		ORDER BY ta.attempt_index ASC`, projectID, buildID, historyID)
+	if err != nil {
+		return nil, fmt.Errorf("get test attempts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []store.TestAttemptRow
+	for rows.Next() {
+		var a store.TestAttemptRow
+		if err := rows.Scan(&a.AttemptIndex, &a.Status, &a.StatusMessage); err != nil {
+			return nil, fmt.Errorf("scan test attempt: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate test attempts: %w", err)
+	}
+	return out, nil
 }
 
 // insertSteps recursively inserts steps and their children into test_steps.

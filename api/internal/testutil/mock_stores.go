@@ -450,6 +450,8 @@ type MockTestResultStore struct {
 	ListLeastReliableFn           func(ctx context.Context, projectID int64, builds, limit int, branchID *int64) ([]store.LowPerformingTest, error)
 	ListTimelineFn                func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TimelineRow, error)
 	ListFailedByBuildFn           func(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error)
+	CountFailedByBuildFn          func(ctx context.Context, projectID int64, buildID int64) (int, error)
+	GetByHistoryIDFn              func(ctx context.Context, projectID int64, buildID int64, historyID string) (*store.TestResult, error)
 	ListFailedForFingerprintingFn func(ctx context.Context, projectID int64, buildID int64) ([]store.FailedTestResult, error)
 	ListStabilityByBuildFn        func(ctx context.Context, projectID int64, buildID int64) ([]store.TestResult, error)
 	MarkFlakyByHistoryIDFn        func(ctx context.Context, projectID int64, historyID, fullName string) error
@@ -463,6 +465,7 @@ type MockTestResultStore struct {
 	ListRecentMessagesFn          func(ctx context.Context, projectID int64, limit int) ([]string, error)
 	GetDefectFingerprintIDFn      func(ctx context.Context, projectID int64, buildID int64, historyID string) (*string, error)
 	GetFailedStepPathFn           func(ctx context.Context, projectID int64, buildID int64, historyID string) ([]string, string, error)
+	GetAttemptsFn                 func(ctx context.Context, projectID int64, buildID int64, historyID string) ([]store.TestAttemptRow, error)
 }
 
 func (m *MockTestResultStore) InsertBatch(ctx context.Context, results []store.TestResult) error {
@@ -510,6 +513,20 @@ func (m *MockTestResultStore) ListTimeline(ctx context.Context, projectID int64,
 func (m *MockTestResultStore) ListFailedByBuild(ctx context.Context, projectID int64, buildID int64, limit int) ([]store.TestResult, error) {
 	if m.ListFailedByBuildFn != nil {
 		return m.ListFailedByBuildFn(ctx, projectID, buildID, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockTestResultStore) CountFailedByBuild(ctx context.Context, projectID int64, buildID int64) (int, error) {
+	if m.CountFailedByBuildFn != nil {
+		return m.CountFailedByBuildFn(ctx, projectID, buildID)
+	}
+	return 0, nil
+}
+
+func (m *MockTestResultStore) GetByHistoryID(ctx context.Context, projectID int64, buildID int64, historyID string) (*store.TestResult, error) {
+	if m.GetByHistoryIDFn != nil {
+		return m.GetByHistoryIDFn(ctx, projectID, buildID, historyID)
 	}
 	return nil, nil
 }
@@ -603,6 +620,13 @@ func (m *MockTestResultStore) GetFailedStepPath(ctx context.Context, projectID i
 		return m.GetFailedStepPathFn(ctx, projectID, buildID, historyID)
 	}
 	return nil, "", nil
+}
+
+func (m *MockTestResultStore) GetAttempts(ctx context.Context, projectID int64, buildID int64, historyID string) ([]store.TestAttemptRow, error) {
+	if m.GetAttemptsFn != nil {
+		return m.GetAttemptsFn(ctx, projectID, buildID, historyID)
+	}
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,9 +1173,10 @@ func (m *MockAuditLogger) Reset() {
 
 // MockPipelineStore is a test double for store.PipelineStorer.
 type MockPipelineStore struct {
-	ListPipelineRunsFn    func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
-	ListAllPipelineRunsFn func(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error)
-	ListRunFailuresFn     func(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error)
+	ListPipelineRunsFn       func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
+	ListAllPipelineRunsFn    func(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error)
+	ListRunFailuresFn        func(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error)
+	ListBuildsByPipelineIDFn func(ctx context.Context, projectID int64, pipelineID string, limit int) ([]store.Build, error)
 }
 
 func (m *MockPipelineStore) ListPipelineRuns(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
@@ -1171,6 +1196,13 @@ func (m *MockPipelineStore) ListAllPipelineRuns(ctx context.Context, branch stri
 func (m *MockPipelineStore) ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
 	if m.ListRunFailuresFn != nil {
 		return m.ListRunFailuresFn(ctx, groupProjectID, runKey, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockPipelineStore) ListBuildsByPipelineID(ctx context.Context, projectID int64, pipelineID string, limit int) ([]store.Build, error) {
+	if m.ListBuildsByPipelineIDFn != nil {
+		return m.ListBuildsByPipelineIDFn(ctx, projectID, pipelineID, limit)
 	}
 	return nil, nil
 }

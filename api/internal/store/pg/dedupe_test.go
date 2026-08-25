@@ -71,6 +71,48 @@ func TestDedupeResultsByHistoryID(t *testing.T) {
 			}{{"", "passed", 1}, {"", "failed", 2}},
 		},
 		{
+			// Allure results carry no stop timestamp when the reporter omitted
+			// one, which leaves StopMs at its zero value. A ">=" survivor test
+			// made the LAST file ParseDir happened to read win, so the surviving
+			// row depended on filename order. First-read wins instead: with no
+			// timestamp to order the attempts by, input order is the only stable
+			// tie-break there is.
+			name: "equal stop_ms keeps the first result read",
+			in: []*parser.Result{
+				{HistoryID: "a", Status: "failed", StopMs: 0},
+				{HistoryID: "a", Status: "passed", StopMs: 0},
+			},
+			want: []struct {
+				historyID string
+				status    string
+				stopMs    int64
+			}{{"a", "failed", 0}},
+		},
+		{
+			name: "timestamped attempt outranks a missing stop_ms read first",
+			in: []*parser.Result{
+				{HistoryID: "a", Status: "failed", StopMs: 0},
+				{HistoryID: "a", Status: "passed", StopMs: 100},
+			},
+			want: []struct {
+				historyID string
+				status    string
+				stopMs    int64
+			}{{"a", "passed", 100}},
+		},
+		{
+			name: "timestamped attempt outranks a missing stop_ms read last",
+			in: []*parser.Result{
+				{HistoryID: "a", Status: "passed", StopMs: 100},
+				{HistoryID: "a", Status: "failed", StopMs: 0},
+			},
+			want: []struct {
+				historyID string
+				status    string
+				stopMs    int64
+			}{{"a", "passed", 100}},
+		},
+		{
 			name: "mixed empty and duplicate non-empty",
 			in: []*parser.Result{
 				{HistoryID: "", Status: "broken", StopMs: 5},

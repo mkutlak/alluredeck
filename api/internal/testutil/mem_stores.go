@@ -276,6 +276,12 @@ func (m *MemProjectStore) ListProjects(ctx context.Context) ([]store.Project, er
 	for _, p := range m.projects {
 		out = append(out, *p)
 	}
+	// Match the pg implementation's ORDER BY id: m.projects is a Go map, whose
+	// iteration order is randomized per call. Without a stable sort here,
+	// ListProjectsPaginated (which re-lists on every call) can return a
+	// different relative order across two calls for the same page window,
+	// producing spurious duplicates/gaps for callers walking pages by cursor.
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
 

@@ -45,6 +45,14 @@ func (s *KnownIssueProposalStore) Create(ctx context.Context, p *store.KnownIssu
 	if p.Rationale != "" {
 		rationale = &p.Rationale
 	}
+	// applies_to_status is NOT NULL DEFAULT '{}'; a nil Go slice encodes as SQL
+	// NULL (not an empty array), so an omitted AppliesToStatus — the common
+	// case, since it's an optional MCP input — violates the constraint unless
+	// normalised here.
+	appliesToStatus := p.AppliesToStatus
+	if appliesToStatus == nil {
+		appliesToStatus = []string{}
+	}
 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
@@ -55,7 +63,7 @@ func (s *KnownIssueProposalStore) Create(ctx context.Context, p *store.KnownIssu
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id`,
 		p.ProjectID, errMsgSample, p.ProposedCategory, resolution,
-		rationale, p.RegexPattern, p.AppliesToStatus, p.DryRunMatchCount,
+		rationale, p.RegexPattern, appliesToStatus, p.DryRunMatchCount,
 		p.ProposerUserID, apiKeyID, p.Status,
 	).Scan(&id)
 	if err != nil {
@@ -184,6 +192,120 @@ func (s *KnownIssueProposalStore) ListPending(ctx context.Context, projectID int
 		nextCursor = encodeCursorID(items[limit-1].ID)
 	}
 	return items, nextCursor, nil
+}
+
+// List returns up to limit known-issue proposals for a project, most recent first.
+// status == "" matches every status; otherwise only that status.
+func (s *KnownIssueProposalStore) List(ctx context.Context, projectID int, status store.ProposalStatus, limit int) ([]*store.KnownIssueProposal, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	args := []any{projectID}
+	q := `
+		SELECT id, project_id, error_message_sample, proposed_category, proposed_resolution,
+		       rationale, regex_pattern, applies_to_status, dry_run_match_count,
+		       proposer_user_id, proposer_api_key_id, status,
+		       reviewed_by_user_id, reviewed_at, created_at
+		FROM known_issue_proposals
+		WHERE project_id = $1`
+
+	if status != "" {
+		args = append(args, status)
+		q += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+
+	args = append(args, limit)
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list known issue proposals: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*store.KnownIssueProposal
+	for rows.Next() {
+		p := &store.KnownIssueProposal{}
+		var errMsgSample, resolution, rationale *string
+		var apiKeyID, reviewedBy *int64
+
+		if err := rows.Scan(
+			&p.ID, &p.ProjectID, &errMsgSample, &p.ProposedCategory, &resolution,
+			&rationale, &p.RegexPattern, &p.AppliesToStatus, &p.DryRunMatchCount,
+			&p.ProposerUserID, &apiKeyID, &p.Status,
+			&reviewedBy, &p.ReviewedAt, &p.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan known issue proposal: %w", err)
+		}
+		if errMsgSample != nil {
+			p.ErrorMessageSample = *errMsgSample
+		}
+		if resolution != nil {
+			p.ProposedResolution = *resolution
+		}
+		if rationale != nil {
+			p.Rationale = *rationale
+		}
+		if apiKeyID != nil {
+			p.ProposerAPIKeyID = *apiKeyID
+		}
+		if reviewedBy != nil {
+			p.ReviewedByUserID = *reviewedBy
+		}
+		items = append(items, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate known issue proposal rows: %w", err)
+	}
+	return items, nil
+}
+
+// FindPendingDuplicate returns the existing pending proposal that matches
+// (projectID, regexPattern), or nil if none exists.
+func (s *KnownIssueProposalStore) FindPendingDuplicate(ctx context.Context, projectID int, regexPattern string) (*store.KnownIssueProposal, error) {
+	var p store.KnownIssueProposal
+	var errMsgSample, resolution, rationale *string
+	var apiKeyID, reviewedBy *int64
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, project_id, error_message_sample, proposed_category, proposed_resolution,
+		       rationale, regex_pattern, applies_to_status, dry_run_match_count,
+		       proposer_user_id, proposer_api_key_id, status,
+		       reviewed_by_user_id, reviewed_at, created_at
+		FROM known_issue_proposals
+		WHERE project_id = $1 AND regex_pattern = $2 AND status = $3
+		LIMIT 1`,
+		projectID, regexPattern, store.ProposalStatusPending,
+	).Scan(
+		&p.ID, &p.ProjectID, &errMsgSample, &p.ProposedCategory, &resolution,
+		&rationale, &p.RegexPattern, &p.AppliesToStatus, &p.DryRunMatchCount,
+		&p.ProposerUserID, &apiKeyID, &p.Status,
+		&reviewedBy, &p.ReviewedAt, &p.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find pending known issue proposal duplicate: %w", err)
+	}
+
+	if errMsgSample != nil {
+		p.ErrorMessageSample = *errMsgSample
+	}
+	if resolution != nil {
+		p.ProposedResolution = *resolution
+	}
+	if rationale != nil {
+		p.Rationale = *rationale
+	}
+	if apiKeyID != nil {
+		p.ProposerAPIKeyID = *apiKeyID
+	}
+	if reviewedBy != nil {
+		p.ReviewedByUserID = *reviewedBy
+	}
+	return &p, nil
 }
 
 // MarkReviewed sets status, reviewed_by_user_id, and reviewed_at on a proposal.

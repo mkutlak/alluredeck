@@ -27,8 +27,44 @@ var (
 	reTracePath = regexp.MustCompile(`(?:/[a-zA-Z0-9._-]+){3,}/([a-zA-Z0-9._-]+)`)
 )
 
-// Compiled regexes for CategorizeError.
-var re5xx = regexp.MustCompile(`status.?code.*5\d\d|status.*5\d\d`)
+// re5xx matches a 5xx HTTP code introduced by an HTTP-ish anchor word, so bare
+// forms ("HTTP 503", "code: 502", "response 504") are caught alongside the
+// explicit "status code: 500". Applied to the lowercased message, so the
+// pattern carries no case-insensitivity flag. Four rules keep it honest:
+//
+//   - Anchors carry a LEADING word boundary, so "decode"/"encoded" can no
+//     longer smuggle in the "code" anchor. There is no trailing boundary
+//     (except on "code" itself, which needs one for the same reason) because
+//     clients print "statusCode: 500" and "status_code=503" glued to the
+//     anchor. Bare "failed" is not an anchor at all: the 500 in "test failed
+//     after 500 ms" is a duration, not a status.
+//   - The gap may not contain digits, so an intervening number breaks the
+//     association between an anchor and a far-away code. Its width covers real
+//     prose such as "status: Internal Server Error, transaction 502 aborted".
+//   - The code must be preceded by a non-alphanumeric separator and be
+//     word-bounded, so "5000ms" and "http5000" never read as a status. A "/"
+//     separator is excluded: a code reached through a slash is a URL path
+//     segment ("GET https://host/orders/500"), not a status.
+//   - Group 1 captures a trailing duration unit, if any, so a code that is
+//     really a duration ("response time was 503 ms") can be rejected in
+//     matches5xx.
+var re5xx = regexp.MustCompile(
+	`\b(?:status|http|response|responded|returned|code\b)` + // anchor word
+		`[^0-9\n]{0,40}[^0-9A-Za-z/\n]` + // digit-free gap, then a non-slash separator
+		`5\d\d\b` + // the status code itself
+		`(?:\s?(ms|msec|msecs|millis|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b)?`)
+
+// matches5xx reports whether s mentions a 5xx status code. Matches whose code
+// is immediately followed by a duration unit are skipped: those are timings
+// that happen to fall in the 500-599 range, not status codes.
+func matches5xx(s string) bool {
+	for _, m := range re5xx.FindAllStringSubmatch(s, -1) {
+		if m[1] == "" {
+			return true
+		}
+	}
+	return false
+}
 
 // NormalizeMessage strips dynamic values from an error message and truncates to 1000 chars.
 // Substitutions are applied in order: IP, UUID, ISO timestamp, Unix timestamp, hex address,
@@ -125,14 +161,25 @@ var testBugKeywords = []string{
 	"fixture",
 	"before each",
 	"after each",
+	// The camelCase spellings Playwright, Jest and Mocha actually print. The
+	// spaced variants above never match a real "beforeEach" frame.
+	"beforeeach",
+	"aftereach",
 	"beforeall",
 	"afterall",
+	// Java/TestNG annotations, kept in before/after pairs: a teardown hook is
+	// as much a test bug as its setup twin.
 	"@beforeclass",
 	"@afterclass",
 	"@beforemethod",
+	"@aftermethod",
+	"@beforesuite",
+	"@aftersuite",
 	"conftest",
 	"setup_method",
 	"teardown_method",
+	"setup_class",
+	"teardown_class",
 	"nosuchelement",
 	"stale element reference",
 	"staleelementreference",
@@ -182,8 +229,14 @@ func CategorizeError(message, trace string) string {
 		}
 	}
 
-	if re5xx.MatchString(combined) {
-		return store.DefectCategoryProductBug
+	// A 5xx reaching this point was not phrased as an assertion, so it is a
+	// dependency or environment failing under the test rather than the product
+	// asserting wrongly. The ordering is deliberate: "Expected status 200,
+	// received 503" is matched by productBugKeywords above and stays a product
+	// bug, because a correct expectation met by a server error is the product
+	// misbehaving. Only non-assertion 5xx prose reaches here.
+	if matches5xx(combined) {
+		return store.DefectCategoryInfrastructure
 	}
 
 	return store.DefectCategoryToInvestigate

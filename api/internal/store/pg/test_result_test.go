@@ -786,3 +786,275 @@ func TestGetLastPassingBuild_BranchScoped(t *testing.T) {
 		t.Fatalf("cross-branch: got %+v, want build_number 2", got)
 	}
 }
+
+// TestCountFailedByBuild_CountsDistinctFullNames pins the distinct-count
+// contract. Playwright ingestion writes two rows per test — an enriched row
+// and an empty shell — under two different history_id schemes ("md5:md5" and
+// "md5.md5"), so a plain COUNT(*) double-counts every failure. The count must
+// be over DISTINCT full_name so the number matches the failures a human sees.
+func TestCountFailedByBuild_CountsDistinctFullNames(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-countfailed-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+
+	// Two duplicate rows for "login" (both failed) + one broken "checkout" +
+	// one passing "search" → two distinct failing tests.
+	if err := trStore.InsertBatch(ctx, []store.TestResult{
+		{BuildID: buildID, ProjectID: projectID, TestName: "login", FullName: "spec/a.ts > login",
+			Status: "failed", HistoryID: "abc:abc", DurationMs: 10},
+		{BuildID: buildID, ProjectID: projectID, TestName: "login", FullName: "spec/a.ts > login",
+			Status: "failed", HistoryID: "abc.abc", DurationMs: 10},
+		{BuildID: buildID, ProjectID: projectID, TestName: "checkout", FullName: "spec/b.ts > checkout",
+			Status: "broken", HistoryID: "def:def", DurationMs: 20},
+		{BuildID: buildID, ProjectID: projectID, TestName: "search", FullName: "spec/c.ts > search",
+			Status: "passed", HistoryID: "ghi:ghi", DurationMs: 30},
+	}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+
+	got, err := trStore.CountFailedByBuild(ctx, projectID, buildID)
+	if err != nil {
+		t.Fatalf("CountFailedByBuild: %v", err)
+	}
+	if got != 2 {
+		t.Errorf("CountFailedByBuild: got %d, want 2 (distinct full_name over failed+broken)", got)
+	}
+}
+
+// TestGetByHistoryID_AnyStatusAndAbsent verifies GetByHistoryID returns the
+// row whatever its status (so get_test_failure works for a passing test), that
+// it carries the surrogate id and status_message, and that a missing row is
+// reported as (nil, nil) rather than an error.
+func TestGetByHistoryID_AnyStatusAndAbsent(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-getbyhistory-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+
+	const passingID = "hist-passing"
+	if err := trStore.InsertBatch(ctx, []store.TestResult{{
+		BuildID: buildID, ProjectID: projectID,
+		TestName: "green test", FullName: "spec/green.ts > green test",
+		Status: "passed", HistoryID: passingID, DurationMs: 42, Retries: 2, Flaky: true,
+	}}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	// InsertBatch does not write status_message; set it directly so the scan is
+	// exercised end to end.
+	if _, err := s.Pool().Exec(ctx,
+		"UPDATE test_results SET status_message=$1 WHERE build_id=$2 AND history_id=$3",
+		"assert failed", buildID, passingID); err != nil {
+		t.Fatalf("set status_message: %v", err)
+	}
+
+	got, err := trStore.GetByHistoryID(ctx, projectID, buildID, passingID)
+	if err != nil {
+		t.Fatalf("GetByHistoryID: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetByHistoryID: got nil for a passing test, want the row (any status)")
+	}
+	if got.Status != "passed" {
+		t.Errorf("status: got %q, want passed", got.Status)
+	}
+	if got.ID == 0 {
+		t.Error("id: got 0, want the test_results surrogate key")
+	}
+	if got.StatusMessage != "assert failed" {
+		t.Errorf("status_message: got %q, want %q", got.StatusMessage, "assert failed")
+	}
+	if got.Retries != 2 || !got.Flaky {
+		t.Errorf("retries/flaky: got %d/%v, want 2/true", got.Retries, got.Flaky)
+	}
+
+	absent, err := trStore.GetByHistoryID(ctx, projectID, buildID, "no-such-history-id")
+	if err != nil {
+		t.Fatalf("GetByHistoryID(absent): got error %v, want nil", err)
+	}
+	if absent != nil {
+		t.Errorf("GetByHistoryID(absent): got %+v, want nil", absent)
+	}
+
+	empty, err := trStore.GetByHistoryID(ctx, projectID, buildID, "")
+	if err != nil {
+		t.Fatalf("GetByHistoryID(empty): got error %v, want nil", err)
+	}
+	if empty != nil {
+		t.Errorf("GetByHistoryID(empty history_id): got %+v, want nil", empty)
+	}
+}
+
+// TestListFailedByBuild_PopulatesID verifies the surrogate key is selected so
+// callers can address the exact row (attachments, steps) without a re-lookup.
+func TestListFailedByBuild_PopulatesID(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-listfailed-id-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
+		t.Fatalf("InsertBuild: %v", err)
+	}
+	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
+	if err != nil {
+		t.Fatalf("GetBuildID: %v", err)
+	}
+	if err := trStore.InsertBatch(ctx, []store.TestResult{{
+		BuildID: buildID, ProjectID: projectID,
+		TestName: "red test", FullName: "spec/red.ts > red test",
+		Status: "failed", HistoryID: "hist-red", DurationMs: 11,
+	}}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+
+	rows, err := trStore.ListFailedByBuild(ctx, projectID, buildID, 10)
+	if err != nil {
+		t.Fatalf("ListFailedByBuild: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows: got %d, want 1", len(rows))
+	}
+	if rows[0].ID == 0 {
+		t.Error("rows[0].ID: got 0, want the test_results surrogate key")
+	}
+}
+
+// TestGetTestHistory_PopulatesBranchName verifies the LEFT JOIN onto branches
+// so a history item can say which branch each run came from. The join must be
+// a LEFT join: builds predating branch tracking have a NULL branch_id and must
+// still appear in the history with an empty branch name.
+func TestGetTestHistory_PopulatesBranchName(t *testing.T) {
+	s := openLockTestStore(t)
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	projectStore := pg.NewProjectStore(s, logger)
+	buildStore := pg.NewBuildStore(s, logger)
+	branchStore := pg.NewBranchStore(s)
+	trStore := pg.NewTestResultStore(s, logger)
+
+	slug := fmt.Sprintf("test-history-branchname-%d", time.Now().UnixNano())
+	proj, err := projectStore.CreateProject(ctx, slug)
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	projectID := proj.ID
+	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
+
+	mainBranch, _, err := branchStore.GetOrCreate(ctx, projectID, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main: %v", err)
+	}
+
+	const historyID = "hist-branch-name"
+	// order 1: no branch_id (legacy); order 2: main; order 3: main, passing.
+	for _, b := range []struct {
+		order    int
+		branchID *int64
+		status   string
+	}{
+		{1, nil, "failed"},
+		{2, &mainBranch.ID, "passed"},
+		{3, &mainBranch.ID, "failed"},
+	} {
+		if err := buildStore.InsertBuild(ctx, projectID, b.order); err != nil {
+			t.Fatalf("InsertBuild %d: %v", b.order, err)
+		}
+		if b.branchID != nil {
+			if err := buildStore.UpdateBuildBranchID(ctx, projectID, b.order, *b.branchID); err != nil {
+				t.Fatalf("UpdateBuildBranchID %d: %v", b.order, err)
+			}
+		}
+		bid, err := trStore.GetBuildID(ctx, projectID, b.order)
+		if err != nil {
+			t.Fatalf("GetBuildID %d: %v", b.order, err)
+		}
+		if err := trStore.InsertBatch(ctx, []store.TestResult{{
+			BuildID: bid, ProjectID: projectID,
+			TestName: "branch test", FullName: "spec/branch.ts > branch test",
+			Status: b.status, HistoryID: historyID, DurationMs: 100,
+		}}); err != nil {
+			t.Fatalf("InsertBatch %d: %v", b.order, err)
+		}
+	}
+
+	entries, err := trStore.GetTestHistory(ctx, projectID, historyID, nil, 10)
+	if err != nil {
+		t.Fatalf("GetTestHistory: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("entries: got %d, want 3 (LEFT JOIN must keep the branch-less build)", len(entries))
+	}
+	byOrder := make(map[int]store.TestHistoryEntry, len(entries))
+	for _, e := range entries {
+		byOrder[e.BuildNumber] = e
+	}
+	if got := byOrder[3].BranchName; got != "main" {
+		t.Errorf("build 3 branch_name: got %q, want main", got)
+	}
+	if got := byOrder[1].BranchName; got != "" {
+		t.Errorf("build 1 (no branch_id) branch_name: got %q, want empty", got)
+	}
+
+	// GetLastPassingBuild must carry the branch name the same way.
+	lg, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 3)
+	if err != nil {
+		t.Fatalf("GetLastPassingBuild: %v", err)
+	}
+	if lg == nil {
+		t.Fatal("GetLastPassingBuild: got nil, want build 2")
+	}
+	if lg.BranchName != "main" {
+		t.Errorf("last-good branch_name: got %q, want main", lg.BranchName)
+	}
+}

@@ -71,6 +71,9 @@ func TestAttachmentStore_GetLocation_ResolvesBuildOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLocation: %v", err)
 	}
+	if loc.ProjectID != projectID {
+		t.Errorf("ProjectID = %d, want %d (owning project, used to scope bare-id lookups)", loc.ProjectID, projectID)
+	}
 	if loc.BuildNumber != buildOrder {
 		t.Errorf("BuildNumber = %d, want %d (builds.build_order)", loc.BuildNumber, buildOrder)
 	}
