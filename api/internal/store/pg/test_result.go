@@ -950,6 +950,82 @@ func (ts *TestResultStore) GetAttempts(ctx context.Context, projectID int64, bui
 	return out, nil
 }
 
+// DeleteShellTwinBatch deletes up to limit "shell" twin rows left behind by
+// the historic double-ingestion bug (see api/internal/runner/allure.go's
+// historyIDsByFullName for the forward fix) and returns how many were deleted.
+//
+// A row is a deletable shell when, within its (project_id, build_id,
+// full_name) group with a non-empty full_name, it carries no status_message
+// and no child rows in any enrichment table, and a sibling with a DIFFERENT
+// history_id exists that is strictly richer (a status_message or at least one
+// child row). Both twins bare → ambiguous, neither is touched; the authorizing
+// sibling is itself never deletable, so a test can never lose its last
+// surviving copy. Parameterized variants each own test_parameters rows, so the
+// zero-children requirement excludes them.
+//
+// This replaced migration 0049's single set-based DELETE: that statement ran
+// on the pre-bind startup path and exceeded DB_STATEMENT_TIMEOUT on
+// production-sized tables, crash-looping the pod. Here each batch runs in its
+// own transaction with the pool's statement_timeout lifted via SET LOCAL —
+// the caller (ShellTwinCleanupWorker) is a background River job, so a slow
+// terminal scan costs latency nobody is waiting on, and the row locks taken
+// are only ever on rows being deleted.
+func (ts *TestResultStore) DeleteShellTwinBatch(ctx context.Context, limit int) (int64, error) {
+	if limit <= 0 {
+		limit = 5000
+	}
+	tx, err := ts.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin shell-twin batch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// The pool sets statement_timeout from DB_STATEMENT_TIMEOUT for regular
+	// query traffic; a cleanup batch legitimately scans further than that once
+	// the dense twins are gone. SET LOCAL scopes the override to this
+	// transaction only.
+	if _, err := tx.Exec(ctx, `SET LOCAL statement_timeout = '300s'`); err != nil {
+		return 0, fmt.Errorf("set shell-twin batch timeout: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		WITH candidates AS (
+			SELECT r.id
+			FROM test_results r
+			WHERE r.full_name <> ''
+			  AND COALESCE(r.status_message, '') = ''
+			  AND NOT EXISTS (SELECT 1 FROM test_labels      x WHERE x.test_result_id = r.id)
+			  AND NOT EXISTS (SELECT 1 FROM test_parameters  x WHERE x.test_result_id = r.id)
+			  AND NOT EXISTS (SELECT 1 FROM test_steps       x WHERE x.test_result_id = r.id)
+			  AND NOT EXISTS (SELECT 1 FROM test_attachments x WHERE x.test_result_id = r.id)
+			  AND NOT EXISTS (SELECT 1 FROM test_attempts    x WHERE x.test_result_id = r.id)
+			  AND EXISTS (
+				SELECT 1 FROM test_results s
+				WHERE s.project_id = r.project_id
+				  AND s.build_id   = r.build_id
+				  AND s.full_name  = r.full_name
+				  AND s.history_id <> r.history_id
+				  AND (COALESCE(s.status_message, '') <> ''
+					OR EXISTS (SELECT 1 FROM test_labels      y WHERE y.test_result_id = s.id)
+					OR EXISTS (SELECT 1 FROM test_parameters  y WHERE y.test_result_id = s.id)
+					OR EXISTS (SELECT 1 FROM test_steps       y WHERE y.test_result_id = s.id)
+					OR EXISTS (SELECT 1 FROM test_attachments y WHERE y.test_result_id = s.id)
+					OR EXISTS (SELECT 1 FROM test_attempts    y WHERE y.test_result_id = s.id))
+			  )
+			LIMIT $1
+		)
+		DELETE FROM test_results t
+		USING candidates c
+		WHERE t.id = c.id`, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete shell-twin batch: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit shell-twin batch: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // insertSteps recursively inserts steps and their children into test_steps.
 func insertSteps(ctx context.Context, tx pgx.Tx, testResultID int64, parentStepID *int64, steps []parser.Step) error {
 	for i, step := range steps {

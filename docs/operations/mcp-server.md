@@ -29,13 +29,16 @@ Because the transport is stateless, `mcp.replicaCount` may now be raised above 1
 
 - AllureDeck v0.34.1 or later
 - PostgreSQL with migration 0041 applied (`defect_proposals`, `known_issue_proposals`, `flaky_proposals` tables)
-- For the diagnosis tool suite (`diagnose_failure` clusters/verdict, `diagnose_pipeline`, `get_attachment`, retry signals): migrations 0049–0051 applied.
-  **Rollout note:** 0049 is a one-off data cleanup that deletes legacy duplicate
-  "shell" test rows (the twin-`history_id` ingestion bug). It is set-based and
-  index-assisted, but on very large `test_results` tables prefer running it via
-  the chart's pre-upgrade migration Job (`migrationJob.enabled=true`) rather
-  than the pod's inline startup migration path, so a slow DELETE cannot eat
-  into the startup probe window.
+- For the diagnosis tool suite (`diagnose_failure` clusters/verdict, `diagnose_pipeline`, `get_attachment`, retry signals): migrations 0049–0051 applied. All three are instant — 0049 is a no-op (see below), 0050/0051 only create a table and an index.
+  **Rollout note:** the legacy duplicate "shell" test rows (the
+  twin-`history_id` ingestion bug) are cleaned up automatically by a background
+  job, not by a migration: the API's job system runs a batched shell-twin
+  cleanup once on startup and daily thereafter (leader-elected, so one run per
+  cluster). An earlier revision of 0049 did this as a single startup DELETE and
+  exceeded `DB_STATEMENT_TIMEOUT` on large tables, crash-looping the pod —
+  which is why the migration is now a no-op. Until the first cleanup run
+  finishes, `diagnose_failure`/`diagnose_pipeline` dedupe defensively by
+  `full_name` and report merged twins via `merged_history_ids`.
 - For proposals: an API key with `allow_mcp_writes` enabled, owned by a
   registered user account (see [Token Issuance](#token-issuance))
 

@@ -459,6 +459,7 @@ type MockTestResultStore struct {
 	GetLastPassingBuildFn         func(ctx context.Context, projectID int64, historyID string, branchID *int64, beforeBuildOrder int) (*store.TestHistoryEntry, error)
 	DeleteByBuildFn               func(ctx context.Context, buildID int64) error
 	DeleteByProjectFn             func(ctx context.Context, projectID int64) error
+	DeleteShellTwinBatchFn        func(ctx context.Context, limit int) (int64, error)
 	CompareBuildsByHistoryIDFn    func(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error)
 	ListTimelineMultiFn           func(ctx context.Context, projectID int64, buildIDs []int64, limit int) ([]store.MultiTimelineRow, error)
 	SearchByNameFn                func(ctx context.Context, projectID int64, substring string, limit int) ([]*store.TestResult, error)
@@ -557,6 +558,13 @@ func (m *MockTestResultStore) DeleteByProject(ctx context.Context, projectID int
 		return m.DeleteByProjectFn(ctx, projectID)
 	}
 	return nil
+}
+
+func (m *MockTestResultStore) DeleteShellTwinBatch(ctx context.Context, limit int) (int64, error) {
+	if m.DeleteShellTwinBatchFn != nil {
+		return m.DeleteShellTwinBatchFn(ctx, limit)
+	}
+	return 0, nil
 }
 
 func (m *MockTestResultStore) CompareBuildsByHistoryID(ctx context.Context, projectID int64, buildIDA, buildIDB int64) ([]store.DiffEntry, error) {

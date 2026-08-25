@@ -154,6 +154,13 @@ type TestResultWriter interface {
 type TestResultPruner interface {
 	DeleteByBuild(ctx context.Context, buildID int64) error
 	DeleteByProject(ctx context.Context, projectID int64) error
+	// DeleteShellTwinBatch deletes up to limit legacy "shell" twin rows (the
+	// double-ingestion artifact: message-less, childless rows whose richer
+	// sibling shares (project_id, build_id, full_name) under a different
+	// history_id) and reports how many were deleted. Zero means the cleanup
+	// has converged. Called in bounded batches by the background
+	// ShellTwinCleanupWorker, never on the startup path.
+	DeleteShellTwinBatch(ctx context.Context, limit int) (int64, error)
 }
 
 // TestResultReader covers test result lookup, history, and analytics queries.

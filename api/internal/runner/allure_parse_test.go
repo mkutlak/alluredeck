@@ -68,6 +68,9 @@ func (s *spyTestResultStore) GetLastPassingBuild(_ context.Context, _ int64, _ s
 }
 func (s *spyTestResultStore) DeleteByBuild(_ context.Context, _ int64) error   { return nil }
 func (s *spyTestResultStore) DeleteByProject(_ context.Context, _ int64) error { return nil }
+func (s *spyTestResultStore) DeleteShellTwinBatch(_ context.Context, _ int) (int64, error) {
+	return 0, nil
+}
 func (s *spyTestResultStore) CompareBuildsByHistoryID(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
 	return nil, nil
 }

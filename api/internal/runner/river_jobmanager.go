@@ -746,7 +746,7 @@ var _ JobQueuer = (*RiverJobManager)(nil)
 // for the regression_detected webhook event and to power the periodic digest
 // job; it may be nil during tests that don't exercise those paths, in which
 // case both are skipped.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, defectReader store.DefectReader, dataStore storage.Store, cfg *config.Config, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, testResultStore store.TestResultStorer, defectReader store.DefectReader, dataStore storage.Store, cfg *config.Config, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
 	jm := &RiverJobManager{pool: pool, logger: logger}
 
 	workers := river.NewWorkers()
@@ -813,6 +813,13 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 		river.AddWorker(workers, digestWorker)
 	}
 
+	if testResultStore != nil {
+		river.AddWorker(workers, &ShellTwinCleanupWorker{
+			testResults: testResultStore,
+			logger:      logger,
+		})
+	}
+
 	var periodicJobs []*river.PeriodicJob
 	if dataStore != nil {
 		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
@@ -830,6 +837,20 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 				return DigestArgs{}, nil
 			},
 			&river.PeriodicJobOpts{RunOnStart: false},
+		))
+	}
+	if testResultStore != nil {
+		// RunOnStart: the shell-twin cleanup replaces migration 0049's
+		// startup DELETE (which blew DB_STATEMENT_TIMEOUT on large tables and
+		// crash-looped the pod), so the first sweep after an upgrade should
+		// begin as soon as the job system is up — off the serving path.
+		// River's leader election ensures one run per cluster, not per replica.
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(shellTwinCleanupInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ShellTwinCleanupArgs{}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}
 

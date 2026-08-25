@@ -185,7 +185,7 @@ func main() {
 		Logger:          logger,
 	})
 
-	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, s.defect, dataStore, cfg, encKey, cfg.ExternalURL, 2, cfg.ReportGenerationTimeout.Duration(), logger)
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, s.testResult, s.defect, dataStore, cfg, encKey, cfg.ExternalURL, 2, cfg.ReportGenerationTimeout.Duration(), logger)
 	if err != nil {
 		logger.Fatal("failed to create River job manager", zap.Error(err))
 	}
