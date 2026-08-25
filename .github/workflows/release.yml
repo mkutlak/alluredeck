@@ -89,10 +89,22 @@ jobs:
         id: semantic
         uses: cycjimmy/semantic-release-action@v6
         with:
+          # All extra plugins are major-pinned so a new upstream major can't
+          # break the release lane on its own schedule.
+          #
+          # conventional-changelog-conventionalcommits is pinned to 8, the last
+          # major compatible with conventional-changelog-writer@8: the action
+          # bundles semantic-release ^25, whose release-notes-generator (v14)
+          # ships writer@8, while preset 9+ requires writer@9 — an unpinned
+          # preset resolves to 10.x and crashes generateNotes with 'Missing
+          # helper'. No stable writer@9 combination exists yet (the writer@9
+          # release-notes-generator is 15.0.0-beta); bump the preset to its
+          # current major once the action bundles release-notes-generator >=15
+          # stable.
           extra_plugins: |
-            @semantic-release/changelog
-            @semantic-release/git
-            conventional-changelog-conventionalcommits
+            @semantic-release/changelog@7
+            @semantic-release/git@11
+            conventional-changelog-conventionalcommits@8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
