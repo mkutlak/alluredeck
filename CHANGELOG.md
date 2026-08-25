@@ -1,3 +1,9 @@
+## [0.47.2](https://github.com/mkutlak/alluredeck/compare/v0.47.1...v0.47.2) (2026-08-25)
+
+### Bug Fixes
+
+* **api:** batch stale-branch GC, prune orphan branch rows, use storage_key in retention sweep ([d086551](https://github.com/mkutlak/alluredeck/commit/d08655173374c3ce1f05fe82f2c12f4237a00315))
+
 ## [0.47.1](https://github.com/mkutlak/alluredeck/compare/v0.47.0...v0.47.1) (2026-08-25)
 
 ### Bug Fixes
