@@ -29,6 +29,13 @@ Because the transport is stateless, `mcp.replicaCount` may now be raised above 1
 
 - AllureDeck v0.34.1 or later
 - PostgreSQL with migration 0041 applied (`defect_proposals`, `known_issue_proposals`, `flaky_proposals` tables)
+- For the diagnosis tool suite (`diagnose_failure` clusters/verdict, `diagnose_pipeline`, `get_attachment`, retry signals): migrations 0049–0051 applied.
+  **Rollout note:** 0049 is a one-off data cleanup that deletes legacy duplicate
+  "shell" test rows (the twin-`history_id` ingestion bug). It is set-based and
+  index-assisted, but on very large `test_results` tables prefer running it via
+  the chart's pre-upgrade migration Job (`migrationJob.enabled=true`) rather
+  than the pod's inline startup migration path, so a slow DELETE cannot eat
+  into the startup probe window.
 - For proposals: an API key with `allow_mcp_writes` enabled, owned by a
   registered user account (see [Token Issuance](#token-issuance))
 
@@ -266,14 +273,23 @@ claude mcp add --transport http alluredeck https://your.host/mcp \
    - Output: the failure message and stack trace, plus a trend summary if history is available.
 
 3. **"Diagnose build `<N>` and tell me what changed since it last passed"**
-   - Claude calls `diagnose_failure` once for the build; for each failing test it returns the error message, failed-step path, triage signals, and a `last_good` pointer to the most recent build where that test passed (with `builds_since`, branch-scoped when available).
-   - Passing `include_last_good_diff: true` adds a `last_good_diff` per failure — the test's own `passed → failed` transition plus a bounded sample of co-regressions between the last-good build and this one — so the agent can bisect what changed.
+   - Claude calls `diagnose_failure` once for the build. Failing tests are deduplicated by `full_name` (legacy twin-`history_id` rows are merged and reported via `merged_history_ids`/`warnings`), grouped into `clusters` by root cause (normalized error + failure phase + failed step), and rolled up into a deterministic `build_verdict` (`product_regression | test_bug | infra_env | known_issue | flaky | insufficient_evidence`) with confidence, evidence, and a `recommended_action`.
+   - Per test it returns the error message, failed-step path, triage signals (including real `retry_consistency` from per-attempt data and `retry_attempts` when the test was retried), a `last_good` pointer, `last_good_diff_counts`, and — when the test never passed on this branch — `last_good_absent_reason` plus a `cross_branch_last_good` pointer.
+   - Active known-issue regex patterns are matched inline per cluster (`known_issue_regex_matches`), distinct from the human-confirmed `known_issue` link.
+   - Passing `include_last_good_diff: true` adds the full `last_good_diff` lists per failure so the agent can bisect what changed.
    - No LLM runs server-side; the agent writes the plain-language hypothesis from this evidence (see "No server-side LLM tools" under Known Limitations).
-   - Output: a per-test diagnosis grounded in the last-known-good baseline.
 
-4. **"Mark this failure as a known flake"**
+4. **"Read the Playwright error context / screenshot for this failure"**
+   - Claude calls `get_attachment` with `project_id` + `attachment_id` (ids come from `diagnose_failure`/`list_attachments`). Text artifacts (`_error-context-*.md`, stdout, stderr, JSON) are inlined with `offset`/`max_bytes` windowing and an explicit truncation marker; screenshots are returned as inline image blocks; zips/videos fall back to a signed download URL.
+   - Use the tool rather than the `alluredeck://attachment/{id}` resource: MCP gateways that proxy tools but not resources can still fetch content this way.
+
+5. **"The nightly run is sharded — did the other shards fail the same way?"**
+   - Claude calls `diagnose_pipeline` with the `ci_pipeline_id` surfaced by `resolve_url`/`list_recent_builds`/`diagnose_failure`. Every shard build under the pipeline is diagnosed compactly and the union of failures is clustered across shards, so one environment outage spanning four shards reads as ONE cluster.
+
+6. **"Mark this failure as a known flake"**
    - Claude calls `propose_mark_flaky` with the test identifier.
    - The tool does not apply the change directly — it creates a proposal and returns a `review_url`.
+   - The propose tools are idempotent: an identical pending proposal is detected and returned as `duplicate_of` instead of being re-queued, and `list_proposals` lets the agent check existing proposal state first.
    - A human must approve or reject the proposal at `/admin/proposals` in the AllureDeck UI.
    - Output: confirmation that the proposal was created and the `review_url` to action it.
 
@@ -350,7 +366,7 @@ ORDER BY latest DESC;
 | 403 Forbidden with "origin not allowed" | Client's Origin header not in `MCP_ALLOWED_ORIGINS` | Update `MCP_ALLOWED_ORIGINS` env var; comma-separated list |
 | Missing-Origin requests blocked (non-browser clients) | Feature disabled | Leave `MCP_ALLOWED_ORIGINS` empty to allow missing-Origin requests |
 | 429 Too Many Requests on every call | Per-API-key rate limit exceeded | Increase `MCP_RATE_LIMIT_PER_MIN` or contact admin to raise burst quota |
-| 429 only on `diagnose_failure` / `get_test_history` | Expensive tools cost more than one request each | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
+| 429 only on `diagnose_failure` / `diagnose_pipeline` / `get_attachment` / `get_test_history` | Expensive tools cost more than one request each (defaults: `diagnose_pipeline=8`, `diagnose_failure=5`, `get_attachment=3`, `list_proposals=2`) | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
 | `propose_*` returns a prompt instead of a proposal | Working as intended — the client supports confirmations | Accept the prompt; the proposal is created on the retry leg |
 | "confirmation state rejected" on a `propose_*` retry | `MCP_SIGNING_KEY` changed, or the 10-minute window elapsed | Re-run the tool; the user will be asked again |
 | `propose_*` refuses with "owned by a configuration-file user" | The key was created while signed in as an env-config user (`ADMIN_USERNAME` etc.), which has no `users` row to attribute the proposal to | Re-issue the key while signed in as a registered account — see [Using a dedicated bot account](#using-a-dedicated-bot-account) |
