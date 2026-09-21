@@ -85,7 +85,7 @@
     "typescript7": "npm:typescript@^7.0.2",
     "typescript-eslint": "^8.70.0",
     "vite": "^8.3.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.1"
   },
   "comments": {
     "vitest-4-hold": "vitest and @vitest/coverage-v8 are pinned to ^4 on purpose. Vitest 5 merged @vitest/runner into the core package, and allure-vitest (3.12.1, latest) still imports @vitest/runner, so both the allure reporter and allure-vitest/setup fail to load under Vitest 5. Vitest 5 also rejects vi.mock() calls nested inside a helper function, which breaks src/test/mocks/api-client.ts and the 43 test files that call it. Move to Vitest 5 once allure-vitest supports it, and lift the vi.mock calls in src/test/mocks/ to module scope in the same change.",
