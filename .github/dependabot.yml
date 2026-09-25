@@ -41,6 +41,12 @@ updates:
     allow:
       - dependency-type: "production"
       - dependency-type: "development"
+    ignore:
+      # Held at vitest 4 until allure-vitest supports vitest 5 — see "vitest-4-hold" in ui/package.json
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/*"
+        update-types: ["version-update:semver-major"]
     assignees:
       - mkutlak
 
