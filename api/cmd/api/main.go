@@ -216,7 +216,13 @@ func main() {
 	// route real traffic while the slow, non-essential work runs.
 	bootstrapReady := &atomic.Bool{}
 
-	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, pgDB.Pool(), bootstrapReady, logger)
+	// Per-request is_active recheck cache (F-3 of SECURITY_REVIEW.md). 30s TTL
+	// is the residual exposure window after a deactivation if explicit revoke
+	// was missed; 10k entries comfortably holds typical working sets. The auth
+	// middleware reads it; the user handler invalidates entries on (de)activation.
+	userActiveCache := middleware.NewUserActiveCache(s.user, 30*time.Second, 10000)
+
+	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, userActiveCache, pgDB.Pool(), bootstrapReady, logger)
 
 	backgroundWatcher := runner.NewWatcher(cfg, allureCore, s.project, dataStore, logger)
 
@@ -290,11 +296,6 @@ func main() {
 	// Reuses limiterDone so both throttle and rate-limit cleanups stop together
 	// at server shutdown.
 	accountThrottler.StartCleanup(5*time.Minute, limiterDone)
-
-	// Per-request is_active recheck cache (F-3 of SECURITY_REVIEW.md). 30s TTL
-	// is the residual exposure window after a deactivation if explicit revoke
-	// was missed; 10k entries comfortably holds typical working sets.
-	userActiveCache := middleware.NewUserActiveCache(s.user, 30*time.Second, 10000)
 
 	registerRoutes(routeDeps{
 		mux:             mux,
@@ -516,6 +517,7 @@ func wireHandlers(
 	jobManager runner.JobQueuer,
 	jwtManager *security.JWTManager,
 	accountThrottler *middleware.AccountThrottler,
+	userActiveCache *middleware.UserActiveCache,
 	pool *pgxpool.Pool,
 	bootstrapReady *atomic.Bool,
 	logger *zap.Logger,
@@ -585,7 +587,8 @@ func wireHandlers(
 			WithAuditLogger(s.audit).
 			WithFamilyStore(s.refreshFamily).
 			WithAPIKeyStore(s.apiKey).
-			WithJWTManager(jwtManager),
+			WithJWTManager(jwtManager).
+			WithUserActiveCache(userActiveCache),
 		parent:      handlers.NewProjectParentHandler(s.project, logger),
 		defect:      handlers.NewDefectHandler(s.defect, s.project, logger),
 		buildTests:  handlers.NewBuildTestsHandler(s.testResult, s.knownIssue, s.project, logger),

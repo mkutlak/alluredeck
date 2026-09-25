@@ -54,15 +54,18 @@ func injectUserClaims(r *http.Request, sub, role string) *http.Request {
 func idOf(u *store.User) string { return strconv.FormatInt(u.ID, 10) }
 
 // userFixture is a UserHandler wired the way main.go wires it — audit logger,
-// refresh-family store, API-key store and JWT manager — over a seeded cast,
-// with handles on every store so table rows can assert side effects.
+// refresh-family store, API-key store, JWT manager and the auth middleware's
+// is_active cache — over a seeded cast, with handles on every store so table
+// rows can assert side effects.
 type userFixture struct {
-	h         *UserHandler
-	users     *testutil.MemUserStore
-	families  *testutil.MemRefreshTokenFamilyStore
-	keys      *testutil.MemAPIKeyStore
-	audit     *testutil.MockAuditLogger
-	blacklist *testutil.MemBlacklist
+	h           *UserHandler
+	users       *testutil.MemUserStore
+	families    *testutil.MemRefreshTokenFamilyStore
+	keys        *testutil.MemAPIKeyStore
+	audit       *testutil.MockAuditLogger
+	blacklist   *testutil.MemBlacklist
+	jwt         *security.JWTManager
+	activeCache *middleware.UserActiveCache
 
 	admin *store.User // local admin; the caller of admin endpoints
 	alice *store.User // local viewer; the caller of self-service endpoints
@@ -75,6 +78,7 @@ type userFixture struct {
 	otherFamily   store.RefreshTokenFamily   // an unrelated user's session; carol owns an unrelated API key
 
 	aliceToken, aliceJTI string // a real signed access token for alice
+	bobToken, bobKey     string // a real signed access token and a raw API key for bob
 }
 
 func newUserFixture(t *testing.T) *userFixture {
@@ -87,15 +91,19 @@ func newUserFixture(t *testing.T) *userFixture {
 		audit:     mocks.Audit,
 		blacklist: testutil.NewMemBlacklist(),
 	}
-	jwtMgr := security.NewJWTManager(&config.Config{
+	f.jwt = security.NewJWTManager(&config.Config{
 		JWTSecret:         "test-secret",
 		AccessTokenExpiry: config.DurationSeconds(15 * time.Minute),
 	}, f.blacklist, zap.NewNop())
+	// A TTL far beyond any test run, so only an explicit invalidation can
+	// clear a cached is_active flag.
+	f.activeCache = middleware.NewUserActiveCache(f.users, time.Hour, 0)
 	f.h = NewUserHandler(f.users, zap.NewNop()).
 		WithAuditLogger(f.audit).
 		WithFamilyStore(f.families).
 		WithAPIKeyStore(f.keys).
-		WithJWTManager(jwtMgr)
+		WithJWTManager(f.jwt).
+		WithUserActiveCache(f.activeCache)
 
 	f.admin = seedUser(t, f.users, mail("admin"), "admin", true)
 	f.alice = seedUser(t, f.users, mail("alice"), "viewer", true)
@@ -110,13 +118,17 @@ func newUserFixture(t *testing.T) *userFixture {
 	f.aliceFamilies = []store.RefreshTokenFamily{seedActiveFamily(t, f.families, idOf(f.alice)), seedActiveFamily(t, f.families, idOf(f.alice))}
 	f.bobFamilies = []store.RefreshTokenFamily{seedActiveFamily(t, f.families, idOf(f.bob)), seedActiveFamily(t, f.families, idOf(f.bob))}
 	f.otherFamily = seedActiveFamily(t, f.families, "999")
-	seedAPIKey(t, f.keys, f.bob.Email, "ci-1")
+	f.bobKey = seedAPIKey(t, f.keys, f.bob.Email, "ci-1")
 	seedAPIKey(t, f.keys, f.bob.Email, "ci-2")
 	seedAPIKey(t, f.keys, mail("carol"), "carol-key")
 
-	f.aliceToken, _, f.aliceJTI, _, err = jwtMgr.GenerateTokensForFamily(idOf(f.alice), "viewer", "local", "")
+	f.aliceToken, _, f.aliceJTI, _, err = f.jwt.GenerateTokensForFamily(idOf(f.alice), "viewer", "local", "")
 	if err != nil {
 		t.Fatalf("GenerateTokensForFamily: %v", err)
+	}
+	f.bobToken, _, err = f.jwt.GenerateTokens(idOf(f.bob), "viewer", "local")
+	if err != nil {
+		t.Fatalf("GenerateTokens: %v", err)
 	}
 	return f
 }
@@ -165,18 +177,21 @@ func seedActiveFamily(t *testing.T, families *testutil.MemRefreshTokenFamilyStor
 	return fam
 }
 
-// seedAPIKey inserts an API key owned by username into the in-memory store.
-func seedAPIKey(t *testing.T, keys *testutil.MemAPIKeyStore, username, name string) {
+// seedAPIKey inserts an API key owned by username into the in-memory store and
+// returns the raw key, which authenticates through the auth middleware.
+func seedAPIKey(t *testing.T, keys *testutil.MemAPIKeyStore, username, name string) string {
 	t.Helper()
+	raw := security.APIKeyPrefix + name + "-" + username
 	if _, err := keys.Create(context.Background(), &store.APIKey{
 		Name:     name,
 		Prefix:   "ald_test",
-		KeyHash:  "hash-" + name + "-" + username,
+		KeyHash:  security.HashAPIKey(raw),
 		Username: username,
 		Role:     "viewer",
 	}); err != nil {
 		t.Fatalf("apiKeys.Create: %v", err)
 	}
+	return raw
 }
 
 // errFamilyStore wraps the in-memory family store and returns a fixed error
@@ -207,8 +222,8 @@ type userRow struct {
 	id     string // {id} path value; "{name}" is that cast member's ID
 	query  string
 	body   string
-	bearer bool                 // present alice's real access token
-	setup  func(f *userFixture) // rewire the handler before the request
+	bearer bool                               // present alice's real access token
+	setup  func(t *testing.T, f *userFixture) // rewire the handler or set up state before the request
 	want   int
 	check  func(t *testing.T, f *userFixture, rr *httptest.ResponseRecorder)
 }
@@ -222,7 +237,7 @@ func runUserRows(t *testing.T, method string, endpoint func(*UserHandler, http.R
 			t.Parallel()
 			f := newUserFixture(t)
 			if tc.setup != nil {
-				tc.setup(f)
+				tc.setup(t, f)
 			}
 			req := httptest.NewRequest(method, "/api/v1/users?"+tc.query, strings.NewReader(tc.body))
 			if tc.id != "" {
@@ -321,6 +336,24 @@ func (f *userFixture) wantKeysDeleted(t *testing.T, username string) {
 		t.Errorf("unrelated API key count = %d, want 1", n)
 	}
 	f.wantAudit(t, store.AuditActionAPIKeyCascadeDelete, 1)
+}
+
+// wantBobAuth asserts the production AuthMiddleware — sharing the handler's
+// JWT manager, API-key store and is_active cache — answers want to the next
+// request bearing bob's access token and to the next bearing his API key.
+func (f *userFixture) wantBobAuth(t *testing.T, want int) {
+	t.Helper()
+	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+	auth := middleware.AuthMiddleware(&config.Config{SecurityEnabled: true}, f.jwt, false, f.keys, f.activeCache)(ok)
+	for _, c := range []struct{ label, credential string }{{"access token", f.bobToken}, {"API key", f.bobKey}} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+		req.Header.Set("Authorization", "Bearer "+c.credential)
+		rr := httptest.NewRecorder()
+		auth(rr, req)
+		if rr.Code != want {
+			t.Errorf("bob's %s: status = %d, want %d: %s", c.label, rr.Code, want, rr.Body.String())
+		}
+	}
 }
 
 // wantUsers checks a List response holds n users and reports total n.
@@ -451,12 +484,49 @@ func TestUserHandler_Update(t *testing.T) {
 				}
 				f.wantAudit(t, store.AuditActionUserUpdateRole, 1)
 			}},
-		{name: "active", as: "{admin}", id: "{bob}", body: `{"active":false}`, want: http.StatusOK,
+		// Deactivation ends access at once, as DELETE does: every session is
+		// revoked and, although earlier requests cached bob as active, his
+		// access token and API key are refused on the very next request. The
+		// keys themselves are kept so that reactivation restores them.
+		{name: "deactivate revokes access", as: "{admin}", id: "{bob}", body: `{"active":false}`,
+			setup: func(t *testing.T, f *userFixture) { f.wantBobAuth(t, http.StatusOK) },
+			want:  http.StatusOK,
 			check: func(t *testing.T, f *userFixture, rr *httptest.ResponseRecorder) {
 				if data := responseData(t, rr); data["is_active"] != false {
 					t.Errorf("is_active = %v, want false", data["is_active"])
 				}
 				f.wantAudit(t, store.AuditActionUserUpdateActive, 1)
+				f.wantSessionsRevoked(t, idOf(f.bob), f.bobFamilies)
+				f.wantBobAuth(t, http.StatusUnauthorized)
+				if n, _ := f.keys.CountByUsername(context.Background(), f.bob.Email); n != 2 {
+					t.Errorf("bob API key count = %d, want 2 kept for reactivation", n)
+				}
+			}},
+		// Revocation is best-effort: a store hiccup must never fail the
+		// deactivation, and access still ends on the next request.
+		{name: "revocation failure does not fail handler", as: "{admin}", id: "{bob}", body: `{"active":false}`,
+			setup: func(t *testing.T, f *userFixture) {
+				f.wantBobAuth(t, http.StatusOK)
+				f.h.WithFamilyStore(&errFamilyStore{MemRefreshTokenFamilyStore: f.families, revokeErr: errors.New("synthetic revoke failure")})
+			},
+			want: http.StatusOK,
+			check: func(t *testing.T, f *userFixture, _ *httptest.ResponseRecorder) {
+				f.wantAudit(t, store.AuditActionSessionRevokeAll, 0)
+				f.wantBobAuth(t, http.StatusUnauthorized)
+			}},
+		// Reactivation undoes it on the next request too, not after the cache
+		// TTL, and revokes nothing.
+		{name: "reactivate restores access", as: "{admin}", id: "{bob}", body: `{"active":true}`,
+			setup: func(t *testing.T, f *userFixture) {
+				if err := f.users.UpdateActive(context.Background(), f.bob.ID, false); err != nil {
+					t.Fatalf("UpdateActive: %v", err)
+				}
+				f.wantBobAuth(t, http.StatusUnauthorized)
+			},
+			want: http.StatusOK,
+			check: func(t *testing.T, f *userFixture, _ *httptest.ResponseRecorder) {
+				f.wantBobAuth(t, http.StatusOK)
+				f.wantAudit(t, store.AuditActionSessionRevokeAll, 0)
 			}},
 		{name: "self-deactivate", as: "{admin}", id: "{admin}", body: `{"active":false}`, want: http.StatusUnprocessableEntity},
 		{name: "not found", as: "{admin}", id: "9999", body: `{"role":"editor"}`, want: http.StatusNotFound},
@@ -468,8 +538,12 @@ func TestUserHandler_Delete(t *testing.T) {
 	t.Parallel()
 	runUserRows(t, http.MethodDelete, (*UserHandler).Delete, []userRow{
 		// The canonical "remove access on departure" workflow: deactivate,
-		// revoke every session and cascade-delete every API key (F-2).
-		{name: "deactivates and revokes access", as: "{admin}", id: "{bob}", want: http.StatusNoContent,
+		// revoke every session and cascade-delete every API key (F-2); bob's
+		// access token, cached as active by earlier requests, is refused on
+		// the very next request.
+		{name: "deactivates and revokes access", as: "{admin}", id: "{bob}",
+			setup: func(t *testing.T, f *userFixture) { f.wantBobAuth(t, http.StatusOK) },
+			want:  http.StatusNoContent,
 			check: func(t *testing.T, f *userFixture, _ *httptest.ResponseRecorder) {
 				got, err := f.users.GetByID(context.Background(), f.bob.ID)
 				if err != nil {
@@ -483,6 +557,7 @@ func TestUserHandler_Delete(t *testing.T) {
 				}
 				f.wantSessionsRevoked(t, idOf(f.bob), f.bobFamilies)
 				f.wantKeysDeleted(t, f.bob.Email)
+				f.wantBobAuth(t, http.StatusUnauthorized)
 			}},
 		{name: "self", as: "{admin}", id: "{admin}", want: http.StatusUnprocessableEntity},
 		{name: "not found", as: "{admin}", id: "9999", want: http.StatusNotFound},
@@ -516,7 +591,7 @@ func TestUserHandler_ChangeMyPassword(t *testing.T) {
 		// Revocation is best-effort: a store hiccup must never block the
 		// password change itself, and no revoke audit is emitted for it.
 		{name: "revocation failure does not fail handler", as: "{alice}",
-			setup: func(f *userFixture) {
+			setup: func(_ *testing.T, f *userFixture) {
 				f.h.WithFamilyStore(&errFamilyStore{MemRefreshTokenFamilyStore: f.families, revokeErr: errors.New("synthetic revoke failure")})
 			},
 			body: passwordBody(oldPassword, newPassword), want: http.StatusNoContent,

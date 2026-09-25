@@ -40,12 +40,13 @@ var validRoles = map[string]struct{}{
 
 // UserHandler handles CRUD operations for user accounts.
 type UserHandler struct {
-	store      store.UserStorer
-	logger     *zap.Logger
-	audit      store.AuditLogger              // optional; nil disables persistent audit emission
-	families   store.RefreshTokenFamilyStorer // optional; nil disables session revocation on password change/reset/deactivate
-	apiKeys    store.APIKeyStorer             // optional; nil disables API-key cascade-delete on password reset/deactivate
-	jwtManager *security.JWTManager           // optional; nil disables access-JTI blacklisting on self password change
+	store       store.UserStorer
+	logger      *zap.Logger
+	audit       store.AuditLogger              // optional; nil disables persistent audit emission
+	families    store.RefreshTokenFamilyStorer // optional; nil disables session revocation on password change/reset/deactivate
+	apiKeys     store.APIKeyStorer             // optional; nil disables API-key cascade-delete on password reset/deactivate
+	jwtManager  *security.JWTManager           // optional; nil disables access-JTI blacklisting on self password change
+	activeCache *middleware.UserActiveCache    // optional; nil leaves is_active changes to propagate within the cache TTL
 }
 
 // NewUserHandler creates a new UserHandler.
@@ -87,6 +88,15 @@ func (h *UserHandler) WithAPIKeyStore(k store.APIKeyStorer) *UserHandler {
 // token continues to be honoured until natural expiry.
 func (h *UserHandler) WithJWTManager(m *security.JWTManager) *UserHandler {
 	h.jwtManager = m
+	return h
+}
+
+// WithUserActiveCache wires the auth middleware's is_active cache so that
+// deactivating or reactivating a user takes effect on their very next request
+// instead of after the cache TTL. Nil is acceptable — the change then
+// propagates within the TTL.
+func (h *UserHandler) WithUserActiveCache(c *middleware.UserActiveCache) *UserHandler {
+	h.activeCache = c
 	return h
 }
 
@@ -531,7 +541,9 @@ type patchUserRequest struct {
 // @Summary      Update a user's role or active state
 // @Description  Admin-only. Allows changing role and/or is_active. Rejects
 //
-//	self-deactivation to prevent admin lockout.
+//	self-deactivation to prevent admin lockout. Deactivation revokes the
+//	user's sessions and suspends (does not delete) their API keys, which
+//	work again after reactivation.
 //
 // @Tags         users
 // @Accept       json
@@ -609,6 +621,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "error updating active")
 			return
 		}
+		h.invalidateActiveCache(id)
 		evt := auditFromRequest(r)
 		evt.Action = store.AuditActionUserUpdateActive
 		evt.Outcome = store.AuditOutcomeSuccess
@@ -623,6 +636,16 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		evt.Metadata = auditMetadata(map[string]any{"active": *req.Active})
 		auditRecord(r.Context(), h.audit, evt)
+
+		// Deactivation ends access at once, as DELETE does: revoke every
+		// refresh-token family so no session can mint new tokens, while the
+		// cache invalidation above makes the auth middleware refuse the
+		// user's access tokens and API keys on their next request. API keys
+		// are kept rather than deleted — refused while the account is
+		// inactive, they work again on reactivation. Best-effort.
+		if !*req.Active {
+			h.revokeAllFamilies(r.Context(), r, strconv.FormatInt(id, 10), "user_deactivate", id)
+		}
 	}
 
 	u, err := h.store.GetByID(r.Context(), id)
@@ -713,6 +736,16 @@ func (h *UserHandler) cascadeDeleteAPIKeys(ctx context.Context, r *http.Request,
 		"deleted":  deleted,
 	})
 	auditRecord(ctx, h.audit, evt)
+}
+
+// invalidateActiveCache drops the auth middleware's cached is_active flag for
+// the user so a change to it applies on their next request rather than after
+// the cache TTL. No-op when the cache is unwired.
+func (h *UserHandler) invalidateActiveCache(id int64) {
+	if h.activeCache == nil {
+		return
+	}
+	h.activeCache.Invalidate(strconv.FormatInt(id, 10))
 }
 
 // blacklistCurrentAccessToken extracts the access token from the current
@@ -990,6 +1023,7 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error deactivating user")
 		return
 	}
+	h.invalidateActiveCache(id)
 
 	// Audit the (soft) delete. We use the deletes action even though the
 	// underlying operation is a deactivation — that is the user-facing intent
@@ -1010,8 +1044,9 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	// F-2: revoke every active session and delete every API key belonging to
 	// the deactivated user. Best-effort: failures here log but do not change
-	// the response — the account is already disabled and follow-up F-3 work
-	// (per-request is_active recheck) will close any residual access window.
+	// the response — the account is already disabled and the per-request
+	// is_active recheck (F-3), its cache invalidated above, refuses whatever
+	// access remains.
 	sub := strconv.FormatInt(id, 10)
 	h.revokeAllFamilies(r.Context(), r, sub, "user_deactivate", id)
 	h.cascadeDeleteAPIKeys(r.Context(), r, target.Email, "user_deactivate", id)
