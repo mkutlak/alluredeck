@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,218 +15,110 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// buildTestPlaywrightHTML creates a minimal but realistic Playwright HTML report with
-// embedded base64 ZIP containing report.json and a detail file. Returns the HTML bytes.
+// buildTestPlaywrightHTML returns a minimal Playwright HTML report: an embedded
+// base64 ZIP holding report.json (metadata + stats) and the per-file detail
+// JSON with one passed, one failed and one skipped test. Parser field mapping
+// is covered in internal/parser; this fixture only drives the runner pipeline.
 func buildTestPlaywrightHTML(t *testing.T) []byte {
 	t.Helper()
-
+	pwTest := func(id, title, outcome, status string) map[string]any {
+		return map[string]any{"testId": id, "title": title, "outcome": outcome, "path": []string{"Login"},
+			"results": []map[string]any{{"startTime": "2023-11-14T12:00:00.000Z", "status": status}}}
+	}
 	report := map[string]any{
 		"metadata": map[string]any{
-			"ci": map[string]any{
-				"branch":     "main",
-				"commitHash": "abc123def",
-				"buildHref":  "https://ci.example.com/jobs/42",
-			},
-			"gitCommit": map[string]any{
-				"hash":   "abc123def456",
-				"branch": "main",
-			},
+			"ci":        map[string]any{"branch": "main", "commitHash": "abc123def", "buildHref": "https://ci.example.com/jobs/42"},
+			"gitCommit": map[string]any{"hash": "abc123def456", "branch": "main"},
 		},
-		"startTime": 1700000000000,
-		"duration":  5000,
-		"files": []map[string]any{
-			{
-				"fileId":   "file1",
-				"fileName": "tests/login.spec.ts",
-				"tests": []map[string]any{
-					{
-						"testId":      "t-pass-1",
-						"title":       "should login",
-						"projectName": "UI Tests",
-						"location":    map[string]any{"file": "tests/login.spec.ts", "line": 10, "column": 5},
-						"duration":    1200,
-						"tags":        []string{"@smoke", "@auth"},
-						"outcome":     "expected",
-						"path":        []string{"Login"},
-						"ok":          true,
-						"results":     []map[string]any{{"attachments": []any{}}},
-					},
-					{
-						"testId":      "t-fail-1",
-						"title":       "should show error",
-						"projectName": "UI Tests",
-						"location":    map[string]any{"file": "tests/login.spec.ts", "line": 25, "column": 5},
-						"duration":    3000,
-						"tags":        []string{"@smoke"},
-						"outcome":     "unexpected",
-						"path":        []string{"Login"},
-						"ok":          false,
-						"results":     []map[string]any{{"attachments": []any{}}},
-					},
-					{
-						"testId":      "t-skip-1",
-						"title":       "should reset password",
-						"projectName": "UI Tests",
-						"location":    map[string]any{"file": "tests/login.spec.ts", "line": 40, "column": 5},
-						"duration":    0,
-						"tags":        []string{},
-						"outcome":     "skipped",
-						"path":        []string{"Login"},
-						"ok":          true,
-						"results":     []map[string]any{{"attachments": []any{}}},
-					},
-				},
-				"stats": map[string]any{"total": 3, "expected": 1, "unexpected": 1, "flaky": 0, "skipped": 1, "ok": false},
-			},
-		},
-		"stats":        map[string]any{"total": 3, "expected": 1, "unexpected": 1, "flaky": 0, "skipped": 1, "ok": false},
-		"projectNames": []string{"UI Tests"},
-		"errors":       []any{},
+		"startTime": 1700000000000, "duration": 5000,
+		"files": []map[string]any{{"fileId": "file1", "fileName": "tests/login.spec.ts"}},
+		"stats": map[string]any{"total": 3, "expected": 1, "unexpected": 1, "flaky": 0, "skipped": 1},
 	}
+	detail := map[string]any{"fileId": "file1", "fileName": "tests/login.spec.ts", "tests": []map[string]any{
+		pwTest("t-pass-1", "should login", "expected", "passed"),
+		pwTest("t-fail-1", "should show error", "unexpected", "failed"),
+		pwTest("t-skip-1", "should reset password", "skipped", "skipped"),
+	}}
 
-	detail := map[string]any{
-		"fileId":   "file1",
-		"fileName": "tests/login.spec.ts",
-		"tests": []map[string]any{
-			{
-				"testId": "t-pass-1", "title": "should login", "projectName": "UI Tests",
-				"location": map[string]any{"file": "tests/login.spec.ts", "line": 10, "column": 5},
-				"duration": 1200, "tags": []string{"@smoke", "@auth"}, "outcome": "expected",
-				"path": []string{"Login"}, "ok": true,
-				"results": []map[string]any{{
-					"duration": 1200, "startTime": "2023-11-14T12:00:00.000Z", "retry": 0,
-					"status": "passed", "steps": []any{}, "errors": []any{}, "attachments": []any{},
-				}},
-			},
-			{
-				"testId": "t-fail-1", "title": "should show error", "projectName": "UI Tests",
-				"location": map[string]any{"file": "tests/login.spec.ts", "line": 25, "column": 5},
-				"duration": 3000, "tags": []string{"@smoke"}, "outcome": "unexpected",
-				"path": []string{"Login"}, "ok": false,
-				"results": []map[string]any{{
-					"duration": 3000, "startTime": "2023-11-14T12:00:01.200Z", "retry": 0,
-					"status": "failed",
-					"steps": []map[string]any{{
-						"title": "Click login button", "startTime": "2023-11-14T12:00:01.200Z",
-						"duration": 2500, "steps": []any{}, "attachments": []any{},
-					}},
-					"errors": []string{"TimeoutError: locator.click: Timeout 10000ms exceeded"},
-					"attachments": []map[string]any{{
-						"name": "screenshot", "contentType": "image/png", "path": "data/fail-screenshot.png",
-					}},
-				}},
-			},
-			{
-				"testId": "t-skip-1", "title": "should reset password", "projectName": "UI Tests",
-				"location": map[string]any{"file": "tests/login.spec.ts", "line": 40, "column": 5},
-				"duration": 0, "tags": []string{}, "outcome": "skipped",
-				"path": []string{"Login"}, "ok": true,
-				"results": []map[string]any{{
-					"duration": 0, "startTime": "2023-11-14T12:00:04.200Z", "retry": 0,
-					"status": "skipped", "steps": []any{}, "errors": []any{}, "attachments": []any{},
-				}},
-			},
-		},
-	}
-
-	reportJSON, _ := json.Marshal(report)
-	detailJSON, _ := json.Marshal(detail)
-
-	// Build ZIP
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
-	f1, _ := zw.Create("report.json")
-	_, _ = f1.Write(reportJSON)
-	f2, _ := zw.Create("file1.json")
-	_, _ = f2.Write(detailJSON)
+	for name, v := range map[string]any{"report.json": report, "file1.json": detail} {
+		data, _ := json.Marshal(v)
+		f, _ := zw.Create(name)
+		_, _ = f.Write(data)
+	}
 	_ = zw.Close()
-
-	// Build HTML
-	encoded := base64.StdEncoding.EncodeToString(zipBuf.Bytes())
-	var html bytes.Buffer
-	html.WriteString(`<html><head></head><body><script>window.playwrightReportBase64 = "data:application/zip;base64,`)
-	html.WriteString(encoded)
-	html.WriteString(`";</script></body></html>`)
-	return html.Bytes()
+	return []byte(`<html><body><script>window.playwrightReportBase64 = "data:application/zip;base64,` +
+		base64.StdEncoding.EncodeToString(zipBuf.Bytes()) + `";</script></body></html>`)
 }
 
-// TestPlaywrightRunner_IngestReport is an integration test that verifies the full
-// Playwright ingestion pipeline: HTML parsing → report directory creation → build
-// stats storage → test result insertion → CI metadata extraction.
+// TestPlaywrightRunner_IngestReport verifies the full Playwright ingestion
+// pipeline: HTML parsing → build reservation → stats and CI metadata → one
+// test_results row per test → report published and latest/ cleaned. The
+// Playwright-only path has no Allure results to reconcile against, so its
+// stability (InsertBatch) and enrichment (InsertBatchFull) writes must share a
+// history_id, or each test lands on two rows.
 func TestPlaywrightRunner_IngestReport(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectID := int64(20)
 	slug := "pw-ingest-test"
-
-	// Set up project directory with a Playwright HTML report in playwright-reports/latest/
 	pwLatestDir := filepath.Join(projectsDir, slug, "playwright-reports", "latest")
 	mustWriteFile(t, filepath.Join(pwLatestDir, "index.html"), string(buildTestPlaywrightHTML(t)))
 	mustWriteFile(t, filepath.Join(pwLatestDir, "data", "fail-screenshot.png"), "\x89PNG")
 
-	cfg := &config.Config{
-		ProjectsPath:          projectsDir,
-		KeepHistory:           true,
-		KeepHistoryLatest:     20,
-		KeepHistoryMaxAgeDays: 0,
-	}
-	st := storage.NewLocalStore(cfg)
+	cfg := &config.Config{ProjectsPath: projectsDir, KeepHistory: true, KeepHistoryLatest: 20}
 	mocks := testutil.New()
-
-	// Track calls to verify the pipeline executed correctly.
 	var mu sync.Mutex
-	var capturedStats *store.BuildStats
-	var capturedCI *store.CIMetadata
-	var capturedTestResults []store.TestResult
-	var reserveBuildCalled bool
-
-	mocks.Builds.ReserveBuildFn = func(_ context.Context, _ int64) (int, error) {
+	var reserved bool
+	var stats *store.BuildStats
+	var ci *store.CIMetadata
+	var batch []store.TestResult
+	var full []*parser.Result
+	mocks.Builds.ReserveBuildFn = func(context.Context, int64) (int, error) {
 		mu.Lock()
-		reserveBuildCalled = true
-		mu.Unlock()
+		defer mu.Unlock()
+		reserved = true
 		return 1, nil
 	}
-	mocks.Builds.UpdateBuildStatsFn = func(_ context.Context, _ int64, _ int, stats store.BuildStats) error {
+	mocks.Builds.UpdateBuildStatsFn = func(_ context.Context, _ int64, _ int, s store.BuildStats) error {
 		mu.Lock()
-		capturedStats = &stats
-		mu.Unlock()
+		defer mu.Unlock()
+		stats = &s
 		return nil
 	}
-	mocks.Builds.UpdateBuildCIMetadataFn = func(_ context.Context, _ int64, _ int, ci store.CIMetadata) error {
+	mocks.Builds.UpdateBuildCIMetadataFn = func(_ context.Context, _ int64, _ int, c store.CIMetadata) error {
 		mu.Lock()
-		capturedCI = &ci
-		mu.Unlock()
+		defer mu.Unlock()
+		ci = &c
 		return nil
 	}
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, _ int) (int64, error) {
-		return 42, nil
-	}
-	mocks.TestResults.InsertBatchFn = func(_ context.Context, results []store.TestResult) error {
+	mocks.TestResults.GetBuildIDFn = func(context.Context, int64, int) (int64, error) { return 42, nil }
+	mocks.TestResults.InsertBatchFn = func(_ context.Context, rs []store.TestResult) error {
 		mu.Lock()
-		capturedTestResults = results
-		mu.Unlock()
+		defer mu.Unlock()
+		batch = rs
 		return nil
 	}
-	mocks.Branches.GetOrCreateFn = func(_ context.Context, _ int64, _ string) (*store.Branch, bool, error) {
+	mocks.TestResults.InsertBatchFullFn = func(_ context.Context, _, _ int64, rs []*parser.Result) error {
+		mu.Lock()
+		defer mu.Unlock()
+		full = rs
+		return nil
+	}
+	mocks.Branches.GetOrCreateFn = func(context.Context, int64, string) (*store.Branch, bool, error) {
 		return &store.Branch{ID: 1, Name: "main"}, false, nil
 	}
 
 	pr := NewPlaywrightRunner(PlaywrightRunnerDeps{
-		Config:          cfg,
-		Store:           st,
-		BuildStore:      mocks.Builds,
-		Locker:          mocks.Locker,
-		TestResultStore: mocks.TestResults,
-		BranchStore:     mocks.Branches,
-		DefectStore:     mocks.Defects,
-		Logger:          zap.NewNop(),
+		Config: cfg, Store: storage.NewLocalStore(cfg), BuildStore: mocks.Builds, Locker: mocks.Locker,
+		TestResultStore: mocks.TestResults, BranchStore: mocks.Branches, DefectStore: mocks.Defects, Logger: zap.NewNop(),
 	})
-
-	msg, err := pr.IngestReport(context.Background(), projectID, slug, slug, "CI Runner", "https://ci.example.com", "", "", "", "")
+	msg, err := pr.IngestReport(context.Background(), 20, slug, slug, "CI Runner", "https://ci.example.com", "", "", "", "")
 	if err != nil {
 		t.Fatalf("IngestReport: %v", err)
 	}
@@ -233,93 +126,48 @@ func TestPlaywrightRunner_IngestReport(t *testing.T) {
 		t.Error("expected non-empty success message")
 	}
 
-	// Verify the build row was reserved up front.
 	mu.Lock()
 	defer mu.Unlock()
-
-	if !reserveBuildCalled {
+	if !reserved {
 		t.Error("ReserveBuild was not called")
 	}
-
-	// Verify stats: 1 passed, 1 failed, 1 skipped = 3 total.
-	if capturedStats == nil {
-		t.Fatal("UpdateBuildStats was not called")
+	wantStats := store.BuildStats{Passed: 1, Failed: 1, Skipped: 1, Total: 3, DurationMs: 5000}
+	if stats == nil || *stats != wantStats {
+		t.Errorf("UpdateBuildStats = %+v, want %+v", stats, wantStats)
 	}
-	if capturedStats.Passed != 1 {
-		t.Errorf("stats.Passed: got %d, want 1", capturedStats.Passed)
-	}
-	if capturedStats.Failed != 1 {
-		t.Errorf("stats.Failed: got %d, want 1", capturedStats.Failed)
-	}
-	if capturedStats.Skipped != 1 {
-		t.Errorf("stats.Skipped: got %d, want 1", capturedStats.Skipped)
-	}
-	if capturedStats.Total != 3 {
-		t.Errorf("stats.Total: got %d, want 3", capturedStats.Total)
-	}
-	if capturedStats.DurationMs != 5000 {
-		t.Errorf("stats.DurationMs: got %d, want 5000", capturedStats.DurationMs)
+	// Report metadata fills what the request left blank; gitCommit wins over ci.
+	wantCI := store.CIMetadata{Provider: "CI Runner", BuildURL: "https://ci.example.com", Branch: "main", CommitSHA: "abc123def456"}
+	if ci == nil || *ci != wantCI {
+		t.Errorf("UpdateBuildCIMetadata = %+v, want %+v", ci, wantCI)
 	}
 
-	// Verify CI metadata was extracted from the report.
-	if capturedCI == nil {
-		t.Fatal("UpdateBuildCIMetadata was not called")
+	gotStatus := map[string]string{}
+	stabilityIDs := map[string]string{}
+	for _, r := range batch {
+		gotStatus[r.TestName] = r.Status
+		stabilityIDs[r.FullName] = r.HistoryID
 	}
-	if capturedCI.Branch != "main" {
-		t.Errorf("CI.Branch: got %q, want %q", capturedCI.Branch, "main")
+	wantStatus := map[string]string{
+		"Login > should login": "passed", "Login > should show error": "failed", "Login > should reset password": "skipped",
 	}
-	if capturedCI.CommitSHA != "abc123def456" {
-		t.Errorf("CI.CommitSHA: got %q, want %q", capturedCI.CommitSHA, "abc123def456")
+	if !maps.Equal(gotStatus, wantStatus) {
+		t.Errorf("InsertBatch test statuses = %v, want %v", gotStatus, wantStatus)
 	}
-
-	// Verify per-test results were inserted.
-	if len(capturedTestResults) != 3 {
-		t.Fatalf("InsertBatch: got %d results, want 3", len(capturedTestResults))
+	if len(batch) != 3 || len(full) != 3 {
+		t.Fatalf("InsertBatch rows = %d, InsertBatchFull rows = %d, want 3 each", len(batch), len(full))
 	}
-
-	// Find each test by name.
-	byName := make(map[string]store.TestResult)
-	for _, tr := range capturedTestResults {
-		byName[tr.TestName] = tr
-	}
-
-	passed, ok := byName["Login > should login"]
-	if !ok {
-		t.Fatal("missing test result for 'Login > should login'")
-	}
-	if passed.Status != "passed" {
-		t.Errorf("passed test status: got %q, want %q", passed.Status, "passed")
+	for _, r := range full {
+		if id, ok := stabilityIDs[r.FullName]; !ok || id != r.HistoryID {
+			t.Errorf("%q: stability history_id %q != enrichment history_id %q — would create a second row", r.FullName, id, r.HistoryID)
+		}
 	}
 
-	failed, ok := byName["Login > should show error"]
-	if !ok {
-		t.Fatal("missing test result for 'Login > should show error'")
+	for _, rel := range []string{"index.html", "data/fail-screenshot.png"} {
+		if _, err := os.Stat(filepath.Join(projectsDir, slug, "playwright-reports", "1", rel)); err != nil {
+			t.Errorf("report file %s not published: %v", rel, err)
+		}
 	}
-	if failed.Status != "failed" {
-		t.Errorf("failed test status: got %q, want %q", failed.Status, "failed")
-	}
-
-	skipped, ok := byName["Login > should reset password"]
-	if !ok {
-		t.Fatal("missing test result for 'Login > should reset password'")
-	}
-	if skipped.Status != "skipped" {
-		t.Errorf("skipped test status: got %q, want %q", skipped.Status, "skipped")
-	}
-
-	// Verify report files were copied to playwright-reports/1/.
-	reportIndex := filepath.Join(projectsDir, slug, "playwright-reports", "1", "index.html")
-	if _, err := os.Stat(reportIndex); err != nil {
-		t.Errorf("report index.html not published: %v", err)
-	}
-	reportAttach := filepath.Join(projectsDir, slug, "playwright-reports", "1", "data", "fail-screenshot.png")
-	if _, err := os.Stat(reportAttach); err != nil {
-		t.Errorf("report attachment not published: %v", err)
-	}
-
-	// Verify playwright-reports/latest/ was cleaned up.
-	latestIndex := filepath.Join(projectsDir, slug, "playwright-reports", "latest", "index.html")
-	if _, err := os.Stat(latestIndex); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(pwLatestDir, "index.html")); !os.IsNotExist(err) {
 		t.Error("expected playwright-reports/latest/ to be cleaned up")
 	}
 }

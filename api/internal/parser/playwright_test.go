@@ -5,705 +5,284 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
+	"reflect"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/parser"
 )
 
-// buildPlaywrightHTML wraps a base64-encoded ZIP in minimal HTML that matches
-// the Playwright report format.
-func buildPlaywrightHTML(encoded string) []byte {
-	var buf bytes.Buffer
-	buf.WriteString(`<html><head></head><body><script>`)
-	buf.WriteString(`window.playwrightReportBase64 = "data:application/zip;base64,`)
-	buf.WriteString(encoded)
-	buf.WriteString(`";</script></body></html>`)
-	return buf.Bytes()
-}
-
-// buildPlaywrightHTMLTemplate wraps a base64-encoded ZIP in minimal HTML that
-// matches the Playwright v1.59+ report format (template element).
-func buildPlaywrightHTMLTemplate(encoded string) []byte {
-	var buf bytes.Buffer
-	buf.WriteString(`<html><head></head><body>`)
-	buf.WriteString(`<template id="playwrightReportBase64">data:application/zip;base64,`)
-	buf.WriteString(encoded)
-	buf.WriteString(`</template></body></html>`)
-	return buf.Bytes()
-}
-
-// buildZip creates an in-memory ZIP archive from a map of filename → content.
-func buildZip(files map[string][]byte) ([]byte, error) {
+// zipBase64 builds an in-memory ZIP of files and returns it base64-encoded.
+func zipBase64(t *testing.T, files map[string][]byte) string {
+	t.Helper()
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
 	for name, data := range files {
 		f, err := w.Create(name)
 		if err != nil {
-			return nil, err
+			t.Fatal(err)
 		}
 		if _, err := f.Write(data); err != nil {
-			return nil, err
+			t.Fatal(err)
 		}
 	}
 	if err := w.Close(); err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	return buf.Bytes(), nil
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
-// --- TestExtractPlaywrightData ---
+// pwRun is one attempt entry (test.results[i]) of a Playwright test.
+func pwRun(status string, retry int, errs ...any) map[string]any {
+	return map[string]any{"startTime": "2023-11-14T12:00:00Z", "duration": 1000, "retry": retry, "status": status,
+		"errors": append([]any{}, errs...), "steps": []any{}, "attachments": []any{}}
+}
 
+// pwTest is one Playwright test entry; path is its describe() chain.
+func pwTest(id, title, project, outcome string, path, tags []string, runs ...map[string]any) map[string]any {
+	return map[string]any{"testId": id, "title": title, "projectName": project, "outcome": outcome, "path": path,
+		"tags": tags, "duration": 1000, "ok": outcome != "unexpected", "results": append([]map[string]any{}, runs...)}
+}
+
+func pwFile(id, name string, tests ...map[string]any) map[string]any {
+	return map[string]any{"fileId": id, "fileName": name, "tests": tests}
+}
+
+// pwReport marshals a report.json with fixed timing and stats.
+func pwReport(t *testing.T, metadata map[string]any, files ...map[string]any) []byte {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"metadata": metadata, "startTime": 1700000000000, "duration": 9000, "files": files,
+		"stats": map[string]any{"total": 4, "expected": 1, "unexpected": 1, "flaky": 1, "skipped": 1, "ok": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// TestExtractPlaywrightData locates the embedded base64 ZIP in both HTML
+// report shells — the legacy script variable and the v1.59+ <template>
+// element — and returns report.json plus every other JSON file.
 func TestExtractPlaywrightData(t *testing.T) {
 	t.Parallel()
-
-	reportContent := []byte(`{"startTime":1700000000000,"duration":5000,"files":[],"stats":{"total":0}}`)
-	detailContent := []byte(`{"fileId":"abc123","fileName":"tests/foo.spec.ts","tests":[]}`)
-
-	zipBytes, err := buildZip(map[string][]byte{
-		"report.json": reportContent,
-		"abc123.json": detailContent,
-	})
-	if err != nil {
-		t.Fatalf("buildZip: %v", err)
+	report := []byte(`{"startTime":1700000000000,"duration":5000,"files":[],"stats":{"total":0}}`)
+	detail := []byte(`{"fileId":"abc123","fileName":"tests/foo.spec.ts","tests":[]}`)
+	script := func(enc string) []byte {
+		return []byte(`<html><head></head><body><script>window.playwrightReportBase64 = "data:application/zip;base64,` + enc + `";</script></body></html>`)
 	}
-
-	encoded := base64.StdEncoding.EncodeToString(zipBytes)
-	html := buildPlaywrightHTML(encoded)
-
-	reportJSON, fileJSONs, err := parser.ExtractPlaywrightData(bytes.NewReader(html))
-	if err != nil {
-		t.Fatalf("ExtractPlaywrightData returned unexpected error: %v", err)
+	template := func(enc string) []byte {
+		return []byte(`<html><head></head><body><template id="playwrightReportBase64">data:application/zip;base64,` + enc + `</template></body></html>`)
 	}
-
-	if !bytes.Equal(reportJSON, reportContent) {
-		t.Errorf("reportJSON mismatch: got %q, want %q", reportJSON, reportContent)
-	}
-	if len(fileJSONs) != 1 {
-		t.Errorf("fileJSONs: got %d entries, want 1", len(fileJSONs))
-	}
-	if got, ok := fileJSONs["abc123.json"]; !ok {
-		t.Error("fileJSONs: missing key abc123.json")
-	} else if !bytes.Equal(got, detailContent) {
-		t.Errorf("fileJSONs[abc123.json] mismatch: got %q, want %q", got, detailContent)
-	}
-}
-
-func TestExtractPlaywrightData_MissingMarker(t *testing.T) {
-	t.Parallel()
-
-	html := []byte(`<html><body>no playwright data here</body></html>`)
-	_, _, err := parser.ExtractPlaywrightData(bytes.NewReader(html))
-	if err == nil {
-		t.Fatal("expected error for missing marker, got nil")
-	}
-}
-
-func TestExtractPlaywrightData_InvalidBase64(t *testing.T) {
-	t.Parallel()
-
-	html := buildPlaywrightHTML("!!!not-valid-base64!!!")
-	_, _, err := parser.ExtractPlaywrightData(bytes.NewReader(html))
-	if err == nil {
-		t.Fatal("expected error for invalid base64, got nil")
-	}
-}
-
-func TestExtractPlaywrightData_TemplateFormat(t *testing.T) {
-	t.Parallel()
-
-	reportContent := []byte(`{"startTime":1700000000000,"duration":5000,"files":[],"stats":{"total":0}}`)
-
-	zipBytes, err := buildZip(map[string][]byte{
-		"report.json": reportContent,
-	})
-	if err != nil {
-		t.Fatalf("buildZip: %v", err)
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(zipBytes)
-	html := buildPlaywrightHTMLTemplate(encoded)
-
-	reportJSON, fileJSONs, err := parser.ExtractPlaywrightData(bytes.NewReader(html))
-	if err != nil {
-		t.Fatalf("ExtractPlaywrightData returned unexpected error: %v", err)
-	}
-
-	if !bytes.Equal(reportJSON, reportContent) {
-		t.Errorf("reportJSON mismatch: got %q, want %q", reportJSON, reportContent)
-	}
-	if len(fileJSONs) != 0 {
-		t.Errorf("fileJSONs: got %d entries, want 0", len(fileJSONs))
-	}
-}
-
-// --- TestParsePlaywrightReport ---
-
-func TestParsePlaywrightReport(t *testing.T) {
-	t.Parallel()
-
-	// Build report.json with 2 files and 3 tests.
-	reportData := map[string]any{
-		"metadata": map[string]any{
-			"ci": map[string]any{
-				"commitHash": "ci-sha-abc",
-				"buildHref":  "https://ci.example.com/build/42",
-				"branch":     "main",
-			},
-			"gitCommit": map[string]any{
-				"hash":   "git-sha-xyz",
-				"branch": "feature/foo",
-			},
-		},
-		"startTime": float64(1700000000000),
-		"duration":  float64(9000),
-		"stats": map[string]any{
-			"total":      3,
-			"expected":   1,
-			"unexpected": 1,
-			"flaky":      0,
-			"skipped":    1,
-			"ok":         false,
-		},
-		"files": []any{
-			map[string]any{
-				"fileId":   "file1",
-				"fileName": "tests/login.spec.ts",
-				"tests": []any{
-					map[string]any{
-						"testId":      "t1",
-						"title":       "should pass",
-						"projectName": "chromium",
-						"outcome":     "expected",
-						"path":        []any{"Login"},
-						"duration":    float64(1000),
-						"tags":        []any{"@smoke"},
-						"ok":          true,
-						"results": []any{
-							map[string]any{
-								"startTime":   "2023-11-14T12:00:00Z",
-								"duration":    float64(1000),
-								"retry":       0,
-								"steps":       []any{},
-								"errors":      []any{},
-								"status":      "passed",
-								"attachments": []any{},
-							},
-						},
-					},
-					map[string]any{
-						"testId":      "t2",
-						"title":       "should skip",
-						"projectName": "chromium",
-						"outcome":     "skipped",
-						"path":        []any{"Login"},
-						"duration":    float64(0),
-						"tags":        []any{},
-						"ok":          false,
-						"results":     []any{},
-					},
-				},
-			},
-			map[string]any{
-				"fileId":   "file2",
-				"fileName": "tests/checkout.spec.ts",
-				"tests": []any{
-					map[string]any{
-						"testId":      "t3",
-						"title":       "should fail",
-						"projectName": "firefox",
-						"outcome":     "unexpected",
-						"path":        []any{"Checkout", "Payment"},
-						"duration":    float64(3000),
-						"tags":        []any{"@regression", "@payments"},
-						"ok":          false,
-						"results":     []any{},
-					},
-				},
-			},
-		},
-	}
-	reportJSON, err := json.Marshal(reportData)
-	if err != nil {
-		t.Fatalf("marshal reportData: %v", err)
-	}
-
-	// Build detail JSON for file2 (the failing test), with steps, errors, attachments.
-	detailData := map[string]any{
-		"fileId":   "file2",
-		"fileName": "tests/checkout.spec.ts",
-		"tests": []any{
-			map[string]any{
-				"testId":      "t3",
-				"title":       "should fail",
-				"projectName": "firefox",
-				"outcome":     "unexpected",
-				"path":        []any{"Checkout", "Payment"},
-				"duration":    float64(3000),
-				"tags":        []any{"@regression", "@payments"},
-				"ok":          false,
-				"results": []any{
-					map[string]any{
-						"startTime": "2023-11-14T12:01:00Z",
-						"duration":  float64(3000),
-						"retry":     0,
-						"status":    "failed",
-						"errors":    []any{"Expected 200 but got 500"},
-						"attachments": []any{
-							map[string]any{
-								"name":        "screenshot",
-								"contentType": "image/png",
-								"path":        "data/abc123.png",
-							},
-						},
-						"steps": []any{
-							map[string]any{
-								"title":    "Navigate to checkout",
-								"duration": float64(500),
-								"steps": []any{
-									map[string]any{
-										"title":       "Click pay button",
-										"duration":    float64(200),
-										"steps":       []any{},
-										"attachments": []any{},
-										"error": map[string]any{
-											"message": "click failed",
-											"stack":   "at line 42",
-										},
-									},
-								},
-								"attachments": []any{},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	detailJSON, err := json.Marshal(detailData)
-	if err != nil {
-		t.Fatalf("marshal detailData: %v", err)
-	}
-
-	fileJSONs := map[string][]byte{
-		"file2.json": detailJSON,
-	}
-
-	results, meta, err := parser.ParsePlaywrightReport(reportJSON, fileJSONs)
-	if err != nil {
-		t.Fatalf("ParsePlaywrightReport returned unexpected error: %v", err)
-	}
-
-	// --- Result count ---
-	if len(results) != 3 {
-		t.Fatalf("results count: got %d, want 3", len(results))
-	}
-
-	// --- Status mapping ---
-	byID := make(map[string]*parser.Result, len(results))
-	for _, r := range results {
-		byID[r.HistoryID] = r
-	}
-
-	t1 := byID["t1"]
-	if t1 == nil {
-		t.Fatal("result for testId t1 not found")
-	}
-	if t1.Status != "passed" {
-		t.Errorf("t1 status: got %q, want %q", t1.Status, "passed")
-	}
-
-	t2 := byID["t2"]
-	if t2 == nil {
-		t.Fatal("result for testId t2 not found")
-	}
-	if t2.Status != "skipped" {
-		t.Errorf("t2 status: got %q, want %q", t2.Status, "skipped")
-	}
-
-	t3 := byID["t3"]
-	if t3 == nil {
-		t.Fatal("result for testId t3 not found")
-	}
-	if t3.Status != "failed" {
-		t.Errorf("t3 status: got %q, want %q", t3.Status, "failed")
-	}
-
-	// --- Name/FullName construction ---
-	if t1.Name != "Login > should pass" {
-		t.Errorf("t1.Name: got %q, want %q", t1.Name, "Login > should pass")
-	}
-	if t1.FullName != "tests/login.spec.ts > Login > should pass" {
-		t.Errorf("t1.FullName: got %q, want %q", t1.FullName, "tests/login.spec.ts > Login > should pass")
-	}
-	if t3.Name != "Checkout > Payment > should fail" {
-		t.Errorf("t3.Name: got %q, want %q", t3.Name, "Checkout > Payment > should fail")
-	}
-
-	// --- HistoryID ---
-	if t1.HistoryID != "t1" {
-		t.Errorf("t1.HistoryID: got %q, want %q", t1.HistoryID, "t1")
-	}
-
-	// --- Labels ---
-	findLabel := func(labels []parser.Label, name, value string) bool {
-		for _, l := range labels {
-			if l.Name == name && l.Value == value {
-				return true
-			}
-		}
-		return false
-	}
-
-	if !findLabel(t1.Labels, "tag", "smoke") {
-		t.Error("t1 labels: missing tag=smoke (@ should be stripped)")
-	}
-	if !findLabel(t1.Labels, "suite", "tests/login.spec.ts") {
-		t.Error("t1 labels: missing suite=tests/login.spec.ts")
-	}
-	if !findLabel(t1.Labels, "parentSuite", "chromium") {
-		t.Error("t1 labels: missing parentSuite=chromium")
-	}
-	if !findLabel(t1.Labels, "framework", "playwright") {
-		t.Error("t1 labels: missing framework=playwright")
-	}
-
-	if !findLabel(t3.Labels, "tag", "regression") {
-		t.Error("t3 labels: missing tag=regression")
-	}
-	if !findLabel(t3.Labels, "tag", "payments") {
-		t.Error("t3 labels: missing tag=payments")
-	}
-
-	// --- Steps (t3 uses detail JSON) ---
-	if len(t3.Steps) != 1 {
-		t.Fatalf("t3 steps count: got %d, want 1", len(t3.Steps))
-	}
-	if t3.Steps[0].Name != "Navigate to checkout" {
-		t.Errorf("t3 steps[0].Name: got %q, want %q", t3.Steps[0].Name, "Navigate to checkout")
-	}
-	if len(t3.Steps[0].Steps) != 1 {
-		t.Fatalf("t3 steps[0].Steps count: got %d, want 1", len(t3.Steps[0].Steps))
-	}
-	nestedStep := t3.Steps[0].Steps[0]
-	if nestedStep.Name != "Click pay button" {
-		t.Errorf("nested step Name: got %q, want %q", nestedStep.Name, "Click pay button")
-	}
-	if nestedStep.Status != "failed" {
-		t.Errorf("nested step Status: got %q, want %q", nestedStep.Status, "failed")
-	}
-	if nestedStep.StatusMessage != "click failed" {
-		t.Errorf("nested step StatusMessage: got %q, want %q", nestedStep.StatusMessage, "click failed")
-	}
-
-	// --- Attachments (data/ prefix stripped) ---
-	if len(t3.Attachments) != 1 {
-		t.Fatalf("t3 attachments count: got %d, want 1", len(t3.Attachments))
-	}
-	if t3.Attachments[0].Source != "abc123.png" {
-		t.Errorf("t3 attachment Source: got %q, want %q (data/ prefix should be stripped)", t3.Attachments[0].Source, "abc123.png")
-	}
-	if t3.Attachments[0].MimeType != "image/png" {
-		t.Errorf("t3 attachment MimeType: got %q, want %q", t3.Attachments[0].MimeType, "image/png")
-	}
-
-	// --- Timing ---
-	if t1.StartMs == 0 {
-		t.Error("t1.StartMs: expected non-zero")
-	}
-	if t1.DurationMs != 1000 {
-		t.Errorf("t1.DurationMs: got %d, want 1000", t1.DurationMs)
-	}
-	if t1.StopMs != t1.StartMs+t1.DurationMs {
-		t.Errorf("t1.StopMs: got %d, want StartMs+DurationMs=%d", t1.StopMs, t1.StartMs+t1.DurationMs)
-	}
-
-	// --- PlaywrightMeta ---
-	if meta == nil {
-		t.Fatal("meta is nil")
-	}
-	// gitCommit takes precedence over CI for CommitSHA.
-	if meta.CommitSHA != "git-sha-xyz" {
-		t.Errorf("meta.CommitSHA: got %q, want %q", meta.CommitSHA, "git-sha-xyz")
-	}
-	// gitCommit branch takes precedence.
-	if meta.Branch != "feature/foo" {
-		t.Errorf("meta.Branch: got %q, want %q", meta.Branch, "feature/foo")
-	}
-	if meta.BuildURL != "https://ci.example.com/build/42" {
-		t.Errorf("meta.BuildURL: got %q, want %q", meta.BuildURL, "https://ci.example.com/build/42")
-	}
-	if meta.StartTime != 1700000000000 {
-		t.Errorf("meta.StartTime: got %d, want 1700000000000", meta.StartTime)
-	}
-	if meta.Duration != 9000 {
-		t.Errorf("meta.Duration: got %d, want 9000", meta.Duration)
-	}
-	if meta.Stats.Total != 3 {
-		t.Errorf("meta.Stats.Total: got %d, want 3", meta.Stats.Total)
-	}
-	if meta.Stats.Expected != 1 {
-		t.Errorf("meta.Stats.Expected: got %d, want 1", meta.Stats.Expected)
-	}
-	if meta.Stats.Unexpected != 1 {
-		t.Errorf("meta.Stats.Unexpected: got %d, want 1", meta.Stats.Unexpected)
-	}
-	if meta.Stats.Skipped != 1 {
-		t.Errorf("meta.Stats.Skipped: got %d, want 1", meta.Stats.Skipped)
-	}
-
-	// --- StatusMessage from errors ---
-	if t3.StatusMessage != "Expected 200 but got 500" {
-		t.Errorf("t3.StatusMessage: got %q, want %q", t3.StatusMessage, "Expected 200 but got 500")
-	}
-}
-
-// --- TestParsePlaywrightReport_Flaky ---
-
-// TestParsePlaywrightReport_Flaky verifies that a Playwright test whose outcome
-// is "flaky" (passed after one or more retries) is surfaced as Result.Flaky=true
-// with Retries set from the last attempt's retry index, while the mapped Status
-// remains "passed" (mapPWOutcome status semantics are unchanged).
-func TestParsePlaywrightReport_Flaky(t *testing.T) {
-	t.Parallel()
-
-	reportData := map[string]any{
-		"metadata":  map[string]any{},
-		"startTime": float64(1700000000000),
-		"duration":  float64(2000),
-		"stats": map[string]any{
-			"total": 1, "expected": 0, "unexpected": 0, "flaky": 1, "skipped": 0, "ok": true,
-		},
-		"files": []any{
-			map[string]any{
-				"fileId":   "file1",
-				"fileName": "tests/flaky.spec.ts",
-				"tests": []any{
-					map[string]any{
-						"testId":      "t-flaky",
-						"title":       "should eventually pass",
-						"projectName": "chromium",
-						"outcome":     "flaky",
-						"path":        []any{"Flaky"},
-						"duration":    float64(1000),
-						"tags":        []any{},
-						"ok":          true,
-						"results": []any{
-							map[string]any{
-								"startTime":   "2023-11-14T12:00:00Z",
-								"duration":    float64(1000),
-								"retry":       0,
-								"steps":       []any{},
-								"errors":      []any{"flaky failure on attempt 1"},
-								"status":      "failed",
-								"attachments": []any{},
-							},
-							map[string]any{
-								"startTime":   "2023-11-14T12:00:02Z",
-								"duration":    float64(1000),
-								"retry":       1,
-								"steps":       []any{},
-								"errors":      []any{},
-								"status":      "passed",
-								"attachments": []any{},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	reportJSON, err := json.Marshal(reportData)
-	if err != nil {
-		t.Fatalf("marshal reportData: %v", err)
-	}
-
-	results, _, err := parser.ParsePlaywrightReport(reportJSON, nil)
-	if err != nil {
-		t.Fatalf("ParsePlaywrightReport returned unexpected error: %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("results count: got %d, want 1", len(results))
-	}
-
-	r := results[0]
-	if !r.Flaky {
-		t.Error("r.Flaky: got false, want true for outcome=flaky")
-	}
-	if r.Retries != 1 {
-		t.Errorf("r.Retries: got %d, want 1 (last attempt's retry index)", r.Retries)
-	}
-	// Status semantics must remain unchanged: flaky still maps to "passed".
-	if r.Status != "passed" {
-		t.Errorf("r.Status: got %q, want %q (flaky outcome maps to passed)", r.Status, "passed")
-	}
-}
-
-func TestParsePlaywrightReport_FallbackBranch(t *testing.T) {
-	t.Parallel()
-
-	// No gitCommit block; CI block provides branch + commitHash.
-	reportData := map[string]any{
-		"metadata": map[string]any{
-			"ci": map[string]any{
-				"commitHash": "ci-only-sha",
-				"buildHref":  "https://ci.example.com/1",
-				"branch":     "release/1.0",
-			},
-		},
-		"startTime": float64(0),
-		"duration":  float64(0),
-		"stats":     map[string]any{},
-		"files":     []any{},
-	}
-	reportJSON, _ := json.Marshal(reportData)
-
-	_, meta, err := parser.ParsePlaywrightReport(reportJSON, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if meta.CommitSHA != "ci-only-sha" {
-		t.Errorf("meta.CommitSHA: got %q, want %q", meta.CommitSHA, "ci-only-sha")
-	}
-	if meta.Branch != "release/1.0" {
-		t.Errorf("meta.Branch: got %q, want %q", meta.Branch, "release/1.0")
-	}
-}
-
-// --- TestExtractErrorString ---
-
-// extractErrorStringViaReport exercises the error-extraction path by embedding
-// the error inside a real ParsePlaywrightReport call, keeping the test within
-// the parser_test package boundary (extractErrorString is unexported).
-func TestExtractErrorString_ViaReport(t *testing.T) {
-	t.Parallel()
-
-	makeReport := func(errors []any) []byte {
-		data := map[string]any{
-			"startTime": float64(0),
-			"duration":  float64(0),
-			"stats":     map[string]any{},
-			"files": []any{
-				map[string]any{
-					"fileId":   "f1",
-					"fileName": "test.spec.ts",
-					"tests": []any{
-						map[string]any{
-							"testId":      "tx",
-							"title":       "err test",
-							"projectName": "chromium",
-							"outcome":     "unexpected",
-							"path":        []any{},
-							"duration":    float64(100),
-							"tags":        []any{},
-							"ok":          false,
-							"results": []any{
-								map[string]any{
-									"startTime":   "2023-01-01T00:00:00Z",
-									"duration":    float64(100),
-									"retry":       0,
-									"status":      "failed",
-									"errors":      errors,
-									"steps":       []any{},
-									"attachments": []any{},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		b, _ := json.Marshal(data)
-		return b
-	}
-
 	tests := []struct {
-		name    string
-		errors  []any
-		wantMsg string
+		name      string
+		html      []byte
+		wantFiles map[string][]byte // nil = extraction must fail
 	}{
-		{
-			name:    "string error",
-			errors:  []any{"something went wrong"},
-			wantMsg: "something went wrong",
-		},
-		{
-			name:    "object error with message field",
-			errors:  []any{map[string]any{"message": "object error msg", "stack": "at line 1"}},
-			wantMsg: "object error msg",
-		},
-		{
-			name:    "multiple errors joined",
-			errors:  []any{"first error", "second error"},
-			wantMsg: "first error", // StatusMessage is just the first
-		},
+		{"legacy script variable", script(zipBase64(t, map[string][]byte{"report.json": report, "abc123.json": detail})), map[string][]byte{"abc123.json": detail}},
+		{"v1.59+ template element", template(zipBase64(t, map[string][]byte{"report.json": report})), map[string][]byte{}},
+		{"missing marker", []byte(`<html><body>no playwright data here</body></html>`), nil},
+		{"invalid base64", script("!!!not-valid-base64!!!"), nil},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			reportJSON := makeReport(tc.errors)
-			results, _, err := parser.ParsePlaywrightReport(reportJSON, nil)
-			if err != nil {
-				t.Fatalf("ParsePlaywrightReport error: %v", err)
+			gotReport, gotFiles, err := parser.ExtractPlaywrightData(bytes.NewReader(tc.html))
+			if (err != nil) != (tc.wantFiles == nil) {
+				t.Fatalf("ExtractPlaywrightData error = %v, want error: %v", err, tc.wantFiles == nil)
 			}
-			if len(results) != 1 {
-				t.Fatalf("results count: got %d, want 1", len(results))
+			if tc.wantFiles == nil {
+				return
 			}
-			if results[0].StatusMessage != tc.wantMsg {
-				t.Errorf("StatusMessage: got %q, want %q", results[0].StatusMessage, tc.wantMsg)
+			if !bytes.Equal(gotReport, report) {
+				t.Errorf("reportJSON = %q, want %q", gotReport, report)
+			}
+			if !maps.EqualFunc(gotFiles, tc.wantFiles, bytes.Equal) {
+				t.Errorf("fileJSONs = %q, want %q", gotFiles, tc.wantFiles)
 			}
 		})
 	}
 }
 
-func TestExtractErrorString_MultipleErrorsTrace(t *testing.T) {
+// TestParsePlaywrightReport maps report.json (plus per-file detail JSON, which
+// replaces the summary tests when present) onto results: outcome → status,
+// describe path → Name/FullName, testId → HistoryID, tags (sans @) and
+// suite/project/framework labels, steps with their errors, attachments with the
+// data/ prefix stripped, timing from the last attempt, and flaky outcomes
+// surfaced as Flaky with Retries from the last attempt while still "passed".
+func TestParsePlaywrightReport(t *testing.T) {
 	t.Parallel()
+	failing := pwRun("failed", 0, "Expected 200 but got 500")
+	failing["attachments"] = []any{map[string]any{"name": "screenshot", "contentType": "image/png", "path": "data/abc123.png"}}
+	failing["steps"] = []any{map[string]any{"title": "Navigate to checkout", "duration": 500, "attachments": []any{},
+		"steps": []any{map[string]any{"title": "Click pay button", "duration": 200, "steps": []any{}, "attachments": []any{},
+			"error": map[string]any{"message": "click failed", "stack": "at line 42"}}}}}
+	checkout := []string{"Checkout", "Payment"}
+	reportJSON := pwReport(t, nil,
+		pwFile("file1", "tests/login.spec.ts",
+			pwTest("t1", "should pass", "chromium", "expected", []string{"Login"}, []string{"@smoke"}, pwRun("passed", 0)),
+			pwTest("t2", "should skip", "chromium", "skipped", []string{"Login"}, nil),
+			pwTest("t4", "should eventually pass", "chromium", "flaky", []string{"Flaky"}, nil,
+				pwRun("failed", 0, "flaky failure on attempt 1"), pwRun("passed", 1))),
+		pwFile("file2", "tests/checkout.spec.ts", pwTest("t3", "should fail", "firefox", "unexpected", checkout, []string{"@regression", "@payments"})),
+	)
+	detail, _ := json.Marshal(pwFile("file2", "tests/checkout.spec.ts",
+		pwTest("t3", "should fail", "firefox", "unexpected", checkout, []string{"@regression", "@payments"}, failing)))
 
-	reportData := map[string]any{
-		"startTime": float64(0),
-		"duration":  float64(0),
-		"stats":     map[string]any{},
-		"files": []any{
-			map[string]any{
-				"fileId":   "f1",
-				"fileName": "test.spec.ts",
-				"tests": []any{
-					map[string]any{
-						"testId":      "tx",
-						"title":       "multi-err test",
-						"projectName": "chromium",
-						"outcome":     "unexpected",
-						"path":        []any{},
-						"duration":    float64(100),
-						"tags":        []any{},
-						"ok":          false,
-						"results": []any{
-							map[string]any{
-								"startTime":   "2023-01-01T00:00:00Z",
-								"duration":    float64(100),
-								"retry":       0,
-								"status":      "failed",
-								"errors":      []any{"error one", "error two"},
-								"steps":       []any{},
-								"attachments": []any{},
-							},
-						},
-					},
-				},
-			},
+	results, _, err := parser.ParsePlaywrightReport(reportJSON, map[string][]byte{"file2.json": detail})
+	if err != nil {
+		t.Fatalf("ParsePlaywrightReport: %v", err)
+	}
+	byID := map[string]*parser.Result{}
+	for _, r := range results {
+		byID[r.HistoryID] = r
+	}
+	type identity struct {
+		Name, FullName, Status string
+		Flaky                  bool
+		Retries                int
+	}
+	wantIdentity := map[string]identity{
+		"t1": {"Login > should pass", "tests/login.spec.ts > Login > should pass", "passed", false, 0},
+		"t2": {"Login > should skip", "tests/login.spec.ts > Login > should skip", "skipped", false, 0},
+		"t3": {"Checkout > Payment > should fail", "tests/checkout.spec.ts > Checkout > Payment > should fail", "failed", false, 0},
+		"t4": {"Flaky > should eventually pass", "tests/login.spec.ts > Flaky > should eventually pass", "passed", true, 1},
+	}
+	if len(results) != len(wantIdentity) {
+		t.Fatalf("results count: got %d, want %d", len(results), len(wantIdentity))
+	}
+	for id, want := range wantIdentity {
+		r := byID[id]
+		if r == nil {
+			t.Fatalf("result for testId %s not found", id)
+		}
+		if got := (identity{r.Name, r.FullName, r.Status, r.Flaky, r.Retries}); got != want {
+			t.Errorf("%s: got %+v, want %+v", id, got, want)
+		}
+	}
+
+	t1, t3 := byID["t1"], byID["t3"]
+	label := func(name, value string) parser.Label { return parser.Label{Name: name, Value: value} }
+	if want := []parser.Label{label("tag", "smoke"), label("suite", "tests/login.spec.ts"), label("parentSuite", "chromium"), label("framework", "playwright")}; !reflect.DeepEqual(t1.Labels, want) {
+		t.Errorf("t1 labels = %+v, want %+v", t1.Labels, want)
+	}
+	if want := []parser.Label{label("tag", "regression"), label("tag", "payments"), label("suite", "tests/checkout.spec.ts"), label("parentSuite", "firefox"), label("framework", "playwright")}; !reflect.DeepEqual(t3.Labels, want) {
+		t.Errorf("t3 labels = %+v, want %+v", t3.Labels, want)
+	}
+	if t3.StatusMessage != "Expected 200 but got 500" {
+		t.Errorf("t3.StatusMessage = %q, want %q", t3.StatusMessage, "Expected 200 but got 500")
+	}
+	if len(t3.Steps) != 1 || t3.Steps[0].Name != "Navigate to checkout" || len(t3.Steps[0].Steps) != 1 {
+		t.Fatalf("t3 steps = %+v, want Navigate to checkout > Click pay button", t3.Steps)
+	}
+	if nested := t3.Steps[0].Steps[0]; nested.Name != "Click pay button" || nested.Status != "failed" || nested.StatusMessage != "click failed" {
+		t.Errorf("nested step = %+v, want failed Click pay button with message %q", nested, "click failed")
+	}
+	if want := []parser.Attachment{{Name: "screenshot", Source: "abc123.png", MimeType: "image/png"}}; !reflect.DeepEqual(t3.Attachments, want) {
+		t.Errorf("t3 attachments = %+v, want %+v", t3.Attachments, want)
+	}
+	if t1.StartMs != 1699963200000 || t1.DurationMs != 1000 || t1.StopMs != t1.StartMs+t1.DurationMs {
+		t.Errorf("t1 timing = start %d, duration %d, stop %d; want 1699963200000, 1000, start+duration", t1.StartMs, t1.DurationMs, t1.StopMs)
+	}
+}
+
+// TestParsePlaywrightReport_Meta verifies report-level metadata: gitCommit
+// takes precedence over the ci block for commit and branch, ci fills them in
+// when gitCommit is absent, and timing/stats come from the report.
+func TestParsePlaywrightReport_Meta(t *testing.T) {
+	t.Parallel()
+	ci := map[string]any{"commitHash": "ci-sha-abc", "buildHref": "https://ci.example.com/build/42", "branch": "main"}
+	stats := parser.PlaywrightStats{Total: 4, Expected: 1, Unexpected: 1, Flaky: 1, Skipped: 1}
+	tests := []struct {
+		name     string
+		metadata map[string]any
+		want     parser.PlaywrightMeta
+	}{
+		{
+			name:     "gitCommit wins over ci",
+			metadata: map[string]any{"ci": ci, "gitCommit": map[string]any{"hash": "git-sha-xyz", "branch": "feature/foo"}},
+			want:     parser.PlaywrightMeta{Branch: "feature/foo", CommitSHA: "git-sha-xyz", BuildURL: "https://ci.example.com/build/42", StartTime: 1700000000000, Duration: 9000, Stats: stats},
+		},
+		{
+			name:     "ci fills in without gitCommit",
+			metadata: map[string]any{"ci": ci},
+			want:     parser.PlaywrightMeta{Branch: "main", CommitSHA: "ci-sha-abc", BuildURL: "https://ci.example.com/build/42", StartTime: 1700000000000, Duration: 9000, Stats: stats},
 		},
 	}
-	reportJSON, _ := json.Marshal(reportData)
+	for _, tc := range tests {
+		_, meta, err := parser.ParsePlaywrightReport(pwReport(t, tc.metadata), nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if meta == nil || *meta != tc.want {
+			t.Errorf("%s: meta = %+v, want %+v", tc.name, meta, tc.want)
+		}
+	}
+}
 
-	results, _, err := parser.ParsePlaywrightReport(reportJSON, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// TestParsePlaywrightReport_Attempts pins error extraction and per-attempt
+// capture. Errors may be strings or {message} objects; the last attempt's
+// first error is the status message and all of them form the trace. EVERY
+// entry of test.results is recorded as an attempt, not just the last one —
+// the last-attempt-only shape is what left triage's retry-consistency signal
+// permanently reporting "single".
+func TestParsePlaywrightReport_Attempts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name               string
+		runs               []map[string]any
+		wantMsg, wantTrace string
+		want               []parser.Attempt
+	}{
+		{
+			name: "string error", runs: []map[string]any{pwRun("failed", 0, "something went wrong")},
+			wantMsg: "something went wrong", wantTrace: "something went wrong",
+			want: []parser.Attempt{{Index: 0, Status: "failed", StatusMessage: "something went wrong"}},
+		},
+		{
+			name: "object error uses its message", runs: []map[string]any{pwRun("failed", 0, map[string]any{"message": "object error msg", "stack": "at line 1"})},
+			wantMsg: "object error msg", wantTrace: "object error msg",
+			want: []parser.Attempt{{Index: 0, Status: "failed", StatusMessage: "object error msg"}},
+		},
+		{
+			name: "multiple errors on one attempt are joined", runs: []map[string]any{pwRun("failed", 0, "error one", map[string]any{"message": "error two"})},
+			wantMsg: "error one", wantTrace: "error one\nerror two",
+			want: []parser.Attempt{{Index: 0, Status: "failed", StatusMessage: "error one\nerror two"}},
+		},
+		{
+			name:    "two attempts, different errors",
+			runs:    []map[string]any{pwRun("failed", 0, "expected 200, got 500"), pwRun("timedOut", 1, "Test timeout of 30000ms exceeded")},
+			wantMsg: "Test timeout of 30000ms exceeded", wantTrace: "Test timeout of 30000ms exceeded",
+			want: []parser.Attempt{
+				{Index: 0, Status: "failed", StatusMessage: "expected 200, got 500"},
+				{Index: 1, Status: "timedOut", StatusMessage: "Test timeout of 30000ms exceeded"},
+			},
+		},
+		{
+			name: "a passing retry carries an empty message", runs: []map[string]any{pwRun("failed", 0, "boom"), pwRun("passed", 1)},
+			want: []parser.Attempt{{Index: 0, Status: "failed", StatusMessage: "boom"}, {Index: 1, Status: "passed", StatusMessage: ""}},
+		},
+		{name: "no results yields no attempts"},
 	}
-	if len(results) != 1 {
-		t.Fatalf("results count: got %d, want 1", len(results))
-	}
-	wantTrace := "error one\nerror two"
-	if results[0].StatusTrace != wantTrace {
-		t.Errorf("StatusTrace: got %q, want %q", results[0].StatusTrace, wantTrace)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			report := pwReport(t, nil, pwFile("f1", "tests/retry.spec.ts",
+				pwTest("t-retry", "retried test", "chromium", "unexpected", []string{"Retry"}, nil, tc.runs...)))
+			results, _, err := parser.ParsePlaywrightReport(report, nil)
+			if err != nil {
+				t.Fatalf("ParsePlaywrightReport: %v", err)
+			}
+			if len(results) != 1 {
+				t.Fatalf("results count: got %d, want 1", len(results))
+			}
+			r := results[0]
+			if r.StatusMessage != tc.wantMsg || r.StatusTrace != tc.wantTrace {
+				t.Errorf("status = (%q, %q), want (%q, %q)", r.StatusMessage, r.StatusTrace, tc.wantMsg, tc.wantTrace)
+			}
+			if len(r.Attempts) != len(tc.want) || (len(tc.want) > 0 && !reflect.DeepEqual(r.Attempts, tc.want)) {
+				t.Errorf("attempts = %+v, want %+v", r.Attempts, tc.want)
+			}
+		})
 	}
 }

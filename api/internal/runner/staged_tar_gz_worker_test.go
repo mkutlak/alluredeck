@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -19,35 +19,21 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 )
 
-// fakeRiverJob constructs a minimal river.Job around the given args so a
-// worker's Work method can be invoked without a live River client.
-func fakeRiverJob(args ParseStagedTarGzArgs) *river.Job[ParseStagedTarGzArgs] {
-	return &river.Job[ParseStagedTarGzArgs]{
-		JobRow: &rivertype.JobRow{ID: 42, Attempt: 1, CreatedAt: time.Now()},
-		Args:   args,
-	}
-}
-
 // fakeStagedStore is a minimal storage.Store double for ParseStagedTarGzWorker
-// and ExtractTarGzToStorage tests. It tracks WriteResultFile / DeleteBlob /
-// OpenBlob invocations so assertions can be made on the worker's behavior.
+// and ExtractTarGzToStorage tests. It tracks WriteResultFile / DeleteBlob
+// invocations and serves blob from OpenBlob (or fails with openErr).
 type fakeStagedStore struct {
 	storage.MockStore
 
-	mu        sync.Mutex
-	written   map[string][]byte // {projectID/batchID/filename: bytes}
-	deletes   []string
-	blob      []byte
-	openErr   error
-	writeErr  error
-	deleteErr error
+	mu      sync.Mutex
+	written map[string][]byte // {projectID/batchID/filename: bytes}
+	deletes []string
+	blob    []byte
+	openErr error
 }
 
 func newFakeStagedStore(blob []byte) *fakeStagedStore {
-	f := &fakeStagedStore{
-		written: make(map[string][]byte),
-		blob:    blob,
-	}
+	f := &fakeStagedStore{written: make(map[string][]byte), blob: blob}
 	f.OpenBlobFn = func(_ context.Context, _ string) (io.ReadCloser, error) {
 		if f.openErr != nil {
 			return nil, f.openErr
@@ -55,23 +41,16 @@ func newFakeStagedStore(blob []byte) *fakeStagedStore {
 		return io.NopCloser(bytes.NewReader(f.blob)), nil
 	}
 	f.WriteResultFileFn = func(_ context.Context, projectID, batchID, filename string, r io.Reader) error {
-		if f.writeErr != nil {
-			return f.writeErr
-		}
 		body, err := io.ReadAll(r)
 		if err != nil {
 			return err
 		}
-		key := projectID + "/" + batchID + "/" + filename
 		f.mu.Lock()
-		f.written[key] = body
+		f.written[projectID+"/"+batchID+"/"+filename] = body
 		f.mu.Unlock()
 		return nil
 	}
 	f.DeleteBlobFn = func(_ context.Context, key string) error {
-		if f.deleteErr != nil {
-			return f.deleteErr
-		}
 		f.mu.Lock()
 		f.deletes = append(f.deletes, key)
 		f.mu.Unlock()
@@ -80,19 +59,15 @@ func newFakeStagedStore(blob []byte) *fakeStagedStore {
 	return f
 }
 
-// makeTarGzBlob builds a small tar.gz archive containing the given files.
-func makeTarGzBlob(t *testing.T, files map[string][]byte) []byte {
+// makeTarGzBlob builds a tar.gz archive holding the named files.
+func makeTarGzBlob(t *testing.T, names ...string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	for name, body := range files {
-		if err := tw.WriteHeader(&tar.Header{
-			Name:     name,
-			Mode:     0o644,
-			Size:     int64(len(body)),
-			Typeflag: tar.TypeReg,
-		}); err != nil {
+	for _, name := range names {
+		body := []byte(`{"name":"` + name + `"}`)
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
 			t.Fatalf("tar header: %v", err)
 		}
 		if _, err := tw.Write(body); err != nil {
@@ -108,231 +83,123 @@ func makeTarGzBlob(t *testing.T, files map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
-// TestExtractTarGzToStorage_HappyPath verifies a small valid archive ends up
-// fully written to storage in deterministic order.
-func TestExtractTarGzToStorage_HappyPath(t *testing.T) {
+// errAnyFailure marks rows that only need some non-nil error.
+var errAnyFailure = errors.New("any failure")
+
+// TestExtractTarGzToStorage covers the sync upload path's archive validation:
+// flat regular files are written to results/<batch>/, while nested paths,
+// empty archives, non-gzip streams and archives over MaxFileCount are rejected
+// with the sentinel errors callers map to 4xx.
+func TestExtractTarGzToStorage(t *testing.T) {
 	t.Parallel()
-	files := map[string][]byte{
-		"a.json": []byte(`{"a":1}`),
-		"b.json": []byte(`{"b":2}`),
+	tests := []struct {
+		name    string
+		blob    []byte
+		opts    TarExtractOptions
+		wantErr error
+	}{
+		{name: "writes every flat file", blob: makeTarGzBlob(t, "a.json", "b.json")},
+		{name: "rejects a nested path", blob: makeTarGzBlob(t, "subdir/x.json"), wantErr: ErrArchiveNestedPath},
+		{name: "rejects an empty archive", blob: makeTarGzBlob(t), wantErr: ErrArchiveEmpty},
+		{name: "rejects a non-gzip stream", blob: []byte("not gzip"), wantErr: errAnyFailure},
+		{name: "enforces MaxFileCount", blob: makeTarGzBlob(t, "a.json", "b.json", "c.json"), opts: TarExtractOptions{MaxFileCount: 2}, wantErr: ErrArchiveTooManyFiles},
 	}
-	blob := makeTarGzBlob(t, files)
-
-	store := newFakeStagedStore(nil)
-	written, err := ExtractTarGzToStorage(context.Background(), store, "proj", "batch1", bytes.NewReader(blob), TarExtractOptions{})
-	if err != nil {
-		t.Fatalf("ExtractTarGzToStorage: %v", err)
-	}
-	if len(written) != 2 {
-		t.Fatalf("expected 2 files, got %d", len(written))
-	}
-	for _, name := range written {
-		if _, ok := store.written["proj/batch1/"+name]; !ok {
-			t.Errorf("file %q not written to storage", name)
-		}
-	}
-}
-
-// TestExtractTarGzToStorage_RejectsNestedPath confirms the same rejection as
-// the legacy sync handler.
-func TestExtractTarGzToStorage_RejectsNestedPath(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	body := []byte("x")
-	_ = tw.WriteHeader(&tar.Header{Name: "subdir/x.json", Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})
-	_, _ = tw.Write(body)
-	_ = tw.Close()
-	_ = gz.Close()
-
-	store := newFakeStagedStore(nil)
-	_, err := ExtractTarGzToStorage(context.Background(), store, "proj", "batch", bytes.NewReader(buf.Bytes()), TarExtractOptions{})
-	if !errors.Is(err, ErrArchiveNestedPath) {
-		t.Fatalf("expected ErrArchiveNestedPath, got %v", err)
-	}
-}
-
-// TestExtractTarGzToStorage_EmptyArchive rejects archives with zero
-// regular-file entries.
-func TestExtractTarGzToStorage_EmptyArchive(t *testing.T) {
-	t.Parallel()
-	blob := makeTarGzBlob(t, map[string][]byte{})
-	store := newFakeStagedStore(nil)
-	_, err := ExtractTarGzToStorage(context.Background(), store, "proj", "batch", bytes.NewReader(blob), TarExtractOptions{})
-	if !errors.Is(err, ErrArchiveEmpty) {
-		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
-	}
-}
-
-// TestExtractTarGzToStorage_BadGzip surfaces a non-gzip stream as a generic
-// error (callers map this to 4xx).
-func TestExtractTarGzToStorage_BadGzip(t *testing.T) {
-	t.Parallel()
-	store := newFakeStagedStore(nil)
-	_, err := ExtractTarGzToStorage(context.Background(), store, "proj", "batch", strings.NewReader("not gzip"), TarExtractOptions{})
-	if err == nil {
-		t.Fatal("expected error for invalid gzip")
-	}
-}
-
-// TestExtractTarGzToStorage_FileCountLimit ensures MaxFileCount is enforced.
-func TestExtractTarGzToStorage_FileCountLimit(t *testing.T) {
-	t.Parallel()
-	files := map[string][]byte{
-		"a.json": []byte("a"),
-		"b.json": []byte("b"),
-		"c.json": []byte("c"),
-	}
-	blob := makeTarGzBlob(t, files)
-	store := newFakeStagedStore(nil)
-	_, err := ExtractTarGzToStorage(context.Background(), store, "proj", "batch", bytes.NewReader(blob), TarExtractOptions{MaxFileCount: 2})
-	if !errors.Is(err, ErrArchiveTooManyFiles) {
-		t.Fatalf("expected ErrArchiveTooManyFiles, got %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			st := newFakeStagedStore(nil)
+			written, err := ExtractTarGzToStorage(context.Background(), st, "proj", "batch1", bytes.NewReader(tc.blob), tc.opts)
+			if matched := errors.Is(err, tc.wantErr) || (tc.wantErr == errAnyFailure && err != nil); !matched {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantErr != nil {
+				return
+			}
+			slices.Sort(written)
+			if !slices.Equal(written, []string{"a.json", "b.json"}) {
+				t.Fatalf("written = %v, want [a.json b.json]", written)
+			}
+			for _, name := range written {
+				if _, ok := st.written["proj/batch1/"+name]; !ok {
+					t.Errorf("file %q not written to storage", name)
+				}
+			}
+		})
 	}
 }
 
 // captureWriter records progress upserts for assertion.
 type captureWriter struct {
-	mu      sync.Mutex
-	updates []phaseUpdate
+	mu     sync.Mutex
+	phases []JobPhase
 }
 
-type phaseUpdate struct {
-	phase JobPhase
-	done  int
-	total int
-}
-
-func (c *captureWriter) upsertJobProgress(_ context.Context, _ int64, phase JobPhase, done, total int) {
+func (c *captureWriter) upsertJobProgress(_ context.Context, _ int64, phase JobPhase, _, _ int) {
 	c.mu.Lock()
-	c.updates = append(c.updates, phaseUpdate{phase, done, total})
+	c.phases = append(c.phases, phase)
 	c.mu.Unlock()
 }
 
-func (c *captureWriter) phases() []JobPhase {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([]JobPhase, len(c.updates))
-	for i, u := range c.updates {
-		out[i] = u.phase
-	}
-	return out
-}
-
 // fakeReportGenerator is a minimal ReportGenerator stub.
-type fakeReportGenerator struct {
-	called bool
-	err    error
-	output string
-}
+type fakeReportGenerator struct{ called bool }
 
 func (f *fakeReportGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {
 	f.called = true
-	return f.output, f.err
+	return "42", nil
 }
 
-// TestParseStagedTarGzWorker_Success drives the worker end-to-end against a
-// fake store and a fake generator. The new extraction path writes to a pod-
-// local temp dir (not to the Store), so the assertion confirms the generator
-// was invoked and the staging blob was deleted; the absence of any
-// WriteResultFile call against the Store is the regression guard for the
-// round-trip-removal change.
-func TestParseStagedTarGzWorker_Success(t *testing.T) {
+// TestParseStagedTarGzWorker drives the async upload worker. Extraction goes to
+// a pod-local temp dir, so the Store must never see a WriteResultFile call (the
+// guard for the removed storage round-trip). The staging blob is deleted only
+// after success; a corrupt blob is left for operators to inspect, and a
+// missing one fails before the generator runs.
+func TestParseStagedTarGzWorker(t *testing.T) {
 	t.Parallel()
-	files := map[string][]byte{"r.json": []byte(`{"x":1}`)}
-	blob := makeTarGzBlob(t, files)
-	store := newFakeStagedStore(blob)
+	tests := []struct {
+		name        string
+		blob        []byte
+		openErr     error
+		wantSuccess bool
+	}{
+		{name: "success generates and deletes the blob", blob: makeTarGzBlob(t, "r.json"), wantSuccess: true},
+		{name: "corrupt blob is left in place", blob: []byte("not a gzip")},
+		{name: "missing blob fails before generation", openErr: errors.New("not found")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			st := newFakeStagedStore(tc.blob)
+			st.openErr = tc.openErr
+			progress := &captureWriter{}
+			gen := &fakeReportGenerator{}
+			w := &ParseStagedTarGzWorker{store: st, generator: gen, progress: progress, logger: zap.NewNop()}
+			job := &river.Job[ParseStagedTarGzArgs]{
+				JobRow: &rivertype.JobRow{ID: 42, Attempt: 1, CreatedAt: time.Now()},
+				Args:   ParseStagedTarGzArgs{ProjectID: 1, Slug: "p", StorageKey: "p", BatchID: "b1", StagingKey: "staging/b1.tar.gz", StoreResults: true},
+			}
 
-	progress := &captureWriter{}
-	gen := &fakeReportGenerator{output: "42"}
-	w := &ParseStagedTarGzWorker{
-		store:     store,
-		generator: gen,
-		progress:  progress,
-		logger:    zap.NewNop(),
-	}
-
-	args := ParseStagedTarGzArgs{
-		ProjectID:    1,
-		Slug:         "p",
-		StorageKey:   "p",
-		BatchID:      "b1",
-		StagingKey:   "staging/b1.tar.gz",
-		StoreResults: true,
-	}
-	if err := w.Work(context.Background(), fakeRiverJob(args)); err != nil {
-		t.Fatalf("Work: %v", err)
-	}
-
-	if !gen.called {
-		t.Error("expected ReportGenerator.GenerateReport to be called")
-	}
-	if len(store.written) != 0 {
-		t.Errorf("expected no WriteResultFile calls (extraction is local-only now), got %v", store.written)
-	}
-	if len(store.deletes) != 1 || store.deletes[0] != "staging/b1.tar.gz" {
-		t.Errorf("expected staging blob deletion, got %v", store.deletes)
-	}
-
-	// Phase progression must include extracting_staged followed by completed.
-	saw := progress.phases()
-	if len(saw) == 0 || saw[0] != JobPhaseExtractingStaged {
-		t.Errorf("expected first phase = extracting_staged, got %v", saw)
-	}
-	if saw[len(saw)-1] != JobPhaseCompleted {
-		t.Errorf("expected last phase = completed, got %v", saw)
-	}
-}
-
-// TestParseStagedTarGzWorker_LeavesBlobOnExtractError verifies that a corrupt
-// staged blob does NOT trigger a DeleteBlob call (so operators can inspect it).
-func TestParseStagedTarGzWorker_LeavesBlobOnExtractError(t *testing.T) {
-	t.Parallel()
-	store := newFakeStagedStore([]byte("not a gzip"))
-	progress := &captureWriter{}
-	gen := &fakeReportGenerator{}
-	w := &ParseStagedTarGzWorker{
-		store:     store,
-		generator: gen,
-		progress:  progress,
-		logger:    zap.NewNop(),
-	}
-
-	args := ParseStagedTarGzArgs{ProjectID: 1, Slug: "p", StorageKey: "p", BatchID: "b1", StagingKey: "staging/b1.tar.gz"}
-	if err := w.Work(context.Background(), fakeRiverJob(args)); err == nil {
-		t.Fatal("expected extraction failure")
-	}
-	if gen.called {
-		t.Error("ReportGenerator should not be called when extraction fails")
-	}
-	if len(store.deletes) != 0 {
-		t.Errorf("expected staging blob to remain, got deletes=%v", store.deletes)
-	}
-	saw := progress.phases()
-	if len(saw) == 0 || saw[len(saw)-1] != JobPhaseFailed {
-		t.Errorf("expected terminal phase = failed, got %v", saw)
-	}
-}
-
-// TestParseStagedTarGzWorker_OpenBlobError treats a missing staging blob as a
-// terminal failure and never calls the generator.
-func TestParseStagedTarGzWorker_OpenBlobError(t *testing.T) {
-	t.Parallel()
-	store := newFakeStagedStore(nil)
-	store.openErr = errors.New("not found")
-	gen := &fakeReportGenerator{}
-	w := &ParseStagedTarGzWorker{
-		store:     store,
-		generator: gen,
-		progress:  &captureWriter{},
-		logger:    zap.NewNop(),
-	}
-	args := ParseStagedTarGzArgs{ProjectID: 1, Slug: "p", StorageKey: "p", BatchID: "b1", StagingKey: "staging/b1.tar.gz"}
-	if err := w.Work(context.Background(), fakeRiverJob(args)); err == nil {
-		t.Fatal("expected error")
-	}
-	if gen.called {
-		t.Error("ReportGenerator should not be called when blob is missing")
+			err := w.Work(context.Background(), job)
+			if (err == nil) != tc.wantSuccess {
+				t.Fatalf("Work error = %v, want success=%v", err, tc.wantSuccess)
+			}
+			if gen.called != tc.wantSuccess {
+				t.Errorf("ReportGenerator called = %v, want %v", gen.called, tc.wantSuccess)
+			}
+			if len(st.written) != 0 {
+				t.Errorf("expected no WriteResultFile calls (extraction is local-only), got %v", st.written)
+			}
+			var wantDeletes []string
+			wantLast := JobPhaseFailed
+			if tc.wantSuccess {
+				wantDeletes, wantLast = []string{"staging/b1.tar.gz"}, JobPhaseCompleted
+			}
+			if !slices.Equal(st.deletes, wantDeletes) {
+				t.Errorf("DeleteBlob calls = %v, want %v", st.deletes, wantDeletes)
+			}
+			saw := progress.phases
+			if len(saw) < 2 || saw[0] != JobPhaseExtractingStaged || saw[len(saw)-1] != wantLast {
+				t.Errorf("phases = %v, want extracting_staged first and %s last", saw, wantLast)
+			}
+		})
 	}
 }

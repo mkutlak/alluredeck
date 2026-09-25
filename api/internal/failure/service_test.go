@@ -14,21 +14,17 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// fakeLLM is a Summarizer double that records calls and can be made to fail.
+// fakeLLM is a Summarizer double that counts calls and returns a canned result.
 type fakeLLM struct {
-	mu           sync.Mutex
-	calls        int
-	result       llm.Summary
-	err          error
-	failIfCalled *testing.T // when set, the test fails if Summarize is invoked
+	mu     sync.Mutex
+	calls  int
+	result llm.Summary
+	err    error
 }
 
 func (f *fakeLLM) Summarize(_ context.Context, _ llm.Prompt) (llm.Summary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failIfCalled != nil {
-		f.failIfCalled.Errorf("llm.Summarize must not be called on this path")
-	}
 	f.calls++
 	return f.result, f.err
 }
@@ -53,54 +49,46 @@ func newMemSummaryStore() *memSummaryStore {
 	return &memSummaryStore{rows: map[string]store.FailureSummary{}}
 }
 
-func (m *memSummaryStore) key(buildID int64, historyID string) string {
-	return historyID // buildID is constant per test
-}
-
-func (m *memSummaryStore) Get(_ context.Context, buildID int64, historyID string) (*store.FailureSummary, error) {
+func (m *memSummaryStore) Get(_ context.Context, _ int64, historyID string) (*store.FailureSummary, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r, ok := m.rows[m.key(buildID, historyID)]
+	r, ok := m.rows[historyID] // buildID is constant per test
 	if !ok {
 		return nil, nil
 	}
-	cp := r
-	return &cp, nil
+	return &r, nil
 }
 
 func (m *memSummaryStore) Upsert(_ context.Context, s store.FailureSummary) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rows[m.key(s.BuildID, s.HistoryID)] = s
+	m.rows[s.HistoryID] = s
 	return nil
 }
 
 // serviceFixture wires a Service against testutil doubles plus the given llm and
-// summary store. The build+step-path mocks make evidence deterministic.
-func serviceFixture(t *testing.T, cfg config.LLMConfig, client Summarizer, summaries store.FailureSummaryStorer) *Service {
+// summary store. By default the failed step path and error message are fixed
+// and there is no last-good build or attachment, so evidence is deterministic;
+// tweak adjusts the mocks.
+func serviceFixture(t *testing.T, cfg config.LLMConfig, client Summarizer, summaries store.FailureSummaryStorer, tweak func(*testutil.MockStores)) *Service {
 	t.Helper()
 	mocks := testutil.New()
 	branchID := int64(3)
 	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
-		bn := 28
-		return store.Build{ID: id, BuildNumber: bn, BranchID: &branchID}, nil
+		return store.Build{ID: id, BuildNumber: 28, BranchID: &branchID}, nil
 	}
-	mocks.TestResults.GetFailedStepPathFn = func(_ context.Context, _ int64, _ int64, _ string) ([]string, string, error) {
+	mocks.TestResults.GetFailedStepPathFn = func(context.Context, int64, int64, string) ([]string, string, error) {
 		return []string{"Test Body", "Call API"}, "status 500 from /users", nil
 	}
-	// No last-good, no attachments → evidence stays deterministic.
-	mocks.TestResults.GetLastPassingBuildFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) (*store.TestHistoryEntry, error) {
+	mocks.TestResults.GetLastPassingBuildFn = func(context.Context, int64, string, *int64, int) (*store.TestHistoryEntry, error) {
 		return nil, nil
 	}
+	if tweak != nil {
+		tweak(mocks)
+	}
 	return NewService(ServiceDeps{
-		TestResults: mocks.TestResults,
-		Attachments: mocks.Attachments,
-		Builds:      mocks.Builds,
-		Summaries:   summaries,
-		Blobs:       nil,
-		LLM:         client,
-		Config:      cfg,
-		Logger:      zap.NewNop(),
+		TestResults: mocks.TestResults, Attachments: mocks.Attachments, Builds: mocks.Builds,
+		Summaries: summaries, LLM: client, Config: cfg, Logger: zap.NewNop(),
 	})
 }
 
@@ -108,269 +96,117 @@ func enabledCfg() config.LLMConfig {
 	return config.LLMConfig{Enabled: true, Provider: "openai", Model: "llama3.1", BaseURL: "http://x/v1"}
 }
 
-func TestSummaryFor_Disabled(t *testing.T) {
-	fake := &fakeLLM{failIfCalled: t}
-	svc := serviceFixture(t, config.LLMConfig{Enabled: false}, fake, newMemSummaryStore())
+// TestSummaryFor covers a single SummaryFor call. Generation failures are soft
+// (Result.Err, never a hard error) and never cached. Two paths are regression
+// guards: without objective failure evidence (a passing test or a bogus
+// history_id) an authenticated viewer could otherwise trigger a paid LLM call
+// and a junk row on every request; and an HTTP-200 blank hypothesis must not
+// poison the cache forever.
+func TestSummaryFor(t *testing.T) {
+	noEvidence := func(m *testutil.MockStores) {
+		m.TestResults.GetFailedStepPathFn = func(context.Context, int64, int64, string) ([]string, string, error) {
+			return nil, "", nil
+		}
+	}
+	tests := []struct {
+		name        string
+		cfg         config.LLMConfig
+		llm         *fakeLLM
+		tweak       func(*testutil.MockStores)
+		wantEnabled bool
+		wantHyp     string // "" = no summary
+		wantSoftErr bool
+		wantCalls   int
+	}{
+		{name: "disabled never calls the llm", cfg: config.LLMConfig{Enabled: false}, llm: &fakeLLM{}},
+		{
+			// A nil Evidence list is normalized to [] so the JSON shape matches a cache hit.
+			name: "cache miss generates and persists", cfg: enabledCfg(),
+			llm:         &fakeLLM{result: llm.Summary{Hypothesis: "prod bug", Category: "product_bug", Confidence: "medium"}},
+			wantEnabled: true, wantHyp: "prod bug", wantCalls: 1,
+		},
+		{name: "llm error is soft", cfg: enabledCfg(), llm: &fakeLLM{err: errors.New("boom")}, wantEnabled: true, wantSoftErr: true, wantCalls: 1},
+		{name: "no failure evidence: no llm call, no row", cfg: enabledCfg(), llm: &fakeLLM{}, tweak: noEvidence, wantEnabled: true, wantSoftErr: true},
+		{
+			name: "blank hypothesis is a soft error", cfg: enabledCfg(), llm: &fakeLLM{result: llm.Summary{Hypothesis: "   \n\t  ", Category: "flake"}},
+			wantEnabled: true, wantSoftErr: true, wantCalls: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			summaries := newMemSummaryStore()
+			svc := serviceFixture(t, tc.cfg, tc.llm, summaries, tc.tweak)
 
-	res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
-	if err != nil {
-		t.Fatalf("SummaryFor: %v", err)
-	}
-	if res.Enabled {
-		t.Errorf("disabled config must yield Enabled=false, got %+v", res)
-	}
-	if res.Summary != nil {
-		t.Errorf("disabled path must not produce a summary, got %+v", res.Summary)
-	}
-	if fake.callCount() != 0 {
-		t.Errorf("disabled path must never call the llm, got %d calls", fake.callCount())
+			res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
+			if err != nil {
+				t.Fatalf("SummaryFor must not hard-fail, got %v", err)
+			}
+			if res.Enabled != tc.wantEnabled || res.Cached || (res.Err != nil) != tc.wantSoftErr {
+				t.Errorf("result = {Enabled: %v, Cached: %v, Err: %v}, want {Enabled: %v, Cached: false, soft error: %v}",
+					res.Enabled, res.Cached, res.Err, tc.wantEnabled, tc.wantSoftErr)
+			}
+			if n := tc.llm.callCount(); n != tc.wantCalls {
+				t.Errorf("llm calls: got %d, want %d", n, tc.wantCalls)
+			}
+			cached, _ := summaries.Get(context.Background(), 100, "h1")
+			if tc.wantHyp == "" {
+				if res.Summary != nil || cached != nil {
+					t.Errorf("want no summary and no cached row, got summary %+v, row %+v", res.Summary, cached)
+				}
+				return
+			}
+			if res.Summary == nil || res.Summary.Hypothesis != tc.wantHyp || cached == nil {
+				t.Fatalf("want a persisted summary %q, got %+v (row %+v)", tc.wantHyp, res.Summary, cached)
+			}
+			if res.Summary.Evidence == nil || len(res.Summary.Evidence) != 0 {
+				t.Errorf("Evidence must be an empty, non-nil list, got %#v", res.Summary.Evidence)
+			}
+		})
 	}
 }
 
-func TestSummaryFor_CacheMissGeneratesAndUpserts(t *testing.T) {
-	fake := &fakeLLM{result: llm.Summary{Hypothesis: "prod bug", Category: "product_bug", Confidence: "medium", Evidence: []string{"e1"}}}
-	summaries := newMemSummaryStore()
-	svc := serviceFixture(t, enabledCfg(), fake, summaries)
-
-	res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
-	if err != nil {
-		t.Fatalf("SummaryFor: %v", err)
-	}
-	if !res.Enabled || res.Cached {
-		t.Errorf("first call must be Enabled and not Cached, got %+v", res)
-	}
-	if res.Summary == nil || res.Summary.Hypothesis != "prod bug" {
-		t.Errorf("summary: got %+v", res.Summary)
-	}
-	if fake.callCount() != 1 {
-		t.Errorf("llm calls: got %d, want 1", fake.callCount())
-	}
-	// The generated row must have been persisted.
-	if got, _ := summaries.Get(context.Background(), 100, "h1"); got == nil {
-		t.Error("cache miss must upsert the generated summary")
-	}
-}
-
-func TestSummaryFor_CacheHitSkipsLLM(t *testing.T) {
-	fake := &fakeLLM{result: llm.Summary{Hypothesis: "prod bug", Category: "product_bug"}}
-	summaries := newMemSummaryStore()
-	svc := serviceFixture(t, enabledCfg(), fake, summaries)
-	ctx := context.Background()
-
-	// First call generates + caches.
-	if _, err := svc.SummaryFor(ctx, 1, 100, "h1"); err != nil {
-		t.Fatalf("first SummaryFor: %v", err)
-	}
-	// Second call with identical evidence must hit the cache (no new llm call).
-	res, err := svc.SummaryFor(ctx, 1, 100, "h1")
-	if err != nil {
-		t.Fatalf("second SummaryFor: %v", err)
-	}
-	if !res.Cached {
-		t.Errorf("second call must be Cached, got %+v", res)
-	}
-	if fake.callCount() != 1 {
-		t.Errorf("llm calls: got %d, want 1 (cache must serve the repeat)", fake.callCount())
-	}
-}
-
-func TestSummaryFor_StaleHashRegenerates(t *testing.T) {
-	fake := &fakeLLM{result: llm.Summary{Hypothesis: "v1", Category: "flake"}}
-	summaries := newMemSummaryStore()
-	svc := serviceFixture(t, enabledCfg(), fake, summaries)
-	ctx := context.Background()
-
-	if _, err := svc.SummaryFor(ctx, 1, 100, "h1"); err != nil {
-		t.Fatalf("first SummaryFor: %v", err)
-	}
-	// Corrupt the cached input_hash so the next call sees a stale entry.
-	summaries.mu.Lock()
-	row := summaries.rows["h1"]
-	row.InputHash = "stale-hash-does-not-match"
-	summaries.rows["h1"] = row
-	summaries.mu.Unlock()
-
-	if _, err := svc.SummaryFor(ctx, 1, 100, "h1"); err != nil {
-		t.Fatalf("second SummaryFor: %v", err)
-	}
-	if fake.callCount() != 2 {
-		t.Errorf("stale hash must regenerate: llm calls got %d, want 2", fake.callCount())
-	}
-}
-
-func TestSummaryFor_LLMErrorIsSoft(t *testing.T) {
-	fake := &fakeLLM{err: errors.New("boom")}
-	svc := serviceFixture(t, enabledCfg(), fake, newMemSummaryStore())
-
-	res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
-	if err != nil {
-		t.Fatalf("LLM failure must not be a hard error, got %v", err)
-	}
-	if !res.Enabled {
-		t.Errorf("Enabled must remain true on soft error, got %+v", res)
-	}
-	if res.Summary != nil {
-		t.Errorf("no summary on generation failure, got %+v", res.Summary)
-	}
-	if res.Err == nil {
-		t.Error("soft generation error must be surfaced in Result.Err")
-	}
-}
-
-// TestSummaryFor_NoEvidenceGate_NoLLMCallNoUpsert is a regression test for a
-// paid-LLM-call abuse vector: an authenticated viewer could otherwise request
-// a failure-summary for ANY (build_id, history_id) pair — including a test
-// that never failed, or a bogus history_id — triggering a real (paid) LLM
-// call and a junk failure_summaries row on every single request, with no
-// gate and no rate limit. The service must refuse to generate — and must
-// never touch the LLM client or the store's Upsert — when assembleEvidence
-// finds no objective failure evidence (no error message, no failed-step
-// path).
-func TestSummaryFor_NoEvidenceGate_NoLLMCallNoUpsert(t *testing.T) {
-	fake := &fakeLLM{failIfCalled: t}
-	summaries := newMemSummaryStore()
-
-	mocks := testutil.New()
-	branchID := int64(3)
-	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
-		return store.Build{ID: id, BuildNumber: 28, BranchID: &branchID}, nil
-	}
-	// No error message, no failed-step path: this test has no failure
-	// evidence (e.g. it currently passes, or history_id is bogus/unrelated).
-	mocks.TestResults.GetFailedStepPathFn = func(_ context.Context, _ int64, _ int64, _ string) ([]string, string, error) {
-		return nil, "", nil
-	}
-	mocks.TestResults.GetLastPassingBuildFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) (*store.TestHistoryEntry, error) {
-		return nil, nil
-	}
-
-	svc := NewService(ServiceDeps{
-		TestResults: mocks.TestResults,
-		Attachments: mocks.Attachments,
-		Builds:      mocks.Builds,
-		Summaries:   summaries,
-		LLM:         fake,
-		Config:      enabledCfg(),
-		Logger:      zap.NewNop(),
-	})
-
-	res, err := svc.SummaryFor(context.Background(), 1, 100, "h-no-evidence")
-	if err != nil {
-		t.Fatalf("SummaryFor: %v", err)
-	}
-	if !res.Enabled {
-		t.Errorf("Enabled must stay true (the feature itself is on), got %+v", res)
-	}
-	if res.Summary != nil {
-		t.Errorf("no summary may be produced without failure evidence, got %+v", res.Summary)
-	}
-	if res.Err == nil {
-		t.Error("want a soft error explaining no evidence was found")
-	}
-	if fake.callCount() != 0 {
-		t.Errorf("llm must never be called without failure evidence: got %d calls, want 0", fake.callCount())
-	}
-	if got, _ := summaries.Get(context.Background(), 100, "h-no-evidence"); got != nil {
-		t.Errorf("no row may be upserted without failure evidence, got %+v", got)
-	}
-}
-
-// TestSummaryFor_BlankHypothesis_NotCached is a regression test: an LLM that
-// returns HTTP 200 with an empty/whitespace-only hypothesis must not poison
-// the cache. It must be treated as a soft generation error so the next
-// request retries instead of serving (and re-serving forever) a blank
-// summary.
-func TestSummaryFor_BlankHypothesis_NotCached(t *testing.T) {
-	fake := &fakeLLM{result: llm.Summary{Hypothesis: "   \n\t  ", Category: "flake"}}
-	summaries := newMemSummaryStore()
-	svc := serviceFixture(t, enabledCfg(), fake, summaries)
-
-	res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
-	if err != nil {
-		t.Fatalf("SummaryFor: %v", err)
-	}
-	if res.Summary != nil {
-		t.Errorf("blank hypothesis must not be surfaced as a summary, got %+v", res.Summary)
-	}
-	if res.Err == nil {
-		t.Error("blank hypothesis must be reported as a soft error")
-	}
-	if got, _ := summaries.Get(context.Background(), 100, "h1"); got != nil {
-		t.Errorf("blank hypothesis must not be cached, got %+v", got)
-	}
-	if fake.callCount() != 1 {
-		t.Errorf("llm calls: got %d, want 1", fake.callCount())
-	}
-}
-
-// TestSummaryFor_FreshEvidenceNeverNil verifies a freshly generated summary
-// normalizes a nil Evidence slice to an empty (non-nil) one, so the JSON shape
-// (`[]`, never `null`) matches what a subsequent cache-hit read would produce.
-func TestSummaryFor_FreshEvidenceNeverNil(t *testing.T) {
-	fake := &fakeLLM{result: llm.Summary{Hypothesis: "no bullets here", Category: "flake", Evidence: nil}}
-	svc := serviceFixture(t, enabledCfg(), fake, newMemSummaryStore())
-
-	res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
-	if err != nil {
-		t.Fatalf("SummaryFor: %v", err)
-	}
-	if res.Summary == nil {
-		t.Fatal("expected a summary")
-	}
-	if res.Summary.Evidence == nil {
-		t.Error("Evidence must never be nil on the fresh-generation path")
-	}
-	if len(res.Summary.Evidence) != 0 {
-		t.Errorf("Evidence: got %v, want empty", res.Summary.Evidence)
-	}
-}
-
-// TestSummaryFor_CacheHit_SkipsDiffComparison verifies the expensive
-// whole-build last-good→current diff (CompareBuildsByHistoryID) is computed
-// at most once, on the cache-MISS generation path, and never re-run on a
-// cache hit. The diff only enriches the prompt and is not part of
-// input_hash, so running it on every request (including cache hits) would be
-// pure waste.
-func TestSummaryFor_CacheHit_SkipsDiffComparison(t *testing.T) {
+// TestSummaryFor_CacheLifecycle verifies a repeat request with identical
+// evidence is served from cache — no LLM call and no recomputation of the
+// whole-build last-good diff (it only enriches the prompt and is not part of
+// input_hash) — while a stale input_hash regenerates.
+func TestSummaryFor_CacheLifecycle(t *testing.T) {
 	fake := &fakeLLM{result: llm.Summary{Hypothesis: "h", Category: "flake"}}
 	summaries := newMemSummaryStore()
-
-	mocks := testutil.New()
-	branchID := int64(3)
-	mocks.Builds.GetBuildByIDFn = func(_ context.Context, _, id int64) (store.Build, error) {
-		return store.Build{ID: id, BuildNumber: 28, BranchID: &branchID}, nil
-	}
-	mocks.TestResults.GetFailedStepPathFn = func(_ context.Context, _ int64, _ int64, _ string) ([]string, string, error) {
-		return []string{"Test Body"}, "boom", nil
-	}
-	mocks.TestResults.GetLastPassingBuildFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) (*store.TestHistoryEntry, error) {
-		return &store.TestHistoryEntry{BuildID: 80, BuildNumber: 25, Status: "passed"}, nil
-	}
 	compareCalls := 0
-	mocks.TestResults.CompareBuildsByHistoryIDFn = func(_ context.Context, _ int64, _, _ int64) ([]store.DiffEntry, error) {
-		compareCalls++
-		return nil, nil
-	}
-
-	svc := NewService(ServiceDeps{
-		TestResults: mocks.TestResults, Attachments: mocks.Attachments, Builds: mocks.Builds,
-		Summaries: summaries, LLM: fake, Config: enabledCfg(), Logger: zap.NewNop(),
+	svc := serviceFixture(t, enabledCfg(), fake, summaries, func(m *testutil.MockStores) {
+		m.TestResults.GetLastPassingBuildFn = func(context.Context, int64, string, *int64, int) (*store.TestHistoryEntry, error) {
+			return &store.TestHistoryEntry{BuildID: 80, BuildNumber: 25, Status: "passed"}, nil
+		}
+		m.TestResults.CompareBuildsByHistoryIDFn = func(context.Context, int64, int64, int64) ([]store.DiffEntry, error) {
+			compareCalls++
+			return nil, nil
+		}
 	})
 
-	ctx := context.Background()
-	if _, err := svc.SummaryFor(ctx, 1, 100, "h1"); err != nil {
-		t.Fatalf("first SummaryFor: %v", err)
+	steps := []struct {
+		name                  string
+		staleHash, wantCached bool
+		wantLLM, wantCompare  int
+	}{
+		{name: "miss generates and computes the diff once", wantLLM: 1, wantCompare: 1},
+		{name: "hit skips the llm and the diff", wantCached: true, wantLLM: 1, wantCompare: 1},
+		{name: "stale input_hash regenerates", staleHash: true, wantLLM: 2, wantCompare: 2},
 	}
-	if compareCalls != 1 {
-		t.Errorf("cache-miss generation must compute the diff exactly once: got %d calls, want 1", compareCalls)
-	}
-	if _, err := svc.SummaryFor(ctx, 1, 100, "h1"); err != nil {
-		t.Fatalf("second SummaryFor: %v", err)
-	}
-	if compareCalls != 1 {
-		t.Errorf("cache hit must not recompute the diff: got %d calls, want still 1", compareCalls)
-	}
-	if fake.callCount() != 1 {
-		t.Errorf("llm calls: got %d, want 1 (second call must be served from cache)", fake.callCount())
+	for _, s := range steps {
+		if s.staleHash {
+			summaries.mu.Lock()
+			row := summaries.rows["h1"]
+			row.InputHash = "stale-hash-does-not-match"
+			summaries.rows["h1"] = row
+			summaries.mu.Unlock()
+		}
+		res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
+		if err != nil {
+			t.Fatalf("%s: SummaryFor: %v", s.name, err)
+		}
+		if res.Cached != s.wantCached || fake.callCount() != s.wantLLM || compareCalls != s.wantCompare {
+			t.Errorf("%s: cached=%v llm=%d diff=%d, want cached=%v llm=%d diff=%d",
+				s.name, res.Cached, fake.callCount(), compareCalls, s.wantCached, s.wantLLM, s.wantCompare)
+		}
 	}
 }

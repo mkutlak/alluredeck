@@ -2,561 +2,221 @@ package parser_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/mkutlak/alluredeck/api/internal/parser"
 )
 
-func testdataPath(t *testing.T, name string) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot determine test file path")
-	}
-	return filepath.Join(filepath.Dir(file), "testdata", name)
-}
-
-func TestParseFile_Allure2_Failed(t *testing.T) {
+// TestParseFile_Fixtures parses the real Allure 2 and Allure 3 result files in
+// testdata/. Allure 2 nests timing in a "time" object; Allure 3 puts it at the
+// top level. A missing file is an error, not an empty result.
+func TestParseFile_Fixtures(t *testing.T) {
 	t.Parallel()
-	path := testdataPath(t, "allure2-result.json")
-	result, err := parser.ParseFile(path)
-	if err != nil {
-		t.Fatalf("ParseFile returned unexpected error: %v", err)
+	type summary struct {
+		name, fullName, status, message string
+		hasTrace, hasDescription        bool
+		start, stop, duration           int64
+		labels, params                  []string // names
+		steps                           []string // status/sub-steps/attachments per top-level step
+		attachments                     int
 	}
-
-	if result.Name != "loginWithInvalidCredentialsShouldFail" {
-		t.Errorf("Name: got %q, want %q", result.Name, "loginWithInvalidCredentialsShouldFail")
-	}
-	if result.FullName != "com.example.auth.LoginTest.loginWithInvalidCredentialsShouldFail" {
-		t.Errorf("FullName: got %q", result.FullName)
-	}
-	if result.Status != "failed" {
-		t.Errorf("Status: got %q, want %q", result.Status, "failed")
-	}
-	if result.StatusMessage == "" {
-		t.Error("StatusMessage: expected non-empty error message")
-	}
-	if result.StatusTrace == "" {
-		t.Error("StatusTrace: expected non-empty stack trace")
-	}
-	if result.Description == "" {
-		t.Error("Description: expected non-empty description")
-	}
-
-	if len(result.Labels) != 2 {
-		t.Errorf("Labels: got %d, want 2", len(result.Labels))
-	} else {
-		hasSuite := false
-		hasSeverity := false
-		for _, l := range result.Labels {
-			if l.Name == "suite" {
-				hasSuite = true
-			}
-			if l.Name == "severity" {
-				hasSeverity = true
-			}
+	summarize := func(r *parser.Result) summary {
+		s := summary{name: r.Name, fullName: r.FullName, status: r.Status, message: r.StatusMessage,
+			hasTrace: r.StatusTrace != "", hasDescription: r.Description != "",
+			start: r.StartMs, stop: r.StopMs, duration: r.DurationMs, attachments: len(r.Attachments)}
+		for _, l := range r.Labels {
+			s.labels = append(s.labels, l.Name)
 		}
-		if !hasSuite {
-			t.Error("Labels: missing label with Name=suite")
+		for _, p := range r.Parameters {
+			s.params = append(s.params, p.Name)
 		}
-		if !hasSeverity {
-			t.Error("Labels: missing label with Name=severity")
+		for _, st := range r.Steps {
+			s.steps = append(s.steps, fmt.Sprintf("%s/%d/%d", st.Status, len(st.Steps), len(st.Attachments)))
 		}
+		return s
 	}
-
-	if len(result.Parameters) != 1 {
-		t.Errorf("Parameters: got %d, want 1", len(result.Parameters))
-	} else if result.Parameters[0].Name != "browser" {
-		t.Errorf("Parameters[0].Name: got %q, want %q", result.Parameters[0].Name, "browser")
-	}
-
-	if len(result.Steps) != 2 {
-		t.Errorf("Steps: got %d, want 2", len(result.Steps))
-	} else {
-		if result.Steps[0].Status != "passed" {
-			t.Errorf("Steps[0].Status: got %q, want %q", result.Steps[0].Status, "passed")
-		}
-		if result.Steps[1].Status != "failed" {
-			t.Errorf("Steps[1].Status: got %q, want %q", result.Steps[1].Status, "failed")
-		}
-		// Steps[0] has sub-steps or attachments
-		if len(result.Steps[0].Steps) == 0 && len(result.Steps[0].Attachments) == 0 {
-			t.Error("Steps[0]: expected at least 1 sub-step or 1 attachment")
-		}
-	}
-
-	if result.DurationMs != 5000 {
-		t.Errorf("DurationMs: got %d, want 5000", result.DurationMs)
-	}
-	if result.StartMs != 1709000000000 {
-		t.Errorf("StartMs: got %d, want 1709000000000", result.StartMs)
-	}
-	if result.StopMs != 1709000005000 {
-		t.Errorf("StopMs: got %d, want 1709000005000", result.StopMs)
-	}
-
-	if len(result.Attachments) != 1 {
-		t.Errorf("Attachments: got %d, want 1", len(result.Attachments))
-	}
-}
-
-func TestParseFile_Allure3_Passed(t *testing.T) {
-	t.Parallel()
-	path := testdataPath(t, "allure3-result.json")
-	result, err := parser.ParseFile(path)
-	if err != nil {
-		t.Fatalf("ParseFile returned unexpected error: %v", err)
-	}
-
-	if result.Status != "passed" {
-		t.Errorf("Status: got %q, want %q", result.Status, "passed")
-	}
-	if result.StatusMessage != "" {
-		t.Errorf("StatusMessage: expected empty, got %q", result.StatusMessage)
-	}
-
-	if len(result.Labels) != 3 {
-		t.Errorf("Labels: got %d, want 3", len(result.Labels))
-	}
-
-	if len(result.Steps) != 1 {
-		t.Errorf("Steps: got %d, want 1", len(result.Steps))
-	} else if result.Steps[0].Status != "passed" {
-		t.Errorf("Steps[0].Status: got %q, want %q", result.Steps[0].Status, "passed")
-	}
-
-	if result.DurationMs <= 0 {
-		t.Errorf("DurationMs: got %d, want > 0", result.DurationMs)
-	}
-	if result.StartMs <= 0 {
-		t.Errorf("StartMs: got %d, want > 0", result.StartMs)
-	}
-}
-
-func TestParseFile_NonExistent(t *testing.T) {
-	t.Parallel()
-	_, err := parser.ParseFile("/tmp/does-not-exist-allure-result.json")
-	if err == nil {
-		t.Fatal("expected error for non-existent file, got nil")
-	}
-	if !strings.Contains(err.Error(), "no such file") {
-		t.Errorf("error should wrap 'no such file', got: %v", err)
-	}
-}
-
-func TestParseFile_EmptyName(t *testing.T) {
-	t.Parallel()
-	tmp, err := os.CreateTemp(t.TempDir(), "*-result.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tmp.Close() }()
-
-	data := map[string]any{
-		"name":   "",
-		"status": "passed",
-	}
-	if err := json.NewEncoder(tmp).Encode(data); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := parser.ParseFile(tmp.Name())
-	if err != nil {
-		t.Fatalf("ParseFile returned unexpected error: %v", err)
-	}
-	if result.Name != "" {
-		t.Errorf("Name: got %q, want empty string", result.Name)
-	}
-}
-
-func TestParseDir(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	// Write 2 result files.
-	for _, name := range []string{"aaa-result.json", "bbb-result.json"} {
-		f, err := os.Create(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := json.NewEncoder(f).Encode(map[string]any{"name": name, "status": "passed"}); err != nil {
-			_ = f.Close()
-			t.Fatal(err)
-		}
-		_ = f.Close()
-	}
-
-	// Write 1 non-result file that should be skipped.
-	f, err := os.Create(filepath.Join(dir, "executor.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.NewEncoder(f).Encode(map[string]any{"type": "jenkins"}); err != nil {
-		_ = f.Close()
-		t.Fatal(err)
-	}
-	_ = f.Close()
-
-	results, err := parser.ParseDir(dir)
-	if err != nil {
-		t.Fatalf("ParseDir returned unexpected error: %v", err)
-	}
-	if len(results) != 2 {
-		t.Errorf("ParseDir: got %d results, want 2", len(results))
-	}
-}
-
-func TestParseDir_EmptyDir(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	results, err := parser.ParseDir(dir)
-	if err != nil {
-		t.Fatalf("ParseDir returned unexpected error on empty dir: %v", err)
-	}
-	if len(results) != 0 {
-		t.Errorf("ParseDir: got %d results, want 0", len(results))
-	}
-}
-
-func TestResolveAttachments_WithMapping(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	// Simulate Allure-generated directory structure: data/test-results/*.json + data/attachments/
-	testResultsDir := filepath.Join(dir, "test-results")
-	if err := os.MkdirAll(testResultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "attachments"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Write a generated test result file with the hashed attachment mapping.
-	genResult := `{
-		"name": "test1",
-		"attachments": [
-			{
-				"link": {
-					"id": "abc123hash",
-					"originalFileName": "screenshot-001.png",
-					"ext": ".png",
-					"contentType": "image/png",
-					"contentLength": 4096,
-					"name": "screenshot.png",
-					"used": true,
-					"missed": false
-				},
-				"type": "attachment"
-			}
-		]
-	}`
-	if err := os.WriteFile(filepath.Join(testResultsDir, "aaa-result.json"), []byte(genResult), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	results := []*parser.Result{
-		{
-			Name: "test1",
-			Attachments: []parser.Attachment{
-				{Name: "screenshot.png", Source: "screenshot-001.png", MimeType: "image/png"},
-			},
-		},
-	}
-
-	parser.ResolveAttachments(results, dir)
-
-	att := results[0].Attachments[0]
-	if att.Source != "abc123hash.png" {
-		t.Errorf("Source = %q, want %q", att.Source, "abc123hash.png")
-	}
-	if att.Size != 4096 {
-		t.Errorf("Size = %d, want 4096", att.Size)
-	}
-}
-
-func TestResolveAttachments_FallbackToStat(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	// No test-results dir → fallback to stat-ing files directly (Allure 2 behavior).
-	attDir := filepath.Join(dir, "attachments")
-	if err := os.MkdirAll(attDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	content := []byte("hello, this is a 42-byte attachment file!!")
-	if err := os.WriteFile(filepath.Join(attDir, "abc-screenshot.png"), content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	results := []*parser.Result{
-		{
-			Name: "test1",
-			Attachments: []parser.Attachment{
-				{Name: "screenshot.png", Source: "abc-screenshot.png", MimeType: "image/png"},
-			},
-		},
-	}
-
-	parser.ResolveAttachments(results, dir)
-
-	att := results[0].Attachments[0]
-	if att.Source != "abc-screenshot.png" {
-		t.Errorf("Source should remain %q for fallback, got %q", "abc-screenshot.png", att.Source)
-	}
-	if att.Size != int64(len(content)) {
-		t.Errorf("Size = %d, want %d", att.Size, len(content))
-	}
-}
-
-func TestResolveAttachments_MissingFile(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir() // empty — no test-results, no attachments
-
-	results := []*parser.Result{
-		{
-			Name: "test1",
-			Attachments: []parser.Attachment{
-				{Name: "missing.png", Source: "no-such-file.png", MimeType: "image/png"},
-			},
-		},
-	}
-
-	parser.ResolveAttachments(results, dir)
-
-	if results[0].Attachments[0].Size != 0 {
-		t.Errorf("Size = %d, want 0 for missing file", results[0].Attachments[0].Size)
-	}
-}
-
-func TestResolveAttachments_StepAttachments(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	testResultsDir := filepath.Join(dir, "test-results")
-	if err := os.MkdirAll(testResultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "attachments"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Generated result maps step-log.txt to a hash, but nonexistent.txt is not in the mapping.
-	genResult := `{
-		"name": "test1",
-		"attachments": [
-			{
-				"link": {
-					"id": "hashsteplog",
-					"originalFileName": "step-log.txt",
-					"ext": ".txt",
-					"contentType": "text/plain",
-					"contentLength": 19,
-					"name": "log.txt",
-					"used": true,
-					"missed": false
-				},
-				"type": "attachment"
-			}
-		]
-	}`
-	if err := os.WriteFile(filepath.Join(testResultsDir, "bbb-result.json"), []byte(genResult), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	results := []*parser.Result{
-		{
-			Name: "test1",
-			Steps: []parser.Step{
-				{
-					Name: "step1",
-					Attachments: []parser.Attachment{
-						{Name: "log.txt", Source: "step-log.txt", MimeType: "text/plain"},
-					},
-					Steps: []parser.Step{
-						{
-							Name: "nested-step",
-							Attachments: []parser.Attachment{
-								{Name: "missing.txt", Source: "nonexistent.txt", MimeType: "text/plain"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	parser.ResolveAttachments(results, dir)
-
-	if results[0].Steps[0].Attachments[0].Source != "hashsteplog.txt" {
-		t.Errorf("step attachment Source = %q, want %q", results[0].Steps[0].Attachments[0].Source, "hashsteplog.txt")
-	}
-	if results[0].Steps[0].Attachments[0].Size != 19 {
-		t.Errorf("step attachment Size = %d, want 19", results[0].Steps[0].Attachments[0].Size)
-	}
-	if results[0].Steps[0].Steps[0].Attachments[0].Size != 0 {
-		t.Errorf("nested missing attachment Size = %d, want 0", results[0].Steps[0].Steps[0].Attachments[0].Size)
-	}
-}
-
-// writeResultJSON marshals v to a *-result.json file in a temp dir and returns the path.
-func writeResultJSON(t *testing.T, v any) string {
-	t.Helper()
-	tmp, err := os.CreateTemp(t.TempDir(), "*-result.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tmp.Close() }()
-	if err := json.NewEncoder(tmp).Encode(v); err != nil {
-		t.Fatal(err)
-	}
-	return tmp.Name()
-}
-
-// TestParseFile_DeriveStatusFromFailedStep verifies the Allure 3 ("awesome")
-// derivation: when the test-level statusDetails is empty, ParseFile adopts the
-// deepest failed (fallback broken) step's message/trace as the result's status.
-func TestParseFile_DeriveStatusFromFailedStep(t *testing.T) {
-	t.Parallel()
-
-	type sd struct {
-		Message string `json:"message,omitempty"`
-		Trace   string `json:"trace,omitempty"`
-	}
-	type step struct {
-		Name          string `json:"name"`
-		Status        string `json:"status"`
-		StatusDetails *sd    `json:"statusDetails,omitempty"`
-		Steps         []any  `json:"steps,omitempty"`
-	}
-
 	tests := []struct {
-		name      string
-		result    map[string]any
-		wantMsg   string
-		wantTrace string
+		file string
+		want *summary // nil = ParseFile must fail
 	}{
-		{
-			name: "deepest failed step wins over shallower failed step",
-			result: map[string]any{
-				"name":   "test-a",
-				"status": "failed",
-				"steps": []any{
-					step{
-						Name:          "outer",
-						Status:        "failed",
-						StatusDetails: &sd{Message: "outer failure"},
-						Steps: []any{
-							step{
-								Name:          "inner",
-								Status:        "failed",
-								StatusDetails: &sd{Message: "deep assertion failed", Trace: "at inner.go:42"},
-							},
-						},
-					},
-				},
-			},
-			wantMsg:   "deep assertion failed",
-			wantTrace: "at inner.go:42",
-		},
-		{
-			name: "broken step used when no failed step exists",
-			result: map[string]any{
-				"name":   "test-b",
-				"status": "broken",
-				"steps": []any{
-					step{
-						Name:          "setup",
-						Status:        "broken",
-						StatusDetails: &sd{Message: "fixture exploded"},
-					},
-				},
-			},
-			wantMsg:   "fixture exploded",
-			wantTrace: "",
-		},
-		{
-			name: "failed step preferred over broken step",
-			result: map[string]any{
-				"name":   "test-c",
-				"status": "failed",
-				"steps": []any{
-					step{Name: "broken-step", Status: "broken", StatusDetails: &sd{Message: "broken msg"}},
-					step{Name: "failed-step", Status: "failed", StatusDetails: &sd{Message: "failed msg"}},
-				},
-			},
-			wantMsg:   "failed msg",
-			wantTrace: "",
-		},
-		{
-			name: "failed step with empty message falls back to step name",
-			result: map[string]any{
-				"name":   "test-d",
-				"status": "failed",
-				"steps": []any{
-					step{Name: "the failing step", Status: "failed"},
-				},
-			},
-			wantMsg:   "the failing step",
-			wantTrace: "",
-		},
-		{
-			name: "no failed/broken step leaves message empty",
-			result: map[string]any{
-				"name":   "test-e",
-				"status": "passed",
-				"steps": []any{
-					step{Name: "ok", Status: "passed"},
-				},
-			},
-			wantMsg:   "",
-			wantTrace: "",
-		},
+		{"allure2-result.json", &summary{
+			name: "loginWithInvalidCredentialsShouldFail", fullName: "com.example.auth.LoginTest.loginWithInvalidCredentialsShouldFail",
+			status: "failed", message: "Expected status 401 but got 200", hasTrace: true, hasDescription: true,
+			start: 1709000000000, stop: 1709000005000, duration: 5000,
+			labels: []string{"suite", "severity"}, params: []string{"browser"}, steps: []string{"passed/1/1", "failed/0/0"}, attachments: 1,
+		}},
+		{"allure3-result.json", &summary{
+			name: "userProfileLoadsSucessfully", fullName: "com.example.profile.ProfileTest.userProfileLoadsSucessfully",
+			status: "passed", hasDescription: true, start: 1709000100000, stop: 1709000101000, duration: 1000,
+			labels: []string{"feature", "owner", "severity"}, steps: []string{"passed/0/0"},
+		}},
+		{"does-not-exist-result.json", nil},
 	}
-
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()
-			result, err := parser.ParseFile(writeResultJSON(t, tc.result))
+			r, err := parser.ParseFile(filepath.Join("testdata", tc.file))
+			if tc.want == nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("ParseFile error = %v, want one wrapping fs.ErrNotExist", err)
+				}
+				return
+			}
 			if err != nil {
-				t.Fatalf("ParseFile returned unexpected error: %v", err)
+				t.Fatalf("ParseFile: %v", err)
 			}
-			if result.StatusMessage != tc.wantMsg {
-				t.Errorf("StatusMessage: got %q, want %q", result.StatusMessage, tc.wantMsg)
-			}
-			if result.StatusTrace != tc.wantTrace {
-				t.Errorf("StatusTrace: got %q, want %q", result.StatusTrace, tc.wantTrace)
+			if got := summarize(r); !reflect.DeepEqual(got, *tc.want) {
+				t.Errorf("ParseFile(%s)\n  got:  %+v\n  want: %+v", tc.file, got, *tc.want)
 			}
 		})
 	}
 }
 
-// TestParseFile_TestLevelMessageNotOverridden verifies the derivation only
-// fills a blank test-level message; an existing message is left untouched.
-func TestParseFile_TestLevelMessageNotOverridden(t *testing.T) {
+// TestParseDir verifies only *-result.json files are parsed.
+func TestParseDir(t *testing.T) {
 	t.Parallel()
+	tests := []struct {
+		files []string
+		want  int
+	}{
+		{[]string{"aaa-result.json", "bbb-result.json", "executor.json"}, 2},
+		{nil, 0},
+	}
+	for _, tc := range tests {
+		dir := t.TempDir()
+		for _, name := range tc.files {
+			mustWrite(t, filepath.Join(dir, name), []byte(`{"name":"`+name+`","status":"passed"}`))
+		}
+		results, err := parser.ParseDir(dir)
+		if err != nil || len(results) != tc.want {
+			t.Errorf("ParseDir(%v) = %d results, err %v; want %d", tc.files, len(results), err, tc.want)
+		}
+	}
+}
 
-	result := map[string]any{
-		"name":          "test-f",
-		"status":        "failed",
-		"statusDetails": map[string]any{"message": "explicit test message"},
-		"steps": []any{
-			map[string]any{
-				"name":          "step",
-				"status":        "failed",
-				"statusDetails": map[string]any{"message": "step message"},
-			},
+// TestResolveAttachments verifies attachment sources and sizes are resolved
+// from the generated report: Allure 3 renames attachments to content hashes,
+// recorded in data/test-results/*.json (originalFileName → id+ext,
+// contentLength); without a mapping (Allure 2, which keeps names) the size is
+// stat-ed from data/attachments/. Step and nested-step attachments resolve the
+// same way, and a missing file leaves the size at 0.
+func TestResolveAttachments(t *testing.T) {
+	t.Parallel()
+	generated := `{"name":"test1","attachments":[
+		{"link":{"id":"abc123hash","originalFileName":"screenshot-001.png","ext":".png","contentType":"image/png","contentLength":4096},"type":"attachment"},
+		{"link":{"id":"hashsteplog","originalFileName":"step-log.txt","ext":".txt","contentType":"text/plain","contentLength":19},"type":"attachment"}]}`
+	statted := []byte("hello, this is a 42-byte attachment file!!")
+
+	type resolved struct {
+		Source string
+		Size   int64
+	}
+	tests := []struct {
+		name    string
+		mapping bool
+		want    []resolved // top-level ×3, step, nested step
+	}{
+		{name: "generated mapping (Allure 3)", mapping: true, want: []resolved{
+			{"abc123hash.png", 4096}, {"abc-screenshot.png", 42}, {"no-such-file.png", 0}, {"hashsteplog.txt", 19}, {"nonexistent.txt", 0},
+		}},
+		{name: "no test-results dir (Allure 2)", want: []resolved{
+			{"screenshot-001.png", 0}, {"abc-screenshot.png", 42}, {"no-such-file.png", 0}, {"step-log.txt", 0}, {"nonexistent.txt", 0},
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			if tc.mapping {
+				mustWrite(t, filepath.Join(dir, "test-results", "aaa-result.json"), []byte(generated))
+			}
+			mustWrite(t, filepath.Join(dir, "attachments", "abc-screenshot.png"), statted)
+
+			att := func(src string) []parser.Attachment { return []parser.Attachment{{Name: src, Source: src}} }
+			r := &parser.Result{
+				Attachments: append(append(att("screenshot-001.png"), att("abc-screenshot.png")...), att("no-such-file.png")...),
+				Steps:       []parser.Step{{Attachments: att("step-log.txt"), Steps: []parser.Step{{Attachments: att("nonexistent.txt")}}}},
+			}
+			parser.ResolveAttachments([]*parser.Result{r}, dir)
+
+			var got []resolved
+			for _, a := range append(append(r.Attachments, r.Steps[0].Attachments...), r.Steps[0].Steps[0].Attachments...) {
+				got = append(got, resolved{a.Source, a.Size})
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("resolved = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func mustWrite(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestParseFile_DeriveStatusFromFailedStep verifies the Allure 3 ("awesome")
+// derivation: when the test-level statusDetails is empty, ParseFile adopts the
+// deepest failed (fallback broken) step's message/trace as the result's status;
+// an explicit test-level message is never overridden.
+func TestParseFile_DeriveStatusFromFailedStep(t *testing.T) {
+	t.Parallel()
+	step := func(name, status, msg, trace string, children ...map[string]any) map[string]any {
+		s := map[string]any{"name": name, "status": status, "steps": children}
+		if msg != "" || trace != "" {
+			s["statusDetails"] = map[string]any{"message": msg, "trace": trace}
+		}
+		return s
+	}
+	tests := []struct {
+		name, testMsg      string
+		steps              []map[string]any
+		wantMsg, wantTrace string
+	}{
+		{
+			name:    "deepest failed step wins over shallower failed step",
+			steps:   []map[string]any{step("outer", "failed", "outer failure", "", step("inner", "failed", "deep assertion failed", "at inner.go:42"))},
+			wantMsg: "deep assertion failed", wantTrace: "at inner.go:42",
 		},
+		{name: "broken step used when no failed step exists", steps: []map[string]any{step("setup", "broken", "fixture exploded", "")}, wantMsg: "fixture exploded"},
+		{
+			name:    "failed step preferred over broken step",
+			steps:   []map[string]any{step("broken-step", "broken", "broken msg", ""), step("failed-step", "failed", "failed msg", "")},
+			wantMsg: "failed msg",
+		},
+		{name: "failed step with empty message falls back to step name", steps: []map[string]any{step("the failing step", "failed", "", "")}, wantMsg: "the failing step"},
+		{name: "no failed/broken step leaves message empty", steps: []map[string]any{step("ok", "passed", "", "")}},
+		{name: "test-level message is not overridden", testMsg: "explicit test message", steps: []map[string]any{step("step", "failed", "step message", "")}, wantMsg: "explicit test message"},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw := map[string]any{"name": "", "status": "failed", "steps": tc.steps}
+			if tc.testMsg != "" {
+				raw["statusDetails"] = map[string]any{"message": tc.testMsg}
+			}
+			data, _ := json.Marshal(raw)
+			path := filepath.Join(t.TempDir(), "x-result.json")
+			mustWrite(t, path, data)
 
-	r, err := parser.ParseFile(writeResultJSON(t, result))
-	if err != nil {
-		t.Fatalf("ParseFile returned unexpected error: %v", err)
-	}
-	if r.StatusMessage != "explicit test message" {
-		t.Errorf("StatusMessage: got %q, want %q", r.StatusMessage, "explicit test message")
+			result, err := parser.ParseFile(path)
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+			if result.StatusMessage != tc.wantMsg || result.StatusTrace != tc.wantTrace {
+				t.Errorf("status = (%q, %q), want (%q, %q)", result.StatusMessage, result.StatusTrace, tc.wantMsg, tc.wantTrace)
+			}
+		})
 	}
 }

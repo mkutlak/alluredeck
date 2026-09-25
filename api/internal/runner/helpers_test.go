@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,23 +37,4 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
-}
-
-// summaryJSON returns a minimal widgets/summary.json payload.
-func summaryJSON(total, passed, failed, broken, skipped, unknown int) string {
-	type statistic struct {
-		Total   int `json:"total"`
-		Passed  int `json:"passed"`
-		Failed  int `json:"failed"`
-		Broken  int `json:"broken"`
-		Skipped int `json:"skipped"`
-		Unknown int `json:"unknown"`
-	}
-	data, _ := json.Marshal(map[string]any{
-		"statistic": statistic{
-			Total: total, Passed: passed, Failed: failed,
-			Broken: broken, Skipped: skipped, Unknown: unknown,
-		},
-	})
-	return string(data)
 }
