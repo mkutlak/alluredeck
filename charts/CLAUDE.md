@@ -1,41 +1,3 @@
-## Chart Overview
-Chart name: `alluredeck`, apiVersion: v2, type: application.
-Located at `charts/alluredeck/`.
-
-## Chart Structure
-```
-charts/alluredeck/
-  Chart.yaml              # chart metadata (name, version, appVersion)
-  values.yaml             # default configuration values
-  .helmignore
-  templates/
-    _helpers.tpl          # shared template helpers
-    ingress.yaml          # unified path-based Ingress (API + trace + UI + optional Swagger)
-    networkpolicy.yaml    # optional NetworkPolicy
-    extra-resources.yaml  # arbitrary extra K8s resources via extraResources[]
-    NOTES.txt
-    api/
-      deployment.yaml
-      service.yaml
-      configmap.yaml      # non-sensitive config (mounted as config.yaml)
-      secret.yaml         # credentials (or reference existingSecret)
-      serviceaccount.yaml
-      pvc.yaml            # persistence volumes (projects + database)
-    ui/
-      deployment.yaml
-      service.yaml
-      configmap.yaml
-      serviceaccount.yaml
-```
-
-## values.yaml Sections
-- **global**: cluster-wide defaults — `imagePullSecrets`, `storageClassName` (inherited by PVCs unless overridden)
-- **api**: `image`, `config` (logLevel, storageType, CORS, upload limits, goMemLimit), `s3` (endpoint, bucket, region, credentials), `security` (users, passwords, JWT keys, `existingSecret`), `oidc` (enabled, issuerUrl, clientId, redirectUrl, scopes, groups mapping), `persistence` (projects PVC + database PVC), `resources`, `probes`, `kind` (Deployment or StatefulSet)
-- **ui**: `image`, `config` (apiUrl, appTitle), `resources`, `probes`
-- **ingress**: path-based routing — hardcoded `/api` + `/trace` → API, `/` → UI, optional `/swagger` → API; `extraPaths` for custom rules
-- **networkPolicy**: optional allow rules for ingress controller pods
-- **extraResources**: arbitrary K8s manifests injected alongside the chart
-
 ## Helm Conventions
 - Path-based Ingress: API at `/api`, trace viewer at `/trace`, UI at `/`, optional Swagger at `/swagger`; `extraPaths` for custom rules
 - Non-root security contexts: `runAsNonRoot: true`, `readOnlyRootFilesystem: true`, drop all capabilities
@@ -44,10 +6,5 @@ charts/alluredeck/
 - Credentials auto-generated (random) if not provided; use `existingSecret` to reference pre-created secrets
 - IRSA on EKS: set `api.serviceAccount.annotations` with role ARN; omit static S3 credentials
 
-## Commands
-```
-mise run helm:lint        # lint the chart
-mise run helm:template    # render templates (validate rendering)
-mise run helm:package     # package chart into .tgz
-mise run helm:release     # bump chart version (patch|minor|major) and commit
-```
+## Release
+`mise run helm:release` (patch|minor|major) bumps the chart version **and commits**.

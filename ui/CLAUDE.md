@@ -2,21 +2,12 @@
 
 ## UI Conventions
 
-- Path alias `@/` maps to `ui/src/`
 - Components use named exports (no default exports for components)
-- Tailwind classes sorted by `prettier-plugin-tailwindcss`
 - No `any` — use `unknown` and type guards instead
 - API base URL configured via `VITE_API_URL` env var
 - Test files alongside source or in `ui/src/test/`
 - Use Testing Library queries (getByRole, etc.) — avoid `container.querySelector`
-
-## Key Versions
-
-- React 19, React Router v7, Zustand v5
-- Vite 8, Vitest 4, TypeScript 7 (native compiler, strict)
-- ESLint 10 (flat config — `eslint.config.js`, type-aware), Prettier 3
-- TanStack Query v5, Recharts 3, Tailwind CSS 4
-- Radix UI primitives, shadcn-style components
+- **Markdown rendering**: `marked` + `dompurify` (safe HTML, used for known-issues notes and webhook payload previews)
 
 ## TypeScript 7 toolchain
 
@@ -31,28 +22,9 @@ Strict compiler flags on (see `tsconfig.app.json`/`tsconfig.node.json`): `verbat
 
 ESLint is type-aware (`recommendedTypeChecked` + `projectService`). Real async hazards (`no-floating-promises`, `no-misused-promises`) are enforced everywhere — wrap fire-and-forget with `void`, and JSX async handlers as `() => void handleAsync()`. The `unbound-method`/`no-unsafe-*`/`require-await` rules are off for test files only (mocks are loosely typed).
 
-## Key Libraries
-
-- **Icons**: `lucide-react`
-- **Command palette**: `cmdk` (Cmd+K global search)
-- **Theme toggle**: `next-themes` (Catppuccin Latte / Mocha)
-- **Markdown rendering**: `marked` + `dompurify` (safe HTML, used for known-issues notes and webhook payload previews)
-- **Syntax highlighting**: `shiki`
-- **Timeline Gantt chart**: `d3-selection`, `d3-scale`, `d3-axis`, `d3-brush`, `d3-zoom` (used in `features/timeline/`)
-- **Class composition**: `clsx`, `class-variance-authority`, `tailwind-merge`
-- **Allure reporting for tests**: `allure-vitest`
-
-## Dev Server
-
-Runs on port **7474** (`npm run dev` / `mise run ui:dev`).
-
 ## Coverage Thresholds
 
-Enforced in `vitest.config.ts` (CI fails below these):
-
-- Lines: 65%, Functions: 60%, Branches: 62%, Statements: 65%
-
-Target to ratchet toward as coverage improves — never lower the enforced values:
+Enforced in `vitest.config.ts` (CI fails below them). Target to ratchet toward as coverage improves — never lower the enforced values:
 
 - Lines: 80%, Functions: 80%, Branches: 70%, Statements: 80%
 
