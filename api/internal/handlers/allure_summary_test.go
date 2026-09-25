@@ -2,11 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -14,401 +11,88 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func TestGetReportSummary_NumericReportID(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "summary-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
+func TestGetReportSummary(t *testing.T) {
+	tests := []struct {
+		name      string
+		projectID string // "" targets the seeded project
+		reportID  string
+		want      int
+		wantJSON  map[string]any
+	}{
+		// Build 3 has 15 failures, of which the handler asks the store for the
+		// top 10, and a previous build 1 to compute the trend against.
+		{name: "numeric report id", reportID: "3", want: http.StatusOK, wantJSON: map[string]any{
+			"data.build.build_number":          3,
+			"data.build.is_latest":             true,
+			"data.build.ci_provider":           "GitHub Actions",
+			"data.statistics.passed":           85,
+			"data.statistics.total":            100,
+			"data.statistics.passed_pct":       85.0,
+			"data.timing.duration_ms":          45000,
+			"data.quality.flaky_count":         2,
+			"data.quality.new_failed_count":    3,
+			"data.top_failures#":               10,
+			"data.top_failures.0.test_name":    "Login timeout",
+			"data.top_failures.0.new_failed":   true,
+			"data.trend.previous_build_number": 1,
+			"data.trend.passed_delta":          -5,
+			"data.trend.failed_delta":          5,
+			"data.trend.duration_delta_ms":     5000,
+		}},
+		{name: "latest", reportID: "latest", want: http.StatusOK, wantJSON: map[string]any{"data.build.build_number": 2}},
+		{name: "build not found", reportID: "99", want: http.StatusNotFound},
+		{name: "invalid project id", projectID: "../evil", reportID: "1", want: http.StatusBadRequest},
 	}
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectID := proj.ID
-	projectIDStr := strconv.FormatInt(projectID, 10)
-
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		if pid == projectID && buildOrder == 3 {
-			return store.Build{
-				ID:             100,
-				ProjectID:      projectID,
-				BuildNumber:    3,
-				IsLatest:       true,
-				CIProvider:     new("GitHub Actions"),
-				StatPassed:     new(85),
-				StatFailed:     new(10),
-				StatBroken:     new(3),
-				StatSkipped:    new(2),
-				StatTotal:      new(100),
-				DurationMs:     new(int64(45000)),
-				FlakyCount:     new(2),
-				NewFailedCount: new(3),
-				NewPassedCount: new(1),
-			}, nil
-		}
-		return store.Build{}, store.ErrBuildNotFound
-	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		return store.Build{}, store.ErrBuildNotFound
-	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid int64, buildID int64, limit int) ([]store.TestResult, error) {
-		return []store.TestResult{
-			{TestName: "Login timeout", Status: "failed", DurationMs: 30000, NewFailed: true},
-			{TestName: "API broken", Status: "broken", DurationMs: 5000, Flaky: true},
-		}, nil
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/3/summary", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "3")
-
-	rr := httptest.NewRecorder()
-	h.GetReportSummary(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data to be object, got %T", resp["data"])
-	}
-
-	// Verify build metadata.
-	build := data["build"].(map[string]any)
-	if int(build["build_number"].(float64)) != 3 {
-		t.Errorf("build_number = %v, want 3", build["build_number"])
-	}
-	if int64(build["project_id"].(float64)) != projectID {
-		t.Errorf("project_id = %v, want %d", build["project_id"], projectID)
-	}
-	if build["is_latest"] != true {
-		t.Errorf("is_latest = %v, want true", build["is_latest"])
-	}
-	if build["ci_provider"] != "GitHub Actions" {
-		t.Errorf("ci_provider = %v, want GitHub Actions", build["ci_provider"])
-	}
-
-	// Verify statistics.
-	stats := data["statistics"].(map[string]any)
-	if int(stats["passed"].(float64)) != 85 {
-		t.Errorf("passed = %v, want 85", stats["passed"])
-	}
-	if int(stats["total"].(float64)) != 100 {
-		t.Errorf("total = %v, want 100", stats["total"])
-	}
-	if stats["passed_pct"].(float64) != 85.0 {
-		t.Errorf("passed_pct = %v, want 85.0", stats["passed_pct"])
-	}
-
-	// Verify timing.
-	timing := data["timing"].(map[string]any)
-	if int64(timing["duration_ms"].(float64)) != 45000 {
-		t.Errorf("duration_ms = %v, want 45000", timing["duration_ms"])
-	}
-
-	// Verify quality.
-	quality := data["quality"].(map[string]any)
-	if int(quality["flaky_count"].(float64)) != 2 {
-		t.Errorf("flaky_count = %v, want 2", quality["flaky_count"])
-	}
-	if int(quality["new_failed_count"].(float64)) != 3 {
-		t.Errorf("new_failed_count = %v, want 3", quality["new_failed_count"])
-	}
-
-	// Verify top failures.
-	failures := data["top_failures"].([]any)
-	if len(failures) != 2 {
-		t.Fatalf("expected 2 top failures, got %d", len(failures))
-	}
-	f0 := failures[0].(map[string]any)
-	if f0["test_name"] != "Login timeout" {
-		t.Errorf("first failure = %v, want Login timeout", f0["test_name"])
-	}
-	if f0["new_failed"] != true {
-		t.Errorf("new_failed = %v, want true", f0["new_failed"])
-	}
-}
-
-func TestGetReportSummary_Latest(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "latest-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectID := proj.ID
-	projectIDStr := strconv.FormatInt(projectID, 10)
-
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, pid int64) (store.Build, error) {
-		return store.Build{
-			ID:          2,
-			ProjectID:   projectID,
-			BuildNumber: 2,
-			IsLatest:    true,
-			StatPassed:  new(50),
-			StatTotal:   new(50),
-		}, nil
-	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		return store.Build{}, store.ErrBuildNotFound
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/summary", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportSummary(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	build := data["build"].(map[string]any)
-	if int(build["build_number"].(float64)) != 2 {
-		t.Errorf("latest resolved to build_number %v, want 2", build["build_number"])
-	}
-}
-
-func TestGetReportSummary_TrendDelta(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "trend-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectID := proj.ID
-	projectIDStr := strconv.FormatInt(projectID, 10)
-
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		if buildOrder == 2 {
-			return store.Build{
-				ID:          2,
-				ProjectID:   projectID,
-				BuildNumber: 2,
-				StatPassed:  new(85),
-				StatFailed:  new(10),
-				StatBroken:  new(3),
-				StatSkipped: new(2),
-				StatTotal:   new(100),
-				DurationMs:  new(int64(45000)),
-			}, nil
-		}
-		return store.Build{}, store.ErrBuildNotFound
-	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		return store.Build{
-			ID:          1,
-			ProjectID:   projectID,
-			BuildNumber: 1,
-			StatPassed:  new(90),
-			StatFailed:  new(5),
-			StatBroken:  new(2),
-			StatSkipped: new(3),
-			StatTotal:   new(100),
-			DurationMs:  new(int64(40000)),
-		}, nil
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/2/summary", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "2")
-
-	rr := httptest.NewRecorder()
-	h.GetReportSummary(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	trend := data["trend"].(map[string]any)
-	if trend == nil {
-		t.Fatal("expected trend to be present")
-	}
-	if int(trend["previous_build_number"].(float64)) != 1 {
-		t.Errorf("previous_build_number = %v, want 1", trend["previous_build_number"])
-	}
-	if int(trend["passed_delta"].(float64)) != -5 {
-		t.Errorf("passed_delta = %v, want -5", trend["passed_delta"])
-	}
-	if int(trend["failed_delta"].(float64)) != 5 {
-		t.Errorf("failed_delta = %v, want 5", trend["failed_delta"])
-	}
-	if int64(trend["duration_delta_ms"].(float64)) != 5000 {
-		t.Errorf("duration_delta_ms = %v, want 5000", trend["duration_delta_ms"])
-	}
-}
-
-func TestGetReportSummary_BuildNotFound(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "notfound-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		return store.Build{}, store.ErrBuildNotFound
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/99/summary", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "99")
-
-	rr := httptest.NewRecorder()
-	h.GetReportSummary(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestGetReportSummary_InvalidProjectID(t *testing.T) {
-	projectsDir := t.TempDir()
-
-	h, _ := newTestReportHandler(t, projectsDir)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/../evil/reports/1/summary", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", "../evil")
-	req.SetPathValue("report_id", "1")
-
-	rr := httptest.NewRecorder()
-	h.GetReportSummary(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestGetReportSummary_TopFailuresLimit(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "limit-proj"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectID := proj.ID
-	projectIDStr := strconv.FormatInt(projectID, 10)
-
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		if buildOrder == 1 {
-			return store.Build{
-				ID:          1,
-				ProjectID:   projectID,
-				BuildNumber: 1,
-				StatFailed:  new(15),
-				StatTotal:   new(30),
-			}, nil
-		}
-		return store.Build{}, store.ErrBuildNotFound
-	}
-	mocks.Builds.GetPreviousBuildFn = func(_ context.Context, pid int64, buildOrder int) (store.Build, error) {
-		return store.Build{}, store.ErrBuildNotFound
-	}
-
-	// Return 15 failures; handler caps at topFailuresLimit (10).
-	var batch []store.TestResult
-	for i := range 15 {
-		batch = append(batch, store.TestResult{
-			TestName:   "FailTest" + string(rune('A'+i)),
-			FullName:   "pkg.FailTest" + string(rune('A'+i)),
-			Status:     "failed",
-			DurationMs: int64((15 - i) * 1000),
-			HistoryID:  "h-" + string(rune('a'+i)),
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mocks := testutil.New()
+			proj, err := mocks.Projects.CreateProject(context.Background(), "summary-proj")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mocks.Builds.GetBuildByNumberFn = func(_ context.Context, pid int64, n int) (store.Build, error) {
+				if pid != proj.ID || n != 3 {
+					return store.Build{}, store.ErrBuildNotFound
+				}
+				return store.Build{
+					ID: 100, BuildNumber: 3, IsLatest: true, CIProvider: new("GitHub Actions"),
+					StatPassed: new(85), StatFailed: new(10), StatBroken: new(3), StatSkipped: new(2), StatTotal: new(100),
+					DurationMs: new(int64(45000)), FlakyCount: new(2), NewFailedCount: new(3), NewPassedCount: new(1),
+				}, nil
+			}
+			mocks.Builds.GetLatestBuildFn = func(context.Context, int64) (store.Build, error) {
+				return store.Build{ID: 2, BuildNumber: 2, IsLatest: true, StatPassed: new(50), StatTotal: new(50)}, nil
+			}
+			mocks.Builds.GetPreviousBuildFn = func(_ context.Context, _ int64, n int) (store.Build, error) {
+				if n != 3 {
+					return store.Build{}, store.ErrBuildNotFound
+				}
+				return store.Build{
+					BuildNumber: 1, StatPassed: new(90), StatFailed: new(5), StatBroken: new(2), StatSkipped: new(3), StatTotal: new(100),
+					DurationMs: new(int64(40000)),
+				}, nil
+			}
+			failures := []store.TestResult{{TestName: "Login timeout", Status: "failed", NewFailed: true}}
+			for i := range 14 {
+				failures = append(failures, store.TestResult{TestName: fmt.Sprintf("Fail%d", i), Status: "failed"})
+			}
+			mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, _, _ int64, limit int) ([]store.TestResult, error) {
+				return failures[:min(limit, len(failures))], nil
+			}
+			h := newTestReportHandlerWithMocks(t, t.TempDir(), mocks)
+			id := tc.projectID
+			if id == "" {
+				id = strconv.FormatInt(proj.ID, 10)
+			}
+			code, body := serveJSON(t, h.GetReportSummary, http.MethodGet, "/api/v1/projects/"+id+"/reports/"+tc.reportID+"/summary", "",
+				"project_id", id, "report_id", tc.reportID)
+			if code != tc.want {
+				t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+			}
+			wantJSON(t, body, tc.wantJSON)
+			if code == http.StatusOK {
+				wantJSON(t, body, map[string]any{"data.build.project_id": proj.ID})
+			}
 		})
-	}
-	mocks.TestResults.ListFailedByBuildFn = func(_ context.Context, pid int64, buildID int64, limit int) ([]store.TestResult, error) {
-		if limit < len(batch) {
-			return batch[:limit], nil
-		}
-		return batch, nil
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/1/summary", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "1")
-
-	rr := httptest.NewRecorder()
-	h.GetReportSummary(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	failures := data["top_failures"].([]any)
-	if len(failures) != 10 {
-		t.Errorf("expected max 10 top failures, got %d", len(failures))
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,706 +15,191 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func newPipelineHandler(t *testing.T, ps *testutil.MockPipelineStore, projStore *testutil.MemProjectStore) *PipelineHandler {
-	t.Helper()
-	return NewPipelineHandler(ps, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
+// pipelineRow sets the stat counters of a pipeline store row.
+func pipelineRow(r store.PipelineRunRow, passed, failed, skipped, total int, durationMs int64) store.PipelineRunRow {
+	r.StatPassed, r.StatFailed, r.StatBroken, r.StatSkipped, r.StatTotal, r.DurationMs = &passed, &failed, new(0), &skipped, &total, &durationMs
+	return r
 }
 
-func pipelineRequest(t *testing.T, h *PipelineHandler, projectID, query string) *httptest.ResponseRecorder {
-	t.Helper()
-	path := "/api/v1/projects/" + projectID + "/pipeline-runs"
-	if query != "" {
-		path += "?" + query
-	}
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.SetPathValue("project_id", projectID)
-	rr := httptest.NewRecorder()
-	h.GetPipelineRuns(rr, req)
-	return rr
-}
-
-func TestPipelineHandler_GetPipelineRuns_Success(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	childA, _ := projStore.CreateProjectWithParent(context.Background(), "child-a", parentProj.ID)
-	childB, _ := projStore.CreateProjectWithParent(context.Background(), "child-b", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	now := time.Now().UTC()
-	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
-			return []store.PipelineRunRow{
-				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "https://ci/1", CreatedAt: now, ProjectID: childA.ID, Slug: "child-a", BuildNumber: 5, BuildID: 501, StatPassed: new(40), StatFailed: new(2), StatBroken: new(0), StatTotal: new(42), DurationMs: new(int64(15000))},
-				{CommitSHA: "abc1234", Branch: "main", CIBuildURL: "", CreatedAt: now.Add(-time.Second), ProjectID: childB.ID, Slug: "child-b", BuildNumber: 3, BuildID: 301, StatPassed: new(100), StatFailed: new(0), StatBroken: new(0), StatTotal: new(100), DurationMs: new(int64(30000))},
-				{CommitSHA: "def5678", Branch: "main", CIBuildURL: "https://ci/2", CreatedAt: now.Add(-time.Hour), ProjectID: childA.ID, Slug: "child-a", BuildNumber: 4, BuildID: 401, StatPassed: new(42), StatFailed: new(0), StatBroken: new(0), StatTotal: new(42), DurationMs: new(int64(14000))},
-			}, 2, nil
-		},
-	}
-
-	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, parentIDStr, "")
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Data       []pipelineRunResp `json:"data"`
-		Pagination PaginationMeta    `json:"pagination"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-
-	if len(resp.Data) != 2 {
-		t.Fatalf("expected 2 runs, got %d", len(resp.Data))
-	}
-
-	run0 := resp.Data[0]
-	if run0.CommitSHA != "abc1234" {
-		t.Errorf("run[0] commit_sha = %q, want abc1234", run0.CommitSHA)
-	}
-	if run0.CIBuildURL != "https://ci/1" {
-		t.Errorf("run[0] ci_build_url = %q, want https://ci/1", run0.CIBuildURL)
-	}
-	if len(run0.Suites) != 2 {
-		t.Errorf("run[0] suites count = %d, want 2", len(run0.Suites))
-	}
-	if run0.Aggregate.SuitesTotal != 2 {
-		t.Errorf("run[0] aggregate.suites_total = %d, want 2", run0.Aggregate.SuitesTotal)
-	}
-	if run0.Aggregate.TestsTotal != 142 {
-		t.Errorf("run[0] aggregate.tests_total = %d, want 142", run0.Aggregate.TestsTotal)
-	}
-	if run0.Suites[0].ProjectID != childA.ID {
-		t.Errorf("run[0] suites[0].project_id = %d, want %d", run0.Suites[0].ProjectID, childA.ID)
-	}
-	if run0.Suites[0].BuildID != 501 {
-		t.Errorf("run[0] suites[0].build_id = %d, want 501", run0.Suites[0].BuildID)
-	}
-
-	run1 := resp.Data[1]
-	if run1.CommitSHA != "def5678" {
-		t.Errorf("run[1] commit_sha = %q, want def5678", run1.CommitSHA)
-	}
-	if len(run1.Suites) != 1 {
-		t.Errorf("run[1] suites count = %d, want 1", len(run1.Suites))
-	}
-	if run1.Suites[0].Status != "passed" {
-		t.Errorf("run[1] suite status = %q, want passed", run1.Suites[0].Status)
-	}
-
-	if resp.Pagination.Total != 2 {
-		t.Errorf("pagination.total = %d, want 2", resp.Pagination.Total)
-	}
-}
-
-// CI shards a suite across parallel jobs and every shard uploads its own build
-// under the same pipeline ID (see the Playwright --shard invocation in the
-// ui-tests template). Those builds are one logical suite and must be merged,
-// otherwise the feed reports shard-builds as suites and renders the same suite
-// several times with contradictory statuses.
-func TestPipelineHandler_MergesShardBuildsIntoOneSuite(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	child, _ := projStore.CreateProjectWithParent(context.Background(), "ui-users", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	now := time.Now().UTC()
-	shard := func(buildNumber int, buildID int64, passed, failed, skipped, total int, dur int64, created time.Time) store.PipelineRunRow {
-		return store.PipelineRunRow{
-			PipelineID: "196765", CommitSHA: "6fb9dec", Branch: "master", CreatedAt: created,
-			ProjectID: child.ID, Slug: "ui-users", DisplayName: "UI Users",
-			BuildNumber: buildNumber, BuildID: buildID,
-			StatPassed: &passed, StatFailed: &failed, StatBroken: new(0),
-			StatSkipped: &skipped, StatTotal: &total, DurationMs: &dur,
-		}
-	}
-
-	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
-			return []store.PipelineRunRow{
-				shard(656, 17465, 22, 2, 0, 24, 3000, now),
-				shard(655, 17464, 22, 2, 0, 24, 2000, now.Add(-time.Second)),
-				shard(654, 17463, 21, 0, 3, 24, 1000, now.Add(-2*time.Minute)),
-			}, 1, nil
-		},
-	}
-
-	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, parentIDStr, "")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Data []pipelineRunResp `json:"data"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(resp.Data))
-	}
-
-	run := resp.Data[0]
-	if len(run.Suites) != 1 {
-		t.Fatalf("expected 3 shard builds to merge into 1 suite, got %d suites", len(run.Suites))
-	}
-
-	s := run.Suites[0]
-	if s.Total != 72 || s.Failed != 4 {
-		t.Errorf("suite total/failed = %d/%d, want 72/4", s.Total, s.Failed)
-	}
-	if s.DurationMs != 6000 {
-		t.Errorf("suite duration_ms = %d, want 6000 (sum of shards)", s.DurationMs)
-	}
-	if s.DisplayName != "UI Users" {
-		t.Errorf("suite display_name = %q, want %q", s.DisplayName, "UI Users")
-	}
-	// 65 passed of (72 total - 3 skipped) = 94.2%.
-	if s.PassRate != 94.2 {
-		t.Errorf("suite pass_rate = %v, want 94.2", s.PassRate)
-	}
-	if s.Status != "degraded" {
-		t.Errorf("suite status = %q, want degraded", s.Status)
-	}
-	// The single-report link must point at the newest shard.
-	if s.BuildNumber != 656 || s.BuildID != 17465 {
-		t.Errorf("suite build = #%d/%d, want #656/17465", s.BuildNumber, s.BuildID)
-	}
-	// Every contributing shard stays addressable, ordered oldest-first.
-	if len(s.Builds) != 3 {
-		t.Fatalf("suite builds = %d, want 3", len(s.Builds))
-	}
-	for i, want := range []int{654, 655, 656} {
-		if s.Builds[i].BuildNumber != want {
-			t.Errorf("builds[%d].build_number = %d, want %d", i, s.Builds[i].BuildNumber, want)
-		}
-	}
-
-	agg := run.Aggregate
-	if agg.SuitesTotal != 1 {
-		t.Errorf("aggregate.suites_total = %d, want 1 (distinct suites, not shard builds)", agg.SuitesTotal)
-	}
-	if agg.SuitesPassed != 0 {
-		t.Errorf("aggregate.suites_passed = %d, want 0 (a shard failed)", agg.SuitesPassed)
-	}
-	if agg.TestsTotal != 72 {
-		t.Errorf("aggregate.tests_total = %d, want 72", agg.TestsTotal)
-	}
-	// Skipped tests must not be counted as passed, or the tests fraction
-	// disagrees with the pass-rate percentage shown beside it.
-	if agg.TestsPassed != 65 {
-		t.Errorf("aggregate.tests_passed = %d, want 65 (excludes the 3 skipped)", agg.TestsPassed)
-	}
-}
-
-func TestPipelineHandler_MergedSuitePassesOnlyWhenEveryShardPasses(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	clean, _ := projStore.CreateProjectWithParent(context.Background(), "clean", parentProj.ID)
-	mixed, _ := projStore.CreateProjectWithParent(context.Background(), "mixed", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	now := time.Now().UTC()
-	row := func(projectID int64, slug string, buildNumber int, buildID int64, passed, failed, total int) store.PipelineRunRow {
-		return store.PipelineRunRow{
-			PipelineID: "p1", CommitSHA: "sha", Branch: "master", CreatedAt: now,
-			ProjectID: projectID, Slug: slug, BuildNumber: buildNumber, BuildID: buildID,
-			StatPassed: &passed, StatFailed: &failed, StatBroken: new(0),
-			StatSkipped: new(0), StatTotal: &total, DurationMs: new(int64(100)),
-		}
-	}
-
-	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
-			return []store.PipelineRunRow{
-				row(clean.ID, "clean", 1, 11, 10, 0, 10),
-				row(clean.ID, "clean", 2, 12, 10, 0, 10),
-				row(mixed.ID, "mixed", 1, 21, 10, 0, 10),
-				row(mixed.ID, "mixed", 2, 22, 9, 1, 10),
-			}, 1, nil
-		},
-	}
-
-	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, parentIDStr, "")
-
-	var resp struct {
-		Data []pipelineRunResp `json:"data"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(resp.Data))
-	}
-
-	agg := resp.Data[0].Aggregate
-	if agg.SuitesTotal != 2 {
-		t.Errorf("aggregate.suites_total = %d, want 2", agg.SuitesTotal)
-	}
-	if agg.SuitesPassed != 1 {
-		t.Errorf("aggregate.suites_passed = %d, want 1 — a suite passes only when every shard passed", agg.SuitesPassed)
-	}
-
-	bySlug := map[string]pipelineSuiteResp{}
-	for _, s := range resp.Data[0].Suites {
-		bySlug[s.Slug] = s
-	}
-	if bySlug["clean"].Status != "passed" {
-		t.Errorf("clean suite status = %q, want passed", bySlug["clean"].Status)
-	}
-	if bySlug["mixed"].Status == "passed" {
-		t.Error("mixed suite must not report passed when one shard failed")
-	}
-}
-
-func TestPipelineHandler_GetPipelineRuns_Empty(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	ps := &testutil.MockPipelineStore{}
-	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, parentIDStr, "")
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Data []pipelineRunResp `json:"data"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 0 {
-		t.Errorf("expected 0 runs, got %d", len(resp.Data))
-	}
-}
-
-func TestPipelineHandler_GetPipelineRuns_BranchFilter(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	var capturedBranch string
-	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _ int64, branch string, _, _ int) ([]store.PipelineRunRow, int, error) {
-			capturedBranch = branch
-			return nil, 0, nil
-		},
-	}
-	h := newPipelineHandler(t, ps, projStore)
-	pipelineRequest(t, h, parentIDStr, "branch=develop")
-
-	if capturedBranch != "develop" {
-		t.Errorf("branch = %q, want develop", capturedBranch)
-	}
-}
-
-func TestPipelineHandler_GetPipelineRuns_NotParent(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	standaloneProj, _ := projStore.CreateProject(context.Background(), "standalone")
-	standaloneIDStr := fmt.Sprintf("%d", standaloneProj.ID)
-
-	ps := &testutil.MockPipelineStore{}
-	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, standaloneIDStr, "")
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestPipelineHandler_GetPipelineRuns_DefaultPerPage(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	var capturedPerPage int
-	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, perPage int) ([]store.PipelineRunRow, int, error) {
-			capturedPerPage = perPage
-			return nil, 0, nil
-		},
-	}
-	h := newPipelineHandler(t, ps, projStore)
-	pipelineRequest(t, h, parentIDStr, "")
-
-	if capturedPerPage != 10 {
-		t.Errorf("per_page = %d, want 10", capturedPerPage)
-	}
-}
-
-func TestPipelineHandler_GetPipelineRuns_Pagination(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	ps := &testutil.MockPipelineStore{
-		ListPipelineRunsFn: func(_ context.Context, _ int64, _ string, _, _ int) ([]store.PipelineRunRow, int, error) {
-			return nil, 25, nil
-		},
-	}
-	h := newPipelineHandler(t, ps, projStore)
-	rr := pipelineRequest(t, h, parentIDStr, "page=2&per_page=10")
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-
-	var resp struct {
-		Pagination PaginationMeta `json:"pagination"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	if resp.Pagination.Page != 2 {
-		t.Errorf("pagination.page = %d, want 2", resp.Pagination.Page)
-	}
-	if resp.Pagination.PerPage != 10 {
-		t.Errorf("pagination.per_page = %d, want 10", resp.Pagination.PerPage)
-	}
-	if resp.Pagination.Total != 25 {
-		t.Errorf("pagination.total = %d, want 25", resp.Pagination.Total)
-	}
-	if resp.Pagination.TotalPages != 3 {
-		t.Errorf("pagination.total_pages = %d, want 3", resp.Pagination.TotalPages)
-	}
-}
-
-func allPipelineRunsRequest(h *PipelineHandler, query string) *httptest.ResponseRecorder {
-	path := "/api/v1/pipeline-runs"
-	if query != "" {
-		path += "?" + query
-	}
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	rr := httptest.NewRecorder()
-	h.GetAllPipelineRuns(rr, req)
-	return rr
-}
-
-func TestPipelineHandler_GetAllPipelineRuns_CrossGroupSameSHA(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	now := time.Now().UTC()
-
-	ps := &testutil.MockPipelineStore{
-		ListAllPipelineRunsFn: func(_ context.Context, _ string, _ []int64, _, _ int) ([]store.PipelineRunRow, int, error) {
-			return []store.PipelineRunRow{
-				{
-					CommitSHA: "sameSHA", Branch: "main", CreatedAt: now,
-					ProjectID: 10, Slug: "child-a", BuildNumber: 5, BuildID: 501,
-					GroupProjectID: 100, GroupSlug: "group-a",
-					StatPassed: new(10), StatFailed: new(0), StatBroken: new(0), StatTotal: new(10), DurationMs: new(int64(1000)),
-				},
-				{
-					CommitSHA: "sameSHA", Branch: "main", CreatedAt: now.Add(-time.Minute),
-					ProjectID: 20, Slug: "child-b", BuildNumber: 3, BuildID: 301,
-					GroupProjectID: 200, GroupSlug: "group-b",
-					StatPassed: new(20), StatFailed: new(0), StatBroken: new(0), StatTotal: new(20), DurationMs: new(int64(2000)),
-				},
-			}, 2, nil
-		},
-	}
-
-	h := newPipelineHandler(t, ps, projStore)
-	rr := allPipelineRunsRequest(h, "")
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Data []pipelineRunResp `json:"data"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-
-	if len(resp.Data) != 2 {
-		t.Fatalf("expected 2 separate runs for same SHA under different groups, got %d", len(resp.Data))
-	}
-
-	byGroup := map[int64]pipelineRunResp{}
-	for _, run := range resp.Data {
-		byGroup[run.GroupProjectID] = run
-	}
-
-	runA, ok := byGroup[100]
-	if !ok {
-		t.Fatalf("expected a run with group_project_id=100, got %+v", resp.Data)
-	}
-	if runA.GroupSlug != "group-a" {
-		t.Errorf("run(group=100).group_slug = %q, want group-a", runA.GroupSlug)
-	}
-	if len(runA.Suites) != 1 || runA.Suites[0].BuildID != 501 {
-		t.Errorf("run(group=100) suites = %+v, want single suite with build_id=501", runA.Suites)
-	}
-
-	runB, ok := byGroup[200]
-	if !ok {
-		t.Fatalf("expected a run with group_project_id=200, got %+v", resp.Data)
-	}
-	if runB.GroupSlug != "group-b" {
-		t.Errorf("run(group=200).group_slug = %q, want group-b", runB.GroupSlug)
-	}
-	if len(runB.Suites) != 1 || runB.Suites[0].BuildID != 301 {
-		t.Errorf("run(group=200) suites = %+v, want single suite with build_id=301", runB.Suites)
-	}
-}
-
-func TestPipelineHandler_GetAllPipelineRuns_ArgsCaptured(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-
-	var (
-		capturedBranch   string
-		capturedGroupIDs []int64
-	)
-	ps := &testutil.MockPipelineStore{
-		ListAllPipelineRunsFn: func(_ context.Context, branch string, groupIDs []int64, _, _ int) ([]store.PipelineRunRow, int, error) {
-			capturedBranch = branch
-			capturedGroupIDs = groupIDs
-			return nil, 0, nil
-		},
-	}
-	h := newPipelineHandler(t, ps, projStore)
-	allPipelineRunsRequest(h, "branch=develop&group_id=1&group_id=2")
-
-	if capturedBranch != "develop" {
-		t.Errorf("branch = %q, want develop", capturedBranch)
-	}
-	if len(capturedGroupIDs) != 2 || capturedGroupIDs[0] != 1 || capturedGroupIDs[1] != 2 {
-		t.Errorf("group_ids = %v, want [1 2]", capturedGroupIDs)
-	}
-}
-
-func TestPipelineHandler_GetAllPipelineRuns_InvalidGroupID(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	ps := &testutil.MockPipelineStore{}
-	h := newPipelineHandler(t, ps, projStore)
-	rr := allPipelineRunsRequest(h, "group_id=abc")
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestPipelineHandler_GetAllPipelineRuns_Empty(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	ps := &testutil.MockPipelineStore{}
-	h := newPipelineHandler(t, ps, projStore)
-	rr := allPipelineRunsRequest(h, "")
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Data       []pipelineRunResp `json:"data"`
-		Pagination PaginationMeta    `json:"pagination"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 0 {
-		t.Errorf("expected 0 runs, got %d", len(resp.Data))
-	}
-	if resp.Pagination.Total != 0 {
-		t.Errorf("pagination.total = %d, want 0", resp.Pagination.Total)
-	}
-}
-
-func runFailuresRequest(h *PipelineHandler, projectID, runKey, query string) *httptest.ResponseRecorder {
-	path := "/api/v1/projects/" + projectID + "/pipeline-runs/" + runKey + "/failures"
-	if query != "" {
-		path += "?" + query
-	}
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.SetPathValue("project_id", projectID)
-	req.SetPathValue("run_key", runKey)
-	rr := httptest.NewRecorder()
-	h.GetRunFailures(rr, req)
-	return rr
-}
-
-func TestPipelineHandler_GetRunFailures_TagsRowsWithSuiteAndFlagsKnown(t *testing.T) {
-	ctx := context.Background()
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(ctx, "parent")
-	child, _ := projStore.CreateProjectWithParent(ctx, "ui-users", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	knownStore := testutil.NewMemKnownIssueStore()
-	if _, err := knownStore.Create(ctx, child.ID, "flaky login", "", "", ""); err != nil {
-		t.Fatalf("seed known issue: %v", err)
-	}
-
-	var (
-		capturedGroupID int64
-		capturedRunKey  string
-		capturedLimit   int
-	)
-	ps := &testutil.MockPipelineStore{
-		ListRunFailuresFn: func(_ context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
-			capturedGroupID, capturedRunKey, capturedLimit = groupProjectID, runKey, limit
-			return []store.RunFailureRow{
-				{
-					ProjectID: child.ID, Slug: "ui-users", DisplayName: "UI Users",
-					BuildID: 17465, BuildNumber: 656,
-					TestName: "flaky login", FullName: "spec.js:1:1", Status: "failed",
-					HistoryID: "h1", Retries: 3,
-					StatusMessage: "TimeoutError: locator.click\n  at foo.ts:12",
-				},
-				{
-					ProjectID: child.ID, Slug: "ui-users", DisplayName: "UI Users",
-					BuildID: 17464, BuildNumber: 655,
-					TestName: "add member", FullName: "spec.js:2:1", Status: "broken",
-					HistoryID: "h2", NewFailed: true,
-					StatusMessage: "",
-				},
-			}, nil
-		},
-	}
-
-	h := NewPipelineHandler(ps, projStore, knownStore, t.TempDir(), zap.NewNop())
-	rr := runFailuresRequest(h, parentIDStr, "196765", "")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	if capturedGroupID != parentProj.ID {
-		t.Errorf("store got group_project_id = %d, want %d", capturedGroupID, parentProj.ID)
-	}
-	if capturedRunKey != "196765" {
-		t.Errorf("store got run_key = %q, want 196765", capturedRunKey)
-	}
-	// One extra row is requested so a full page can be reported as truncated.
-	if capturedLimit != defaultRunFailuresLimit+1 {
-		t.Errorf("store got limit = %d, want %d", capturedLimit, defaultRunFailuresLimit+1)
-	}
-
-	var resp struct {
-		Data     []runFailureResp `json:"data"`
-		Metadata struct {
-			Truncated bool `json:"truncated"`
-		} `json:"metadata"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(resp.Data))
-	}
-	if resp.Metadata.Truncated {
-		t.Error("metadata.truncated = true, want false for a short result")
-	}
-
-	first := resp.Data[0]
-	if first.Slug != "ui-users" || first.BuildNumber != 656 {
-		t.Errorf("row[0] suite = %q #%d, want ui-users #656", first.Slug, first.BuildNumber)
-	}
-	if !first.Known {
-		t.Error("row[0] known = false, want true — it matches an active known issue")
-	}
-	// Only the first line of the error is sent; the client renders a preview.
-	if first.ErrorMessage != "TimeoutError: locator.click" {
-		t.Errorf("row[0] error_message = %q, want the first line only", first.ErrorMessage)
-	}
-	if resp.Data[1].Known {
-		t.Error("row[1] known = true, want false")
-	}
-	if !resp.Data[1].NewFailed {
-		t.Error("row[1] new_failed = false, want true")
-	}
-}
-
-func TestPipelineHandler_GetRunFailures_TruncatesAtLimit(t *testing.T) {
-	ctx := context.Background()
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(ctx, "parent")
-	child, _ := projStore.CreateProjectWithParent(ctx, "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	ps := &testutil.MockPipelineStore{
-		ListRunFailuresFn: func(_ context.Context, _ int64, _ string, limit int) ([]store.RunFailureRow, error) {
-			rows := make([]store.RunFailureRow, limit)
-			for i := range rows {
-				rows[i] = store.RunFailureRow{ProjectID: child.ID, Slug: "child", TestName: fmt.Sprintf("t%d", i)}
+// Fixture rows shared by the grouping and HTTP tests: a run of two suites on
+// commit abc1234 and a one-suite run on def5678, and one commit under two
+// different parent groups.
+var (
+	pipelineTS         = time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC)
+	pipelineTwoCommits = []store.PipelineRunRow{
+		pipelineRow(store.PipelineRunRow{CommitSHA: "abc1234", CIBuildURL: "https://ci/1", CreatedAt: pipelineTS, ProjectID: 10, Slug: "child-a", BuildNumber: 5, BuildID: 501}, 40, 2, 0, 42, 15000),
+		pipelineRow(store.PipelineRunRow{CommitSHA: "abc1234", CreatedAt: pipelineTS.Add(-time.Second), ProjectID: 11, Slug: "child-b", BuildNumber: 3, BuildID: 301}, 100, 0, 0, 100, 30000),
+		pipelineRow(store.PipelineRunRow{CommitSHA: "def5678", CIBuildURL: "https://ci/2", CreatedAt: pipelineTS.Add(-time.Hour), ProjectID: 10, Slug: "child-a", BuildNumber: 4, BuildID: 401}, 42, 0, 0, 42, 14000),
+	}
+	pipelineTwoGroups = []store.PipelineRunRow{
+		pipelineRow(store.PipelineRunRow{CommitSHA: "sameSHA", CreatedAt: pipelineTS, ProjectID: 10, Slug: "child-a", BuildNumber: 5, BuildID: 501, GroupProjectID: 100, GroupSlug: "group-a"}, 10, 0, 0, 10, 1000),
+		pipelineRow(store.PipelineRunRow{CommitSHA: "sameSHA", CreatedAt: pipelineTS.Add(-time.Minute), ProjectID: 20, Slug: "child-b", BuildNumber: 3, BuildID: 301, GroupProjectID: 200, GroupSlug: "group-b"}, 20, 0, 0, 20, 2000),
+	}
+)
+
+func TestGroupPipelineRuns(t *testing.T) {
+	// shard is one uploaded build of the sharded ui-users suite in pipeline 196765.
+	shard := func(number int, buildID int64, passed, failed, skipped int, dur int64, age time.Duration) store.PipelineRunRow {
+		return pipelineRow(store.PipelineRunRow{PipelineID: "196765", CommitSHA: "6fb9dec", CreatedAt: pipelineTS.Add(-age),
+			ProjectID: 30, Slug: "ui-users", DisplayName: "UI Users", BuildNumber: number, BuildID: buildID}, passed, failed, skipped, 24, dur)
+	}
+	suite := func(projectID int64, slug string, number int, passed, failed int) store.PipelineRunRow {
+		return pipelineRow(store.PipelineRunRow{PipelineID: "p1", CommitSHA: "sha", CreatedAt: pipelineTS, ProjectID: projectID,
+			Slug: slug, BuildNumber: number, BuildID: int64(number)}, passed, failed, 0, 10, 100)
+	}
+	tests := []struct {
+		name string
+		rows []store.PipelineRunRow
+		want map[string]any
+	}{
+		{name: "groups rows by commit", rows: pipelineTwoCommits, want: map[string]any{
+			"#":            2,
+			"0.commit_sha": "abc1234", "0.ci_build_url": "https://ci/1", "0.suites#": 2,
+			"0.aggregate.suites_total": 2, "0.aggregate.tests_total": 142,
+			"0.suites.0.project_id": 10, "0.suites.0.build_id": 501,
+			"1.commit_sha": "def5678", "1.suites#": 1, "1.suites.0.status": "passed",
+		}},
+		// CI shards a suite across parallel jobs and every shard uploads its own
+		// build under the same pipeline ID. They are one logical suite: counters
+		// sum, the link points at the newest shard, every shard stays listed
+		// oldest-first, and skipped tests are excluded from the pass rate and
+		// from tests_passed (65 of 72-3 = 94.2%).
+		{name: "merges shard builds into one suite", rows: []store.PipelineRunRow{
+			shard(656, 17465, 22, 2, 0, 3000, 0),
+			shard(655, 17464, 22, 2, 0, 2000, time.Second),
+			shard(654, 17463, 21, 0, 3, 1000, 2*time.Minute),
+		}, want: map[string]any{
+			"#": 1, "0.suites#": 1,
+			"0.suites.0.total": 72, "0.suites.0.failed": 4, "0.suites.0.duration_ms": 6000, "0.suites.0.display_name": "UI Users",
+			"0.suites.0.pass_rate": 94.2, "0.suites.0.status": "degraded",
+			"0.suites.0.build_number": 656, "0.suites.0.build_id": 17465,
+			"0.suites.0.builds#": 3, "0.suites.0.builds.0.build_number": 654, "0.suites.0.builds.1.build_number": 655, "0.suites.0.builds.2.build_number": 656,
+			"0.aggregate.suites_total": 1, "0.aggregate.suites_passed": 0, "0.aggregate.tests_total": 72, "0.aggregate.tests_passed": 65,
+		}},
+		// A merged suite passes only when every one of its shards passed.
+		{name: "suite passes only when every shard passes", rows: []store.PipelineRunRow{
+			suite(40, "clean", 1, 10, 0), suite(40, "clean", 2, 10, 0), suite(41, "mixed", 1, 10, 0), suite(41, "mixed", 2, 9, 1),
+		}, want: map[string]any{
+			"#": 1, "0.aggregate.suites_total": 2, "0.aggregate.suites_passed": 1,
+			"0.suites.0.slug": "clean", "0.suites.0.status": "passed", "0.suites.1.slug": "mixed", "0.suites.1.status": "degraded",
+		}},
+		// The same commit under two parent groups stays two runs.
+		{name: "same commit in two groups", rows: pipelineTwoGroups, want: map[string]any{
+			"#":                  2,
+			"0.group_project_id": 100, "0.group_slug": "group-a", "0.suites#": 1, "0.suites.0.build_id": 501,
+			"1.group_project_id": 200, "1.group_slug": "group-b", "1.suites#": 1, "1.suites.0.build_id": 301,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(groupPipelineRuns(tc.rows))
+			if err != nil {
+				t.Fatal(err)
 			}
-			return rows, nil
-		},
-	}
-
-	h := NewPipelineHandler(ps, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
-	rr := runFailuresRequest(h, parentIDStr, "196765", "limit=3")
-
-	var resp struct {
-		Data     []runFailureResp `json:"data"`
-		Metadata struct {
-			Truncated bool `json:"truncated"`
-		} `json:"metadata"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 3 {
-		t.Errorf("data length = %d, want 3 (the overflow row is trimmed)", len(resp.Data))
-	}
-	if !resp.Metadata.Truncated {
-		t.Error("metadata.truncated = false, want true when the limit was reached")
+			var runs any
+			if err := json.Unmarshal(raw, &runs); err != nil {
+				t.Fatal(err)
+			}
+			wantJSON(t, runs, tc.want)
+		})
 	}
 }
 
-func TestPipelineHandler_GetRunFailures_InvalidLimit(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	h := NewPipelineHandler(&testutil.MockPipelineStore{}, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
-	rr := runFailuresRequest(h, parentIDStr, "196765", "limit=-1")
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+// TestPipelineHandler drives the three pipeline endpoints over a parent with
+// two children (ui-users has the active known issue "flaky login") and a
+// standalone project. call records the store arguments the handler forwarded.
+func TestPipelineHandler(t *testing.T) {
+	getRuns := (*PipelineHandler).GetPipelineRuns
+	getAll := (*PipelineHandler).GetAllPipelineRuns
+	getFailures := (*PipelineHandler).GetRunFailures
+	failures := []store.RunFailureRow{
+		{ProjectID: 2, Slug: "ui-users", BuildID: 17465, BuildNumber: 656, TestName: "flaky login", Status: "failed", Retries: 3,
+			StatusMessage: "TimeoutError: locator.click\n  at foo.ts:12"},
+		{ProjectID: 2, Slug: "ui-users", BuildID: 17464, BuildNumber: 655, TestName: "add member", Status: "broken", NewFailed: true},
 	}
-}
-
-func TestPipelineHandler_GetRunFailures_EmptyRunKey(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-	parentProj, _ := projStore.CreateProject(context.Background(), "parent")
-	_, _ = projStore.CreateProjectWithParent(context.Background(), "child", parentProj.ID)
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	h := NewPipelineHandler(&testutil.MockPipelineStore{}, projStore, testutil.NewMemKnownIssueStore(), t.TempDir(), zap.NewNop())
-	rr := runFailuresRequest(h, parentIDStr, "", "")
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	tests := []struct {
+		name        string
+		serve       func(*PipelineHandler, http.ResponseWriter, *http.Request)
+		project     string // project_id path value; "" for the cross-project endpoint
+		runKey      string
+		query       string
+		runs        []store.PipelineRunRow
+		total       int
+		fillToLimit bool // the failures store returns as many rows as asked for
+		want        int
+		wantCall    string // "" skips the check
+		wantJSON    map[string]any
+	}{
+		{name: "runs grouped", serve: getRuns, project: "1", runs: pipelineTwoCommits, total: 2, want: http.StatusOK,
+			wantJSON: map[string]any{"data#": 2, "pagination.total": 2}},
+		{name: "runs empty", serve: getRuns, project: "1", want: http.StatusOK, wantCall: "project=1 branch= page=1 per_page=10",
+			wantJSON: map[string]any{"data#": 0}},
+		{name: "runs branch", serve: getRuns, project: "1", query: "branch=develop", want: http.StatusOK, wantCall: "project=1 branch=develop page=1 per_page=10"},
+		{name: "runs pagination", serve: getRuns, project: "1", query: "page=2&per_page=10", total: 25, want: http.StatusOK,
+			wantJSON: map[string]any{"pagination.page": 2, "pagination.per_page": 10, "pagination.total": 25, "pagination.total_pages": 3}},
+		{name: "runs of a standalone project", serve: getRuns, project: "4", want: http.StatusBadRequest},
+		{name: "all runs grouped", serve: getAll, runs: pipelineTwoGroups, total: 2, want: http.StatusOK, wantJSON: map[string]any{"data#": 2}},
+		{name: "all runs empty", serve: getAll, want: http.StatusOK, wantCall: "groups=[] branch= page=1 per_page=10",
+			wantJSON: map[string]any{"data#": 0, "pagination.total": 0}},
+		{name: "all runs filters", serve: getAll, query: "branch=develop&group_id=1&group_id=2", want: http.StatusOK, wantCall: "groups=[1 2] branch=develop page=1 per_page=10"},
+		{name: "all runs invalid group_id", serve: getAll, query: "group_id=abc", want: http.StatusBadRequest},
+		// One extra row is requested so a full page can be reported as
+		// truncated; only an error's first line is sent.
+		{name: "failures tagged", serve: getFailures, project: "1", runKey: "196765", want: http.StatusOK,
+			wantCall: fmt.Sprintf("group=1 run=196765 limit=%d", defaultRunFailuresLimit+1), wantJSON: map[string]any{
+				"data#": 2, "metadata.truncated": false,
+				"data.0.slug": "ui-users", "data.0.build_number": 656, "data.0.known": true, "data.0.error_message": "TimeoutError: locator.click",
+				"data.1.known": false, "data.1.new_failed": true,
+			}},
+		{name: "failures truncated at limit", serve: getFailures, project: "1", runKey: "196765", query: "limit=3", fillToLimit: true, want: http.StatusOK,
+			wantJSON: map[string]any{"data#": 3, "metadata.truncated": true}},
+		{name: "failures invalid limit", serve: getFailures, project: "1", runKey: "196765", query: "limit=-1", want: http.StatusBadRequest},
+		{name: "failures empty run key", serve: getFailures, project: "1", want: http.StatusBadRequest},
 	}
-}
-
-func TestPipelineHandler_GetAllPipelineRuns_DefaultPerPage(t *testing.T) {
-	projStore := testutil.NewMemProjectStore()
-
-	var capturedPerPage int
-	ps := &testutil.MockPipelineStore{
-		ListAllPipelineRunsFn: func(_ context.Context, _ string, _ []int64, _, perPage int) ([]store.PipelineRunRow, int, error) {
-			capturedPerPage = perPage
-			return nil, 0, nil
-		},
-	}
-	h := newPipelineHandler(t, ps, projStore)
-	allPipelineRunsRequest(h, "")
-
-	if capturedPerPage != 10 {
-		t.Errorf("per_page = %d, want 10", capturedPerPage)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			projects := testutil.NewMemProjectStore()
+			parent, _ := projects.CreateProject(ctx, "parent")
+			child, _ := projects.CreateProjectWithParent(ctx, "ui-users", parent.ID)
+			_, _ = projects.CreateProjectWithParent(ctx, "child-b", parent.ID)
+			_, _ = projects.CreateProject(ctx, "standalone")
+			known := testutil.NewMemKnownIssueStore()
+			if _, err := known.Create(ctx, child.ID, "flaky login", "", "", ""); err != nil {
+				t.Fatal(err)
+			}
+			var call string
+			ps := &testutil.MockPipelineStore{
+				ListPipelineRunsFn: func(_ context.Context, projectID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error) {
+					call = fmt.Sprintf("project=%d branch=%s page=%d per_page=%d", projectID, branch, page, perPage)
+					return tc.runs, tc.total, nil
+				},
+				ListAllPipelineRunsFn: func(_ context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error) {
+					call = fmt.Sprintf("groups=%v branch=%s page=%d per_page=%d", groupIDs, branch, page, perPage)
+					return tc.runs, tc.total, nil
+				},
+				ListRunFailuresFn: func(_ context.Context, groupID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
+					call = fmt.Sprintf("group=%d run=%s limit=%d", groupID, runKey, limit)
+					if !tc.fillToLimit {
+						return failures, nil
+					}
+					rows := make([]store.RunFailureRow, limit)
+					for i := range rows {
+						rows[i] = store.RunFailureRow{ProjectID: child.ID, Slug: "ui-users", TestName: "t" + strconv.Itoa(i)}
+					}
+					return rows, nil
+				},
+			}
+			h := NewPipelineHandler(ps, projects, known, t.TempDir(), zap.NewNop())
+			fn := func(w http.ResponseWriter, r *http.Request) { tc.serve(h, w, r) }
+			code, body := serveJSON(t, fn, http.MethodGet, "/api/v1/pipeline-runs?"+tc.query, "", "project_id", tc.project, "run_key", tc.runKey)
+			if code != tc.want {
+				t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+			}
+			if tc.wantCall != "" && call != tc.wantCall {
+				t.Errorf("store call = %q, want %q", call, tc.wantCall)
+			}
+			wantJSON(t, body, tc.wantJSON)
+		})
 	}
 }

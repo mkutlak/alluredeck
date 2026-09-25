@@ -1,19 +1,17 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
+	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -29,586 +27,152 @@ func injectClaims(r *http.Request, username, role string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-func newTestAPIKeyHandler(t *testing.T) *APIKeyHandler {
+// apiKeyDBEmail is the email of the fixture's DB-backed user. JWTs carry such
+// users' numeric ID as sub, but their keys are stored under the email.
+const apiKeyDBEmail = "admin" + "@" + "example.com"
+
+// apiKeyFixture is an APIKeyHandler over in-memory stores holding two keys for
+// env user alice, one for bob and one for the DB-backed user.
+type apiKeyFixture struct {
+	h        *APIKeyHandler
+	mocks    *testutil.MockStores
+	dbSub    string // the DB-backed user's JWT sub (numeric ID)
+	aliceKey int64
+	dbKey    int64
+}
+
+func newAPIKeyFixture(t *testing.T) *apiKeyFixture {
 	t.Helper()
+	ctx := context.Background()
 	mocks := testutil.New()
-	return NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-}
-
-// makeAPIKey builds a minimal store.APIKey for seeding the in-memory store.
-func makeAPIKey(name, username, role string) store.APIKey {
-	return store.APIKey{
-		Name:     name,
-		Prefix:   "ald_a1b2c3d4",
-		KeyHash:  "deadbeef" + name,
-		Username: username,
-		Role:     role,
-	}
-}
-
-// ---------------------------------------------------------------------------
-// List
-// ---------------------------------------------------------------------------
-
-func TestAPIKeyHandler_List_Empty(t *testing.T) {
-	t.Parallel()
-	h := newTestAPIKeyHandler(t)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/api-keys", nil)
+	f := &apiKeyFixture{h: NewAPIKeyHandler(mocks.APIKeys, mocks.Users).WithAuditLogger(mocks.Audit), mocks: mocks}
+	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", apiKeyDBEmail, "Admin", "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.List(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(data))
-	}
-}
-
-func TestAPIKeyHandler_List_ReturnsUserKeys(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	for _, name := range []string{"key-a", "key-b"} {
-		k := makeAPIKey(name, "alice", "admin")
-		if _, err := mocks.APIKeys.Create(ctx, &k); err != nil {
+	f.dbSub = strconv.FormatInt(u.ID, 10)
+	seed := func(name, username string) int64 {
+		k, err := mocks.APIKeys.Create(ctx, &store.APIKey{Name: name, Prefix: "ald_a1b2c3d4", KeyHash: "deadbeef" + name, Username: username, Role: "admin"})
+		if err != nil {
 			t.Fatal(err)
 		}
+		return k.ID
 	}
-	k := makeAPIKey("key-bob", "bob", "viewer")
-	if _, err := mocks.APIKeys.Create(ctx, &k); err != nil {
-		t.Fatal(err)
-	}
+	f.aliceKey = seed("key-a", "alice")
+	seed("key-b", "alice")
+	seed("key-bob", "bob")
+	f.dbKey = seed("ci-key", apiKeyDBEmail)
+	return f
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/api-keys", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req = injectClaims(req, "alice", "admin")
+// apiKeyRow is one request to an APIKeyHandler method. as is the JWT sub,
+// "{db}" standing for the DB-backed user; id is the {id} path value, with
+// "{alice}" and "{db}" standing for those users' seeded keys.
+type apiKeyRow struct {
+	name  string
+	as    string
+	id    string
+	body  string
+	setup func(t *testing.T, f *apiKeyFixture)
+	want  int
+	json  map[string]any
+	check func(t *testing.T, f *apiKeyFixture, body any)
+}
 
-	rr := httptest.NewRecorder()
-	h.List(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 2 {
-		t.Fatalf("expected 2 items for alice, got %d", len(data))
+func runAPIKeyRows(t *testing.T, method string, endpoint func(*APIKeyHandler, http.ResponseWriter, *http.Request), rows []apiKeyRow) {
+	t.Helper()
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newAPIKeyFixture(t)
+			if tc.setup != nil {
+				tc.setup(t, f)
+			}
+			sub := strings.ReplaceAll(tc.as, "{db}", f.dbSub)
+			id := strings.NewReplacer("{alice}", strconv.FormatInt(f.aliceKey, 10), "{db}", strconv.FormatInt(f.dbKey, 10)).Replace(tc.id)
+			fn := func(w http.ResponseWriter, r *http.Request) { endpoint(f.h, w, injectClaims(r, sub, "admin")) }
+			code, body := serveJSON(t, fn, method, "/api/v1/api-keys", tc.body, "id", id)
+			if code != tc.want {
+				t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+			}
+			wantJSON(t, body, tc.json)
+			if tc.check != nil {
+				tc.check(t, f, body)
+			}
+		})
 	}
 }
 
-func TestAPIKeyHandler_List_NumericSub_ReturnsKeys(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	// Seed a DB user whose JWT sub is the numeric user ID.
-	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", "admin@example.com", "Admin", "admin")
-	if err != nil {
-		t.Fatal(err)
+// wantAPIKeyAudit asserts exactly one action event was recorded and returns it.
+func wantAPIKeyAudit(t *testing.T, f *apiKeyFixture, action string) store.AuditEvent {
+	t.Helper()
+	events := f.mocks.Audit.EventsByAction(action)
+	if len(events) != 1 {
+		t.Fatalf("%s events = %d, want 1", action, len(events))
 	}
-	numericSub := strconv.FormatInt(u.ID, 10)
-
-	// Create a key through the handler — Create resolves the numeric sub to the
-	// user's email and stores the row under that email.
-	body, _ := json.Marshal(map[string]any{"name": "ci-key"})
-	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/api-keys", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	createReq.Header.Set("Content-Type", "application/json")
-	createReq = injectClaims(createReq, numericSub, "admin")
-	createRR := httptest.NewRecorder()
-	h.Create(createRR, createReq)
-	if createRR.Code != http.StatusCreated {
-		t.Fatalf("create: want 201, got %d: %s", createRR.Code, createRR.Body.String())
-	}
-
-	// List with the same numeric sub must find the key.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/api-keys", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req = injectClaims(req, numericSub, "admin")
-	rr := httptest.NewRecorder()
-	h.List(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 1 {
-		t.Fatalf("expected 1 key for DB user with numeric sub, got %d", len(data))
-	}
+	return events[0]
 }
 
-// ---------------------------------------------------------------------------
-// Create
-// ---------------------------------------------------------------------------
-
-func TestAPIKeyHandler_Create_Success(t *testing.T) {
+func TestAPIKeyHandler_List(t *testing.T) {
 	t.Parallel()
-	h := newTestAPIKeyHandler(t)
-
-	body := map[string]any{"name": "my-ci-key"}
-	bodyBytes, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	if data == nil {
-		t.Fatal("expected data object")
-	}
-	key, _ := data["key"].(string)
-	if len(key) < 4 || key[:4] != "ald_" {
-		t.Errorf("expected key starting with ald_, got %q", key)
-	}
-	if data["name"] != "my-ci-key" {
-		t.Errorf("name = %v, want %q", data["name"], "my-ci-key")
-	}
+	runAPIKeyRows(t, http.MethodGet, (*APIKeyHandler).List, []apiKeyRow{
+		{name: "no keys", as: "carol", want: http.StatusOK, json: map[string]any{"data#": 0}},
+		{name: "only the caller's keys", as: "alice", want: http.StatusOK, json: map[string]any{"data#": 2}},
+		// A DB user's numeric sub resolves to the email the key is stored under.
+		{name: "numeric sub", as: "{db}", want: http.StatusOK, json: map[string]any{"data#": 1, "data.0.name": "ci-key"}},
+	})
 }
 
-func TestAPIKeyHandler_Create_FiveKeyLimit(t *testing.T) {
+func TestAPIKeyHandler_Create(t *testing.T) {
 	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	for i := range 5 {
-		k := makeAPIKey(fmt.Sprintf("key-%d", i), "alice", "admin")
-		if _, err := mocks.APIKeys.Create(ctx, &k); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	body := map[string]any{"name": "key-6"}
-	bodyBytes, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("want 409 at key limit, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAPIKeyHandler_Create_MissingName(t *testing.T) {
-	t.Parallel()
-	h := newTestAPIKeyHandler(t)
-
-	body := map[string]any{}
-	bodyBytes, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 for missing name, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAPIKeyHandler_Create_PastExpiresAt(t *testing.T) {
-	t.Parallel()
-	h := newTestAPIKeyHandler(t)
-
 	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
-	body := map[string]any{"name": "expired-key", "expires_at": past}
-	bodyBytes, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 for past expires_at, got %d: %s", rr.Code, rr.Body.String())
-	}
+	runAPIKeyRows(t, http.MethodPost, (*APIKeyHandler).Create, []apiKeyRow{
+		{name: "creates key", as: "alice", body: `{"name":"my-ci-key"}`, want: http.StatusCreated,
+			json: map[string]any{"data.name": "my-ci-key", "data.username": "alice"},
+			check: func(t *testing.T, f *apiKeyFixture, body any) {
+				if key, _ := jsonAt(body, "data.key").(string); !strings.HasPrefix(key, security.APIKeyPrefix) {
+					t.Errorf("key = %q, want the %s prefix", key, security.APIKeyPrefix)
+				}
+				if evt := wantAPIKeyAudit(t, f, store.AuditActionAPIKeyCreate); evt.ActorLabel != "alice" {
+					t.Errorf("actor_label = %q, want alice", evt.ActorLabel)
+				}
+			}},
+		{name: "allow_mcp_writes persists", as: "carol", body: `{"name":"mcp-key","allow_mcp_writes":true}`, want: http.StatusCreated,
+			json: map[string]any{"data.allow_mcp_writes": true},
+			check: func(t *testing.T, f *apiKeyFixture, body any) {
+				if keys, _ := f.mocks.APIKeys.ListByUsername(context.Background(), "carol"); len(keys) != 1 || !keys[0].AllowMCPWrites {
+					t.Errorf("stored keys = %+v, want one with AllowMCPWrites", keys)
+				}
+			}},
+		// Keys are stored under the DB user's email, not the numeric JWT sub,
+		// and under an env user's literal sub.
+		{name: "numeric sub stores email", as: "{db}", body: `{"name":"ci-key-2"}`, want: http.StatusCreated, json: map[string]any{"data.username": apiKeyDBEmail}},
+		{name: "env user sub stores literal", as: "admin", body: `{"name":"env-key"}`, want: http.StatusCreated, json: map[string]any{"data.username": "admin"}},
+		{name: "five key limit", as: "alice", body: `{"name":"key-6"}`, want: http.StatusConflict,
+			setup: func(t *testing.T, f *apiKeyFixture) {
+				for _, name := range []string{"key-c", "key-d", "key-e"} {
+					if _, err := f.mocks.APIKeys.Create(context.Background(), &store.APIKey{Name: name, KeyHash: name, Username: "alice"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}},
+		{name: "missing name", as: "alice", body: `{}`, want: http.StatusBadRequest},
+		{name: "past expires_at", as: "alice", body: `{"name":"expired-key","expires_at":"` + past + `"}`, want: http.StatusBadRequest},
+	})
 }
 
-func TestAPIKeyHandler_Create_AllowMCPWrites(t *testing.T) {
+func TestAPIKeyHandler_Delete(t *testing.T) {
 	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	body := map[string]any{"name": "mcp-key", "allow_mcp_writes": true}
-	bodyBytes, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	if data == nil {
-		t.Fatal("expected data object")
-	}
-	if got, _ := data["allow_mcp_writes"].(bool); !got {
-		t.Errorf("allow_mcp_writes in response = %v, want true", data["allow_mcp_writes"])
-	}
-
-	// Verify the value persisted in the mock store.
-	ctx := context.Background()
-	keys, err := mocks.APIKeys.ListByUsername(ctx, "alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(keys) != 1 {
-		t.Fatalf("expected 1 stored key, got %d", len(keys))
-	}
-	if !keys[0].AllowMCPWrites {
-		t.Error("stored key AllowMCPWrites = false, want true")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2: username resolution at creation — numeric sub → user email
-// ---------------------------------------------------------------------------
-
-func TestAPIKeyHandler_Create_NumericSub_StoresEmail(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	// Seed a DB user whose sub (JWT claim) is numeric "1".
-	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", "admin@example.com", "Admin", "admin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	numericSub := strconv.FormatInt(u.ID, 10)
-
-	body := map[string]any{"name": "ci-key"}
-	bodyBytes, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	// Inject claims with numeric sub (as the JWT would for a DB user).
-	req = injectClaims(req, numericSub, "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	if data == nil {
-		t.Fatal("expected data object")
-	}
-	if got := data["username"]; got != "admin@example.com" {
-		t.Errorf("username = %v, want %q (email, not numeric ID)", got, "admin@example.com")
-	}
-}
-
-func TestAPIKeyHandler_Create_EnvUserSub_StoresLiteralUsername(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	body := map[string]any{"name": "env-key"}
-	bodyBytes, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	// Env user: sub is the literal "admin" string.
-	req = injectClaims(req, "admin", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	if data == nil {
-		t.Fatal("expected data object")
-	}
-	if got := data["username"]; got != "admin" {
-		t.Errorf("username = %v, want %q (env user literal preserved)", got, "admin")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Delete
-// ---------------------------------------------------------------------------
-
-func TestAPIKeyHandler_Delete_OwnKey(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	k := makeAPIKey("my-key", "alice", "admin")
-	created, err := mocks.APIKeys.Create(ctx, &k)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		fmt.Sprintf("/api/v1/api-keys/%d", created.ID), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("id", fmt.Sprintf("%d", created.ID))
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Delete(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAPIKeyHandler_Delete_WrongUsername_IDOR(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	k := makeAPIKey("alice-key", "alice", "admin")
-	created, err := mocks.APIKeys.Create(ctx, &k)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// bob tries to delete alice's key
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		fmt.Sprintf("/api/v1/api-keys/%d", created.ID), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("id", fmt.Sprintf("%d", created.ID))
-	req = injectClaims(req, "bob", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Delete(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("want 404 for IDOR attempt, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAPIKeyHandler_Delete_NumericSub_DeletesKey(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users)
-
-	ctx := context.Background()
-	// Seed a DB user whose JWT sub is the numeric user ID.
-	u, err := mocks.Users.UpsertByOIDC(ctx, "local", "sub-1", "admin@example.com", "Admin", "admin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	numericSub := strconv.FormatInt(u.ID, 10)
-
-	// Create a key through the handler — stored under the resolved email.
-	body, _ := json.Marshal(map[string]any{"name": "ci-key"})
-	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/api-keys", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	createReq.Header.Set("Content-Type", "application/json")
-	createReq = injectClaims(createReq, numericSub, "admin")
-	createRR := httptest.NewRecorder()
-	h.Create(createRR, createReq)
-	if createRR.Code != http.StatusCreated {
-		t.Fatalf("create: want 201, got %d: %s", createRR.Code, createRR.Body.String())
-	}
-	var createResp map[string]any
-	if err := json.NewDecoder(createRR.Body).Decode(&createResp); err != nil {
-		t.Fatal(err)
-	}
-	createData, _ := createResp["data"].(map[string]any)
-	keyID, _ := createData["id"].(float64)
-
-	// Delete with the same numeric sub must succeed.
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		fmt.Sprintf("/api/v1/api-keys/%d", int64(keyID)), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("id", fmt.Sprintf("%d", int64(keyID)))
-	req = injectClaims(req, numericSub, "admin")
-	rr := httptest.NewRecorder()
-	h.Delete(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// F-1: audit emission
-// ---------------------------------------------------------------------------
-
-func TestAPIKeyHandler_Create_EmitsAudit(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users).WithAuditLogger(mocks.Audit)
-
-	body := map[string]any{"name": "ci-key"}
-	bodyBytes, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		"/api/v1/api-keys", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Create(rr, req)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionAPIKeyCreate)
-	if len(events) != 1 {
-		t.Fatalf("api_keys.create events = %d, want 1", len(events))
-	}
-	if events[0].ActorLabel != "alice" {
-		t.Errorf("actor_label = %q, want alice", events[0].ActorLabel)
-	}
-}
-
-func TestAPIKeyHandler_Delete_EmitsAudit(t *testing.T) {
-	t.Parallel()
-	mocks := testutil.New()
-	h := NewAPIKeyHandler(mocks.APIKeys, mocks.Users).WithAuditLogger(mocks.Audit)
-
-	ctx := context.Background()
-	k := makeAPIKey("my-key", "alice", "admin")
-	created, err := mocks.APIKeys.Create(ctx, &k)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		fmt.Sprintf("/api/v1/api-keys/%d", created.ID), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("id", fmt.Sprintf("%d", created.ID))
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Delete(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionAPIKeyDelete)
-	if len(events) != 1 {
-		t.Fatalf("api_keys.delete events = %d, want 1", len(events))
-	}
-	if events[0].TargetID != fmt.Sprintf("%d", created.ID) {
-		t.Errorf("target_id = %q, want %d", events[0].TargetID, created.ID)
-	}
-}
-
-func TestAPIKeyHandler_Delete_NonExistent(t *testing.T) {
-	t.Parallel()
-	h := newTestAPIKeyHandler(t)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete,
-		"/api/v1/api-keys/9999", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("id", "9999")
-	req = injectClaims(req, "alice", "admin")
-
-	rr := httptest.NewRecorder()
-	h.Delete(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("want 404 for non-existent key, got %d: %s", rr.Code, rr.Body.String())
-	}
+	runAPIKeyRows(t, http.MethodDelete, (*APIKeyHandler).Delete, []apiKeyRow{
+		{name: "own key", as: "alice", id: "{alice}", want: http.StatusOK,
+			check: func(t *testing.T, f *apiKeyFixture, body any) {
+				if evt := wantAPIKeyAudit(t, f, store.AuditActionAPIKeyDelete); evt.TargetID != strconv.FormatInt(f.aliceKey, 10) {
+					t.Errorf("target_id = %q, want %d", evt.TargetID, f.aliceKey)
+				}
+			}},
+		// Another user's key is indistinguishable from a missing one (IDOR).
+		{name: "another user's key", as: "bob", id: "{alice}", want: http.StatusNotFound},
+		{name: "numeric sub", as: "{db}", id: "{db}", want: http.StatusOK},
+		{name: "non-existent key", as: "alice", id: "9999", want: http.StatusNotFound},
+	})
 }

@@ -14,7 +14,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -25,203 +27,86 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// makeJSONSendResultsReq builds a POST request with a JSON body containing the
-// given results slice. It mirrors the wire format expected by sendJSONResults.
-func makeJSONSendResultsReq(t *testing.T, projectID string, results []map[string]string) *http.Request {
+// resultsRequest builds a POST /projects/{projectID}/results request.
+func resultsRequest(projectID, contentType string, body []byte) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/results", bytes.NewReader(body))
+	req.SetPathValue("project_id", projectID)
+	req.Header.Set("Content-Type", contentType)
+	return req
+}
+
+// jsonResults encodes {"results":[...]} the way CI clients send it.
+func jsonResults(t *testing.T, results ...map[string]string) []byte {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"results": results})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		"/api/v1/projects/"+projectID+"/results",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectID)
-	req.Header.Set("Content-Type", "application/json")
-	return req
+	return body
 }
 
-// TestSendJSONResults_WritesFileCorrectly verifies that a single base64-encoded
-// file is decoded and written to disk with the correct content.
-// This is the primary regression test for the streaming-decode implementation.
-func TestSendJSONResults_WritesFileCorrectly(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "proj1"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	wantContent := []byte("<allure-result><status>passed</status></allure-result>")
-	encoded := base64.StdEncoding.EncodeToString(wantContent)
-
-	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
-		{"file_name": "test-result.xml", "content_base64": encoded},
-	})
-
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	processed, failed, err := h.sendJSONResults(req, projectID, "testbatch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(failed) != 0 {
-		t.Fatalf("expected no failed files, got %v", failed)
-	}
-	if len(processed) != 1 || processed[0] != "test-result.xml" {
-		t.Fatalf("expected processed=[test-result.xml], got %v", processed)
-	}
-
-	got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", "test-result.xml"))
-	if err != nil {
-		t.Fatalf("result file not written to disk: %v", err)
-	}
-	if !bytes.Equal(got, wantContent) {
-		t.Errorf("file content mismatch:\n got  %q\n want %q", got, wantContent)
-	}
-}
-
-// TestSendJSONResults_MultipleFiles verifies all files in a batch are written
-// correctly, each with the right decoded content.
-func TestSendJSONResults_MultipleFiles(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "proj2"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	files := []struct {
-		name    string
-		content []byte
-	}{
-		{"a.xml", []byte("<result>pass</result>")},
-		{"b.json", []byte(`{"status":"passed","name":"login test"}`)},
-		{"attachment.txt", []byte("stack trace line 1\nstack trace line 2\n")},
-	}
-
-	results := make([]map[string]string, len(files))
+// wantResultFiles asserts processed lists exactly the files in order and that
+// each was written byte-for-byte under the batch directory.
+func wantResultFiles(t *testing.T, batchDir string, processed []string, files [][2]string) {
+	t.Helper()
+	names := make([]string, len(files))
 	for i, f := range files {
-		results[i] = map[string]string{
-			"file_name":      f.name,
-			"content_base64": base64.StdEncoding.EncodeToString(f.content),
+		names[i] = f[0]
+		if got, err := os.ReadFile(filepath.Join(batchDir, f[0])); err != nil || string(got) != f[1] {
+			t.Errorf("%s = %q (err %v), want %q", f[0], got, err, f[1])
 		}
 	}
-
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	processed, failed, err := h.sendJSONResults(makeJSONSendResultsReq(t, projectID, results), projectID, "testbatch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(failed) != 0 {
-		t.Fatalf("expected no failed files, got %v", failed)
-	}
-	if len(processed) != len(files) {
-		t.Fatalf("expected %d processed files, got %d", len(files), len(processed))
-	}
-
-	for _, f := range files {
-		got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", f.name))
-		if err != nil {
-			t.Fatalf("file %s not written: %v", f.name, err)
-		}
-		if !bytes.Equal(got, f.content) {
-			t.Errorf("file %s content mismatch:\n got  %q\n want %q", f.name, got, f.content)
-		}
+	if !slices.Equal(processed, names) {
+		t.Errorf("processed = %v, want %v", processed, names)
 	}
 }
 
-// TestSendJSONResults_InvalidBase64 verifies that a malformed base64 string
-// causes sendJSONResults to return a descriptive error.
-func TestSendJSONResults_InvalidBase64(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "proj3"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
+// TestSendJSONResults covers the base64 JSON body. The success row is the
+// regression guard for the streaming decode: every file lands on disk
+// byte-for-byte.
+func TestSendJSONResults(t *testing.T) {
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	files := [][2]string{
+		{"a.xml", "<result>pass</result>"},
+		{"b.json", `{"status":"passed","name":"login test"}`},
+		{"attachment.txt", "stack trace line 1\nstack trace line 2\n"},
 	}
-
-	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
-		{"file_name": "bad.xml", "content_base64": "not!valid!base64!!!"},
-	})
-
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
-	if err == nil {
-		t.Fatal("expected error for invalid base64, got nil")
+	tests := []struct {
+		name    string
+		results []map[string]string
+		wantErr bool
+	}{
+		{name: "decodes every file", results: []map[string]string{
+			{"file_name": files[0][0], "content_base64": b64(files[0][1])},
+			{"file_name": files[1][0], "content_base64": b64(files[1][1])},
+			{"file_name": files[2][0], "content_base64": b64(files[2][1])},
+		}},
+		{name: "invalid base64", results: []map[string]string{{"file_name": "bad.xml", "content_base64": "not!valid!base64!!!"}}, wantErr: true},
+		{name: "duplicate file names", results: []map[string]string{
+			{"file_name": "dup.xml", "content_base64": b64("data")},
+			{"file_name": "dup.xml", "content_base64": b64("data")},
+		}, wantErr: true},
+		{name: "missing content_base64", results: []map[string]string{{"file_name": "missing-content.xml"}}, wantErr: true},
+		{name: "empty results", results: []map[string]string{}, wantErr: true},
 	}
-}
-
-// TestSendJSONResults_DuplicateFileNames verifies that duplicate file_name
-// entries in the results array are rejected before any file is written.
-func TestSendJSONResults_DuplicateFileNames(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "proj4"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	encoded := base64.StdEncoding.EncodeToString([]byte("data"))
-	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
-		{"file_name": "dup.xml", "content_base64": encoded},
-		{"file_name": "dup.xml", "content_base64": encoded},
-	})
-
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
-	if err == nil {
-		t.Fatal("expected error for duplicate file names, got nil")
-	}
-}
-
-// TestSendJSONResults_MissingContentBase64 verifies that a result entry
-// without content_base64 is rejected with a descriptive error.
-func TestSendJSONResults_MissingContentBase64(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "proj5"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
-		{"file_name": "missing-content.xml"},
-	})
-
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
-	if err == nil {
-		t.Fatal("expected error for missing content_base64, got nil")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			projectsDir := t.TempDir()
+			h, _ := newTestResultUploadHandler(t, projectsDir)
+			processed, failed, err := h.sendJSONResults(resultsRequest("proj", "application/json", jsonResults(t, tc.results...)), "proj", "testbatch")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("err = nil, want an error")
+				}
+				return
+			}
+			if err != nil || len(failed) != 0 {
+				t.Fatalf("err = %v, failed = %v", err, failed)
+			}
+			wantResultFiles(t, filepath.Join(projectsDir, "proj", "results", "testbatch"), processed, files)
+		})
 	}
 }
-
-// TestSendJSONResults_EmptyResults verifies that an empty results array is rejected.
-func TestSendJSONResults_EmptyResults(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "proj6"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	req := makeJSONSendResultsReq(t, projectID, []map[string]string{})
-
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	_, _, err := h.sendJSONResults(req, projectID, "testbatch")
-	if err == nil {
-		t.Fatal("expected error for empty results array, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// tar.gz upload test helpers
-// ---------------------------------------------------------------------------
 
 // tarEntry allows custom tar.Header fields for security tests (symlinks, etc.).
 type tarEntry struct {
@@ -232,21 +117,15 @@ type tarEntry struct {
 // makeTarGz builds a tar.gz archive in memory from a map of filename → content.
 func makeTarGz(t *testing.T, files map[string][]byte) []byte {
 	t.Helper()
-	entries := make([]tarEntry, 0, len(files))
-	// Sort keys for deterministic output.
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	sort.Strings(names) // deterministic archive order
+	entries := make([]tarEntry, 0, len(files))
 	for _, name := range names {
 		entries = append(entries, tarEntry{
-			Header: tar.Header{
-				Name:     name,
-				Size:     int64(len(files[name])),
-				Mode:     0o644,
-				Typeflag: tar.TypeReg,
-			},
+			Header:  tar.Header{Name: name, Size: int64(len(files[name])), Mode: 0o644, Typeflag: tar.TypeReg},
 			Content: files[name],
 		})
 	}
@@ -259,7 +138,6 @@ func makeTarGzWithOpts(t *testing.T, entries []tarEntry) []byte {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
-
 	for i := range entries {
 		if err := tw.WriteHeader(&entries[i].Header); err != nil {
 			t.Fatalf("tar write header %q: %v", entries[i].Header.Name, err)
@@ -270,7 +148,6 @@ func makeTarGzWithOpts(t *testing.T, entries []tarEntry) []byte {
 			}
 		}
 	}
-
 	if err := tw.Close(); err != nil {
 		t.Fatalf("tar close: %v", err)
 	}
@@ -280,554 +157,92 @@ func makeTarGzWithOpts(t *testing.T, entries []tarEntry) []byte {
 	return buf.Bytes()
 }
 
-// makeTarGzRequest creates a POST request with Content-Type: application/gzip.
-func makeTarGzRequest(t *testing.T, projectID string, body []byte) *http.Request {
-	t.Helper()
-	req, err := http.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		"/api/v1/projects/"+projectID+"/results",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		t.Fatal(err)
+// TestSendTarGzResults covers archive extraction through the handler, including
+// the handler's own decompression and file-count limits.
+func TestSendTarGzResults(t *testing.T) {
+	reg := func(name string) tarEntry {
+		return tarEntry{Header: tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: 4}, Content: []byte("data")}
 	}
-	req.SetPathValue("project_id", projectID)
-	req.Header.Set("Content-Type", "application/gzip")
-	return req
-}
-
-// setupTarGzTest creates a temporary project directory and returns handler + projectID.
-func setupTarGzTest(t *testing.T) (*ResultUploadHandler, string, string) {
-	t.Helper()
-	projectsDir := t.TempDir()
-	projectID := "targz-proj"
-	resultsDir := filepath.Join(projectsDir, projectID, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
+	link := func(name string, typ byte, target string) tarEntry {
+		return tarEntry{Header: tar.Header{Name: name, Typeflag: typ, Linkname: target}}
 	}
-	h, _ := newTestResultUploadHandler(t, projectsDir)
-	return h, projectID, resultsDir
-}
-
-// ---------------------------------------------------------------------------
-// tar.gz upload tests — happy path
-// ---------------------------------------------------------------------------
-
-// TestSendTarGzResults_SingleFile verifies a single file is extracted correctly.
-func TestSendTarGzResults_SingleFile(t *testing.T) {
-	h, projectID, resultsDir := setupTarGzTest(t)
-
-	wantContent := []byte("<allure-result><status>passed</status></allure-result>")
-	archive := makeTarGz(t, map[string][]byte{
-		"test-result.xml": wantContent,
-	})
-	req := makeTarGzRequest(t, projectID, archive)
-
-	processed, failed, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	many := make([][2]string, 200)
+	for i := range many {
+		many[i] = [2]string{fmt.Sprintf("result-%03d.json", i), fmt.Sprintf(`{"i":%d}`, i)}
 	}
-	if len(failed) != 0 {
-		t.Fatalf("expected no failed files, got %v", failed)
+	tests := []struct {
+		name     string
+		files    [][2]string // regular entries, in their sorted (processed) order
+		entries  []tarEntry  // hand-built entries; used when files is nil
+		raw      string      // a raw, non-gzip body
+		maxBytes int64
+		maxFiles int
+		wantErr  error
+	}{
+		// Names with spaces and parens survive, and processed is sorted.
+		{name: "writes entries sorted", files: [][2]string{{"alpha.xml", "a"}, {"my file (1).json", `{"ok":true}`}, {"zebra.xml", "z"}}},
+		// Enough files for the parallel writes to race under -race; processed
+		// must still come back sorted.
+		{name: "many files in parallel", files: many},
+		{name: "empty archive", entries: []tarEntry{}, wantErr: ErrArchiveEmpty},
+		{name: "duplicate names", entries: []tarEntry{reg("dup.xml"), reg("dup.xml")}, wantErr: ErrArchiveDuplicateFile},
+		{name: "invalid gzip", raw: "this is not gzip", wantErr: gzip.ErrHeader},
+		{name: "nested path", entries: []tarEntry{reg("subdir/file.xml")}, wantErr: ErrArchiveNestedPath},
+		{name: "path traversal", entries: []tarEntry{reg("../../etc/passwd")}, wantErr: ErrArchiveNestedPath},
+		// Links and directories are skipped, so an archive of only those is empty.
+		{name: "symlink only", entries: []tarEntry{link("evil-link", tar.TypeSymlink, "/etc/passwd")}, wantErr: ErrArchiveEmpty},
+		{name: "hard link only", entries: []tarEntry{link("evil-link", tar.TypeLink, "target.xml")}, wantErr: ErrArchiveEmpty},
+		{name: "directory only", entries: []tarEntry{{Header: tar.Header{Name: "subdir/", Typeflag: tar.TypeDir, Mode: 0o755}}}, wantErr: ErrArchiveEmpty},
+		{name: "decompression bomb", files: [][2]string{{"big.bin", strings.Repeat("A", 2048)}}, maxBytes: 1024, wantErr: ErrArchiveDecompBomb},
+		{name: "too many files", files: [][2]string{{"a.xml", "a"}, {"b.xml", "b"}, {"c.xml", "c"}, {"d.xml", "d"}}, maxFiles: 3, wantErr: ErrArchiveTooManyFiles},
 	}
-	if len(processed) != 1 || processed[0] != "test-result.xml" {
-		t.Fatalf("expected processed=[test-result.xml], got %v", processed)
-	}
-
-	got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", "test-result.xml"))
-	if err != nil {
-		t.Fatalf("result file not written to disk: %v", err)
-	}
-	if !bytes.Equal(got, wantContent) {
-		t.Errorf("file content mismatch:\n got  %q\n want %q", got, wantContent)
-	}
-}
-
-// TestSendTarGzResults_MultipleFiles verifies all files are extracted correctly.
-func TestSendTarGzResults_MultipleFiles(t *testing.T) {
-	h, projectID, resultsDir := setupTarGzTest(t)
-
-	files := map[string][]byte{
-		"a.xml":          []byte("<result>pass</result>"),
-		"b.json":         []byte(`{"status":"passed"}`),
-		"attachment.txt": []byte("stack trace\n"),
-	}
-	archive := makeTarGz(t, files)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	processed, failed, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(failed) != 0 {
-		t.Fatalf("expected no failed files, got %v", failed)
-	}
-	if len(processed) != len(files) {
-		t.Fatalf("expected %d processed files, got %d", len(files), len(processed))
-	}
-
-	for name, want := range files {
-		got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", name))
-		if err != nil {
-			t.Fatalf("file %s not written: %v", name, err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("file %s content mismatch:\n got  %q\n want %q", name, got, want)
-		}
-	}
-}
-
-// TestSendTarGzResults_ContentTypeVariants verifies all accepted Content-Type values.
-func TestSendTarGzResults_ContentTypeVariants(t *testing.T) {
-	contentTypes := []string{
-		"application/gzip",
-		"application/x-gzip",
-		"application/x-tar+gzip",
-	}
-	for _, ct := range contentTypes {
-		t.Run(ct, func(t *testing.T) {
-			h, projectID, _ := setupTarGzTest(t)
-			archive := makeTarGz(t, map[string][]byte{
-				"result.xml": []byte("<result/>"),
-			})
-			req := makeTarGzRequest(t, projectID, archive)
-			req.Header.Set("Content-Type", ct)
-
-			processed, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-			if err != nil {
-				t.Fatalf("Content-Type %q rejected: %v", ct, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.maxBytes > 0 {
+				orig := maxDecompressedBytes
+				maxDecompressedBytes = tc.maxBytes
+				t.Cleanup(func() { maxDecompressedBytes = orig })
 			}
-			if len(processed) != 1 {
-				t.Fatalf("expected 1 processed file, got %d", len(processed))
+			if tc.maxFiles > 0 {
+				orig := maxArchiveFileCount
+				maxArchiveFileCount = tc.maxFiles
+				t.Cleanup(func() { maxArchiveFileCount = orig })
 			}
+			body := []byte(tc.raw)
+			switch {
+			case tc.files != nil:
+				m := make(map[string][]byte, len(tc.files))
+				for _, f := range tc.files {
+					m[f[0]] = []byte(f[1])
+				}
+				body = makeTarGz(t, m)
+			case tc.entries != nil:
+				body = makeTarGzWithOpts(t, tc.entries)
+			}
+			projectsDir := t.TempDir()
+			h, _ := newTestResultUploadHandler(t, projectsDir)
+			processed, failed, err := h.sendTarGzResults(resultsRequest("proj", "application/gzip", body), "proj", "testbatch")
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || len(failed) != 0 {
+				t.Fatalf("err = %v, failed = %v", err, failed)
+			}
+			wantResultFiles(t, filepath.Join(projectsDir, "proj", "results", "testbatch"), processed, tc.files)
 		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// tar.gz upload tests — validation
-// ---------------------------------------------------------------------------
-
-// TestSendTarGzResults_EmptyArchive verifies that an archive with zero entries is rejected.
-func TestSendTarGzResults_EmptyArchive(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	archive := makeTarGz(t, map[string][]byte{})
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveEmpty) {
-		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_DuplicateFileNames verifies duplicate entries are rejected.
-func TestSendTarGzResults_DuplicateFileNames(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	entries := []tarEntry{
-		{Header: tar.Header{Name: "dup.xml", Size: 4, Mode: 0o644, Typeflag: tar.TypeReg}, Content: []byte("data")},
-		{Header: tar.Header{Name: "dup.xml", Size: 4, Mode: 0o644, Typeflag: tar.TypeReg}, Content: []byte("data")},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveDuplicateFile) {
-		t.Fatalf("expected ErrArchiveDuplicateFile, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_InvalidGzip verifies that non-gzip data is rejected.
-func TestSendTarGzResults_InvalidGzip(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	req := makeTarGzRequest(t, projectID, []byte("this is not gzip"))
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if err == nil {
-		t.Fatal("expected error for invalid gzip, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// tar.gz upload tests — security
-// ---------------------------------------------------------------------------
-
-// TestSendTarGzResults_NestedDirectory rejects entries with nested paths.
-func TestSendTarGzResults_NestedDirectory(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	entries := []tarEntry{
-		{Header: tar.Header{Name: "subdir/file.xml", Size: 4, Mode: 0o644, Typeflag: tar.TypeReg}, Content: []byte("data")},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveNestedPath) {
-		t.Fatalf("expected ErrArchiveNestedPath, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_PathTraversal rejects path traversal attempts.
-func TestSendTarGzResults_PathTraversal(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	entries := []tarEntry{
-		{Header: tar.Header{Name: "../../etc/passwd", Size: 4, Mode: 0o644, Typeflag: tar.TypeReg}, Content: []byte("root")},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveNestedPath) {
-		t.Fatalf("expected ErrArchiveNestedPath, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_Symlink skips symlink entries (archive with only symlinks is empty).
-func TestSendTarGzResults_Symlink(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	entries := []tarEntry{
-		{Header: tar.Header{Name: "evil-link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}, Content: nil},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveEmpty) {
-		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_HardLink skips hard link entries (archive with only links is empty).
-func TestSendTarGzResults_HardLink(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	entries := []tarEntry{
-		{Header: tar.Header{Name: "evil-link", Typeflag: tar.TypeLink, Linkname: "target.xml"}, Content: nil},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveEmpty) {
-		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_Directory skips directory entries (archive with only dirs is empty).
-func TestSendTarGzResults_Directory(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-	entries := []tarEntry{
-		{Header: tar.Header{Name: "subdir/", Typeflag: tar.TypeDir, Mode: 0o755}, Content: nil},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveEmpty) {
-		t.Fatalf("expected ErrArchiveEmpty, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_DecompressionBomb verifies the decompressed size limit.
-func TestSendTarGzResults_DecompressionBomb(t *testing.T) {
-	// Temporarily lower the limit so the test is fast.
-	orig := maxDecompressedBytes
-	maxDecompressedBytes = 1024 // 1 KB
-	t.Cleanup(func() { maxDecompressedBytes = orig })
-
-	h, projectID, _ := setupTarGzTest(t)
-	// Create a file larger than the limit.
-	bigContent := make([]byte, 2048)
-	for i := range bigContent {
-		bigContent[i] = 'A'
-	}
-	archive := makeTarGz(t, map[string][]byte{
-		"big.bin": bigContent,
-	})
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveDecompBomb) {
-		t.Fatalf("expected ErrArchiveDecompBomb, got %v", err)
-	}
-}
-
-// TestSendTarGzResults_FileCountExceeded verifies the file count limit.
-func TestSendTarGzResults_FileCountExceeded(t *testing.T) {
-	// Temporarily lower the limit so the test is fast.
-	orig := maxArchiveFileCount
-	maxArchiveFileCount = 3
-	t.Cleanup(func() { maxArchiveFileCount = orig })
-
-	h, projectID, _ := setupTarGzTest(t)
-	files := map[string][]byte{
-		"a.xml": []byte("a"),
-		"b.xml": []byte("b"),
-		"c.xml": []byte("c"),
-		"d.xml": []byte("d"),
-	}
-	archive := makeTarGz(t, files)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	_, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if !errors.Is(err, ErrArchiveTooManyFiles) {
-		t.Fatalf("expected ErrArchiveTooManyFiles, got %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// tar.gz upload tests — edge cases
-// ---------------------------------------------------------------------------
-
-// TestSendTarGzResults_SpecialCharsInFilename verifies filenames with spaces/parens are preserved.
-func TestSendTarGzResults_SpecialCharsInFilename(t *testing.T) {
-	h, projectID, resultsDir := setupTarGzTest(t)
-
-	wantName := "my file (1).json"
-	wantContent := []byte(`{"ok":true}`)
-	archive := makeTarGz(t, map[string][]byte{
-		wantName: wantContent,
-	})
-	req := makeTarGzRequest(t, projectID, archive)
-
-	processed, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(processed) != 1 || processed[0] != wantName {
-		t.Fatalf("expected processed=[%s], got %v", wantName, processed)
-	}
-
-	got, err := os.ReadFile(filepath.Join(resultsDir, "testbatch", wantName))
-	if err != nil {
-		t.Fatalf("file not written: %v", err)
-	}
-	if !bytes.Equal(got, wantContent) {
-		t.Errorf("content mismatch:\n got  %q\n want %q", got, wantContent)
-	}
-}
-
-// TestSendTarGzResults_ProcessedFilesAreSorted verifies deterministic output order.
-func TestSendTarGzResults_ProcessedFilesAreSorted(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-
-	files := map[string][]byte{
-		"zebra.xml":  []byte("z"),
-		"alpha.xml":  []byte("a"),
-		"middle.xml": []byte("m"),
-	}
-	archive := makeTarGz(t, files)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	processed, _, err := h.sendTarGzResults(req, projectID, "testbatch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !sort.StringsAreSorted(processed) {
-		t.Fatalf("processed files not sorted: %v", processed)
-	}
-
-	expected := []string{"alpha.xml", "middle.xml", "zebra.xml"}
-	if len(processed) != len(expected) {
-		t.Fatalf("expected %d files, got %d", len(expected), len(processed))
-	}
-	for i, name := range expected {
-		if processed[i] != name {
-			t.Errorf("processed[%d] = %q, want %q", i, processed[i], name)
-		}
-	}
-}
-
-// TestSendResults_ForceProjectCreation_RegistersInDB verifies that when
-// force_project_creation=true is used for a non-existent project, the project
-// is registered in the projectStore (DB) in addition to being created on the
-// filesystem. This guards against River job failures caused by FK violations.
-func TestSendResults_ForceProjectCreation_RegistersInDB(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "force-create-proj"
-
-	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 10}
-	st := storage.NewLocalStore(cfg)
-	logger := zap.NewNop()
-	mocks := testutil.New()
-	r := runner.NewAllure(runner.AllureDeps{
-		Config:     cfg,
-		Store:      st,
-		BuildStore: mocks.MemBuilds,
-		Locker:     mocks.Locker,
-		Logger:     logger,
-	})
-	jm := runner.NewMemJobManager(nil, 0, logger)
-	h := NewResultUploadHandler(st, mocks.Projects, jm, r, cfg, logger)
-
-	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
-	req := makeJSONSendResultsReq(t, projectID, []map[string]string{
-		{"file_name": "result.xml", "content_base64": encoded},
-	})
-	q := req.URL.Query()
-	q.Set("force_project_creation", "true")
-	req.URL.RawQuery = q.Encode()
-
-	w := httptest.NewRecorder()
-	h.SendResults(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-
-	projectIntID := int64(1)
-	exists, err := mocks.Projects.ProjectExists(context.Background(), projectIntID)
-	if err != nil {
-		t.Fatalf("unexpected error checking project in DB: %v", err)
-	}
-	if !exists {
-		t.Error("project was not registered in projectStore after force_project_creation=true")
-	}
-}
-
-// TestSendResults_ForceProjectCreation_AutoCreatesMissingParentSlug verifies
-// that when force_project_creation=true is used with a parent_id slug that
-// doesn't exist (e.g. after wiping all projects), the handler auto-creates the
-// parent as a top-level project instead of returning 400. Regression test for
-// the "project 'X' not found" / "parent_id 'Y' not found" failure mode after a
-// full AllureDeck reset.
-func TestSendResults_ForceProjectCreation_AutoCreatesMissingParentSlug(t *testing.T) {
-	projectsDir := t.TempDir()
-	childSlug := "api-users"
-	parentSlug := "acme-api-tests-api"
-
-	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 10}
-	st := storage.NewLocalStore(cfg)
-	logger := zap.NewNop()
-	mocks := testutil.New()
-	r := runner.NewAllure(runner.AllureDeps{
-		Config:     cfg,
-		Store:      st,
-		BuildStore: mocks.MemBuilds,
-		Locker:     mocks.Locker,
-		Logger:     logger,
-	})
-	jm := runner.NewMemJobManager(nil, 0, logger)
-	h := NewResultUploadHandler(st, mocks.Projects, jm, r, cfg, logger)
-
-	encoded := base64.StdEncoding.EncodeToString([]byte("<result/>"))
-	req := makeJSONSendResultsReq(t, childSlug, []map[string]string{
-		{"file_name": "result.xml", "content_base64": encoded},
-	})
-	q := req.URL.Query()
-	q.Set("force_project_creation", "true")
-	q.Set("parent_id", parentSlug)
-	req.URL.RawQuery = q.Encode()
-
-	w := httptest.NewRecorder()
-	h.SendResults(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-
-	parent, err := mocks.Projects.GetProjectBySlugAny(context.Background(), parentSlug)
-	if err != nil {
-		t.Fatalf("parent project was not auto-created: %v", err)
-	}
-	if parent.ParentID != nil {
-		t.Errorf("parent project should be top-level, got ParentID=%v", parent.ParentID)
-	}
-
-	child, err := mocks.Projects.GetProjectBySlugAny(context.Background(), childSlug)
-	if err != nil {
-		t.Fatalf("child project was not created: %v", err)
-	}
-	if child.ParentID == nil || *child.ParentID != parent.ID {
-		t.Errorf("child project not linked to auto-created parent: child.ParentID=%v parent.ID=%d", child.ParentID, parent.ID)
-	}
-}
-
-// TestParseResultsBody_TarGzRouting verifies parseResultsBody routes tar.gz content types correctly.
-func TestParseResultsBody_TarGzRouting(t *testing.T) {
-	h, projectID, _ := setupTarGzTest(t)
-
-	archive := makeTarGz(t, map[string][]byte{
-		"routed.xml": []byte("<ok/>"),
-	})
-
-	contentTypes := []string{
-		"application/gzip",
-		"application/x-gzip",
-		"application/x-tar+gzip",
-	}
-	for _, ct := range contentTypes {
-		t.Run(ct, func(t *testing.T) {
-			req := makeTarGzRequest(t, projectID, archive)
-			req.Header.Set("Content-Type", ct)
-
-			processed, _, err := h.parseResultsBody(req, projectID, "testbatch")
-			if err != nil {
-				t.Fatalf("parseResultsBody rejected Content-Type %q: %v", ct, err)
-			}
-			if len(processed) != 1 || processed[0] != "routed.xml" {
-				t.Fatalf("expected processed=[routed.xml], got %v", processed)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Parallel-write regression tests
-// ---------------------------------------------------------------------------
-
-// TestSendTarGzResults_ManyFilesParallel exercises the parallel write loop
-// with enough files to make ordering and dedup races visible under -race.
-// Verifies all files are written and the returned `processed` slice is sorted
-// regardless of goroutine completion order.
-func TestSendTarGzResults_ManyFilesParallel(t *testing.T) {
-	h, projectID, resultsDir := setupTarGzTest(t)
-
-	const n = 200
-	files := make(map[string][]byte, n)
-	for i := range n {
-		files[fmt.Sprintf("result-%03d.json", i)] = []byte(fmt.Sprintf(`{"i":%d}`, i))
-	}
-	archive := makeTarGz(t, files)
-	req := makeTarGzRequest(t, projectID, archive)
-
-	processed, failed, err := h.sendTarGzResults(req, projectID, "batch-many")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(failed) != 0 {
-		t.Fatalf("expected no failed files, got %v", failed)
-	}
-	if len(processed) != n {
-		t.Fatalf("expected %d processed, got %d", n, len(processed))
-	}
-	// Determinism: the returned slice must be sorted even though writes
-	// completed in goroutine-arrival order.
-	if !sort.StringsAreSorted(processed) {
-		t.Errorf("processed slice not sorted: %v", processed)
-	}
-	// Spot-check that one of the files actually landed on disk.
-	got, err := os.ReadFile(filepath.Join(resultsDir, "batch-many", "result-042.json"))
-	if err != nil {
-		t.Fatalf("expected file written: %v", err)
-	}
-	if !bytes.Equal(got, []byte(`{"i":42}`)) {
-		t.Errorf("file content mismatch: got %q", got)
-	}
-}
-
-// TestSendTarGzResults_StorageWriteFailure verifies that when a single
-// WriteResultFile call fails mid-batch, sendTarGzResults returns an error
-// and processed list is nil (so the caller never schedules a parsing job).
-// This is the atomicity guarantee for the parallel commit phase.
+// TestSendTarGzResults_StorageWriteFailure pins the atomicity of the parallel
+// commit phase: one failed write fails the batch with processed and failed
+// both nil, so the caller never schedules a parsing job for a partial batch.
 func TestSendTarGzResults_StorageWriteFailure(t *testing.T) {
 	cfg := &config.Config{ProjectsPath: t.TempDir(), MaxUploadSizeMB: 100, UploadWriteConcurrency: 8}
-	logger := zap.NewNop()
-	mocks := testutil.New()
-
 	mockStore := &storage.MockStore{
 		WriteResultFileFn: func(_ context.Context, _, _, filename string, r io.Reader) error {
-			// Drain reader so the goroutine doesn't leave dangling state.
 			_, _ = io.Copy(io.Discard, r)
 			if filename == "boom.json" {
 				return errors.New("simulated MinIO PUT failure")
@@ -835,34 +250,74 @@ func TestSendTarGzResults_StorageWriteFailure(t *testing.T) {
 			return nil
 		},
 	}
+	mocks := testutil.New()
+	r := runner.NewAllure(runner.AllureDeps{Config: cfg, Store: mockStore, BuildStore: mocks.MemBuilds, Locker: mocks.Locker, Logger: zap.NewNop()})
+	h := NewResultUploadHandler(mockStore, mocks.Projects, runner.NewMemJobManager(nil, 0, zap.NewNop()), r, cfg, zap.NewNop())
 
-	r := runner.NewAllure(runner.AllureDeps{
-		Config:     cfg,
-		Store:      mockStore,
-		BuildStore: mocks.MemBuilds,
-		Locker:     mocks.Locker,
-		Logger:     logger,
-	})
-	jm := runner.NewMemJobManager(nil, 0, logger)
-	h := NewResultUploadHandler(mockStore, mocks.Projects, jm, r, cfg, logger)
+	archive := makeTarGz(t, map[string][]byte{"a.json": []byte("ok"), "boom.json": []byte("nope"), "c.json": []byte("ok"), "d.json": []byte("ok")})
+	processed, failed, err := h.sendTarGzResults(resultsRequest("proj", "application/gzip", archive), "proj", "batch-fail")
+	if err == nil || processed != nil || failed != nil {
+		t.Fatalf("err, processed, failed = %v, %v, %v; want an error and both lists nil", err, processed, failed)
+	}
+}
 
-	files := map[string][]byte{
-		"a.json":    []byte("ok"),
-		"boom.json": []byte("nope"),
-		"c.json":    []byte("ok"),
-		"d.json":    []byte("ok"),
+// TestParseResultsBody_TarGzRouting pins the Content-Type values routed to the
+// tar.gz parser.
+func TestParseResultsBody_TarGzRouting(t *testing.T) {
+	projectsDir := t.TempDir()
+	h, _ := newTestResultUploadHandler(t, projectsDir)
+	archive := makeTarGz(t, map[string][]byte{"routed.xml": []byte("<ok/>")})
+	for _, ct := range []string{"application/gzip", "application/x-gzip", "application/x-tar+gzip"} {
+		t.Run(ct, func(t *testing.T) {
+			processed, _, err := h.parseResultsBody(resultsRequest("proj", ct, archive), "proj", "testbatch")
+			if err != nil || !slices.Equal(processed, []string{"routed.xml"}) {
+				t.Fatalf("processed, err = %v, %v; want [routed.xml], nil", processed, err)
+			}
+		})
 	}
-	archive := makeTarGz(t, files)
-	req := makeTarGzRequest(t, "proj", archive)
+}
 
-	processed, failed, err := h.sendTarGzResults(req, "proj", "batch-fail")
-	if err == nil {
-		t.Fatal("expected error from boom.json write, got nil")
+// TestSendResults_ForceProjectCreation covers uploads to a project that does
+// not exist yet: it is registered in the DB (so downstream jobs do not fail on
+// the FK), and a missing parent slug is created as a top-level project instead
+// of failing with "parent_id not found" — the failure mode after a full reset.
+func TestSendResults_ForceProjectCreation(t *testing.T) {
+	tests := []struct {
+		name   string
+		parent string
+	}{
+		{name: "registers project in db"},
+		{name: "auto-creates missing parent slug", parent: "acme-api-tests-api"},
 	}
-	if processed != nil {
-		t.Errorf("expected processed=nil on failure, got %v", processed)
-	}
-	if failed != nil {
-		t.Errorf("expected failed=nil on early-return failure, got %v", failed)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			h, mocks := newTestResultUploadHandler(t, t.TempDir())
+			body := jsonResults(t, map[string]string{"file_name": "result.xml", "content_base64": base64.StdEncoding.EncodeToString([]byte("<result/>"))})
+			req := resultsRequest("api-users", "application/json", body)
+			req.URL.RawQuery = "force_project_creation=true&parent_id=" + tc.parent
+			rr := httptest.NewRecorder()
+			h.SendResults(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+			}
+			child, err := mocks.Projects.GetProjectBySlugAny(ctx, "api-users")
+			if err != nil {
+				t.Fatalf("project not registered: %v", err)
+			}
+			if tc.parent == "" {
+				return
+			}
+			parent, err := mocks.Projects.GetProjectBySlugAny(ctx, tc.parent)
+			if err != nil {
+				t.Fatalf("parent not auto-created: %v", err)
+			}
+			if parent.ParentID != nil {
+				t.Errorf("parent ParentID = %v, want top-level", *parent.ParentID)
+			}
+			if child.ParentID == nil || *child.ParentID != parent.ID {
+				t.Errorf("child ParentID = %v, want %d", child.ParentID, parent.ID)
+			}
+		})
 	}
 }

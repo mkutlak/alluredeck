@@ -2,10 +2,9 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -15,441 +14,120 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// newBranchStoreForAnalytics returns a MockBranchStore that maps "main" -> ID 42.
-func newBranchStoreForAnalytics() *testutil.MockBranchStore {
-	return &testutil.MockBranchStore{
+// analyticsStub returns an AnalyticsStorer whose four list methods return n
+// rows, or err, and record the branch ID they were asked to filter by.
+func analyticsStub(n int, err error, gotBranch **int64) *testutil.MockAnalyticsStore {
+	return &testutil.MockAnalyticsStore{
+		ListTopErrorsFn: func(_ context.Context, _ []int64, _, _ int, b *int64) ([]store.ErrorCluster, error) {
+			*gotBranch = b
+			return make([]store.ErrorCluster, n), err
+		},
+		ListSuitePassRatesFn: func(_ context.Context, _ []int64, _ int, b *int64) ([]store.SuitePassRate, error) {
+			*gotBranch = b
+			return make([]store.SuitePassRate, n), err
+		},
+		ListLabelBreakdownFn: func(_ context.Context, _ []int64, _ string, _ int, b *int64) ([]store.LabelCount, error) {
+			*gotBranch = b
+			return make([]store.LabelCount, n), err
+		},
+		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, b *int64) ([]store.TrendPoint, error) {
+			*gotBranch = b
+			return make([]store.TrendPoint, n), err
+		},
+	}
+}
+
+// TestAnalyticsHandler runs every row against each analytics endpoint. The
+// trends endpoint answers with parallel status/pass_rate/duration series and a
+// KPI block instead of a flat list.
+func TestAnalyticsHandler(t *testing.T) {
+	endpoints := []struct {
+		name  string
+		serve func(*AnalyticsHandler, http.ResponseWriter, *http.Request)
+	}{
+		{"errors", (*AnalyticsHandler).GetTopErrors},
+		{"suites", (*AnalyticsHandler).GetSuitePassRates},
+		{"labels", (*AnalyticsHandler).GetLabelBreakdown},
+		{"trends", (*AnalyticsHandler).GetTrends},
+	}
+	const branchMain = 42
+	branches := &testutil.MockBranchStore{
 		GetByNameFn: func(_ context.Context, _ int64, name string) (*store.Branch, error) {
 			if name == "main" {
-				id := int64(42)
-				_ = id
-				return &store.Branch{ID: 42, Name: "main"}, nil
+				return &store.Branch{ID: branchMain, Name: "main"}, nil
 			}
 			return nil, store.ErrBranchNotFound
 		},
 	}
-}
-
-// TestAnalyticsHandler_GetTopErrors_NoBranch verifies the handler returns 200 without a branch param.
-func TestAnalyticsHandler_GetTopErrors_NoBranch(t *testing.T) {
-	var capturedBranchID *int64
-	mock := &testutil.MockAnalyticsStore{
-		ListTopErrorsFn: func(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
-			return []store.ErrorCluster{{Message: "NPE", Count: 3}}, nil
-		},
+	rows := []struct {
+		name       string
+		noStore    bool // analytics unavailable: every endpoint degrades to empty data
+		query      string
+		n          int
+		err        error
+		want       int
+		wantRows   int
+		wantBranch int64 // 0: the query is not filtered by branch
+	}{
+		{name: "no analytics store", noStore: true, want: http.StatusOK},
+		{name: "rows", n: 3, want: http.StatusOK, wantRows: 3},
+		{name: "branch resolves to its id", query: "branch=main", want: http.StatusOK, wantBranch: branchMain},
+		// An unknown branch leaves the query unfiltered rather than failing.
+		{name: "unknown branch", query: "branch=nonexistent", want: http.StatusOK},
+		// Store errors map to 500 without leaking driver details.
+		{name: "store error", err: errors.New("pq: connection refused"), want: http.StatusInternalServerError},
 	}
-
-	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/errors?builds=5&limit=3", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetTopErrors(rr, req)
-
-	_ = capturedBranchID
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 1 {
-		t.Errorf("expected 1 entry, got %d", len(data))
-	}
-}
-
-// TestAnalyticsHandler_GetTopErrors_WithBranch verifies that ?branch=main resolves the branch and passes branchID.
-func TestAnalyticsHandler_GetTopErrors_WithBranch(t *testing.T) {
-	var capturedBranchID *int64
-	analyticsStore := &captureAnalyticsStore{
-		onListTopErrors: func(branchID *int64) {
-			capturedBranchID = branchID
-		},
-		topErrors: []store.ErrorCluster{{Message: "Timeout", Count: 7}},
-	}
-	branches := newBranchStoreForAnalytics()
-
-	h := NewAnalyticsHandler(analyticsStore, branches, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/errors?branch=main", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetTopErrors(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if capturedBranchID == nil {
-		t.Fatal("expected branchID to be set, got nil")
-	}
-	if *capturedBranchID != 42 {
-		t.Errorf("branchID = %d, want 42", *capturedBranchID)
+	for _, ep := range endpoints {
+		for _, tc := range rows {
+			t.Run(ep.name+"/"+tc.name, func(t *testing.T) {
+				var gotBranch *int64
+				var as store.AnalyticsStorer = analyticsStub(tc.n, tc.err, &gotBranch)
+				if tc.noStore {
+					as = nil
+				}
+				h := NewAnalyticsHandler(as, branches, nil, zap.NewNop())
+				code, body := serveJSON(t, func(w http.ResponseWriter, r *http.Request) { ep.serve(h, w, r) },
+					http.MethodGet, "/api/v1/projects/1/analytics?"+tc.query, "", "project_id", "1")
+				if code != tc.want {
+					t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+				}
+				if tc.err != nil {
+					if strings.Contains(fmt.Sprint(body), "connection refused") {
+						t.Errorf("response leaks the store error: %v", body)
+					}
+					return
+				}
+				if got := derefInt64(gotBranch); got != tc.wantBranch {
+					t.Errorf("branch id = %d, want %d", got, tc.wantBranch)
+				}
+				if ep.name != "trends" {
+					wantJSON(t, body, map[string]any{"data#": tc.wantRows})
+					return
+				}
+				wantJSON(t, body, map[string]any{"data.status#": tc.wantRows, "data.pass_rate#": tc.wantRows, "data.duration#": tc.wantRows})
+				if kpi := jsonAt(body, "data.kpi"); (kpi != nil) != (tc.wantRows > 0) {
+					t.Errorf("kpi = %v, want present only when there are trend points", kpi)
+				}
+			})
+		}
 	}
 }
 
-// TestAnalyticsHandler_GetSuitePassRates_NoBranch verifies 200 without branch param.
-func TestAnalyticsHandler_GetSuitePassRates_NoBranch(t *testing.T) {
-	analyticsStore := &captureAnalyticsStore{
-		suitePassRates: []store.SuitePassRate{{Suite: "Smoke", Total: 10, Passed: 9, PassRate: 90}},
+// TestBuildTrendsResponse_KPI pins the KPI block: sparklines hold the last ten
+// builds and the headline values come from the newest one.
+func TestBuildTrendsResponse_KPI(t *testing.T) {
+	points := make([]store.TrendPoint, 15)
+	for i := range points {
+		points[i] = store.TrendPoint{BuildNumber: i + 1, Total: 47 + i, PassRate: float64(i), DurationMs: int64(60000 - i*1000)}
 	}
-	h := NewAnalyticsHandler(analyticsStore, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/2/analytics/suites?builds=10", nil)
-	req.SetPathValue("project_id", "2")
-	rr := httptest.NewRecorder()
-	h.GetSuitePassRates(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	kpi := buildTrendsResponse(points).Kpi
+	if kpi == nil {
+		t.Fatal("kpi = nil, want a KPI block")
 	}
-	var resp map[string]any
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
+	if len(kpi.PassRateTrend) != 10 || len(kpi.DurationTrend) != 10 {
+		t.Errorf("sparkline lengths = %d/%d, want 10/10", len(kpi.PassRateTrend), len(kpi.DurationTrend))
 	}
-	if len(data) != 1 {
-		t.Errorf("expected 1 entry, got %d", len(data))
-	}
-}
-
-// TestAnalyticsHandler_GetSuitePassRates_WithBranch verifies branch resolution for suite pass rates.
-func TestAnalyticsHandler_GetSuitePassRates_WithBranch(t *testing.T) {
-	var capturedBranchID *int64
-	analyticsStore := &captureAnalyticsStore{
-		onListSuitePassRates: func(branchID *int64) {
-			capturedBranchID = branchID
-		},
-		suitePassRates: []store.SuitePassRate{},
-	}
-	branches := newBranchStoreForAnalytics()
-
-	h := NewAnalyticsHandler(analyticsStore, branches, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/2/analytics/suites?branch=main", nil)
-	req.SetPathValue("project_id", "2")
-	rr := httptest.NewRecorder()
-	h.GetSuitePassRates(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if capturedBranchID == nil {
-		t.Fatal("expected branchID to be set, got nil")
-	}
-	if *capturedBranchID != 42 {
-		t.Errorf("branchID = %d, want 42", *capturedBranchID)
-	}
-}
-
-// TestAnalyticsHandler_GetLabelBreakdown_NoBranch verifies 200 without branch param.
-func TestAnalyticsHandler_GetLabelBreakdown_NoBranch(t *testing.T) {
-	analyticsStore := &captureAnalyticsStore{
-		labelCounts: []store.LabelCount{{Value: "critical", Count: 5}},
-	}
-	h := NewAnalyticsHandler(analyticsStore, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/3/analytics/labels?name=severity&builds=5", nil)
-	req.SetPathValue("project_id", "3")
-	rr := httptest.NewRecorder()
-	h.GetLabelBreakdown(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 1 {
-		t.Errorf("expected 1 entry, got %d", len(data))
-	}
-}
-
-// TestAnalyticsHandler_GetLabelBreakdown_WithBranch verifies branch resolution for label breakdown.
-func TestAnalyticsHandler_GetLabelBreakdown_WithBranch(t *testing.T) {
-	var capturedBranchID *int64
-	analyticsStore := &captureAnalyticsStore{
-		onListLabelBreakdown: func(branchID *int64) {
-			capturedBranchID = branchID
-		},
-		labelCounts: []store.LabelCount{},
-	}
-	branches := newBranchStoreForAnalytics()
-
-	h := NewAnalyticsHandler(analyticsStore, branches, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/3/analytics/labels?name=severity&branch=main", nil)
-	req.SetPathValue("project_id", "3")
-	rr := httptest.NewRecorder()
-	h.GetLabelBreakdown(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if capturedBranchID == nil {
-		t.Fatal("expected branchID to be set, got nil")
-	}
-	if *capturedBranchID != 42 {
-		t.Errorf("branchID = %d, want 42", *capturedBranchID)
-	}
-}
-
-// TestAnalyticsHandler_GetTopErrors_UnknownBranch verifies that an unknown branch name
-// results in a nil branchID (no filtering) rather than an error response.
-func TestAnalyticsHandler_GetTopErrors_UnknownBranch(t *testing.T) {
-	var capturedBranchID *int64
-	analyticsStore := &captureAnalyticsStore{
-		onListTopErrors: func(branchID *int64) {
-			capturedBranchID = branchID
-		},
-		topErrors: []store.ErrorCluster{},
-	}
-	branches := newBranchStoreForAnalytics() // only "main" resolves
-
-	h := NewAnalyticsHandler(analyticsStore, branches, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/errors?branch=nonexistent", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetTopErrors(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	// Unknown branch → branchID stays nil (no filtering applied).
-	if capturedBranchID != nil {
-		t.Errorf("expected nil branchID for unknown branch, got %d", *capturedBranchID)
-	}
-}
-
-// TestAnalyticsHandler_GetTrends_NoBranch verifies the handler returns 200 without a branch param.
-func TestAnalyticsHandler_GetTrends_NoBranch(t *testing.T) {
-	mock := &testutil.MockAnalyticsStore{
-		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
-			return []store.TrendPoint{
-				{BuildNumber: 1, Passed: 40, Failed: 5, Broken: 2, Skipped: 3, Total: 50, PassRate: 80.0, DurationMs: 60000},
-			}, nil
-		},
-	}
-	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/5/analytics/trends?builds=5", nil)
-	req.SetPathValue("project_id", "5")
-	rr := httptest.NewRecorder()
-	h.GetTrends(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data map, got %T", resp["data"])
-	}
-	if _, ok := data["status"].([]any); !ok {
-		t.Fatalf("expected data.status array, got %T", data["status"])
-	}
-}
-
-// TestAnalyticsHandler_GetTrends_WithBranch verifies that ?branch=main resolves the branch and passes branchID.
-func TestAnalyticsHandler_GetTrends_WithBranch(t *testing.T) {
-	var capturedBranchID *int64
-	analyticsStore := &captureAnalyticsStore{
-		onListTrendPoints: func(branchID *int64) {
-			capturedBranchID = branchID
-		},
-		trendPoints: []store.TrendPoint{
-			{BuildNumber: 1, Passed: 45, Failed: 3, Broken: 1, Skipped: 1, Total: 50, PassRate: 90.0, DurationMs: 55000},
-		},
-	}
-	branches := newBranchStoreForAnalytics()
-
-	h := NewAnalyticsHandler(analyticsStore, branches, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/5/analytics/trends?branch=main", nil)
-	req.SetPathValue("project_id", "5")
-	rr := httptest.NewRecorder()
-	h.GetTrends(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if capturedBranchID == nil {
-		t.Fatal("expected branchID to be set, got nil")
-	}
-	if *capturedBranchID != 42 {
-		t.Errorf("branchID = %d, want 42", *capturedBranchID)
-	}
-}
-
-// TestAnalyticsHandler_GetTrends_UnknownBranch verifies that an unknown branch name
-// results in a nil branchID (no filtering) rather than an error response.
-func TestAnalyticsHandler_GetTrends_UnknownBranch(t *testing.T) {
-	var capturedBranchID *int64
-	analyticsStore := &captureAnalyticsStore{
-		onListTrendPoints: func(branchID *int64) {
-			capturedBranchID = branchID
-		},
-		trendPoints: []store.TrendPoint{},
-	}
-	branches := newBranchStoreForAnalytics() // only "main" resolves
-
-	h := NewAnalyticsHandler(analyticsStore, branches, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/5/analytics/trends?branch=nonexistent", nil)
-	req.SetPathValue("project_id", "5")
-	rr := httptest.NewRecorder()
-	h.GetTrends(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	// Unknown branch → branchID stays nil (no filtering applied).
-	if capturedBranchID != nil {
-		t.Errorf("expected nil branchID for unknown branch, got %d", *capturedBranchID)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// captureAnalyticsStore — captures branchID passed to each method for assertions.
-// ---------------------------------------------------------------------------
-
-type captureAnalyticsStore struct {
-	topErrors            []store.ErrorCluster
-	suitePassRates       []store.SuitePassRate
-	labelCounts          []store.LabelCount
-	trendPoints          []store.TrendPoint
-	onListTopErrors      func(*int64)
-	onListSuitePassRates func(*int64)
-	onListLabelBreakdown func(*int64)
-	onListTrendPoints    func(*int64)
-}
-
-// Compile-time interface check.
-var _ store.AnalyticsStorer = (*captureAnalyticsStore)(nil)
-
-func (c *captureAnalyticsStore) ListTopErrors(_ context.Context, _ []int64, _, _ int, branchID *int64) ([]store.ErrorCluster, error) {
-	if c.onListTopErrors != nil {
-		c.onListTopErrors(branchID)
-	}
-	return c.topErrors, nil
-}
-
-func (c *captureAnalyticsStore) ListSuitePassRates(_ context.Context, _ []int64, _ int, branchID *int64) ([]store.SuitePassRate, error) {
-	if c.onListSuitePassRates != nil {
-		c.onListSuitePassRates(branchID)
-	}
-	return c.suitePassRates, nil
-}
-
-func (c *captureAnalyticsStore) ListLabelBreakdown(_ context.Context, _ []int64, _ string, _ int, branchID *int64) ([]store.LabelCount, error) {
-	if c.onListLabelBreakdown != nil {
-		c.onListLabelBreakdown(branchID)
-	}
-	return c.labelCounts, nil
-}
-
-func (c *captureAnalyticsStore) ListTrendPoints(_ context.Context, _ []int64, _ int, branchID *int64) ([]store.TrendPoint, error) {
-	if c.onListTrendPoints != nil {
-		c.onListTrendPoints(branchID)
-	}
-	return c.trendPoints, nil
-}
-
-func (c *captureAnalyticsStore) ListFlakyImpact(_ context.Context, _ int64, _ *int64, _, _ int) ([]store.FlakyImpact, error) {
-	return nil, nil
-}
-
-// ---------------------------------------------------------------------------
-// Error leakage tests — store errors must return 500, not leak internal details.
-// ---------------------------------------------------------------------------
-
-func TestAnalyticsHandler_GetTopErrors_StoreError_Returns500(t *testing.T) {
-	mock := &testutil.MockAnalyticsStore{
-		ListTopErrorsFn: func(_ context.Context, _ []int64, _, _ int, _ *int64) ([]store.ErrorCluster, error) {
-			return nil, fmt.Errorf("pq: connection refused")
-		},
-	}
-	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/errors", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetTopErrors(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if strings.Contains(rr.Body.String(), "connection refused") {
-		t.Error("response body leaks internal error details")
-	}
-}
-
-func TestAnalyticsHandler_GetSuitePassRates_StoreError_Returns500(t *testing.T) {
-	mock := &testutil.MockAnalyticsStore{
-		ListSuitePassRatesFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.SuitePassRate, error) {
-			return nil, fmt.Errorf("pq: connection refused")
-		},
-	}
-	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/suites", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetSuitePassRates(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if strings.Contains(rr.Body.String(), "connection refused") {
-		t.Error("response body leaks internal error details")
-	}
-}
-
-func TestAnalyticsHandler_GetLabelBreakdown_StoreError_Returns500(t *testing.T) {
-	mock := &testutil.MockAnalyticsStore{
-		ListLabelBreakdownFn: func(_ context.Context, _ []int64, _ string, _ int, _ *int64) ([]store.LabelCount, error) {
-			return nil, fmt.Errorf("pq: connection refused")
-		},
-	}
-	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/labels", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetLabelBreakdown(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if strings.Contains(rr.Body.String(), "connection refused") {
-		t.Error("response body leaks internal error details")
-	}
-}
-
-func TestAnalyticsHandler_GetTrends_StoreError_Returns500(t *testing.T) {
-	mock := &testutil.MockAnalyticsStore{
-		ListTrendPointsFn: func(_ context.Context, _ []int64, _ int, _ *int64) ([]store.TrendPoint, error) {
-			return nil, fmt.Errorf("pq: connection refused")
-		},
-	}
-	h := NewAnalyticsHandler(mock, nil, nil, zap.NewNop())
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/analytics/trends", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.GetTrends(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("want 500, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if strings.Contains(rr.Body.String(), "connection refused") {
-		t.Error("response body leaks internal error details")
+	if kpi.PassRate != points[14].PassRate || kpi.TotalTests != points[14].Total {
+		t.Errorf("kpi pass_rate/total_tests = %v/%d, want the newest build's %v/%d", kpi.PassRate, kpi.TotalTests, points[14].PassRate, points[14].Total)
 	}
 }

@@ -2,10 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,483 +13,127 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func TestGetReportTimeline_LatestReport(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "timelineproj"
-	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
+// TestGetReportTimeline covers both sources: generated report files for a
+// handler without a test-result store, and the database fast path, which also
+// resolves "latest" to the newest build.
+func TestGetReportTimeline(t *testing.T) {
+	const reportResult = `{"name":%q,"status":"passed","time":{"start":%d,"stop":%d,"duration":%d},"labels":[{"name":"thread","value":%q},{"name":"host","value":"node-1"}]}`
+	tests := []struct {
+		name      string
+		db        bool
+		projectID string            // "" targets the seeded project
+		files     map[string]string // reports/latest/data/test-results; nil means no directory
+		reportID  string
+		want      int
+		wantJSON  map[string]any
+	}{
+		// Cases come back sorted by start, with thread/host taken from labels.
+		{name: "generated report files", files: map[string]string{
+			"a.json": fmt.Sprintf(reportResult, "Logout test", 1700000001000, 1700000003000, 2000, "worker-2"),
+			"b.json": fmt.Sprintf(reportResult, "Login test", 1700000000000, 1700000005000, 5000, "worker-1"),
+			"c.json": fmt.Sprintf(reportResult, "Profile test", 1700000002000, 1700000006000, 4000, "worker-1"),
+		}, reportID: "latest", want: http.StatusOK, wantJSON: map[string]any{
+			"data.test_cases#": 3, "data.summary.total": 3, "data.summary.truncated": false,
+			"data.test_cases.0.name": "Login test", "data.test_cases.0.thread": "worker-1", "data.test_cases.0.host": "node-1",
+		}},
+		// Raw results carry top-level start/stop instead of a "time" object.
+		{name: "raw results", files: map[string]string{
+			"raw.json": `{"name":"Raw test","status":"passed","start":1700000000000,"stop":1700000002000}`,
+		}, reportID: "latest", want: http.StatusOK, wantJSON: map[string]any{
+			"data.test_cases.0.start": int64(1700000000000), "data.test_cases.0.duration": 2000,
+		}},
+		{name: "empty results dir", files: map[string]string{}, reportID: "latest", want: http.StatusOK, wantJSON: map[string]any{"data.test_cases#": 0}},
+		{name: "missing results dir", reportID: "latest", want: http.StatusOK, wantJSON: map[string]any{"data.test_cases#": 0}},
+		{name: "invalid project id", projectID: "../evil", reportID: "latest", want: http.StatusBadRequest},
+		{name: "db numeric report id", db: true, reportID: "5", want: http.StatusOK, wantJSON: map[string]any{
+			"data.test_cases#": 2, "data.summary.total": 2,
+			"data.test_cases.0.name": "Login", "data.test_cases.1.name": "Logout",
+			"data.test_cases.0.thread": "t-1", "data.test_cases.0.host": "node-1", "data.test_cases.0.duration": 5000,
+		}},
+		{name: "db latest resolves to newest build", db: true, reportID: "latest", want: http.StatusOK, wantJSON: map[string]any{
+			"data.test_cases#": 1, "data.test_cases.0.name": "ResolvedTest",
+		}},
 	}
-
-	fixtures := []string{
-		`{"name":"Login test","fullName":"com.example.LoginTest#test","status":"passed","time":{"start":1700000000000,"stop":1700000005000,"duration":5000},"labels":[{"name":"thread","value":"worker-1"},{"name":"host","value":"node-1"}]}`,
-		`{"name":"Logout test","fullName":"com.example.LogoutTest#test","status":"failed","time":{"start":1700000001000,"stop":1700000003000,"duration":2000},"labels":[{"name":"thread","value":"worker-2"},{"name":"host","value":"node-1"}]}`,
-		`{"name":"Profile test","fullName":"com.example.ProfileTest#test","status":"broken","time":{"start":1700000002000,"stop":1700000006000,"duration":4000},"labels":[{"name":"thread","value":"worker-1"},{"name":"host","value":"node-2"}]}`,
-	}
-	for i, f := range fixtures {
-		if err := os.WriteFile(filepath.Join(resultsDir, fmt.Sprintf("test-%d.json", i)), []byte(f), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data to be object, got %T", resp["data"])
-	}
-	testCases, ok := data["test_cases"].([]any)
-	if !ok {
-		t.Fatalf("expected test_cases to be array, got %T", data["test_cases"])
-	}
-	if len(testCases) != 3 {
-		t.Fatalf("expected 3 test cases, got %d", len(testCases))
-	}
-	summary, ok := data["summary"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected summary to be object, got %T", data["summary"])
-	}
-	if total, _ := summary["total"].(float64); int(total) != 3 {
-		t.Errorf("expected summary.total=3, got %v", summary["total"])
-	}
-	if truncated, _ := summary["truncated"].(bool); truncated {
-		t.Errorf("expected truncated=false")
-	}
-	// Verify first test case has thread/host labels extracted
-	tc0 := testCases[0].(map[string]any)
-	if tc0["thread"] == "" && tc0["host"] == "" {
-		t.Errorf("expected thread or host to be populated")
-	}
-}
-
-func TestGetReportTimeline_TopLevelStartStop(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "rawfmt"
-	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Top-level start/stop format (raw results, no nested "time" object)
-	raw := `{"name":"Raw test","status":"passed","start":1700000000000,"stop":1700000002000}`
-	if err := os.WriteFile(filepath.Join(resultsDir, "raw.json"), []byte(raw), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 1 {
-		t.Fatalf("expected 1 test case, got %d", len(testCases))
-	}
-	tc := testCases[0].(map[string]any)
-	if start, _ := tc["start"].(float64); int64(start) != 1700000000000 {
-		t.Errorf("expected start=1700000000000, got %v", tc["start"])
-	}
-	if dur, _ := tc["duration"].(float64); int64(dur) != 2000 {
-		t.Errorf("expected duration=2000, got %v", tc["duration"])
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			projectsDir := t.TempDir()
+			var h *ReportHandler
+			var mocks *testutil.MockStores
+			if tc.db {
+				mocks = testutil.New()
+				mocks.Builds.GetLatestBuildFn = func(context.Context, int64) (store.Build, error) { return store.Build{BuildNumber: 7}, nil }
+				mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, n int) (int64, error) {
+					return map[int]int64{5: 100, 7: 200}[n], nil
+				}
+				mocks.TestResults.ListTimelineFn = func(_ context.Context, _ int64, buildID int64, _ int) ([]store.TimelineRow, error) {
+					return map[int64][]store.TimelineRow{
+						100: {
+							{TestName: "Login", Status: "passed", StartMs: 1700000000000, StopMs: 1700000005000, Thread: "t-1", Host: "node-1"},
+							{TestName: "Logout", Status: "failed", StartMs: 1700000001000, StopMs: 1700000003000, Thread: "t-2", Host: "node-1"},
+						},
+						200: {{TestName: "ResolvedTest", Status: "passed", StartMs: 1700000000000, StopMs: 1700000002000}},
+					}[buildID], nil
+				}
+				h = newTestReportHandlerWithMocks(t, projectsDir, mocks)
+			} else {
+				h, mocks = newTestReportHandler(t, projectsDir)
+			}
+			proj, err := mocks.Projects.CreateProject(context.Background(), "timelineproj")
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultsDir := filepath.Join(projectsDir, "timelineproj", "reports", "latest", "data", "test-results")
+			writeTimelineResults(t, resultsDir, tc.files)
+			id := tc.projectID
+			if id == "" {
+				id = strconv.FormatInt(proj.ID, 10)
+			}
+			code, body := serveJSON(t, h.GetReportTimeline, http.MethodGet, "/api/v1/projects/"+id+"/reports/"+tc.reportID+"/timeline", "",
+				"project_id", id, "report_id", tc.reportID)
+			if code != tc.want {
+				t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+			}
+			wantJSON(t, body, tc.wantJSON)
+		})
 	}
 }
 
-func TestGetReportTimeline_EmptyDir(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "emptyproj"
-	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 0 {
-		t.Fatalf("expected 0 test cases, got %d", len(testCases))
-	}
-}
-
-func TestGetReportTimeline_InvalidProjectID(t *testing.T) {
-	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/../evil/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", "../evil")
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d", rr.Code)
-	}
-}
-
-func TestGetReportTimeline_MissingDir(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "nodirproj"
-	// Create project dir but no reports subdirectory
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 0 {
-		t.Fatalf("expected 0 test cases on missing dir, got %d", len(testCases))
-	}
-}
-
-func TestGetReportTimeline_DBFastPath(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "dbproj"
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectID := proj.ID
-	projectIDStr := strconv.FormatInt(projectID, 10)
-
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, buildNumber int) (int64, error) {
-		if buildNumber == 5 {
-			return int64(100), nil
-		}
-		return 0, nil
-	}
-	mocks.TestResults.ListTimelineFn = func(_ context.Context, _ int64, buildID int64, _ int) ([]store.TimelineRow, error) {
-		if buildID == int64(100) {
-			return []store.TimelineRow{
-				{TestName: "Login", FullName: "com.Login", Status: "passed", StartMs: 1700000000000, StopMs: 1700000005000, Thread: "t-1", Host: "node-1"},
-				{TestName: "Logout", FullName: "com.Logout", Status: "failed", StartMs: 1700000001000, StopMs: 1700000003000, Thread: "t-2", Host: "node-1"},
-			}, nil
-		}
-		return nil, nil
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-
-	// Request with numeric report_id "5" — should hit DB fast path.
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/5/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "5")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 2 {
-		t.Fatalf("expected 2 test cases from DB, got %d", len(testCases))
-	}
-
-	// Verify ordering: Login before Logout (ordered by start time ascending).
-	tc0 := testCases[0].(map[string]any)
-	tc1 := testCases[1].(map[string]any)
-	if tc0["name"] != "Login" {
-		t.Errorf("first test should be Login, got %v", tc0["name"])
-	}
-	if tc1["name"] != "Logout" {
-		t.Errorf("second test should be Logout, got %v", tc1["name"])
-	}
-
-	// Verify thread/host fields.
-	if thread, _ := tc0["thread"].(string); thread != "t-1" {
-		t.Errorf("thread = %q, want %q", thread, "t-1")
-	}
-	if host, _ := tc0["host"].(string); host != "node-1" {
-		t.Errorf("host = %q, want %q", host, "node-1")
-	}
-
-	// Verify summary.
-	summary := data["summary"].(map[string]any)
-	if total, _ := summary["total"].(float64); int(total) != 2 {
-		t.Errorf("expected total=2, got %v", summary["total"])
-	}
-
-	// Verify duration is computed from stop - start.
-	if dur, _ := tc0["duration"].(float64); int64(dur) != 5000 {
-		t.Errorf("expected duration=5000, got %v", dur)
-	}
-}
-
-func TestGetReportTimeline_FallbackToS3(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "fallbackproj"
-
-	// Create report files for "latest" — S3 path should serve these.
-	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	fixture := `{"name":"S3 test","fullName":"com.S3Test","status":"passed","time":{"start":1700000000000,"stop":1700000001000,"duration":1000}}`
-	if err := os.WriteFile(filepath.Join(resultsDir, "test.json"), []byte(fixture), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	// "latest" is non-numeric — should fall back to S3.
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 1 {
-		t.Fatalf("expected 1 test case from S3 fallback, got %d", len(testCases))
-	}
-}
-
-func TestGetReportTimeline_LatestResolvesToDB(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "latestdbproj"
-
-	mocks := testutil.New()
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	// GetLatestBuild resolves "latest" to build order 7.
-	mocks.Builds.GetLatestBuildFn = func(_ context.Context, _ int64) (store.Build, error) {
-		return store.Build{BuildNumber: 7}, nil
-	}
-
-	// GetBuildID maps build order 7 → build ID 200.
-	mocks.TestResults.GetBuildIDFn = func(_ context.Context, _ int64, buildNumber int) (int64, error) {
-		if buildNumber == 7 {
-			return int64(200), nil
-		}
-		return 0, fmt.Errorf("not found")
-	}
-
-	// ListTimeline returns test data for build ID 200.
-	mocks.TestResults.ListTimelineFn = func(_ context.Context, _ int64, buildID int64, _ int) ([]store.TimelineRow, error) {
-		if buildID == int64(200) {
-			return []store.TimelineRow{
-				{TestName: "ResolvedTest", FullName: "com.ResolvedTest", Status: "passed", StartMs: 1700000000000, StopMs: 1700000002000, Thread: "t-1", Host: "h-1"},
-			}, nil
-		}
-		return nil, nil
-	}
-
-	h := newTestReportHandlerWithMocks(t, projectsDir, mocks)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 1 {
-		t.Fatalf("expected 1 test case from DB via latest resolution, got %d", len(testCases))
-	}
-	tc := testCases[0].(map[string]any)
-	if tc["name"] != "ResolvedTest" {
-		t.Errorf("expected name=ResolvedTest, got %v", tc["name"])
-	}
-}
-
+// TestGetReportTimeline_Truncation caps the timeline at timelineMaxItems while
+// the summary still counts every result.
 func TestGetReportTimeline_Truncation(t *testing.T) {
 	projectsDir := t.TempDir()
-	projectSlug := "truncproj"
-	resultsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "data", "test-results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+	h, mocks := newTestReportHandler(t, projectsDir)
+	proj, err := mocks.Projects.CreateProject(context.Background(), "truncproj")
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Create 5001 test result files to trigger truncation
-	for i := range 5001 {
-		content := fmt.Sprintf(
-			`{"name":"Test %d","status":"passed","time":{"start":%d,"stop":%d,"duration":1000}}`,
-			i, 1700000000000+int64(i)*1000, 1700000001000+int64(i)*1000,
-		)
-		if err := os.WriteFile(
-			filepath.Join(resultsDir, fmt.Sprintf("test-%05d.json", i)),
-			[]byte(content), 0o644,
-		); err != nil {
+	files := make(map[string]string, timelineMaxItems+1)
+	for i := range timelineMaxItems + 1 {
+		start := 1700000000000 + int64(i)*1000
+		files[fmt.Sprintf("test-%05d.json", i)] = fmt.Sprintf(`{"name":"Test %d","status":"passed","time":{"start":%d,"stop":%d,"duration":1000}}`, i, start, start+1000)
+	}
+	writeTimelineResults(t, filepath.Join(projectsDir, "truncproj", "reports", "latest", "data", "test-results"), files)
+	id := strconv.FormatInt(proj.ID, 10)
+	code, body := serveJSON(t, h.GetReportTimeline, http.MethodGet, "/api/v1/projects/"+id+"/reports/latest/timeline", "",
+		"project_id", id, "report_id", "latest")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	wantJSON(t, body, map[string]any{"data.test_cases#": timelineMaxItems, "data.summary.truncated": true, "data.summary.total": timelineMaxItems + 1})
+}
+
+// writeTimelineResults writes result files into dir; nil files leaves dir absent.
+func writeTimelineResults(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	if files == nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/timeline", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportTimeline(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data := resp["data"].(map[string]any)
-	testCases := data["test_cases"].([]any)
-	if len(testCases) != 5000 {
-		t.Fatalf("expected 5000 test cases (truncated), got %d", len(testCases))
-	}
-	summary := data["summary"].(map[string]any)
-	if truncated, _ := summary["truncated"].(bool); !truncated {
-		t.Errorf("expected truncated=true")
-	}
-	if total, _ := summary["total"].(float64); int(total) != 5001 {
-		t.Errorf("expected summary.total=5001, got %v", summary["total"])
 	}
 }

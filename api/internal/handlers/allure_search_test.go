@@ -1,121 +1,38 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-func makeSearchReq(t *testing.T, query string) *http.Request {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, "/api/v1/search"+query, nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
+func TestSearch(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{name: "missing query", query: "", want: http.StatusBadRequest},
+		{name: "query too short", query: "q=a", want: http.StatusBadRequest},
+		{name: "query too long", query: "q=" + strings.Repeat("x", 101), want: http.StatusBadRequest},
+		{name: "no matches", query: "q=nonexistent", want: http.StatusOK},
+		// Out-of-range and malformed limits fall back to a bound, never a 400.
+		{name: "limit above max", query: "q=test&limit=999", want: http.StatusOK},
+		{name: "non-numeric limit", query: "q=test&limit=abc", want: http.StatusOK},
 	}
-	return req
-}
-
-func TestSearch_MissingQuery(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	h.Search(rr, makeSearchReq(t, ""))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rr.Code)
-	}
-	var body map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &body)
-	meta, _ := body["metadata"].(map[string]any)
-	msg, _ := meta["message"].(string)
-	if msg == "" {
-		t.Error("expected error message in metadata")
-	}
-}
-
-func TestSearch_QueryTooShort(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	h.Search(rr, makeSearchReq(t, "?q=a"))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for too-short query, got %d", rr.Code)
-	}
-}
-
-func TestSearch_QueryTooLong(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	var longQ strings.Builder
-	for range 101 {
-		longQ.WriteString("x")
-	}
-	h.Search(rr, makeSearchReq(t, "?q="+longQ.String()))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for too-long query, got %d", rr.Code)
-	}
-}
-
-func TestSearch_ValidQuery_EmptyResults(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	h.Search(rr, makeSearchReq(t, "?q=nonexistent"))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-
-	var body struct {
-		Data struct {
-			Projects []any `json:"projects"`
-			Tests    []any `json:"tests"`
-		} `json:"data"`
-		Metadata struct {
-			Message string `json:"message"`
-		} `json:"metadata"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(body.Data.Projects) != 0 {
-		t.Errorf("expected 0 projects, got %d", len(body.Data.Projects))
-	}
-	if len(body.Data.Tests) != 0 {
-		t.Errorf("expected 0 tests, got %d", len(body.Data.Tests))
-	}
-}
-
-func TestSearch_LimitClampedToMax(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	// limit=999 should be clamped to 50 — handler should not error.
-	h.Search(rr, makeSearchReq(t, "?q=test&limit=999"))
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestSearch_LimitDefault(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	// No limit param — should default to 10.
-	h.Search(rr, makeSearchReq(t, "?q=test"))
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestSearch_InvalidLimit(t *testing.T) {
-	h := newTestSearchHandler(t)
-	rr := httptest.NewRecorder()
-	// Non-numeric limit — should default to 10, not error.
-	h.Search(rr, makeSearchReq(t, "?q=test&limit=abc"))
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 (invalid limit defaults), got %d", rr.Code)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			code, body := serveJSON(t, newTestSearchHandler(t).Search, http.MethodGet, "/api/v1/search?"+tc.query, "")
+			if code != tc.want {
+				t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+			}
+			if code != http.StatusOK {
+				if msg, _ := jsonAt(body, "metadata.message").(string); msg == "" {
+					t.Errorf("400 without an error message: %v", body)
+				}
+				return
+			}
+			wantJSON(t, body, map[string]any{"data.projects#": 0, "data.tests#": 0})
+		})
 	}
 }

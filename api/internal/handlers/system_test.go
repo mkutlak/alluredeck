@@ -3,11 +3,9 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,154 +15,26 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/version"
 )
-
-// openTestDB opens a *sql.DB for use in handler tests that require DB connectivity.
-// Skips if TEST_DATABASE_URL environment variable is not set.
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set; skipping postgres-dependent test")
-	}
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatalf("open test DB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
-}
 
 func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 	cfg := &config.Config{
-		Port:                     "5050",
 		DevMode:                  true,
-		SecurityEnabled:          false,
 		CheckResultsEverySeconds: "5",
+		LLM:                      config.LLMConfig{Enabled: true, Provider: "openai", Model: "llama3.1", APIKey: "sk-secret", BaseURL: "http://ollama:11434/v1"},
 	}
-
-	handler := NewSystemHandler(cfg, nil, nil, nil, nil)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
-	if err != nil {
-		t.Fatal(err)
+	code, body := serveJSON(t, NewSystemHandler(cfg, nil, nil, nil, nil).ConfigEndpoint, http.MethodGet, "/config", "")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %v", code, body)
 	}
-
-	rr := httptest.NewRecorder()
-	handler.ConfigEndpoint(rr, req)
-
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
-	}
-
-	var resp ConfigResponse
-	if err = json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-
-	if resp.Data.DevMode != true {
-		t.Errorf("handler returned unexpected DevMode: got %v want true", resp.Data.DevMode)
-	}
-	if resp.Data.SecurityEnabled != false {
-		t.Errorf("handler returned unexpected SecurityEnabled: got %v want false", resp.Data.SecurityEnabled)
-	}
-	if resp.Data.CheckResultsEverySeconds != "5" {
-		t.Errorf("handler returned unexpected CheckResultsEverySeconds: got %v want 5", resp.Data.CheckResultsEverySeconds)
-	}
-	if resp.Data.AppVersion == "" {
-		t.Error("handler returned empty AppVersion")
-	}
-	if resp.Data.AppBuildDate == "" {
-		t.Error("handler returned empty AppBuildDate")
-	}
-	if resp.Data.AppBuildRef == "" {
-		t.Error("handler returned empty AppBuildRef")
-	}
-}
-
-func TestSystemHandler_ConfigEndpoint_LLMEnabled(t *testing.T) {
-	cfg := &config.Config{
-		LLM: config.LLMConfig{Enabled: true, Provider: "openai", Model: "llama3.1", BaseURL: "http://ollama:11434/v1"},
-	}
-	handler := NewSystemHandler(cfg, nil, nil, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/config", nil)
-	rr := httptest.NewRecorder()
-	handler.ConfigEndpoint(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", rr.Code)
-	}
-	var resp ConfigResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if !resp.Data.LLMEnabled {
-		t.Errorf("llm_enabled: got false, want true")
-	}
-	// The API key must never leak into the config response body.
-	if strings.Contains(rr.Body.String(), "api_key") {
-		t.Errorf("config response must not contain api_key: %s", rr.Body.String())
-	}
-}
-
-func TestSystemHandler_Health(t *testing.T) {
-	handler := NewSystemHandler(&config.Config{}, nil, nil, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	rr := httptest.NewRecorder()
-	handler.Health(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-
-	var resp map[string]string
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %q", resp["status"])
-	}
-}
-
-func TestSystemHandler_Ready_OK(t *testing.T) {
-	db := openTestDB(t)
-	handler := NewSystemHandler(&config.Config{}, db, nil, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
-	rr := httptest.NewRecorder()
-	handler.Ready(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]string
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %q", resp["status"])
-	}
-	if resp["db"] != "ok" {
-		t.Errorf("expected db=ok, got %q", resp["db"])
-	}
-}
-
-func TestSystemHandler_Ready_DBDown(t *testing.T) {
-	db := openTestDB(t)
-	// Close the DB to simulate failure
-	_ = db.Close()
-
-	handler := NewSystemHandler(&config.Config{}, db, nil, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
-	rr := httptest.NewRecorder()
-	handler.Ready(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d: %s", rr.Code, rr.Body.String())
+	wantJSON(t, body, map[string]any{
+		"data.dev_mode": true, "data.check_results_every_seconds": "5", "data.llm_enabled": true,
+		"data.app_version": version.Version, "data.app_build_date": version.BuildDate, "data.app_build_ref": version.BuildRef,
+	})
+	// The LLM API key must never leak into the config response.
+	if s := fmt.Sprint(body); strings.Contains(s, "api_key") || strings.Contains(s, "sk-secret") {
+		t.Errorf("config response leaks the LLM API key: %s", s)
 	}
 }
 
@@ -190,115 +60,68 @@ func (s *stubQueue) Start(context.Context)                   {}
 func (s *stubQueue) Shutdown()                               {}
 func (s *stubQueue) Healthy(context.Context) error           { return s.healthErr }
 
-// readyBody runs the readiness probe and returns the decoded status map.
-func readyBody(t *testing.T, h *SystemHandler) (int, map[string]string) {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
-	rr := httptest.NewRecorder()
-	h.Ready(rr, req)
-	var resp map[string]string
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
+// TestSystemHandler_Ready probes each wired dependency; an unwired (nil) one is
+// skipped and never fails readiness.
+func TestSystemHandler_Ready(t *testing.T) {
+	// A closed pool fails Ping without dialing, so no database is needed.
+	closedDB, err := sql.Open("pgx", "postgres://unused")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return rr.Code, resp
-}
-
-func TestSystemHandler_Ready_DependenciesHealthy_NoDB(t *testing.T) {
-	// db nil → skipped; healthy storage + queue → 200.
-	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{}, &stubQueue{}, nil)
-
-	code, resp := readyBody(t, handler)
-	if code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %v", code, resp)
+	_ = closedDB.Close()
+	storageDown := &storage.MockStore{HealthCheckFn: func(context.Context) error { return errors.New("bucket unreachable") }}
+	tests := []struct {
+		name     string
+		db       *sql.DB
+		store    storage.Store
+		queue    *stubQueue
+		want     int
+		wantJSON map[string]any
+	}{
+		{name: "healthy without a db", store: &storage.MockStore{}, queue: &stubQueue{}, want: http.StatusOK,
+			wantJSON: map[string]any{"status": "ok", "db": "skipped", "storage": "ok", "queue": "ok"}},
+		{name: "db down", db: closedDB, store: &storage.MockStore{}, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
+			wantJSON: map[string]any{"status": "unavailable", "db": "error"}},
+		{name: "storage down", store: storageDown, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
+			wantJSON: map[string]any{"storage": "error", "queue": "ok"}},
+		{name: "queue down", store: &storage.MockStore{}, queue: &stubQueue{healthErr: errors.New("queue not running")}, want: http.StatusServiceUnavailable,
+			wantJSON: map[string]any{"queue": "error"}},
 	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %q", resp["status"])
-	}
-	if resp["db"] != "skipped" {
-		t.Errorf("expected db=skipped, got %q", resp["db"])
-	}
-	if resp["storage"] != "ok" {
-		t.Errorf("expected storage=ok, got %q", resp["storage"])
-	}
-	if resp["queue"] != "ok" {
-		t.Errorf("expected queue=ok, got %q", resp["queue"])
-	}
-}
-
-func TestSystemHandler_Ready_StorageDown(t *testing.T) {
-	storageDown := &storage.MockStore{
-		HealthCheckFn: func(context.Context) error { return errors.New("bucket unreachable") },
-	}
-	handler := NewSystemHandler(&config.Config{}, nil, storageDown, &stubQueue{}, nil)
-
-	code, resp := readyBody(t, handler)
-	if code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d: %v", code, resp)
-	}
-	if resp["storage"] != "error" {
-		t.Errorf("expected storage=error, got %q", resp["storage"])
-	}
-	if resp["queue"] != "ok" {
-		t.Errorf("expected queue=ok, got %q", resp["queue"])
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			code, body := serveJSON(t, NewSystemHandler(&config.Config{}, tc.db, tc.store, tc.queue, nil).Ready, http.MethodGet, "/ready", "")
+			if code != tc.want {
+				t.Fatalf("status = %d, want %d: %v", code, tc.want, body)
+			}
+			wantJSON(t, body, tc.wantJSON)
+		})
 	}
 }
 
-func TestSystemHandler_Ready_QueueDown(t *testing.T) {
-	handler := NewSystemHandler(&config.Config{}, nil, &storage.MockStore{},
-		&stubQueue{healthErr: errors.New("queue not running")}, nil)
-
-	code, resp := readyBody(t, handler)
-	if code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d: %v", code, resp)
-	}
-	if resp["queue"] != "error" {
-		t.Errorf("expected queue=error, got %q", resp["queue"])
-	}
-}
-
+// TestSystemHandler_Ready_BootstrapGate keeps /ready at 503 until the async
+// startup bootstrap completes, while /health answers 200 throughout, so a slow
+// bootstrap never gets the pod killed by its liveness probe.
 func TestSystemHandler_Ready_BootstrapGate(t *testing.T) {
-	// nil db/dataStore/queue → those checks are skipped. bootstrapReady starts
-	// false, so /ready must return 503 with bootstrap=pending before any
-	// dependency probe runs; once it flips true, /ready returns 200.
 	bootstrapReady := &atomic.Bool{}
-	handler := NewSystemHandler(&config.Config{}, nil, nil, nil, bootstrapReady)
-
-	code, resp := readyBody(t, handler)
-	if code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 while bootstrap pending, got %d: %v", code, resp)
-	}
-	if resp["bootstrap"] != "pending" {
-		t.Errorf("expected bootstrap=pending, got %q", resp["bootstrap"])
-	}
-	if resp["status"] != "unavailable" {
-		t.Errorf("expected status=unavailable, got %q", resp["status"])
-	}
-
-	// Health is unconditional: it must return 200 even while the gate is closed.
-	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
-	healthRR := httptest.NewRecorder()
-	handler.Health(healthRR, healthReq)
-	if healthRR.Code != http.StatusOK {
-		t.Errorf("expected Health 200 while bootstrap pending, got %d", healthRR.Code)
-	}
-
-	// Once bootstrap completes, /ready reports ready.
-	bootstrapReady.Store(true)
-	code, resp = readyBody(t, handler)
-	if code != http.StatusOK {
-		t.Errorf("expected 200 after bootstrap complete, got %d: %v", code, resp)
-	}
-	if resp["bootstrap"] != "ok" {
-		t.Errorf("expected bootstrap=ok, got %q", resp["bootstrap"])
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %q", resp["status"])
-	}
-
-	// Health still 200 after the gate opens.
-	healthRR = httptest.NewRecorder()
-	handler.Health(healthRR, healthReq)
-	if healthRR.Code != http.StatusOK {
-		t.Errorf("expected Health 200 after bootstrap complete, got %d", healthRR.Code)
+	h := NewSystemHandler(&config.Config{}, nil, nil, nil, bootstrapReady)
+	for _, step := range []struct {
+		done      bool
+		wantReady int
+		wantJSON  map[string]any
+	}{
+		{done: false, wantReady: http.StatusServiceUnavailable, wantJSON: map[string]any{"bootstrap": "pending", "status": "unavailable"}},
+		{done: true, wantReady: http.StatusOK, wantJSON: map[string]any{"bootstrap": "ok", "status": "ok"}},
+	} {
+		bootstrapReady.Store(step.done)
+		code, body := serveJSON(t, h.Ready, http.MethodGet, "/ready", "")
+		if code != step.wantReady {
+			t.Errorf("bootstrap done=%v: /ready status = %d, want %d: %v", step.done, code, step.wantReady, body)
+		}
+		wantJSON(t, body, step.wantJSON)
+		code, body = serveJSON(t, h.Health, http.MethodGet, "/health", "")
+		if code != http.StatusOK {
+			t.Errorf("bootstrap done=%v: /health status = %d, want 200", step.done, code)
+		}
+		wantJSON(t, body, map[string]any{"status": "ok"})
 	}
 }
