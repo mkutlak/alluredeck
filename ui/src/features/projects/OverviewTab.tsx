@@ -9,7 +9,7 @@ import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
 import { projectIndexOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
-import { formatDuration, calcPassRate, formatPassRate } from '@/lib/utils'
+import { formatDuration, formatPassRate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -35,6 +35,12 @@ import { formatProjectLabel } from '@/lib/projectLabel'
 import { resolveProjectFromParam } from '@/lib/resolveProject'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
+import {
+  deriveHeaderChips,
+  resolveEffectiveBranch,
+  splitReportHistory,
+  toggleCompareSelection,
+} from './overviewHelpers'
 
 export function OverviewTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -54,10 +60,7 @@ export function OverviewTab() {
     enabled: !!projectId,
     staleTime: 60_000,
   })
-  const effectiveBranch =
-    selectedBranch && branchesData?.some((b) => b.name === selectedBranch)
-      ? selectedBranch
-      : undefined
+  const effectiveBranch = resolveEffectiveBranch(selectedBranch, branchesData)
 
   // Hierarchy detection: fetch the project list to find parent/child relationships
   const { data: projectsResp } = useQuery({ ...projectIndexOptions(), enabled: !!projectId })
@@ -66,15 +69,7 @@ export function OverviewTab() {
   const isParentProject = (currentProject?.children?.length ?? 0) > 0
 
   const handleToggleBuild = (id: string) => {
-    setSelectedBuilds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else if (next.size < 2) {
-        next.add(id)
-      }
-      return next
-    })
+    setSelectedBuilds((prev) => toggleCompareSelection(prev, id))
   }
   const [prevProjectId, setPrevProjectId] = useState(projectId)
   if (prevProjectId !== projectId) {
@@ -127,21 +122,12 @@ export function OverviewTab() {
   // Memoize derived data. Safe to compute before the projectId guard because
   // historyData and knownFailuresData are undefined until queries are enabled.
   const reports = useMemo(() => historyData?.data.reports ?? [], [historyData])
-  const { latest, tableReports } = useMemo(() => {
-    const latest = reports.find((r) => r.is_latest)
-    const tableReports = reports.filter((r) => r.report_id !== 'latest')
-    return { latest, tableReports }
-  }, [reports])
+  const { latest, tableReports } = useMemo(() => splitReportHistory(reports), [reports])
 
-  // Header chips: newest branch-filtered numbered build (ignore the synthetic
-  // "latest" alias, which is not branch-filtered by the API).
-  const { chipLatest, passRate } = useMemo(() => {
-    const chipReports = chipHistoryData?.data.reports ?? []
-    const chipLatest = chipReports.find((r) => r.report_id !== 'latest')
-    const stat = chipLatest?.statistic
-    const passRate = stat ? calcPassRate(stat.passed, stat.total, stat.skipped) : null
-    return { chipLatest, passRate }
-  }, [chipHistoryData])
+  const { chipLatest, passRate } = useMemo(
+    () => deriveHeaderChips(chipHistoryData?.data.reports ?? []),
+    [chipHistoryData],
+  )
 
   const pagination = historyData?.pagination
   const stat = chipLatest?.statistic

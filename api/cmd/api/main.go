@@ -99,9 +99,15 @@ type handlerSet struct {
 	failureSummary  *handlers.FailureSummaryHandler
 }
 
+// routeMux is the part of *http.ServeMux that registerRoutes uses. It is an
+// interface so the RBAC matrix test can record every pattern mounted.
+type routeMux interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
 // routeDeps bundles all dependencies needed by registerRoutes.
 type routeDeps struct {
-	mux             *http.ServeMux
+	mux             routeMux
 	prefix          string
 	cfg             *config.Config
 	jwtManager      *security.JWTManager
