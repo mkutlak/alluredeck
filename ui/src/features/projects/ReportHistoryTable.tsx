@@ -18,7 +18,8 @@ import {
 import type { ReportHistoryEntry } from '@/types/api'
 
 export interface ReportHistoryTableProps {
-  projectId: string
+  /** Numeric project_id used to build report links — omit while unresolved. */
+  numericProjectId?: number
   reports: ReportHistoryEntry[]
   isAdmin: boolean
   onDeleteReport: (reportId: string) => void
@@ -27,14 +28,14 @@ export interface ReportHistoryTableProps {
 }
 
 function ReportRow({
-  projectId,
+  numericProjectId,
   r,
   isAdmin,
   onDeleteReport,
   selectedBuilds,
   onToggleBuild,
 }: {
-  projectId: string
+  numericProjectId?: number
   r: ReportHistoryEntry
   isAdmin: boolean
   onDeleteReport: (reportId: string) => void
@@ -43,7 +44,11 @@ function ReportRow({
 }) {
   const rStat = r.statistic
   const rPassRate = rStat ? calcPassRate(rStat.passed, rStat.total, rStat.skipped) : null
-  const reportUrl = `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}`
+  // Links use the numeric project_id, never the (possibly colliding) slug route param.
+  const reportPath =
+    numericProjectId != null
+      ? `/projects/${numericProjectId}/reports/${encodeURIComponent(r.report_id)}`
+      : undefined
 
   return (
     <TableRow
@@ -61,12 +66,16 @@ function ReportRow({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-1.5">
-          <Link
-            to={reportUrl}
-            className="text-primary font-mono text-sm font-medium hover:underline"
-          >
-            #{r.report_id}
-          </Link>
+          {reportPath ? (
+            <Link
+              to={reportPath}
+              className="text-primary font-mono text-sm font-medium hover:underline"
+            >
+              #{r.report_id}
+            </Link>
+          ) : (
+            <span className="font-mono text-sm font-medium">#{r.report_id}</span>
+          )}
           {r.has_playwright_report && (
             <span
               title="Has Playwright report"
@@ -137,19 +146,23 @@ function ReportRow({
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
-          <Button asChild size="sm" variant="ghost">
-            <Link to={reportUrl}>View</Link>
-          </Button>
-          <Button asChild size="sm" variant="ghost">
-            <a
-              href={`${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(r.report_id)}/index.html`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open in new tab"
-            >
-              <ExternalLink size={12} />
-            </a>
-          </Button>
+          {reportPath && (
+            <>
+              <Button asChild size="sm" variant="ghost">
+                <Link to={reportPath}>View</Link>
+              </Button>
+              <Button asChild size="sm" variant="ghost">
+                <a
+                  href={`${env.apiUrl}${reportPath}/index.html`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open in new tab"
+                >
+                  <ExternalLink size={12} />
+                </a>
+              </Button>
+            </>
+          )}
           {isAdmin && !r.is_latest && (
             <Button
               size="sm"
@@ -168,7 +181,7 @@ function ReportRow({
 }
 
 export function ReportHistoryTable({
-  projectId,
+  numericProjectId,
   reports,
   isAdmin,
   onDeleteReport,
@@ -194,7 +207,7 @@ export function ReportHistoryTable({
             {reports.map((r) => (
               <ReportRow
                 key={r.report_id}
-                projectId={projectId}
+                numericProjectId={numericProjectId}
                 r={r}
                 isAdmin={isAdmin}
                 onDeleteReport={onDeleteReport}

@@ -6,7 +6,6 @@ import { fetchReportHistory, deleteReport } from '@/api/reports'
 import { fetchBranches } from '@/api/branches'
 import { extractErrorMessage } from '@/api/client'
 import { invalidateProjectQueries, queryKeys } from '@/lib/query-keys'
-import { projectIndexOptions } from '@/lib/queries'
 import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { formatDuration, formatPassRate } from '@/lib/utils'
@@ -32,7 +31,7 @@ import { PipelineRunsTab } from '@/features/pipeline'
 import { Badge } from '@/components/ui/badge'
 import { getPassRateBadgeClass } from '@/lib/status-colors'
 import { formatProjectLabel } from '@/lib/projectLabel'
-import { resolveProjectFromParam } from '@/lib/resolveProject'
+import { useProjectFromParam } from '@/lib/resolveProject'
 import { ReportHistoryTable } from './ReportHistoryTable'
 import { ReportPagination } from './ReportPagination'
 import {
@@ -62,10 +61,9 @@ export function OverviewTab() {
   })
   const effectiveBranch = resolveEffectiveBranch(selectedBranch, branchesData)
 
-  // Hierarchy detection: fetch the project list to find parent/child relationships
-  const { data: projectsResp } = useQuery({ ...projectIndexOptions(), enabled: !!projectId })
-  const allProjects = projectsResp?.data ?? []
-  const currentProject = resolveProjectFromParam(projectId, allProjects)
+  // Hierarchy detection + numeric project_id for links: resolve the route param
+  // (which may be a slug) the same way ProjectLayout does.
+  const { project: currentProject, projects: allProjects } = useProjectFromParam(projectId)
   const isParentProject = (currentProject?.children?.length ?? 0) > 0
 
   const handleToggleBuild = (id: string) => {
@@ -148,13 +146,18 @@ export function OverviewTab() {
     selectedBuilds.size === 2
       ? (() => {
           const [a, b] = Array.from(selectedBuilds)
-          const compareUrl = `/projects/${encodeURIComponent(projectId)}/compare?a=${a}&b=${b}`
+          // Numeric project_id, never the (possibly colliding) slug route param.
+          const numericProjectId = currentProject?.project_id
           return (
             <div className="bg-muted/40 flex items-center gap-3 rounded-lg border px-4 py-2">
               <span className="text-muted-foreground text-sm">2 builds selected</span>
-              <Button asChild size="sm">
-                <Link to={compareUrl}>Compare Selected</Link>
-              </Button>
+              {numericProjectId != null && (
+                <Button asChild size="sm">
+                  <Link to={`/projects/${numericProjectId}/compare?a=${a}&b=${b}`}>
+                    Compare Selected
+                  </Link>
+                </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={() => setSelectedBuilds(new Set())}>
                 Clear
               </Button>
@@ -233,7 +236,7 @@ export function OverviewTab() {
         </div>
       ) : (
         <ReportHistoryTable
-          projectId={projectId}
+          numericProjectId={currentProject?.project_id}
           reports={tableReports}
           isAdmin={isAdmin}
           onDeleteReport={setDeleteReportId}

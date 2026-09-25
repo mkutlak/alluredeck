@@ -6,6 +6,7 @@ import { renderWithProviders } from '@/test/render'
 import { OverviewTab } from '../OverviewTab'
 import * as reportsApi from '@/api/reports'
 import * as branchesApi from '@/api/branches'
+import * as projectsApi from '@/api/projects'
 import { useAuthStore } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 
@@ -15,6 +16,7 @@ vi.mock('@/api/reports')
 vi.mock('@/api/branches', () => ({
   fetchBranches: vi.fn().mockResolvedValue([]),
 }))
+vi.mock('@/api/projects')
 mockApiClient()
 
 function makeReport(id: string, isLatest = false, passed = 10, total = 10) {
@@ -46,6 +48,11 @@ function renderTab() {
     expiresAt: Date.now() + 3_600_000,
   })
 
+  // The route param below is the slug; the index maps it to numeric project_id 7.
+  vi.mocked(projectsApi.getProjectIndex).mockResolvedValue({
+    data: [{ project_id: 7, slug: 'test-project' }],
+    metadata: { message: 'ok' },
+  })
   vi.mocked(reportsApi.fetchReportKnownFailures).mockResolvedValue({
     known_failures: [],
     new_failures: [],
@@ -141,7 +148,9 @@ describe('OverviewTab', () => {
     expect(await screen.findByText(/no reports yet/i)).toBeInTheDocument()
   })
 
-  it('links two selected builds to the compare view, blocks a third, and clears', async () => {
+  // Links use the numeric project_id even when the route param is a slug —
+  // slugs collide for same-name children under different parents (ui/CLAUDE.md).
+  it('links reports and two selected builds by numeric project id, blocks a third, and clears', async () => {
     const user = userEvent.setup()
     vi.mocked(reportsApi.fetchReportHistory).mockResolvedValue(
       makePaginated([makeReport('42', true), makeReport('41'), makeReport('40')], {
@@ -154,13 +163,18 @@ describe('OverviewTab', () => {
     renderTab()
     const checkbox = (id: string) => screen.getByRole('checkbox', { name: `Select report #${id}` })
 
-    expect(await screen.findByText('#41')).toBeInTheDocument()
+    const reportLink = await screen.findByRole('link', { name: '#41' })
+    expect(reportLink).toHaveAttribute('href', '/projects/7/reports/41')
+    expect(
+      within(reportLink.closest('tr')!).getByRole('link', { name: /open in new tab/i }),
+    ).toHaveAttribute('href', expect.stringMatching(/\/projects\/7\/reports\/41\/index\.html$/))
+
     await user.click(checkbox('41'))
     await user.click(checkbox('40'))
 
     expect(screen.getByRole('link', { name: /compare selected/i })).toHaveAttribute(
       'href',
-      '/projects/test-project/compare?a=41&b=40',
+      '/projects/7/compare?a=41&b=40',
     )
     expect(checkbox('42')).toBeDisabled()
 
