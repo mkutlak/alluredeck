@@ -2,68 +2,51 @@ package handlers
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
-func TestWriteSuccess(t *testing.T) {
+// TestResponseEnvelope pins the JSON envelope every handler answers with
+// (269fdc0): {data, metadata.message[, pagination]} with a JSON content type.
+func TestResponseEnvelope(t *testing.T) {
 	t.Parallel()
-	rr := httptest.NewRecorder()
-	writeSuccess(rr, 200, map[string]string{"id": "proj1"}, "Project created")
-
-	if rr.Code != 200 {
-		t.Fatalf("want 200, got %d", rr.Code)
+	rows := []struct {
+		name   string
+		status int
+		want   map[string]any
+		write  func(w http.ResponseWriter)
+	}{
+		{"writeJSON", http.StatusCreated, map[string]any{"data": "hello"},
+			func(w http.ResponseWriter) { writeJSON(w, http.StatusCreated, map[string]any{"data": "hello"}) }},
+		{"writeError", http.StatusBadRequest, map[string]any{"metadata": map[string]any{"message": "went wrong"}},
+			func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, "went wrong") }},
+		{"writeSuccess", http.StatusOK, map[string]any{"data": map[string]any{"id": "p1"}, "metadata": map[string]any{"message": "Created"}},
+			func(w http.ResponseWriter) { writeSuccess(w, http.StatusOK, map[string]string{"id": "p1"}, "Created") }},
+		{"writePagedSuccess", http.StatusOK, map[string]any{
+			"data":       []any{"a", "b"},
+			"metadata":   map[string]any{"message": "Listed"},
+			"pagination": map[string]any{"page": 1.0, "per_page": 20.0, "total": 42.0, "total_pages": 3.0},
+		}, func(w http.ResponseWriter) {
+			writePagedSuccess(w, []string{"a", "b"}, "Listed", newPaginationMeta(1, 20, 42))
+		}},
 	}
-
-	var resp struct {
-		Data     map[string]string `json:"data"`
-		Metadata struct {
-			Message string `json:"message"`
-		} `json:"metadata"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Data["id"] != "proj1" {
-		t.Errorf("data.id = %q, want %q", resp.Data["id"], "proj1")
-	}
-	if resp.Metadata.Message != "Project created" {
-		t.Errorf("metadata.message = %q, want %q", resp.Metadata.Message, "Project created")
-	}
-}
-
-func TestWritePagedSuccess(t *testing.T) {
-	t.Parallel()
-	rr := httptest.NewRecorder()
-	pg := newPaginationMeta(1, 20, 42)
-	writePagedSuccess(rr, []string{"a", "b"}, "Items listed", pg)
-
-	if rr.Code != 200 {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-
-	var resp struct {
-		Data     []string `json:"data"`
-		Metadata struct {
-			Message string `json:"message"`
-		} `json:"metadata"`
-		Pagination struct {
-			Page       int `json:"page"`
-			PerPage    int `json:"per_page"`
-			Total      int `json:"total"`
-			TotalPages int `json:"total_pages"`
-		} `json:"pagination"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Pagination.Total != 42 {
-		t.Errorf("pagination.total = %d, want 42", resp.Pagination.Total)
-	}
-	if resp.Pagination.TotalPages != 3 {
-		t.Errorf("pagination.total_pages = %d, want 3", resp.Pagination.TotalPages)
-	}
-	if resp.Metadata.Message != "Items listed" {
-		t.Errorf("metadata.message = %q, want %q", resp.Metadata.Message, "Items listed")
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rr := httptest.NewRecorder()
+			tc.write(rr)
+			if rr.Code != tc.status || rr.Header().Get("Content-Type") != "application/json" {
+				t.Errorf("status = %d, Content-Type = %q, want %d and application/json", rr.Code, rr.Header().Get("Content-Type"), tc.status)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("body = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

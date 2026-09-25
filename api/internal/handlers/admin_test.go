@@ -3,9 +3,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,792 +21,223 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// newAdminTestJobManager creates a MemJobManager suitable for handler tests.
-func newAdminTestJobManager(t *testing.T, gen runner.ReportGenerator, poolSize int) runner.JobQueuer {
-	t.Helper()
-	jm := runner.NewMemJobManager(gen, poolSize, zap.NewNop())
-	jm.Start(context.Background())
-	t.Cleanup(func() { jm.Shutdown() })
-	return jm
+// adminJobQueue answers the admin job endpoints from a fixed job list and
+// error and records the job ID it was asked about. The embedded nil interface
+// makes every other JobQueuer method an intentional panic.
+type adminJobQueue struct {
+	runner.JobQueuer
+	jobs  []*runner.Job
+	err   error
+	gotID string
 }
 
-func newTestAdminHandler(t *testing.T, jm runner.JobQueuer, ms *storage.MockStore) *AdminHandler {
-	t.Helper()
-	return NewAdminHandler(jm, ms, zap.NewNop())
+var _ runner.JobQueuer = (*adminJobQueue)(nil)
+
+func (q *adminJobQueue) ListJobs(context.Context) []*runner.Job { return q.jobs }
+func (q *adminJobQueue) Cancel(_ context.Context, id string) error {
+	q.gotID = id
+	return q.err
+}
+func (q *adminJobQueue) Retry(_ context.Context, id string) error {
+	q.gotID = id
+	return q.err
+}
+func (q *adminJobQueue) Delete(_ context.Context, id string) error {
+	q.gotID = id
+	return q.err
 }
 
-// blockingGen blocks until ch is closed (for keeping jobs in pending/running state).
-type blockingGen struct {
-	ch chan struct{}
-}
-
-func newBlockingGen() *blockingGen {
-	return &blockingGen{ch: make(chan struct{})}
-}
-
-func (g *blockingGen) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {
-	<-g.ch
-	return "ok", nil
-}
-
-// contextGen blocks until ch or ctx.Done() (for cancellation-aware tests).
-type contextGen struct {
-	ch chan struct{}
-}
-
-func newContextGen() *contextGen {
-	return &contextGen{ch: make(chan struct{})}
-}
-
-func (g *contextGen) GenerateReport(ctx context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {
-	select {
-	case <-g.ch:
-		return "ok", nil
-	case <-ctx.Done():
-		return "", ctx.Err()
+func TestAdminHandler_ListJobs(t *testing.T) {
+	t.Parallel()
+	jobs := make([]*runner.Job, 5)
+	for i := range jobs {
+		jobs[i] = &runner.Job{ID: fmt.Sprintf("job-%d", i+1)}
 	}
-}
-
-// ---------------------------------------------------------------------------
-// ListJobs
-// ---------------------------------------------------------------------------
-
-// requirePagination extracts the "pagination" object from a decoded response
-// and asserts it exists. Returns the pagination map for further assertions.
-func requirePagination(t *testing.T, resp map[string]any) map[string]any {
-	t.Helper()
-	raw, ok := resp["pagination"]
-	if !ok {
-		t.Fatal("response missing \"pagination\" key")
+	pages := func(page, perPage, total, totalPages int) map[string]int {
+		return map[string]int{"page": page, "per_page": perPage, "total": total, "total_pages": totalPages}
 	}
-	pg, ok := raw.(map[string]any)
-	if !ok {
-		t.Fatalf("expected pagination to be object, got %T", raw)
-	}
-	return pg
-}
-
-// assertPaginationValues checks that the pagination map contains the expected
-// page, per_page, total, and total_pages values.
-func assertPaginationValues(t *testing.T, pg map[string]any, page, perPage, total, totalPages int) {
-	t.Helper()
-	checks := []struct {
-		key  string
-		want int
+	rows := []struct {
+		name    string
+		query   string
+		queued  int // how many of the five jobs the queue holds
+		wantIDs []string
+		wantPg  map[string]int
 	}{
-		{"page", page},
-		{"per_page", perPage},
-		{"total", total},
-		{"total_pages", totalPages},
+		{"empty", "", 0, nil, pages(1, 20, 0, 0)},
+		{"defaults to 20 per page", "", 2, []string{"job-1", "job-2"}, pages(1, 20, 2, 1)},
+		{"first page", "page=1&per_page=2", 5, []string{"job-1", "job-2"}, pages(1, 2, 5, 3)},
+		{"second page", "page=2&per_page=2", 5, []string{"job-3", "job-4"}, pages(2, 2, 5, 3)},
+		{"beyond the last page", "page=100&per_page=2", 5, nil, pages(100, 2, 5, 3)},
 	}
-	for _, c := range checks {
-		got, ok := pg[c.key].(float64)
-		if !ok {
-			t.Errorf("pagination[%q]: expected number, got %T", c.key, pg[c.key])
-			continue
-		}
-		if int(got) != c.want {
-			t.Errorf("pagination[%q] = %d, want %d", c.key, int(got), c.want)
-		}
-	}
-}
-
-func TestAdminListJobs_Empty(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs", nil)
-	rr := httptest.NewRecorder()
-	h.ListJobs(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data to be array, got %T", resp["data"])
-	}
-	if len(data) != 0 {
-		t.Errorf("expected empty data array, got %d items", len(data))
-	}
-
-	pg := requirePagination(t, resp)
-	assertPaginationValues(t, pg, 1, 20, 0, 0)
-}
-
-func TestAdminListJobs_ReturnsJobs(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 4)
-	jm.Submit(context.Background(), 1, "proj-admin-1", runner.JobParams{})
-	jm.Submit(context.Background(), 2, "proj-admin-2", runner.JobParams{})
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs", nil)
-	rr := httptest.NewRecorder()
-	h.ListJobs(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 2 {
-		t.Errorf("expected 2 jobs, got %d", len(data))
-	}
-
-	pg := requirePagination(t, resp)
-	assertPaginationValues(t, pg, 1, 20, 2, 1)
-}
-
-func TestAdminListJobs_Pagination(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 8)
-	for i := 1; i <= 5; i++ {
-		jm.Submit(context.Background(), int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
-	}
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs?page=1&per_page=2", nil)
-	rr := httptest.NewRecorder()
-	h.ListJobs(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 2 {
-		t.Errorf("expected 2 jobs on page 1, got %d", len(data))
-	}
-
-	pg := requirePagination(t, resp)
-	assertPaginationValues(t, pg, 1, 2, 5, 3)
-}
-
-func TestAdminListJobs_PaginationPage2(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 8)
-	for i := 1; i <= 5; i++ {
-		jm.Submit(context.Background(), int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
-	}
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs?page=2&per_page=2", nil)
-	rr := httptest.NewRecorder()
-	h.ListJobs(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 2 {
-		t.Errorf("expected 2 jobs on page 2, got %d", len(data))
-	}
-}
-
-func TestAdminListJobs_PaginationBeyondLast(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 8)
-	for i := 1; i <= 5; i++ {
-		jm.Submit(context.Background(), int64(i), fmt.Sprintf("pag-%d", i), runner.JobParams{})
-	}
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/jobs?page=100&per_page=2", nil)
-	rr := httptest.NewRecorder()
-	h.ListJobs(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 0 {
-		t.Errorf("expected empty data beyond last page, got %d items", len(data))
-	}
-
-	pg := requirePagination(t, resp)
-	assertPaginationValues(t, pg, 100, 2, 5, 3)
-}
-
-// ---------------------------------------------------------------------------
-// ListPendingResults
-// ---------------------------------------------------------------------------
-
-func TestAdminListPendingResults_Empty(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	ms := &storage.MockStore{
-		ListProjectsFn: func(_ context.Context) ([]string, error) {
-			return []string{"proj-a"}, nil
-		},
-		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
-			return nil, nil // no result files
-		},
-	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, ms)
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
-	rr := httptest.NewRecorder()
-	h.ListPendingResults(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 0 {
-		t.Errorf("expected empty result, got %d", len(data))
-	}
-}
-
-func TestAdminListPendingResults_ReturnsProjects(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	modTime := time.Now().UnixNano()
-	ms := &storage.MockStore{
-		ListProjectsFn: func(_ context.Context) ([]string, error) {
-			return []string{"proj-with-results", "proj-empty"}, nil
-		},
-		ReadDirFn: func(_ context.Context, projectID string, _ string) ([]storage.DirEntry, error) {
-			if projectID == "proj-with-results" {
-				return []storage.DirEntry{
-					{Name: "result-001.json", Size: 1024, ModTime: modTime},
-					{Name: "result-002.json", Size: 2048, ModTime: modTime},
-				}, nil
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := NewAdminHandler(&adminJobQueue{jobs: jobs[:tc.queued]}, &storage.MockStore{}, zap.NewNop())
+			rr := httptest.NewRecorder()
+			h.ListJobs(rr, httptest.NewRequest(http.MethodGet, "/api/v1/admin/jobs?"+tc.query, nil))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
 			}
-			return nil, nil
-		},
-	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, ms)
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
-	rr := httptest.NewRecorder()
-	h.ListPendingResults(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 1 {
-		t.Fatalf("expected 1 project with results, got %d", len(data))
-	}
-
-	entry, ok := data[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected entry to be object")
-	}
-	if entry["slug"] != "proj-with-results" {
-		t.Errorf("wrong slug: %v", entry["slug"])
-	}
-	if entry["file_count"].(float64) != 2 {
-		t.Errorf("expected file_count=2, got %v", entry["file_count"])
-	}
-	if entry["total_size"].(float64) != 3072 {
-		t.Errorf("expected total_size=3072, got %v", entry["total_size"])
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CancelJob
-// ---------------------------------------------------------------------------
-
-func TestAdminCancelJob_NotFound(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/jobs/bogus-id/cancel", nil)
-	req.SetPathValue("job_id", "bogus-id")
-	rr := httptest.NewRecorder()
-	h.CancelJob(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("want 404, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminRetryJob_NotFound(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/jobs/bogus-id/retry", nil)
-	req.SetPathValue("job_id", "bogus-id")
-	rr := httptest.NewRecorder()
-	h.RetryJob(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("want 404 for unknown job, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminCancelJob_AlreadyTerminal(t *testing.T) {
-	gen := newBlockingGen()
-
-	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(context.Background(), 1, "proj-terminal", runner.JobParams{})
-	close(gen.ch)
-
-	// Wait for completion.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusCompleted {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/jobs/"+j.ID+"/cancel", nil)
-	req.SetPathValue("job_id", j.ID)
-	rr := httptest.NewRecorder()
-	h.CancelJob(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Errorf("want 409, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminCancelJob_Success(t *testing.T) {
-	gen := newContextGen()
-	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(context.Background(), 1, "proj-cancel-handler", runner.JobParams{})
-
-	// Wait for running.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusRunning {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/jobs/"+j.ID+"/cancel", nil)
-	req.SetPathValue("job_id", j.ID)
-	rr := httptest.NewRecorder()
-	h.CancelJob(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CleanProjectResults
-// ---------------------------------------------------------------------------
-
-func TestAdminCleanResults_NotFound(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	ms := &storage.MockStore{}
-	jm := newAdminTestJobManager(t, gen, 2)
-	// Project 99 does not exist in the store → GetProject returns ErrProjectNotFound → 404.
-	projStore := &testutil.MockProjectStore{
-		GetProjectFn: func(_ context.Context, id int64) (*store.Project, error) {
-			return nil, store.ErrProjectNotFound
-		},
-	}
-	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/results/99", nil)
-	req.SetPathValue("project_id", "99")
-	rr := httptest.NewRecorder()
-	h.CleanProjectResults(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("want 404, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminCleanResults_Success(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	cleaned := false
-	ms := &storage.MockStore{
-		CleanResultsFn: func(_ context.Context, _ string) error {
-			cleaned = true
-			return nil
-		},
-	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	// Project 1 exists with slug "proj1".
-	projStore := &testutil.MockProjectStore{
-		GetProjectFn: func(_ context.Context, id int64) (*store.Project, error) {
-			if id == 1 {
-				return &store.Project{ID: 1, Slug: "proj1"}, nil
+			var resp struct {
+				Data []struct {
+					ID string `json:"job_id"`
+				} `json:"data"`
+				Pagination map[string]int `json:"pagination"`
 			}
-			return nil, store.ErrProjectNotFound
-		},
-	}
-	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/results/1", nil)
-	req.SetPathValue("project_id", "1")
-	rr := httptest.NewRecorder()
-	h.CleanProjectResults(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !cleaned {
-		t.Error("expected CleanResults to be called")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// DeleteJob
-// ---------------------------------------------------------------------------
-
-func TestAdminDeleteJob_MissingID(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/", nil)
-	// job_id path value intentionally not set
-	rr := httptest.NewRecorder()
-	h.DeleteJob(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("want 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminDeleteJob_NotFound(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	jm := newAdminTestJobManager(t, gen, 2)
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/bogus-id", nil)
-	req.SetPathValue("job_id", "bogus-id")
-	rr := httptest.NewRecorder()
-	h.DeleteJob(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("want 404, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminDeleteJob_NonTerminal(t *testing.T) {
-	gen := newContextGen()
-	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(context.Background(), 1, "proj-delete-running", runner.JobParams{})
-
-	// Wait for the job to reach running state.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusRunning {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	defer close(gen.ch)
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/"+j.ID, nil)
-	req.SetPathValue("job_id", j.ID)
-	rr := httptest.NewRecorder()
-	h.DeleteJob(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Errorf("want 409, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAdminDeleteJob_Success(t *testing.T) {
-	gen := newBlockingGen()
-	jm := newAdminTestJobManager(t, gen, 2)
-	j := jm.Submit(context.Background(), 1, "proj-delete-success", runner.JobParams{})
-	close(gen.ch) // let the job complete
-
-	// Wait for completion.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if got := jm.Get(context.Background(), j.ID); got != nil && got.Status == runner.JobStatusCompleted {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	h := newTestAdminHandler(t, jm, &storage.MockStore{})
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/jobs/"+j.ID, nil)
-	req.SetPathValue("job_id", j.ID)
-	rr := httptest.NewRecorder()
-	h.DeleteJob(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	// Job should no longer be retrievable.
-	if got := jm.Get(context.Background(), j.ID); got != nil {
-		t.Errorf("expected job to be deleted, but Get returned %+v", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ListPendingResults — storage_key resolution tests
-// ---------------------------------------------------------------------------
-
-// TestAdminListPendingResults_TopLevelProject verifies that a top-level project
-// whose storage dir matches its slug is resolved correctly (project_id != 0, slug populated).
-func TestAdminListPendingResults_TopLevelProject(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	modTime := time.Now().UnixNano()
-	ms := &storage.MockStore{
-		ListProjectsFn: func(_ context.Context) ([]string, error) {
-			return []string{"my-top"}, nil
-		},
-		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
-			return []storage.DirEntry{
-				{Name: "result-001.json", Size: 512, ModTime: modTime},
-			}, nil
-		},
-	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	projStore := &testutil.MockProjectStore{
-		GetProjectFn: func(_ context.Context, _ int64) (*store.Project, error) {
-			// "my-top" is not numeric — GetProject won't be called for it.
-			return nil, store.ErrProjectNotFound
-		},
-		GetProjectBySlugFn: func(_ context.Context, slug string) (*store.Project, error) {
-			if slug == "my-top" {
-				return &store.Project{ID: 5, Slug: "my-top", StorageKey: "my-top"}, nil
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
 			}
-			return nil, store.ErrProjectNotFound
-		},
-	}
-	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
-	rr := httptest.NewRecorder()
-	h.ListPendingResults(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	data, ok := resp["data"].([]any)
-	if !ok || len(data) != 1 {
-		t.Fatalf("expected 1 entry, got %v", resp["data"])
-	}
-	entry, ok := data[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected entry to be object")
-	}
-	if entry["project_id"].(float64) != 5 {
-		t.Errorf("want project_id=5, got %v", entry["project_id"])
-	}
-	if entry["slug"] != "my-top" {
-		t.Errorf("want slug=%q, got %v", "my-top", entry["slug"])
-	}
-	if entry["storage_key"] != "my-top" {
-		t.Errorf("want storage_key=%q, got %v", "my-top", entry["storage_key"])
-	}
-}
-
-// TestAdminListPendingResults_ChildProject verifies that a child project whose
-// storage dir is its numeric storage_key (e.g. "82") is resolved to the correct
-// project row (project_id=82, slug="ui-permissions").
-func TestAdminListPendingResults_ChildProject(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
-
-	modTime := time.Now().UnixNano()
-	ms := &storage.MockStore{
-		ListProjectsFn: func(_ context.Context) ([]string, error) {
-			return []string{"82"}, nil
-		},
-		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
-			return []storage.DirEntry{
-				{Name: "result-001.json", Size: 256, ModTime: modTime},
-			}, nil
-		},
-	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	projStore := &testutil.MockProjectStore{
-		GetProjectFn: func(_ context.Context, id int64) (*store.Project, error) {
-			if id == 82 {
-				return &store.Project{ID: 82, Slug: "ui-permissions", StorageKey: "82"}, nil
+			if resp.Data == nil {
+				t.Error("data = null, want an array")
 			}
-			return nil, store.ErrProjectNotFound
-		},
-	}
-	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
-	rr := httptest.NewRecorder()
-	h.ListPendingResults(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	data, ok := resp["data"].([]any)
-	if !ok || len(data) != 1 {
-		t.Fatalf("expected 1 entry, got %v", resp["data"])
-	}
-	entry, ok := data[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected entry to be object")
-	}
-	if entry["project_id"].(float64) != 82 {
-		t.Errorf("want project_id=82, got %v", entry["project_id"])
-	}
-	if entry["slug"] != "ui-permissions" {
-		t.Errorf("want slug=%q, got %v", "ui-permissions", entry["slug"])
-	}
-	if entry["storage_key"] != "82" {
-		t.Errorf("want storage_key=%q, got %v", "82", entry["storage_key"])
+			var ids []string
+			for _, j := range resp.Data {
+				ids = append(ids, j.ID)
+			}
+			if !slices.Equal(ids, tc.wantIDs) {
+				t.Errorf("job ids = %v, want %v", ids, tc.wantIDs)
+			}
+			if !maps.Equal(resp.Pagination, tc.wantPg) {
+				t.Errorf("pagination = %v, want %v", resp.Pagination, tc.wantPg)
+			}
+		})
 	}
 }
 
-// TestAdminListPendingResults_OrphanSkipped verifies that a storage dir with no
-// matching DB row is silently skipped (not included in the response).
-func TestAdminListPendingResults_OrphanSkipped(t *testing.T) {
-	gen := newBlockingGen()
-	defer close(gen.ch)
+func TestAdminHandler_JobActions(t *testing.T) {
+	t.Parallel()
+	cancel, retry, del := (*AdminHandler).CancelJob, (*AdminHandler).RetryJob, (*AdminHandler).DeleteJob
+	notFound := fmt.Errorf("job %q: %w", "j1", runner.ErrJobNotFound)
+	rows := []struct {
+		name   string
+		action func(*AdminHandler, http.ResponseWriter, *http.Request)
+		jobID  string
+		err    error // what the job queue answers
+		want   int
+	}{
+		{"cancel", cancel, "j1", nil, http.StatusOK},
+		{"cancel unknown job", cancel, "j1", notFound, http.StatusNotFound},
+		// Any other queue error means the job already reached a terminal state.
+		{"cancel finished job", cancel, "j1", errors.New(`job "j1" is already in terminal state`), http.StatusConflict},
+		{"retry unknown job", retry, "j1", notFound, http.StatusNotFound},
+		{"delete", del, "j1", nil, http.StatusOK},
+		{"delete without job id", del, "", nil, http.StatusBadRequest},
+		{"delete unknown job", del, "j1", notFound, http.StatusNotFound},
+		{"delete running job", del, "j1", fmt.Errorf("job %q: %w", "j1", runner.ErrJobNotTerminal), http.StatusConflict},
+	}
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			q := &adminJobQueue{err: tc.err}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/jobs/"+tc.jobID, nil)
+			req.SetPathValue("job_id", tc.jobID)
+			rr := httptest.NewRecorder()
+			tc.action(NewAdminHandler(q, &storage.MockStore{}, zap.NewNop()), rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want == http.StatusOK && q.gotID != tc.jobID {
+				t.Errorf("queue got job %q, want %q", q.gotID, tc.jobID)
+			}
+		})
+	}
+}
 
-	modTime := time.Now().UnixNano()
-	ms := &storage.MockStore{
-		ListProjectsFn: func(_ context.Context) ([]string, error) {
-			return []string{"99"}, nil
-		},
-		ReadDirFn: func(_ context.Context, _ string, _ string) ([]storage.DirEntry, error) {
-			return []storage.DirEntry{
-				{Name: "result-001.json", Size: 128, ModTime: modTime},
-			}, nil
-		},
+func TestAdminHandler_ListPendingResults(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	projects := testutil.NewMemProjectStore()
+	top, _ := projects.CreateProject(ctx, "my-top")
+	parent, _ := projects.CreateProject(ctx, "parent")
+	child, _ := projects.CreateProjectWithParent(ctx, "ui-permissions", parent.ID)
+	pending := func(p *store.Project) []pendingResultsEntry {
+		return []pendingResultsEntry{{ProjectID: p.ID, Slug: p.Slug, StorageKey: p.StorageKey, FileCount: 2, TotalSize: 3072}}
 	}
-	jm := newAdminTestJobManager(t, gen, 2)
-	projStore := &testutil.MockProjectStore{
-		GetProjectFn: func(_ context.Context, _ int64) (*store.Project, error) {
-			return nil, store.ErrProjectNotFound
-		},
-		GetProjectBySlugFn: func(_ context.Context, _ string) (*store.Project, error) {
-			return nil, store.ErrProjectNotFound
-		},
+	rows := []struct {
+		name     string
+		dirs     []string // storage dirs; every dir but "empty" holds two result files
+		projects store.ProjectStorer
+		want     []pendingResultsEntry
+	}{
+		{"no pending files", []string{"empty"}, projects, []pendingResultsEntry{}},
+		{"without a project store the storage key doubles as slug", []string{"proj-a", "empty"}, nil,
+			pending(&store.Project{Slug: "proj-a", StorageKey: "proj-a"})},
+		// cf6e4f3: storage dirs are storage keys and resolve to the owning project
+		// row — a top-level project by slug, a child by its numeric storage key.
+		{"top-level project", []string{top.StorageKey}, projects, pending(top)},
+		{"child project", []string{child.StorageKey}, projects, pending(child)},
+		{"orphan storage dir skipped", []string{"99"}, projects, []pendingResultsEntry{}},
 	}
-	h := NewAdminHandlerWithProjects(jm, ms, projStore, zap.NewNop())
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ms := &storage.MockStore{
+				ListProjectsFn: func(context.Context) ([]string, error) { return tc.dirs, nil },
+				ReadDirFn: func(_ context.Context, dir, _ string) ([]storage.DirEntry, error) {
+					if dir == "empty" {
+						return nil, nil
+					}
+					mod := time.Now().UnixNano()
+					return []storage.DirEntry{{Name: "r1.json", Size: 1024, ModTime: mod}, {Name: "r2.json", Size: 2048, ModTime: mod}}, nil
+				},
+			}
+			h := NewAdminHandlerWithProjects(&adminJobQueue{}, ms, tc.projects, zap.NewNop())
+			rr := httptest.NewRecorder()
+			h.ListPendingResults(rr, httptest.NewRequest(http.MethodGet, "/api/v1/admin/results", nil))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+			}
+			var resp struct {
+				Data []pendingResultsEntry `json:"data"`
+			}
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if resp.Data == nil {
+				t.Error("data = null, want an array")
+			}
+			for i := range resp.Data {
+				resp.Data[i].LastModified = time.Time{}
+			}
+			if !slices.Equal(resp.Data, tc.want) {
+				t.Errorf("data = %+v, want %+v", resp.Data, tc.want)
+			}
+		})
+	}
+}
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/results", nil)
-	rr := httptest.NewRecorder()
-	h.ListPendingResults(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+func TestAdminHandler_CleanProjectResults(t *testing.T) {
+	t.Parallel()
+	projects := testutil.NewMemProjectStore()
+	parent, _ := projects.CreateProject(context.Background(), "parent")
+	child, _ := projects.CreateProjectWithParent(context.Background(), "child", parent.ID)
+	rows := []struct {
+		name, projectID string
+		want            int
+		wantCleaned     string
+	}{
+		// Result files live under the storage key, not the slug.
+		{"cleans by storage key", strconv.FormatInt(child.ID, 10), http.StatusOK, child.StorageKey},
+		{"unknown project", "99", http.StatusNotFound, ""},
 	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data array, got %T", resp["data"])
-	}
-	if len(data) != 0 {
-		t.Errorf("expected orphan entry to be skipped, got %d entries", len(data))
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var cleaned string
+			ms := &storage.MockStore{CleanResultsFn: func(_ context.Context, key string) error {
+				cleaned = key
+				return nil
+			}}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/results/"+tc.projectID, nil)
+			req.SetPathValue("project_id", tc.projectID)
+			rr := httptest.NewRecorder()
+			NewAdminHandlerWithProjects(&adminJobQueue{}, ms, projects, zap.NewNop()).CleanProjectResults(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if cleaned != tc.wantCleaned {
+				t.Errorf("cleaned storage key = %q, want %q", cleaned, tc.wantCleaned)
+			}
+		})
 	}
 }

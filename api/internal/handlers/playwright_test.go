@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,534 +23,168 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// newTestPlaywrightHandler creates a PlaywrightHandler backed by a real local
-// store and stateful in-memory project/build stores, suitable for handler tests.
-func newTestPlaywrightHandler(t *testing.T, projectsDir string) (*PlaywrightHandler, *testutil.MockStores) {
-	t.Helper()
-	cfg := &config.Config{ProjectsPath: projectsDir, MaxUploadSizeMB: 100}
-	st := storage.NewLocalStore(cfg)
-	logger := zap.NewNop()
-	mocks := testutil.New()
-	h := NewPlaywrightHandler(st, mocks.Projects, mocks.Builds, nil, cfg, logger)
-	return h, mocks
-}
-
-// makePlaywrightTarGzRequest creates a POST request with Content-Type: application/gzip
-// for the playwright upload endpoint.
-func makePlaywrightTarGzRequest(t *testing.T, projectID string, body []byte) *http.Request {
-	t.Helper()
-	req, err := http.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		"/api/v1/projects/"+projectID+"/playwright",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		t.Fatal(err)
+func TestPlaywrightHandler_UploadReport(t *testing.T) {
+	t.Parallel()
+	const html = "<html><body>Playwright Report</body></html>"
+	png := []byte("\x89PNG\r\n\x1a\n")
+	index := makeTarGz(t, map[string][]byte{"index.html": []byte(html)})
+	rows := []struct {
+		name      string
+		seed      bool   // register project "pw" first
+		query     string // "{parent}" is replaced by a seeded parent project's ID
+		archive   []byte
+		want      int
+		wantFiles map[string][]byte // under the project's playwright-reports dir
+		check     func(t *testing.T, mocks *testutil.MockStores, parentID int64, flagged []int)
+	}{
+		// Files are staged in latest/ with their subdirectories preserved.
+		{name: "upload", seed: true, archive: makeTarGz(t, map[string][]byte{"index.html": []byte(html), "data/screen.png": png}), want: http.StatusOK,
+			wantFiles: map[string][]byte{"latest/index.html": []byte(html), "latest/data/screen.png": png}},
+		{name: "archive without index.html", seed: true, archive: makeTarGz(t, map[string][]byte{"data/test.png": png}), want: http.StatusBadRequest},
+		{name: "unknown project", archive: index, want: http.StatusNotFound},
+		{name: "not gzip", seed: true, archive: []byte("this is not gzip data"), want: http.StatusBadRequest},
+		{name: "path traversal entry", seed: true, archive: makeTarGz(t, map[string][]byte{"../../etc/passwd": []byte("root"), "index.html": []byte(html)}),
+			want: http.StatusBadRequest},
+		{name: "auto-create child project", query: "force_project_creation=true&parent_id={parent}", archive: index, want: http.StatusOK,
+			check: func(t *testing.T, mocks *testutil.MockStores, parentID int64, _ []int) {
+				if p, err := mocks.Projects.GetProjectBySlugAny(context.Background(), "pw"); err != nil || p.ParentID == nil || *p.ParentID != parentID {
+					t.Errorf("project pw = %+v (err %v), want registered under parent %d", p, err, parentID)
+				}
+			}},
+		// With build_number the report goes straight to that build's dir,
+		// which is flagged has_playwright_report; latest/ is never created.
+		{name: "into build 5", seed: true, query: "build_number=5", archive: index, want: http.StatusOK,
+			wantFiles: map[string][]byte{"5/index.html": []byte(html)},
+			check: func(t *testing.T, _ *testutil.MockStores, _ int64, flagged []int) {
+				if len(flagged) != 1 || flagged[0] != 5 {
+					t.Errorf("builds flagged with a Playwright report = %v, want [5]", flagged)
+				}
+			}},
+		{name: "unknown build", seed: true, query: "build_number=99", archive: index, want: http.StatusNotFound},
+		{name: "invalid build number", seed: true, query: "build_number=abc", archive: index, want: http.StatusBadRequest},
 	}
-	req.SetPathValue("project_id", projectID)
-	req.Header.Set("Content-Type", "application/gzip")
-	return req
-}
-
-// TestPlaywrightUpload_Success verifies that a valid tar.gz containing index.html
-// and a data/ attachment returns 200 with status "uploaded" and files go to
-// playwright-reports/latest/.
-func TestPlaywrightUpload_Success(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-success"
-	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
-	if err := os.MkdirAll(latestDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html":    []byte("<html><body>Playwright Report</body></html>"),
-		"data/test.png": []byte("\x89PNG\r\n"),
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	w := httptest.NewRecorder()
-
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp struct {
-		Data struct {
-			Status string `json:"status"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Data.Status != "uploaded" {
-		t.Errorf("expected status=uploaded in response, got %q", resp.Data.Status)
-	}
-
-	// Verify index.html was written to playwright-reports/latest/.
-	if _, err := os.Stat(filepath.Join(latestDir, "index.html")); err != nil {
-		t.Errorf("index.html not written to playwright-reports/latest/: %v", err)
-	}
-}
-
-// TestPlaywrightUpload_MissingIndex verifies that an archive without index.html
-// is rejected with a 400 response.
-func TestPlaywrightUpload_MissingIndex(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-no-index"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports", "latest"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	archive := makeTarGz(t, map[string][]byte{
-		"data/test.png": []byte("\x89PNG\r\n"),
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	w := httptest.NewRecorder()
-
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			cfg := &config.Config{ProjectsPath: dir, MaxUploadSizeMB: 100}
+			mocks := testutil.New()
+			var flagged []int
+			mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ int64, n int) (store.Build, error) {
+				if n != 5 {
+					return store.Build{}, store.ErrBuildNotFound
+				}
+				return store.Build{BuildNumber: n}, nil
+			}
+			mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, n int, v bool) error {
+				if v {
+					flagged = append(flagged, n)
+				}
+				return nil
+			}
+			parent, _ := mocks.Projects.CreateProject(context.Background(), "pw-parent")
+			if tc.seed {
+				_, _ = mocks.Projects.CreateProject(context.Background(), "pw")
+			}
+			query := strings.ReplaceAll(tc.query, "{parent}", strconv.FormatInt(parent.ID, 10))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/pw/playwright?"+query, bytes.NewReader(tc.archive))
+			req.SetPathValue("project_id", "pw")
+			req.Header.Set("Content-Type", "application/gzip")
+			rr := httptest.NewRecorder()
+			NewPlaywrightHandler(storage.NewLocalStore(cfg), mocks.Projects, mocks.Builds, nil, cfg, zap.NewNop()).UploadReport(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want == http.StatusOK {
+				var resp struct {
+					Data struct {
+						Status string `json:"status"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil || resp.Data.Status != "uploaded" {
+					t.Errorf("body = %s, want status uploaded", rr.Body.String())
+				}
+			}
+			reports := filepath.Join(dir, "pw", "playwright-reports")
+			for rel, want := range tc.wantFiles {
+				if got, err := os.ReadFile(filepath.Join(reports, rel)); err != nil || !bytes.Equal(got, want) {
+					t.Errorf("%s = %q (err %v), want %q", rel, got, err, want)
+				}
+			}
+			if tc.wantFiles != nil && tc.wantFiles["latest/index.html"] == nil {
+				if _, err := os.Stat(filepath.Join(reports, "latest")); !os.IsNotExist(err) {
+					t.Errorf("latest/ exists (err %v), want it untouched", err)
+				}
+			}
+			if tc.check != nil {
+				tc.check(t, mocks, parent.ID, flagged)
+			}
+		})
 	}
 }
 
-// TestPlaywrightUpload_ProjectNotFound verifies that uploading to a non-existent
-// project without force_project_creation returns 404.
-func TestPlaywrightUpload_ProjectNotFound(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-nonexistent"
-
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html/>"),
-	})
-
-	h, _ := newTestPlaywrightHandler(t, projectsDir)
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	w := httptest.NewRecorder()
-
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 Not Found, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// TestPlaywrightUpload_AutoCreateProject verifies that force_project_creation=true
-// with a parent_id creates the project and registers it in the project store.
-func TestPlaywrightUpload_AutoCreateProject(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-autocreate"
-
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html><body>Report</body></html>"),
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	// Pre-create parent project so we can pass its numeric ID.
-	parentProj, err := mocks.Projects.CreateProject(context.Background(), "pw-parent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	parentIDStr := fmt.Sprintf("%d", parentProj.ID)
-
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	q := req.URL.Query()
-	q.Set("force_project_creation", "true")
-	q.Set("parent_id", parentIDStr)
-	req.URL.RawQuery = q.Encode()
-
-	w := httptest.NewRecorder()
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Verify parent project was registered (ID 1 — created before the handler call).
-	parentExists, err := mocks.Projects.ProjectExists(context.Background(), parentProj.ID)
-	if err != nil {
-		t.Fatalf("unexpected error checking parent project in store: %v", err)
-	}
-	if !parentExists {
-		t.Error("parent project was not registered in project store")
-	}
-
-	// Verify child project was registered in the project store with parent link (ID 2).
-	childIntID := int64(2)
-	exists, err := mocks.Projects.ProjectExists(context.Background(), childIntID)
-	if err != nil {
-		t.Fatalf("unexpected error checking project in store: %v", err)
-	}
-	if !exists {
-		t.Error("child project was not registered in project store after force_project_creation=true")
-	}
-}
-
-// TestPlaywrightUpload_InvalidGzip verifies that non-gzip data is rejected with 400.
-func TestPlaywrightUpload_InvalidGzip(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-badgzip"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports", "latest"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-	req := makePlaywrightTarGzRequest(t, projectID, []byte("this is not gzip data"))
-	w := httptest.NewRecorder()
-
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// TestPlaywrightUpload_PathTraversal verifies that path traversal entries in the
-// archive are rejected with a 400 response.
-func TestPlaywrightUpload_PathTraversal(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-traversal"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports", "latest"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	entries := []tarEntry{
-		{
-			Header:  tarHeader("../../etc/passwd", 4),
-			Content: []byte("root"),
-		},
-		{
-			Header:  tarHeader("index.html", 7),
-			Content: []byte("<html/>"),
-		},
-	}
-	archive := makeTarGzWithOpts(t, entries)
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	w := httptest.NewRecorder()
-
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request for path traversal, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// TestPlaywrightUpload_PreservesSubdirectory verifies that data/ subdirectory
-// files are written with their relative paths preserved under playwright-reports/latest/.
-func TestPlaywrightUpload_PreservesSubdirectory(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-subdir"
-	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
-	if err := os.MkdirAll(latestDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	pngContent := []byte("\x89PNG\r\n\x1a\n")
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html":      []byte("<html/>"),
-		"data/screen.png": pngContent,
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	w := httptest.NewRecorder()
-
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Files should be written to playwright-reports/latest/data/screen.png.
-	got, err := os.ReadFile(filepath.Join(latestDir, "data", "screen.png"))
-	if err != nil {
-		t.Fatalf("data/screen.png not written to playwright-reports/latest/: %v", err)
-	}
-	if !bytes.Equal(got, pngContent) {
-		t.Errorf("data/screen.png content mismatch: got %q, want %q", got, pngContent)
-	}
-}
-
-// TestPlaywrightUpload_WithBuildNumber verifies that when build_number is provided,
-// the report is written directly to playwright-reports/{buildNumber}/ and
-// has_playwright_report is set. The latest/ directory is not touched.
-func TestPlaywrightUpload_WithBuildNumber(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-build-num"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID, "playwright-reports"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html><body>Direct Report</body></html>"),
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-
-	// Simulate build 5 existing.
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ int64, bn int) (store.Build, error) {
-		if bn == 5 {
-			return store.Build{ProjectID: 1, BuildNumber: 5}, nil
-		}
-		return store.Build{}, store.ErrBuildNotFound
-	}
-
-	var setHasPWReportCalled bool
-	mocks.Builds.SetHasPlaywrightReportFn = func(_ context.Context, _ int64, bn int, value bool) error {
-		if bn == 5 && value {
-			setHasPWReportCalled = true
-		}
-		return nil
-	}
-
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	q := req.URL.Query()
-	q.Set("build_number", "5")
-	req.URL.RawQuery = q.Encode()
-
-	w := httptest.NewRecorder()
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Verify the report was written directly to playwright-reports/5/.
-	buildDir := filepath.Join(projectsDir, projectID, "playwright-reports", "5")
-	if _, err := os.Stat(filepath.Join(buildDir, "index.html")); err != nil {
-		t.Errorf("index.html not written to playwright-reports/5/: %v", err)
-	}
-
-	// Verify has_playwright_report was set.
-	if !setHasPWReportCalled {
-		t.Error("SetHasPlaywrightReport was not called with (projectID, 5, true)")
-	}
-
-	// Verify latest/ was NOT created.
-	latestDir := filepath.Join(projectsDir, projectID, "playwright-reports", "latest")
-	if _, err := os.Stat(latestDir); !os.IsNotExist(err) {
-		t.Errorf("playwright-reports/latest/ should not exist when build_number is provided")
-	}
-}
-
-// TestPlaywrightUpload_WithBuildNumber_NotFound verifies that uploading with a
-// build_number that doesn't exist returns 404.
-func TestPlaywrightUpload_WithBuildNumber_NotFound(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-build-404"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html/>"),
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	mocks.Builds.GetBuildByNumberFn = func(_ context.Context, _ int64, _ int) (store.Build, error) {
-		return store.Build{}, store.ErrBuildNotFound
-	}
-
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	q := req.URL.Query()
-	q.Set("build_number", "99")
-	req.URL.RawQuery = q.Encode()
-
-	w := httptest.NewRecorder()
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 Not Found, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// TestPlaywrightUpload_WithBuildNumber_Invalid verifies that a non-numeric
-// build_number returns 400.
-func TestPlaywrightUpload_WithBuildNumber_Invalid(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectID := "pw-build-bad"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectID), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	archive := makeTarGz(t, map[string][]byte{
-		"index.html": []byte("<html/>"),
-	})
-
-	h, mocks := newTestPlaywrightHandler(t, projectsDir)
-	if _, err := mocks.Projects.CreateProject(context.Background(), projectID); err != nil {
-		t.Fatal(err)
-	}
-
-	req := makePlaywrightTarGzRequest(t, projectID, archive)
-	q := req.URL.Query()
-	q.Set("build_number", "abc")
-	req.URL.RawQuery = q.Encode()
-
-	w := httptest.NewRecorder()
-	h.UploadReport(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// TestPlaywrightExtract_DiskSpool verifies that extractPlaywrightArchive correctly
-// spools all entries to disk and streams them to storage. It uses a MockStore so
-// no real filesystem project layout is required, and includes a ~10 MB file to
-// confirm large entries are handled without buffering in memory.
-func TestPlaywrightExtract_DiskSpool(t *testing.T) {
-	large := make([]byte, 10<<20) // 10 MB
+// extractPlaywrightArchive spools each entry to disk and streams it to
+// storage, so a large entry is never buffered whole; the first failed write
+// is returned and cancels the rest.
+func TestPlaywrightHandler_ExtractArchive(t *testing.T) {
+	t.Parallel()
+	large := make([]byte, 10<<20)
 	for i := range large {
 		large[i] = byte(i % 251)
 	}
-
-	files := map[string][]byte{
-		"index.html":          []byte("<html><body>Playwright</body></html>"),
-		"data/trace.zip":      large,
-		"data/screenshot.png": []byte("\x89PNG\r\n"),
-		"data/video.webm":     []byte("WEBM"),
-		"assets/app.js":       []byte("console.log('hi')"),
+	injected := errors.New("injected store error")
+	rows := []struct {
+		name   string
+		files  map[string][]byte
+		failOn string // entry whose write fails
+	}{
+		{"every entry reaches storage", map[string][]byte{
+			"index.html": []byte("<html/>"), "data/trace.zip": large, "data/screenshot.png": []byte("\x89PNG\r\n"),
+			"data/video.webm": []byte("WEBM"), "assets/app.js": []byte("console.log('hi')"),
+		}, ""},
+		{"failed write", map[string][]byte{
+			"index.html": []byte("<html/>"), "data/fail-me.bin": []byte("bad"), "data/ok1.bin": []byte("ok1"), "data/ok2.bin": []byte("ok2"),
+		}, "data/fail-me.bin"},
 	}
-	archive := makeTarGz(t, files)
-
-	// Collect what was written via the mock store.
-	type written struct {
-		subPath string
-		content []byte
-	}
-	var mu sync.Mutex
-	var uploads []written
-
-	mock := &storage.MockStore{
-		WritePlaywrightFileFn: func(_ context.Context, _, subPath string, r io.Reader) error {
-			data, err := io.ReadAll(r)
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var mu sync.Mutex
+			got := map[string][]byte{}
+			mock := &storage.MockStore{WritePlaywrightFileFn: func(ctx context.Context, _, subPath string, r io.Reader) error {
+				if tc.failOn != "" && strings.HasSuffix(subPath, tc.failOn) {
+					return injected
+				}
+				data, err := io.ReadAll(r)
+				mu.Lock()
+				got[subPath] = data
+				mu.Unlock()
+				if err != nil {
+					return err
+				}
+				return ctx.Err()
+			}}
+			h := &PlaywrightHandler{store: mock, cfg: &config.Config{MaxUploadSizeMB: 200, UploadWriteConcurrency: 4}, logger: zap.NewNop()}
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(makeTarGz(t, tc.files)))
+			req.Header.Set("Content-Type", "application/gzip")
+			err := h.extractPlaywrightArchive(req, "proj-key", "latest")
+			if tc.failOn != "" {
+				if !errors.Is(err, injected) {
+					t.Errorf("err = %v, want the injected store error", err)
+				}
+				return
+			}
 			if err != nil {
-				return err
+				t.Fatalf("extractPlaywrightArchive: %v", err)
 			}
-			mu.Lock()
-			uploads = append(uploads, written{subPath: subPath, content: data})
-			mu.Unlock()
-			return nil
-		},
-	}
-
-	cfg := &config.Config{MaxUploadSizeMB: 200, UploadWriteConcurrency: 4}
-	h := &PlaywrightHandler{store: mock, cfg: cfg, logger: zap.NewNop()}
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader(archive))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/gzip")
-
-	if err := h.extractPlaywrightArchive(req, "proj-key", "latest"); err != nil {
-		t.Fatalf("extractPlaywrightArchive: %v", err)
-	}
-
-	if len(uploads) != len(files) {
-		t.Fatalf("expected %d uploads, got %d", len(files), len(uploads))
-	}
-
-	// Build a map for easy lookup.
-	got := make(map[string][]byte, len(uploads))
-	for _, u := range uploads {
-		got[u.subPath] = u.content
-	}
-
-	for name, want := range files {
-		key := "latest/" + name
-		content, ok := got[key]
-		if !ok {
-			t.Errorf("missing upload for %q", key)
-			continue
-		}
-		if !bytes.Equal(content, want) {
-			t.Errorf("content mismatch for %q: got %d bytes, want %d bytes", key, len(content), len(want))
-		}
-	}
-}
-
-// TestPlaywrightExtract_MidBatchFailure verifies that when one WritePlaywrightFile
-// call returns an error, extractPlaywrightArchive propagates that error and the
-// context passed to remaining goroutines is cancelled so they can detect it.
-func TestPlaywrightExtract_MidBatchFailure(t *testing.T) {
-	const failTarget = "data/fail-me.bin"
-
-	files := map[string][]byte{
-		"index.html":   []byte("<html/>"),
-		failTarget:     []byte("bad"),
-		"data/ok1.bin": []byte("ok1"),
-		"data/ok2.bin": []byte("ok2"),
-	}
-	archive := makeTarGz(t, files)
-
-	errTarget := fmt.Errorf("injected store error")
-
-	mock := &storage.MockStore{
-		WritePlaywrightFileFn: func(ctx context.Context, _, subPath string, r io.Reader) error {
-			if strings.HasSuffix(subPath, failTarget) {
-				return errTarget
+			if len(got) != len(tc.files) {
+				t.Fatalf("uploads = %d, want %d", len(got), len(tc.files))
 			}
-			// Respect context cancellation so goroutines queued after the
-			// failure do not silently succeed.
-			return ctx.Err()
-		},
-	}
-
-	cfg := &config.Config{MaxUploadSizeMB: 10, UploadWriteConcurrency: 4}
-	h := &PlaywrightHandler{store: mock, cfg: cfg, logger: zap.NewNop()}
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader(archive))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/gzip")
-
-	extractErr := h.extractPlaywrightArchive(req, "proj-key", "latest")
-	if extractErr == nil {
-		t.Fatal("expected an error from extractPlaywrightArchive, got nil")
-	}
-	// The injected error must be reachable via errors.Is (errgroup returns the
-	// first non-nil error from the group).
-	if !errors.Is(extractErr, errTarget) {
-		t.Errorf("expected injected store error in chain, got: %v", extractErr)
-	}
-}
-
-// tarHeader is a helper that builds a tar.Header for a regular file.
-func tarHeader(name string, size int64) tar.Header {
-	return tar.Header{
-		Name:     name,
-		Size:     size,
-		Mode:     0o644,
-		Typeflag: tar.TypeReg,
+			for name, want := range tc.files {
+				if !bytes.Equal(got["latest/"+name], want) {
+					t.Errorf("latest/%s: got %d bytes, want %d", name, len(got["latest/"+name]), len(want))
+				}
+			}
+		})
 	}
 }

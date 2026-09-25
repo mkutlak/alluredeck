@@ -70,105 +70,6 @@ func (m *mockAttachmentStore) GetLocation(_ context.Context, _ int64) (*store.At
 }
 
 // ---------------------------------------------------------------------------
-// mockBuildStore (minimal — only the two methods used by AttachmentHandler)
-// ---------------------------------------------------------------------------
-
-type mockAttachmentBuildStore struct {
-	build       store.Build
-	errToReturn error
-}
-
-// Compile-time interface check. This is an intentional partial panic-stub —
-// only the methods AttachmentHandler exercises return real values; the rest
-// panic. The assertion still requires the full store.BuildStorer method set.
-var _ store.BuildStorer = (*mockAttachmentBuildStore)(nil)
-
-func (m *mockAttachmentBuildStore) NextBuildNumber(_ context.Context, _ int64) (int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) InsertBuild(_ context.Context, _ int64, _ int) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) ReserveBuild(_ context.Context, _ int64) (int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) UpdateBuildStats(_ context.Context, _ int64, _ int, _ store.BuildStats) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) UpdateBuildCIMetadata(_ context.Context, _ int64, _ int, _ store.CIMetadata) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) UpdateBuildEnvironment(_ context.Context, _ int64, _ int, _ map[string]string) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) GetBuildByNumber(_ context.Context, _ int64, _ int) (store.Build, error) {
-	return m.build, m.errToReturn
-}
-func (m *mockAttachmentBuildStore) GetPreviousBuild(_ context.Context, _ int64, _ int) (store.Build, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) GetLatestBuild(_ context.Context, _ int64) (store.Build, error) {
-	return m.build, m.errToReturn
-}
-func (m *mockAttachmentBuildStore) ListBuilds(_ context.Context, _ int64) ([]store.Build, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) ListBuildsPaginated(_ context.Context, _ int64, _, _ int) ([]store.Build, int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) PruneBuilds(_ context.Context, _ int64, _ int) ([]int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) SetLatest(_ context.Context, _ int64, _ int) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) DeleteAllBuilds(_ context.Context, _ int64) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) GetDashboardData(_ context.Context, _ int) ([]store.DashboardProject, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) DeleteBuild(_ context.Context, _ int64, _ int) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) UpdateBuildBranchID(_ context.Context, _ int64, _ int, _ int64) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) SetLatestBranch(_ context.Context, _ int64, _ int, _ *int64) error {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) PruneBuildsBranch(_ context.Context, _ int64, _ int, _ *int64) ([]int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) PruneBuildsByAge(_ context.Context, _ int64, _ time.Time) ([]int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) PruneStaleBranches(_ context.Context, _ int64, _ time.Time) ([]int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) DeleteOrphanBranches(_ context.Context, _ int64) (int64, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) ListBuildsPaginatedBranch(_ context.Context, _ int64, _, _ int, _ *int64) ([]store.Build, int, error) {
-	panic("not implemented")
-}
-func (m *mockAttachmentBuildStore) ListBuildsInRange(_ context.Context, _ int64, _ *int64, _, _ time.Time, _ int) ([]store.Build, int, error) {
-	panic("not implemented")
-}
-
-func (m *mockAttachmentBuildStore) SetHasPlaywrightReport(_ context.Context, _ int64, _ int, _ bool) error {
-	panic("not implemented")
-}
-
-func (m *mockAttachmentBuildStore) BuildExists(_ context.Context, _ int64, _ int64) (bool, error) {
-	return true, nil
-}
-
-func (m *mockAttachmentBuildStore) GetBuildByID(_ context.Context, _ int64, _ int64) (store.Build, error) {
-	return store.Build{}, nil
-}
-
-// ---------------------------------------------------------------------------
 // mockDataStore (minimal — only OpenReportFile used by AttachmentHandler)
 // ---------------------------------------------------------------------------
 
@@ -270,415 +171,142 @@ func (m *mockDataStore) ListStagingBlobs(_ context.Context, _ time.Duration) ([]
 	panic("not implemented")
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-func newAttachmentHandler(t *testing.T, as store.AttachmentStorer, bs store.BuildStorer, ds storage.Store) *AttachmentHandler {
+// newAttachmentHandler serves project 1 over the given stores; build lookups
+// answer buildErr or a build with ID 10 for any number or "latest".
+func newAttachmentHandler(t *testing.T, as store.AttachmentStorer, buildErr error, ds storage.Store) *AttachmentHandler {
 	t.Helper()
 	ps := testutil.NewMemProjectStore()
-	// Pre-register a project so ServeAttachment can resolve project ID 1 → slug.
 	if _, err := ps.CreateProject(context.Background(), "test-proj"); err != nil {
 		t.Fatal(err)
 	}
+	bs := &testutil.MockBuildStore{GetBuildByNumberFn: func(_ context.Context, _ int64, n int) (store.Build, error) {
+		return store.Build{ID: 10, BuildNumber: n, ProjectID: 1}, buildErr
+	}}
 	return NewAttachmentHandler(as, bs, ps, ds, zap.NewNop())
 }
 
-// ---------------------------------------------------------------------------
-// ListAttachments tests
-// ---------------------------------------------------------------------------
-
-func TestListAttachments_InvalidReportID(t *testing.T) {
-	h := newAttachmentHandler(t, &mockAttachmentStore{}, &mockAttachmentBuildStore{}, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/reports/abc!!/attachments", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "abc!!")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
+func TestAttachmentHandler_ListAttachments(t *testing.T) {
+	t.Parallel()
+	atts := []store.TestAttachment{
+		{ID: 1, TestResultID: 100, Name: "screenshot.png", Source: "abc123-result.png", MimeType: "image/png", SizeBytes: 1024, TestName: "shouldRegister", TestStatus: "failed"},
+		{ID: 2, TestResultID: 100, Name: "stdout.txt", Source: "def456.txt", MimeType: "text/plain", SizeBytes: 512, TestName: "shouldRegister", TestStatus: "failed"},
+		{ID: 3, TestResultID: 200, Name: "stderr.txt", Source: "ghi789.txt", MimeType: "text/plain", SizeBytes: 256, TestName: "shouldLogin", TestStatus: "passed"},
 	}
-}
-
-func TestListAttachments_BuildNotFound(t *testing.T) {
-	bs := &mockAttachmentBuildStore{errToReturn: store.ErrBuildNotFound}
-	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/reports/5/attachments", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "5")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body.String())
+	type row struct {
+		name, reportID, query string
+		buildErr              error
+		atts                  []store.TestAttachment
+		want                  int
+		wantMime, wantStatus  string // filters the store must receive
+		wantGroups            string // "test/status:attachment,..." per group
 	}
-}
-
-func TestListAttachments_Empty(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 5, ProjectID: 1}}
-	as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
-	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/myproj/reports/5/attachments", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "5")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	rows := []row{
+		{name: "invalid report id", reportID: "abc!!", want: http.StatusBadRequest},
+		{name: "unknown build", reportID: "5", buildErr: store.ErrBuildNotFound, want: http.StatusNotFound},
+		{name: "no attachments", reportID: "5", want: http.StatusOK},
+		{name: "grouped by test result", reportID: "3", atts: atts, want: http.StatusOK,
+			wantGroups: "shouldRegister/failed:screenshot.png,stdout.txt shouldLogin/passed:stderr.txt"},
+		{name: "mime filter", reportID: "1", query: "mime_type=image", want: http.StatusOK, wantMime: "image"},
+		{name: "invalid test_status", reportID: "1", query: "test_status=bogus", want: http.StatusBadRequest},
 	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	for _, s := range []string{"passed", "failed", "broken", "skipped", "unknown"} {
+		rows = append(rows, row{name: "test_status " + s, reportID: "1", query: "test_status=" + s, want: http.StatusOK, wantStatus: s})
 	}
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data object, got %T", resp["data"])
-	}
-	groups, ok := data["groups"].([]any)
-	if !ok {
-		t.Fatalf("expected groups array, got %T", data["groups"])
-	}
-	if len(groups) != 0 {
-		t.Errorf("expected 0 groups, got %d", len(groups))
-	}
-	total, _ := data["total"].(float64)
-	if total != 0 {
-		t.Errorf("expected total=0, got %v", total)
-	}
-}
-
-func TestListAttachments_WithResults(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 10, BuildNumber: 3, ProjectID: 1}}
-	as := &mockAttachmentStore{
-		attachments: []store.TestAttachment{
-			{ID: 1, TestResultID: 100, Name: "screenshot.png", Source: "abc123-result.png", MimeType: "image/png", SizeBytes: 1024, TestName: "shouldRegister", TestStatus: "failed"},
-			{ID: 2, TestResultID: 100, Name: "stdout.txt", Source: "def456.txt", MimeType: "text/plain", SizeBytes: 512, TestName: "shouldRegister", TestStatus: "failed"},
-			{ID: 3, TestResultID: 200, Name: "stderr.txt", Source: "ghi789.txt", MimeType: "text/plain", SizeBytes: 256, TestName: "shouldLogin", TestStatus: "passed"},
-		},
-		total: 3,
-	}
-	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj1/reports/3/attachments", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "3")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data object, got %T", resp["data"])
-	}
-	groups, ok := data["groups"].([]any)
-	if !ok {
-		t.Fatalf("expected groups array, got %T", data["groups"])
-	}
-	if len(groups) != 2 {
-		t.Fatalf("expected 2 groups, got %d", len(groups))
-	}
-
-	g0, _ := groups[0].(map[string]any)
-	if g0["test_name"] != "shouldRegister" {
-		t.Errorf("group[0].test_name = %v, want shouldRegister", g0["test_name"])
-	}
-	if g0["test_status"] != "failed" {
-		t.Errorf("group[0].test_status = %v, want failed", g0["test_status"])
-	}
-	g0atts, _ := g0["attachments"].([]any)
-	if len(g0atts) != 2 {
-		t.Fatalf("group[0] expected 2 attachments, got %d", len(g0atts))
-	}
-	att0, _ := g0atts[0].(map[string]any)
-	if att0["name"] != "screenshot.png" {
-		t.Errorf("group[0].attachments[0].name = %v, want screenshot.png", att0["name"])
-	}
-
-	g1, _ := groups[1].(map[string]any)
-	if g1["test_name"] != "shouldLogin" {
-		t.Errorf("group[1].test_name = %v, want shouldLogin", g1["test_name"])
-	}
-	if g1["test_status"] != "passed" {
-		t.Errorf("group[1].test_status = %v, want passed", g1["test_status"])
-	}
-}
-
-func TestListAttachments_MimeFilter(t *testing.T) {
-	var capturedMime string
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	as := &mockAttachmentStore{}
-	as.attachments = []store.TestAttachment{}
-	// Override ListByBuild to capture the mimeFilter arg.
-	captureStore := &captureMimeStore{inner: as, capturedMime: &capturedMime}
-	h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/p/reports/1/attachments?mime_type=image", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "1")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if capturedMime != "image" {
-		t.Errorf("mimeFilter passed to store = %q, want %q", capturedMime, "image")
-	}
-}
-
-func TestListAttachments_InvalidTestStatus(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	as := &mockAttachmentStore{}
-	h := newAttachmentHandler(t, as, bs, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/reports/1/attachments?test_status=bogus", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "1")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestListAttachments_ValidTestStatusForwardedToStore(t *testing.T) {
-	validStatuses := []string{"passed", "failed", "broken", "skipped", "unknown"}
-	for _, status := range validStatuses {
-		t.Run(status, func(t *testing.T) {
-			var capturedStatus string
-			bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-			as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
-			captureStore := &captureStatusStore{inner: as, capturedStatus: &capturedStatus}
-			h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
-			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-				"/api/v1/projects/1/reports/1/attachments?test_status="+status, nil)
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var gotMime, gotStatus string
+			as := &testutil.MockAttachmentStore{ListByBuildFn: func(_ context.Context, _, _ int64, mime, status string, _, _ int) ([]store.TestAttachment, int, error) {
+				gotMime, gotStatus = mime, status
+				return tc.atts, len(tc.atts), nil
+			}}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/reports/"+tc.reportID+"/attachments?"+tc.query, nil)
 			req.SetPathValue("project_id", "1")
-			req.SetPathValue("report_id", "1")
+			req.SetPathValue("report_id", tc.reportID)
 			rr := httptest.NewRecorder()
-			h.ListAttachments(rr, req)
-
-			if rr.Code != http.StatusOK {
-				t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+			newAttachmentHandler(t, as, tc.buildErr, &mockDataStore{}).ListAttachments(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
 			}
-			if capturedStatus != status {
-				t.Errorf("testStatus passed to store = %q, want %q", capturedStatus, status)
+			if tc.want != http.StatusOK {
+				return
+			}
+			if gotMime != tc.wantMime || gotStatus != tc.wantStatus {
+				t.Errorf("store filters = (%q, %q), want (%q, %q)", gotMime, gotStatus, tc.wantMime, tc.wantStatus)
+			}
+			var resp struct {
+				Data struct {
+					Total  int `json:"total"`
+					Groups []struct {
+						TestName    string `json:"test_name"`
+						TestStatus  string `json:"test_status"`
+						Attachments []struct {
+							Name string `json:"name"`
+						} `json:"attachments"`
+					} `json:"groups"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			var groups []string
+			for _, g := range resp.Data.Groups {
+				var names []string
+				for _, a := range g.Attachments {
+					names = append(names, a.Name)
+				}
+				groups = append(groups, g.TestName+"/"+g.TestStatus+":"+strings.Join(names, ","))
+			}
+			if resp.Data.Groups == nil || strings.Join(groups, " ") != tc.wantGroups || resp.Data.Total != len(tc.atts) {
+				t.Errorf("groups = %q, total = %d, want %q and %d", groups, resp.Data.Total, tc.wantGroups, len(tc.atts))
 			}
 		})
 	}
 }
 
-func TestListAttachments_MissingTestStatusPassesEmptyToStore(t *testing.T) {
-	var capturedStatus string
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	as := &mockAttachmentStore{attachments: []store.TestAttachment{}, total: 0}
-	captureStore := &captureStatusStore{inner: as, capturedStatus: &capturedStatus}
-	h := newAttachmentHandler(t, captureStore, bs, &mockDataStore{})
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/reports/1/attachments", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "1")
-	rr := httptest.NewRecorder()
-	h.ListAttachments(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+func TestAttachmentHandler_ServeAttachment(t *testing.T) {
+	t.Parallel()
+	png := func() *mockDataStore { return &mockDataStore{content: "PNG_DATA", mimeType: "image/png"} }
+	type row struct {
+		name, source, query string
+		ds                  *mockDataStore
+		as                  *mockAttachmentStore
+		want                int
+		wantDisposition     string
 	}
-	if capturedStatus != "" {
-		t.Errorf("testStatus passed to store = %q, want empty string", capturedStatus)
+	rows := []row{
+		// 68cabd8: attachments render inline unless ?dl=1 asks for a download,
+		// which carries the attachment's human-readable name.
+		{"inline", "screenshot.png", "", png(), &mockAttachmentStore{}, http.StatusOK, `inline; filename="screenshot.png"`},
+		{"download", "abc123hash.png", "dl=1", png(), &mockAttachmentStore{source: &store.TestAttachment{Name: "my-screenshot.png", Source: "abc123hash.png"}},
+			http.StatusOK, `attachment; filename="my-screenshot.png"`},
+		{"file not found", "abc.png", "", &mockDataStore{errToReturn: errors.New("not found")}, &mockAttachmentStore{}, http.StatusNotFound, ""},
 	}
-}
-
-// captureMimeStore wraps mockAttachmentStore to capture the mimeFilter argument.
-// Compile-time interface check.
-var _ store.AttachmentStorer = (*captureMimeStore)(nil)
-
-type captureMimeStore struct {
-	inner        *mockAttachmentStore
-	capturedMime *string
-}
-
-func (c *captureMimeStore) ListByBuild(_ context.Context, _ int64, _ int64, mimeFilter, _ string, _, _ int) ([]store.TestAttachment, int, error) {
-	*c.capturedMime = mimeFilter
-	return c.inner.attachments, c.inner.total, c.inner.errToReturn
-}
-
-func (c *captureMimeStore) ListByTestResult(ctx context.Context, projectID, buildID int64, historyID string, limit int) ([]store.TestAttachment, error) {
-	return c.inner.ListByTestResult(ctx, projectID, buildID, historyID, limit)
-}
-
-func (c *captureMimeStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
-	return c.inner.source, c.inner.errToReturn
-}
-
-func (c *captureMimeStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
-	return nil
-}
-
-func (c *captureMimeStore) GetByID(_ context.Context, _ int64) (*store.TestAttachment, error) {
-	return c.inner.source, c.inner.errToReturn
-}
-
-func (c *captureMimeStore) GetLocation(ctx context.Context, id int64) (*store.AttachmentLocation, error) {
-	return c.inner.GetLocation(ctx, id)
-}
-
-// captureStatusStore wraps mockAttachmentStore to capture the testStatus argument.
-// Compile-time interface check.
-var _ store.AttachmentStorer = (*captureStatusStore)(nil)
-
-type captureStatusStore struct {
-	inner          *mockAttachmentStore
-	capturedStatus *string
-}
-
-func (c *captureStatusStore) ListByBuild(_ context.Context, _ int64, _ int64, _, testStatus string, _, _ int) ([]store.TestAttachment, int, error) {
-	*c.capturedStatus = testStatus
-	return c.inner.attachments, c.inner.total, c.inner.errToReturn
-}
-
-func (c *captureStatusStore) ListByTestResult(ctx context.Context, projectID, buildID int64, historyID string, limit int) ([]store.TestAttachment, error) {
-	return c.inner.ListByTestResult(ctx, projectID, buildID, historyID, limit)
-}
-
-func (c *captureStatusStore) GetBySource(_ context.Context, _ int64, _ string) (*store.TestAttachment, error) {
-	return c.inner.source, c.inner.errToReturn
-}
-
-func (c *captureStatusStore) InsertBuildAttachments(_ context.Context, _ int64, _ int64, _ []store.TestAttachment) error {
-	return nil
-}
-
-func (c *captureStatusStore) GetByID(_ context.Context, _ int64) (*store.TestAttachment, error) {
-	return c.inner.source, c.inner.errToReturn
-}
-
-func (c *captureStatusStore) GetLocation(ctx context.Context, id int64) (*store.AttachmentLocation, error) {
-	return c.inner.GetLocation(ctx, id)
-}
-
-// ---------------------------------------------------------------------------
-// ServeAttachment tests
-// ---------------------------------------------------------------------------
-
-func TestServeAttachment_PathTraversal(t *testing.T) {
-	// These values should be rejected by the path traversal defense.
-	// We set them directly via SetPathValue so the handler reads them from
-	// r.PathValue("source") — bypassing URL parsing which would reject slashes.
-	cases := []string{"dotdot-secret", "a-dotdot-b", "a-slash-b", "a-backslash-b", "a-null-b"}
-	rawSources := []string{"../secret", "a/../b", "a/b", "a\\b", "a\x00b"}
-
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, &mockDataStore{})
-
-	for i, src := range rawSources {
-		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-			"/api/v1/projects/p/reports/1/attachments/"+cases[i], nil)
-		req.SetPathValue("project_id", "1")
-		req.SetPathValue("report_id", "1")
-		req.SetPathValue("source", src)
-		rr := httptest.NewRecorder()
-		h.ServeAttachment(rr, req)
-
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("source=%q: want 400, got %d", src, rr.Code)
-		}
+	for _, src := range []string{"../secret", "a/../b", "a/b", "a\\b", "a\x00b"} {
+		rows = append(rows, row{"path traversal " + src, src, "", png(), &mockAttachmentStore{}, http.StatusBadRequest, ""})
 	}
-}
-
-func TestServeAttachment_FileNotFound(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	ds := &mockDataStore{errToReturn: errors.New("not found")}
-	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/p/reports/1/attachments/abc.png", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "1")
-	req.SetPathValue("source", "abc.png")
-	rr := httptest.NewRecorder()
-	h.ServeAttachment(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestServeAttachment_Success(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 2, ProjectID: 1}}
-	ds := &mockDataStore{content: "PNG_DATA", mimeType: "image/png"}
-	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/proj/reports/2/attachments/screenshot.png", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "2")
-	req.SetPathValue("source", "screenshot.png")
-	rr := httptest.NewRecorder()
-	h.ServeAttachment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if ct := rr.Header().Get("Content-Type"); ct != "image/png" {
-		t.Errorf("Content-Type = %q, want %q", ct, "image/png")
-	}
-	if rr.Body.String() != "PNG_DATA" {
-		t.Errorf("body = %q, want %q", rr.Body.String(), "PNG_DATA")
-	}
-}
-
-func TestServeAttachment_InlineDisposition(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	ds := &mockDataStore{content: "data", mimeType: "image/png"}
-	h := newAttachmentHandler(t, &mockAttachmentStore{}, bs, ds)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/p/reports/1/attachments/shot.png", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "1")
-	req.SetPathValue("source", "shot.png")
-	rr := httptest.NewRecorder()
-	h.ServeAttachment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-	cd := rr.Header().Get("Content-Disposition")
-	if !strings.HasPrefix(cd, "inline") {
-		t.Errorf("Content-Disposition = %q, want prefix 'inline'", cd)
-	}
-}
-
-func TestServeAttachment_DownloadDisposition(t *testing.T) {
-	bs := &mockAttachmentBuildStore{build: store.Build{ID: 1, BuildNumber: 1, ProjectID: 1}}
-	ds := &mockDataStore{content: "data", mimeType: "image/png"}
-	as := &mockAttachmentStore{source: &store.TestAttachment{Name: "my-screenshot.png", Source: "abc123hash.png"}}
-	h := newAttachmentHandler(t, as, bs, ds)
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/p/reports/1/attachments/abc123hash.png?dl=1", nil)
-	req.SetPathValue("project_id", "1")
-	req.SetPathValue("report_id", "1")
-	req.SetPathValue("source", "abc123hash.png")
-	rr := httptest.NewRecorder()
-	h.ServeAttachment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-	cd := rr.Header().Get("Content-Disposition")
-	if !strings.HasPrefix(cd, "attachment") {
-		t.Errorf("Content-Disposition = %q, want prefix 'attachment'", cd)
-	}
-	if !strings.Contains(cd, "my-screenshot.png") {
-		t.Errorf("Content-Disposition = %q, want human-readable filename 'my-screenshot.png'", cd)
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// SetPathValue bypasses the URL parsing that would reject slashes.
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/reports/2/attachments/x?"+tc.query, nil)
+			req.SetPathValue("project_id", "1")
+			req.SetPathValue("report_id", "2")
+			req.SetPathValue("source", tc.source)
+			rr := httptest.NewRecorder()
+			newAttachmentHandler(t, tc.as, nil, tc.ds).ServeAttachment(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want != http.StatusOK {
+				return
+			}
+			if ct, cd := rr.Header().Get("Content-Type"), rr.Header().Get("Content-Disposition"); ct != "image/png" || cd != tc.wantDisposition {
+				t.Errorf("Content-Type = %q, Content-Disposition = %q, want image/png and %q", ct, cd, tc.wantDisposition)
+			}
+			if rr.Body.String() != "PNG_DATA" {
+				t.Errorf("body = %q, want PNG_DATA", rr.Body.String())
+			}
+		})
 	}
 }

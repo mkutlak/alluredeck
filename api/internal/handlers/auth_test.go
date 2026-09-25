@@ -38,549 +38,67 @@ func testAuthConfig() *config.Config {
 	return cfg
 }
 
-func TestAuthHandler_Login(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil)
+// authPassword is the password of the fixture's local DB users.
+const authPassword = "s3cret-password"
 
-	reqBody := LoginRequest{
-		Username: "admin",
-		Password: "password",
-	}
+// authEmail assembles a fixture email at runtime so editors do not replace the
+// literal with an anonymisation placeholder.
+func authEmail(local string) string { return local + "@" + "test.local" }
 
-	body, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/login", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	rr := httptest.NewRecorder()
-	handler.Login(rr, req)
-
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
-	}
-
-	var resp map[string]any
-	if err = json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatal("expected resp[\"data\"] to be map[string]any")
-	}
-
-	// Tokens must NOT appear in the JSON body (M3 fix: dual-channel exposure)
-	if _, exists := data["access_token"]; exists {
-		t.Errorf("access_token must not be in JSON response body")
-	}
-	if _, exists := data["refresh_token"]; exists {
-		t.Errorf("refresh_token must not be in JSON response body")
-	}
-
-	// csrf_token, expires_in, and roles must still be present
-	if data["csrf_token"] == nil || data["csrf_token"] == "" {
-		t.Errorf("Expected csrf_token in response data")
-	}
-	if data["expires_in"] == nil {
-		t.Errorf("Expected expires_in in response data")
-	}
-	if data["roles"] == nil {
-		t.Errorf("Expected roles in response data")
-	}
-
-	// Check cookies are set
-	cookies := rr.Result().Cookies()
-	var jwtCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "jwt" {
-			jwtCookie = c
-			break
-		}
-	}
-	if jwtCookie == nil {
-		t.Errorf("Expected 'jwt' cookie to be set")
-	}
+// authFixture is an AuthHandler wired the way main.go wires it — user store,
+// refresh-token families, audit logger — over env admin "admin"/"password",
+// local DB users ed (active editor) and bob (inactive viewer), and an active
+// refresh-token family for "alice".
+type authFixture struct {
+	h        *AuthHandler
+	cfg      *config.Config
+	jwt      *security.JWTManager
+	users    *testutil.MemUserStore
+	families *testutil.MemRefreshTokenFamilyStore
+	audit    *testutil.MockAuditLogger
+	ed       *store.User
+	famID    string // alice's refresh-token family
+	refresh  string // alice's current refresh token in famID
 }
 
-func TestAuthHandler_Login_Unauthorized(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil)
-
-	reqBody := LoginRequest{
-		Username: "admin",
-		Password: "wrongpassword",
-	}
-
-	body, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/login", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	rr := httptest.NewRecorder()
-	handler.Login(rr, req)
-
-	if status := rr.Code; status != http.StatusUnauthorized {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusUnauthorized)
-	}
-}
-
-func TestAuthHandler_Session_ValidToken(t *testing.T) {
-	cfg := testAuthConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil)
-
-	// Build a request with JWT claims already in context (as AuthMiddleware would set)
-	claims := jwt.MapClaims{
-		"sub":      "admin",
-		"role":     "admin",
-		"provider": "local",
-	}
-	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
-	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
-	rr := httptest.NewRecorder()
-	handler.Session(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Session() status = %d, want 200", rr.Code)
-	}
-	var resp map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
-	data, _ := resp["data"].(map[string]any)
-	if data["username"] != "admin" {
-		t.Errorf("Session() username = %v, want 'admin'", data["username"])
-	}
-	if data["provider"] != "local" {
-		t.Errorf("Session() provider = %v, want 'local'", data["provider"])
-	}
-}
-
-// IMPORTANT: jwt.Parse stores numeric claims as float64, not *jwt.NumericDate.
-// The Session handler MUST use claims.GetExpirationTime() which normalises across
-// underlying types. Tests that hand-build MapClaims to assert Session() behavior
-// MUST use float64 (or go through ValidateToken) to reflect production shape —
-// do NOT use jwt.NewNumericDate() here, it silently disagrees with jwt.Parse.
-
-func TestAuthHandler_Session_ExpiresInReflectsRemaining(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil)
-
-	// Mint a real access token and parse it back so claims come in production
-	// shape (claims["exp"] == float64, not *jwt.NumericDate). This catches the
-	// class of bug where the handler asserts the wrong underlying type.
-	accessToken, _, _, _, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", "")
-	if err != nil {
-		t.Fatalf("GenerateTokensForFamily: %v", err)
-	}
-	_, claims, err := jwtManager.ValidateToken(accessToken, "access")
-	if err != nil {
-		t.Fatalf("ValidateToken: %v", err)
-	}
-
-	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
-	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
-	rr := httptest.NewRecorder()
-	handler.Session(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Session() status = %d, want 200", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	expiresIn, ok := data["expires_in"].(float64) // JSON numbers decode as float64
-	if !ok {
-		t.Fatalf("Session() data.expires_in missing or wrong type: %#v", data["expires_in"])
-	}
-
-	// Token was just minted with AccessTokenExpiry (testAuthConfig = 15min).
-	// expires_in must reflect real remaining seconds, not the configured TTL, and
-	// must be strictly > 0 to prove the claims-reading path actually works.
-	configured := cfg.AccessTokenExpiry.Seconds()
-	if expiresIn <= 0 {
-		t.Errorf("Session() expires_in = %.0f, want > 0 (claims.GetExpirationTime broken?)", expiresIn)
-	}
-	if expiresIn > configured {
-		t.Errorf("Session() expires_in = %.0f, want <= %.0f (configured TTL)", expiresIn, configured)
-	}
-	// Within ~5 seconds of the configured TTL because token was just minted.
-	if configured-expiresIn > 5 {
-		t.Errorf("Session() expires_in = %.0f, want close to %.0f (within 5s)", expiresIn, configured)
-	}
-}
-
-func TestAuthHandler_Session_ExpiresInZeroForExpiredToken(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil)
-
-	// Build claims in production shape (float64 exp, not *NumericDate). See the
-	// IMPORTANT comment above the previous test.
-	claims := jwt.MapClaims{
-		"sub":      "admin",
-		"role":     "admin",
-		"provider": "local",
-		"type":     "access",
-		"exp":      float64(time.Now().Add(-1 * time.Minute).Unix()),
-	}
-	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
-	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
-	rr := httptest.NewRecorder()
-	handler.Session(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Session() status = %d, want 200", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	expiresIn, _ := data["expires_in"].(float64)
-	if expiresIn != 0 {
-		t.Errorf("Session() expires_in for expired token = %.0f, want 0", expiresIn)
-	}
-}
-
-func TestAuthHandler_Session_NoClaims(t *testing.T) {
-	cfg := testAuthConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil)
-	rr := httptest.NewRecorder()
-	handler.Session(rr, req)
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Session() without claims status = %d, want 401", rr.Code)
-	}
-}
-
-// ----------------------------------------------------------------------------
-// Refresh handler tests (sliding sessions with rotating refresh tokens)
-// ----------------------------------------------------------------------------
-
-// refreshTestSetup builds an AuthHandler wired to in-memory stores, performs a
-// real login via the JWT manager so that a refresh token + family row exist,
-// and returns everything the tests need to drive Refresh() end-to-end.
-func refreshTestSetup(t *testing.T) (*AuthHandler, *security.JWTManager, *testutil.MemRefreshTokenFamilyStore, string, string) {
+func newAuthFixture(t *testing.T) *authFixture {
 	t.Helper()
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	familyStore := testutil.NewMemRefreshTokenFamilyStore()
-	handler := NewAuthHandler(cfg, jwtManager, familyStore)
+	f := &authFixture{
+		cfg:      testAuthConfig(),
+		users:    testutil.NewMemUserStore(),
+		families: testutil.NewMemRefreshTokenFamilyStore(),
+		audit:    testutil.NewMockAuditLogger(),
+	}
+	f.jwt = security.NewJWTManager(f.cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	f.h = NewAuthHandler(f.cfg, f.jwt, f.families).WithUserStore(f.users).WithAuditLogger(f.audit)
+	f.ed = seedLocalUserWithPassword(t, f.users, authEmail("ed"), authPassword, "editor", true)
+	seedLocalUserWithPassword(t, f.users, authEmail("bob"), authPassword, "viewer", false)
 
-	familyID, err := security.NewFamilyID()
+	famID, err := security.NewFamilyID()
 	if err != nil {
 		t.Fatalf("NewFamilyID: %v", err)
 	}
-	_, refreshToken, _, refreshJTI, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
-	if err != nil {
-		t.Fatalf("GenerateTokensForFamily: %v", err)
-	}
-	if err := familyStore.Create(context.Background(), store.RefreshTokenFamily{
-		FamilyID:   familyID,
-		UserID:     "alice",
-		Role:       "admin",
-		Provider:   "local",
-		CurrentJTI: refreshJTI,
-		Status:     store.RefreshTokenFamilyStatusActive,
-		ExpiresAt:  time.Now().Add(cfg.RefreshTokenExpiry.Duration()),
+	f.famID = famID
+	var jti string
+	f.refresh, jti = f.mintRefresh(t, famID)
+	if err := f.families.Create(context.Background(), store.RefreshTokenFamily{
+		FamilyID: famID, UserID: "alice", Role: "admin", Provider: "local", CurrentJTI: jti,
+		Status: store.RefreshTokenFamilyStatusActive, ExpiresAt: time.Now().Add(f.cfg.RefreshTokenExpiry.Duration()),
 	}); err != nil {
-		t.Fatalf("familyStore.Create: %v", err)
+		t.Fatalf("families.Create: %v", err)
 	}
-	return handler, jwtManager, familyStore, familyID, refreshToken
+	return f
 }
 
-func newRefreshRequest(refreshToken string) *http.Request {
-	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_jwt", Value: refreshToken})
-	return req
-}
-
-func extractCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *http.Cookie {
-	t.Helper()
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == name {
-			return c
-		}
-	}
-	t.Fatalf("expected cookie %q in response", name)
-	return nil
-}
-
-func TestAuthHandler_Refresh_HappyPathRotates(t *testing.T) {
-	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Refresh() status = %d, body = %s", rr.Code, rr.Body.String())
-	}
-
-	// New cookies must be set on the response.
-	newJWT := extractCookie(t, rr, "jwt")
-	newRefresh := extractCookie(t, rr, "refresh_jwt")
-	newCSRF := extractCookie(t, rr, "csrf_token")
-	if newJWT.Value == "" || newRefresh.Value == "" || newCSRF.Value == "" {
-		t.Fatalf("Refresh() did not set non-empty auth cookies")
-	}
-	if newRefresh.Value == refreshToken {
-		t.Errorf("Refresh() did not rotate the refresh_jwt cookie")
-	}
-
-	// Family row must show the rotation: previous_jti = old current, current_jti = new.
-	fam, err := familyStore.GetByID(context.Background(), familyID)
-	if err != nil || fam == nil {
-		t.Fatalf("GetByID: %v / %v", fam, err)
-	}
-	if fam.PreviousJTI == nil {
-		t.Errorf("Refresh() did not set previous_jti on rotation")
-	}
-	if fam.GraceUntil == nil || time.Until(*fam.GraceUntil) <= 0 {
-		t.Errorf("Refresh() did not set future grace_until")
-	}
-	if fam.Status != store.RefreshTokenFamilyStatusActive {
-		t.Errorf("family status after rotation = %q, want %q", fam.Status, store.RefreshTokenFamilyStatusActive)
-	}
-
-	// Response body shape: csrf_token, expires_in, roles, username, provider.
-	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	data, _ := resp["data"].(map[string]any)
-	if data["username"] != "alice" {
-		t.Errorf("response username = %v, want alice", data["username"])
-	}
-	if data["provider"] != "local" {
-		t.Errorf("response provider = %v, want local", data["provider"])
-	}
-	if data["expires_in"] == nil {
-		t.Errorf("response missing expires_in")
-	}
-}
-
-func TestAuthHandler_Refresh_ReuseDetectionMarksCompromised(t *testing.T) {
-	handler, _, familyStore, familyID, originalToken := refreshTestSetup(t)
-
-	// First refresh succeeds and rotates.
-	rr1 := httptest.NewRecorder()
-	handler.Refresh(rr1, newRefreshRequest(originalToken))
-	if rr1.Code != http.StatusOK {
-		t.Fatalf("first Refresh() status = %d", rr1.Code)
-	}
-
-	// Force the grace window closed so the second use is unambiguously a reuse,
-	// not a benign multi-tab race.
-	fam, _ := familyStore.GetByID(context.Background(), familyID)
-	if fam == nil {
-		t.Fatalf("family disappeared")
-	}
-	expired := time.Now().Add(-1 * time.Hour)
-	fam.GraceUntil = &expired
-	// Re-create over the existing entry to mutate the stored value.
-	if err := familyStore.Create(context.Background(), *fam); err != nil {
-		// Create rejects duplicates; rotate trick instead — set previous_jti to a
-		// sentinel and shrink grace_until via Rotate. Easier: directly call Rotate
-		// with a fresh JTI to advance state, then we know the original is stale.
-		_ = err
-	}
-
-	// Now present the ORIGINAL refresh token a second time. Outside the grace
-	// window this is a reuse signal → family compromised.
-	rr2 := httptest.NewRecorder()
-	handler.Refresh(rr2, newRefreshRequest(originalToken))
-
-	if rr2.Code != http.StatusUnauthorized {
-		t.Errorf("second Refresh() status = %d, want 401 (reuse detected)", rr2.Code)
-	}
-
-	famAfter, _ := familyStore.GetByID(context.Background(), familyID)
-	if famAfter == nil {
-		t.Fatalf("family disappeared")
-	}
-	if famAfter.Status != store.RefreshTokenFamilyStatusCompromised {
-		t.Errorf("family status after reuse = %q, want %q", famAfter.Status, store.RefreshTokenFamilyStatusCompromised)
-	}
-}
-
-func TestAuthHandler_Refresh_GraceWindowAcceptsPreviousJTI(t *testing.T) {
-	handler, _, _, _, originalToken := refreshTestSetup(t)
-
-	// First refresh rotates → previous_jti is set with a 30s grace window.
-	rr1 := httptest.NewRecorder()
-	handler.Refresh(rr1, newRefreshRequest(originalToken))
-	if rr1.Code != http.StatusOK {
-		t.Fatalf("first Refresh() status = %d", rr1.Code)
-	}
-
-	// Immediately re-use the ORIGINAL token. Within grace window this must
-	// succeed (multi-tab race tolerance), not trigger reuse detection.
-	rr2 := httptest.NewRecorder()
-	handler.Refresh(rr2, newRefreshRequest(originalToken))
-
-	if rr2.Code != http.StatusOK {
-		t.Errorf("Refresh() within grace window status = %d, want 200", rr2.Code)
-	}
-}
-
-func TestAuthHandler_Refresh_RevokedFamilyRejected(t *testing.T) {
-	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
-
-	if err := familyStore.Revoke(context.Background(), familyID); err != nil {
-		t.Fatalf("Revoke: %v", err)
-	}
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() against revoked family status = %d, want 401", rr.Code)
-	}
-}
-
-func TestAuthHandler_Refresh_CompromisedFamilyRejected(t *testing.T) {
-	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
-
-	if err := familyStore.MarkCompromised(context.Background(), familyID); err != nil {
-		t.Fatalf("MarkCompromised: %v", err)
-	}
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() against compromised family status = %d, want 401", rr.Code)
-	}
-}
-
-func TestAuthHandler_Refresh_MissingCookie(t *testing.T) {
-	handler, _, _, _, _ := refreshTestSetup(t)
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, httptest.NewRequest(http.MethodPost, "/auth/refresh", nil))
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() without cookie status = %d, want 401", rr.Code)
-	}
-}
-
-func TestAuthHandler_Refresh_InvalidToken(t *testing.T) {
-	handler, _, _, _, _ := refreshTestSetup(t)
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest("not.a.valid.jwt"))
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() with garbage token status = %d, want 401", rr.Code)
-	}
-}
-
-func TestAuthHandler_Refresh_NilFamilyStoreRejects(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil) // explicit nil family store
-
-	// Mint a valid refresh token even though the handler has no store wired.
-	familyID, _ := security.NewFamilyID()
-	_, refreshToken, _, _, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
-	if err != nil {
-		t.Fatalf("GenerateTokensForFamily: %v", err)
-	}
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() with nil familyStore status = %d, want 401", rr.Code)
-	}
-}
-
-func TestAuthHandler_Refresh_TokenWithoutFamClaimRejected(t *testing.T) {
-	handler, jwtManager, _, _, _ := refreshTestSetup(t)
-
-	// Mint a refresh token with empty familyID — this exercises the legacy
-	// GenerateTokens code path which does NOT add a fam claim.
-	_, refreshToken, _, _, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", "")
-	if err != nil {
-		t.Fatalf("GenerateTokensForFamily: %v", err)
-	}
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() with no-fam token status = %d, want 401", rr.Code)
-	}
-}
-
-func TestAuthHandler_Logout_RevokesFamily(t *testing.T) {
-	handler, _, familyStore, familyID, refreshToken := refreshTestSetup(t)
-
-	// Build a logout request with the refresh cookie attached.
-	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_jwt", Value: refreshToken})
-	rr := httptest.NewRecorder()
-	handler.Logout(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Logout() status = %d, body = %s", rr.Code, rr.Body.String())
-	}
-
-	fam, _ := familyStore.GetByID(context.Background(), familyID)
-	if fam == nil {
-		t.Fatalf("family disappeared after logout")
-	}
-	if fam.Status != store.RefreshTokenFamilyStatusRevoked {
-		t.Errorf("family status after logout = %q, want %q", fam.Status, store.RefreshTokenFamilyStatusRevoked)
-	}
-
-	// Subsequent refresh attempt with the same token must now fail.
-	rr2 := httptest.NewRecorder()
-	handler.Refresh(rr2, newRefreshRequest(refreshToken))
-	if rr2.Code != http.StatusUnauthorized {
-		t.Errorf("Refresh() after logout status = %d, want 401", rr2.Code)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// DB-backed local login (plan §4)
-// ---------------------------------------------------------------------------
-
-func postLogin(t *testing.T, handler *AuthHandler, username, password string) *httptest.ResponseRecorder {
-	t.Helper()
-	body, _ := json.Marshal(LoginRequest{Username: username, Password: password})
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/login", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	handler.Login(rr, req)
-	return rr
-}
-
-// seedLocalUserWithPassword registers a local user in the in-memory store with
-// a bcrypt-hashed password so Login can verify it.
+// seedLocalUserWithPassword registers a local user whose password_hash is a
+// real bcrypt hash of password, so Login verifies it.
 func seedLocalUserWithPassword(t *testing.T, users *testutil.MemUserStore, email, password, role string, active bool) *store.User {
 	t.Helper()
-	hash, err := bcryptHashForTest(password)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("bcrypt: %v", err)
 	}
-	u, err := users.CreateLocal(context.Background(), email, "Seed "+email, hash, role)
+	u, err := users.CreateLocal(context.Background(), email, "Seed "+email, string(hash), role)
 	if err != nil {
 		t.Fatalf("CreateLocal: %v", err)
 	}
@@ -588,571 +106,426 @@ func seedLocalUserWithPassword(t *testing.T, users *testutil.MemUserStore, email
 		if err := users.UpdateActive(context.Background(), u.ID, false); err != nil {
 			t.Fatalf("UpdateActive: %v", err)
 		}
-		u.IsActive = false
 	}
 	return u
 }
 
-func bcryptHashForTest(password string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+// mintRefresh returns a refresh token for alice in family famID ("" mints one
+// without a fam claim, the legacy GenerateTokens shape) and its JTI.
+func (f *authFixture) mintRefresh(t *testing.T, famID string) (token, jti string) {
+	t.Helper()
+	_, token, _, jti, err := f.jwt.GenerateTokensForFamily("alice", "admin", "local", famID)
 	if err != nil {
-		return "", err
+		t.Fatalf("GenerateTokensForFamily: %v", err)
 	}
-	return string(h), nil
+	return token, jti
 }
 
-func TestAuthHandler_Login_EnvAdminPath(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	// Even with a user store wired in, the env admin must win first.
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	rr := postLogin(t, handler, "admin", "password")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("env admin login: want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
+func (f *authFixture) login(t *testing.T, username, password string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(LoginRequest{Username: username, Password: password})
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	f.h.Login(rr, req)
+	return rr
 }
 
-func TestAuthHandler_Login_DBLocalUser_Success(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	const pwd = "s3cret-password"
-	email := "alice" + "@" + "test.local"
-	u := seedLocalUserWithPassword(t, mocks.Users, email, pwd, "editor", true)
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	rr := postLogin(t, handler, email, pwd)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("db login: want 200, got %d: %s", rr.Code, rr.Body.String())
+// refreshWith posts to /auth/refresh with token as the refresh_jwt cookie;
+// "" sends no cookie.
+func (f *authFixture) refreshWith(token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	if token != "" {
+		req.AddCookie(&http.Cookie{Name: "refresh_jwt", Value: token})
 	}
-	// Access cookie must be set.
-	var jwtCookie *http.Cookie
+	rr := httptest.NewRecorder()
+	f.h.Refresh(rr, req)
+	return rr
+}
+
+// family returns alice's refresh-token family as stored.
+func (f *authFixture) family(t *testing.T) *store.RefreshTokenFamily {
+	t.Helper()
+	fam, err := f.families.GetByID(context.Background(), f.famID)
+	if err != nil || fam == nil {
+		t.Fatalf("family %s = %v (err %v)", f.famID, fam, err)
+	}
+	return fam
+}
+
+// events asserts exactly n audit events of action were recorded and returns them.
+func (f *authFixture) events(t *testing.T, action string, n int) []store.AuditEvent {
+	t.Helper()
+	evts := f.audit.EventsByAction(action)
+	if len(evts) != n {
+		t.Fatalf("%s events = %d, want %d", action, len(evts), n)
+	}
+	return evts
+}
+
+func authCookie(rr *httptest.ResponseRecorder, name string) *http.Cookie {
 	for _, c := range rr.Result().Cookies() {
-		if c.Name == "jwt" {
-			jwtCookie = c
+		if c.Name == name {
+			return c
 		}
 	}
-	if jwtCookie == nil {
-		t.Fatalf("jwt cookie missing from DB-login response")
+	return nil
+}
+
+func authData(t *testing.T, rr *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var resp struct {
+		Data map[string]any `json:"data"`
 	}
-	// Validate that the minted token carries sub = user.ID (string form) and
-	// role = user.Role.
-	_, claims, err := jwtManager.ValidateToken(jwtCookie.Value, "access")
-	if err != nil {
-		t.Fatalf("ValidateToken: %v", err)
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if got, _ := claims["sub"].(string); got != strconv.FormatInt(u.ID, 10) {
-		t.Errorf("sub = %q, want %q", got, strconv.FormatInt(u.ID, 10))
+	return resp.Data
+}
+
+// loginStep is one POST /login and the status it must get.
+type loginStep struct {
+	user, pass string
+	want       int
+}
+
+func wrongAdminLogins(n int) []loginStep {
+	steps := make([]loginStep, n)
+	for i := range steps {
+		steps[i] = loginStep{"admin", "wrong", http.StatusUnauthorized}
 	}
-	if got, _ := claims["role"].(string); got != "editor" {
-		t.Errorf("role = %q, want editor", got)
+	return steps
+}
+
+func TestAuthHandler_Login(t *testing.T) {
+	t.Parallel()
+	const newPassword34 = "new-password-34"
+	rows := []struct {
+		name     string
+		throttle bool // wire an AccountThrottler that locks out at the 3rd failure
+		setup    func(t *testing.T, f *authFixture)
+		steps    []loginStep
+		check    func(t *testing.T, f *authFixture, last *httptest.ResponseRecorder)
+	}{
+		// The env admin wins before the user store is consulted. Tokens travel
+		// only in httpOnly cookies, never in the JSON body (M3 fix: dual-channel
+		// exposure); the success is audited under the submitted username.
+		{name: "env admin", steps: []loginStep{{"admin", "password", http.StatusOK}},
+			check: func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
+				data := authData(t, rr)
+				for _, k := range []string{"access_token", "refresh_token"} {
+					if _, leaked := data[k]; leaked {
+						t.Errorf("%s must not be in the JSON body", k)
+					}
+				}
+				if data["csrf_token"] == nil || data["csrf_token"] == "" || data["expires_in"] == nil || data["roles"] == nil {
+					t.Errorf("data = %v, want csrf_token, expires_in and roles", data)
+				}
+				if authCookie(rr, "jwt") == nil {
+					t.Error("jwt cookie not set")
+				}
+				evt := f.events(t, store.AuditActionLoginSuccess, 1)[0]
+				if evt.Outcome != store.AuditOutcomeSuccess || evt.ActorLabel != "admin" || evt.TargetType != store.AuditTargetUser {
+					t.Errorf("login.success = %+v, want success by admin on a user", evt)
+				}
+				f.events(t, store.AuditActionLoginFailure, 0)
+			}},
+		{name: "env admin wrong password", steps: wrongAdminLogins(1),
+			check: func(t *testing.T, f *authFixture, _ *httptest.ResponseRecorder) {
+				evt := f.events(t, store.AuditActionLoginFailure, 1)[0]
+				if evt.Outcome != store.AuditOutcomeFailure || evt.ActorID != nil || evt.ActorLabel != "admin" {
+					t.Errorf("login.failure = %+v, want failure with no actor_id, labelled admin", evt)
+				}
+				f.events(t, store.AuditActionLoginSuccess, 0)
+			}},
+		// DB users log in by email: the token's sub is the numeric user ID, and
+		// last_login is refreshed so the Profile page no longer shows "—".
+		{name: "db user",
+			setup: func(t *testing.T, f *authFixture) { _ = f.users.ClearLastLogin(context.Background(), f.ed.ID) },
+			steps: []loginStep{{authEmail("ed"), authPassword, http.StatusOK}},
+			check: func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
+				c := authCookie(rr, "jwt")
+				if c == nil {
+					t.Fatal("jwt cookie not set")
+				}
+				_, claims, err := f.jwt.ValidateToken(c.Value, "access")
+				if err != nil || claims["sub"] != strconv.FormatInt(f.ed.ID, 10) || claims["role"] != "editor" {
+					t.Errorf("claims = %v (err %v), want sub %d and role editor", claims, err, f.ed.ID)
+				}
+				if u, _ := f.users.GetByID(context.Background(), f.ed.ID); u.LastLogin == nil || time.Since(*u.LastLogin) > 5*time.Second {
+					t.Errorf("last_login = %v, want now", u.LastLogin)
+				}
+			}},
+		// Inactive, wrong-password and unknown users get the same answer, so
+		// the response never reveals which it was.
+		{name: "db user inactive", steps: []loginStep{{authEmail("bob"), authPassword, http.StatusUnauthorized}},
+			check: func(t *testing.T, _ *authFixture, rr *httptest.ResponseRecorder) {
+				if strings.Contains(rr.Body.String(), "inactive") {
+					t.Errorf("response leaks the inactive state: %s", rr.Body.String())
+				}
+			}},
+		{name: "db user wrong password", steps: []loginStep{{authEmail("ed"), "wrong-password", http.StatusUnauthorized}}},
+		{name: "unknown user", steps: []loginStep{{authEmail("ghost"), "whatever", http.StatusUnauthorized}}},
+		// Guards against store/handler drift: the hash ChangeMyPassword stores
+		// is the one Login verifies.
+		{name: "after a password change",
+			setup: func(t *testing.T, f *authFixture) {
+				body := `{"current_password":"` + authPassword + `","new_password":"` + newPassword34 + `"}`
+				req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/password", strings.NewReader(body))
+				claims := jwt.MapClaims{"sub": strconv.FormatInt(f.ed.ID, 10), "role": "editor"}
+				req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsKey, claims))
+				rr := httptest.NewRecorder()
+				NewUserHandler(f.users, zap.NewNop()).ChangeMyPassword(rr, req)
+				if rr.Code != http.StatusNoContent {
+					t.Fatalf("ChangeMyPassword: status = %d, want 204: %s", rr.Code, rr.Body.String())
+				}
+			},
+			steps: []loginStep{{authEmail("ed"), authPassword, http.StatusUnauthorized}, {authEmail("ed"), newPassword34, http.StatusOK}}},
+		// F-4: once three failures lock the account, the next attempt is refused
+		// before any credential check, with Retry-After and lockout metadata.
+		{name: "lockout", throttle: true, steps: append(wrongAdminLogins(3), loginStep{"admin", "wrong", http.StatusTooManyRequests}),
+			check: func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
+				if rr.Header().Get("Retry-After") == "" {
+					t.Error("429 without Retry-After")
+				}
+				evts := f.audit.EventsByAction(store.AuditActionLoginFailure)
+				locked := false
+				for _, evt := range evts {
+					var meta map[string]any
+					_ = json.Unmarshal(evt.Metadata, &meta)
+					locked = locked || meta["lockout"] == true
+				}
+				if len(evts) < 4 || !locked {
+					t.Errorf("login.failure events = %d (lockout metadata %v), want >= 4 with lockout=true", len(evts), locked)
+				}
+			}},
+		{name: "success resets the failure count", throttle: true,
+			steps: append(append(wrongAdminLogins(2), loginStep{"admin", "password", http.StatusOK}), wrongAdminLogins(2)...)},
+		{name: "no throttler never locks out", steps: wrongAdminLogins(10)},
+	}
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newAuthFixture(t)
+			if tc.throttle {
+				// Soft delay from the 1st failure is capped at 1ms to keep the suite fast.
+				f.h.WithAccountThrottler(middleware.NewAccountThrottler(5*time.Minute, 1, 3, 100*time.Millisecond, time.Millisecond))
+			}
+			if tc.setup != nil {
+				tc.setup(t, f)
+			}
+			var rr *httptest.ResponseRecorder
+			for i, s := range tc.steps {
+				if rr = f.login(t, s.user, s.pass); rr.Code != s.want {
+					t.Fatalf("attempt %d (%s): status = %d, want %d: %s", i+1, s.user, rr.Code, s.want, rr.Body.String())
+				}
+			}
+			if tc.check != nil {
+				tc.check(t, f, rr)
+			}
+		})
 	}
 }
 
-func TestAuthHandler_Login_DBLocalUser_InactiveRejected(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	const pwd = "another-secret"
-	email := "bob" + "@" + "test.local"
-	_ = seedLocalUserWithPassword(t, mocks.Users, email, pwd, "viewer", false)
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	rr := postLogin(t, handler, email, pwd)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("inactive login: want 401, got %d: %s", rr.Code, rr.Body.String())
+// IMPORTANT: jwt.Parse stores numeric claims as float64, not *jwt.NumericDate,
+// so Session must read exp through claims.GetExpirationTime(). Rows that
+// hand-build claims use float64 (or go through ValidateToken) to match the
+// production shape — jwt.NewNumericDate() would silently disagree with jwt.Parse.
+func TestAuthHandler_Session(t *testing.T) {
+	t.Parallel()
+	local := func(sub, role string) func(*testing.T, *authFixture) jwt.MapClaims {
+		return func(*testing.T, *authFixture) jwt.MapClaims {
+			return jwt.MapClaims{"sub": sub, "role": role, "provider": "local"}
+		}
 	}
-	if strings.Contains(rr.Body.String(), "inactive") {
-		t.Errorf("response body leaks inactive state: %s", rr.Body.String())
+	rows := []struct {
+		name         string
+		claims       func(t *testing.T, f *authFixture) jwt.MapClaims // nil sends none
+		want         int
+		wantUsername string // "{ed}" is the DB user's email
+		checkExpiry  func(t *testing.T, f *authFixture, expiresIn float64)
+	}{
+		{name: "no claims", want: http.StatusUnauthorized},
+		// An env user's non-numeric sub is echoed verbatim.
+		{name: "env user", claims: local("admin", "admin"), want: http.StatusOK, wantUsername: "admin"},
+		// A DB user's numeric sub resolves to the human-readable email.
+		{name: "db user", want: http.StatusOK, wantUsername: "{ed}",
+			claims: func(_ *testing.T, f *authFixture) jwt.MapClaims {
+				return jwt.MapClaims{"sub": strconv.FormatInt(f.ed.ID, 10), "role": "editor", "provider": "local"}
+			}},
+		// expires_in is the token's real remaining lifetime, not the configured
+		// TTL, so the client does not drift its expiry forward on every call.
+		{name: "expires_in from the token", want: http.StatusOK, wantUsername: "alice",
+			claims: func(t *testing.T, f *authFixture) jwt.MapClaims {
+				token, _, _, _, err := f.jwt.GenerateTokensForFamily("alice", "admin", "local", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, claims, err := f.jwt.ValidateToken(token, "access")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return claims
+			},
+			checkExpiry: func(t *testing.T, f *authFixture, expiresIn float64) {
+				if configured := f.cfg.AccessTokenExpiry.Seconds(); expiresIn <= 0 || expiresIn > configured || configured-expiresIn > 5 {
+					t.Errorf("expires_in = %.0f, want within 5s below %.0f", expiresIn, configured)
+				}
+			}},
+		{name: "expired token", want: http.StatusOK, wantUsername: "admin",
+			claims: func(*testing.T, *authFixture) jwt.MapClaims {
+				return jwt.MapClaims{"sub": "admin", "role": "admin", "provider": "local", "type": "access", "exp": float64(time.Now().Add(-time.Minute).Unix())}
+			},
+			checkExpiry: func(t *testing.T, _ *authFixture, expiresIn float64) {
+				if expiresIn != 0 {
+					t.Errorf("expires_in = %.0f, want 0", expiresIn)
+				}
+			}},
 	}
-}
-
-func TestAuthHandler_Login_DBLocalUser_WrongPassword(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	email := "carol" + "@" + "test.local"
-	_ = seedLocalUserWithPassword(t, mocks.Users, email, "right-password", "viewer", true)
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	rr := postLogin(t, handler, email, "wrong-password")
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong-password: want 401, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestAuthHandler_Login_DBLocalUser_UnknownUser(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	rr := postLogin(t, handler, "ghost"+"@"+"test.local", "whatever")
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("unknown-user: want 401, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-// After a successful DB-local login, the user's last_login column must be
-// refreshed via UserStorer.UpdateLastLogin so the Profile page no longer shows
-// "—".
-func TestAuthHandler_Login_DBLocalUser_UpdatesLastLogin(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	const pwd = "last-login-secret"
-	email := "dan" + "@" + "test.local"
-	u := seedLocalUserWithPassword(t, mocks.Users, email, pwd, "viewer", true)
-	// Force last_login to nil so we can assert the Login handler populates it.
-	_ = mocks.Users.ClearLastLogin(context.Background(), u.ID)
-
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-	rr := postLogin(t, handler, email, pwd)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("login: want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	reloaded, err := mocks.Users.GetByID(context.Background(), u.ID)
-	if err != nil {
-		t.Fatalf("GetByID after login: %v", err)
-	}
-	if reloaded.LastLogin == nil {
-		t.Fatalf("LastLogin still nil after successful login — UpdateLastLogin not invoked")
-	}
-	if time.Since(*reloaded.LastLogin) > 5*time.Second {
-		t.Errorf("LastLogin = %v, want within 5s of now", *reloaded.LastLogin)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// /auth/session response shape (plan §4.4)
-// ---------------------------------------------------------------------------
-
-// For DB-backed users whose JWT sub is a numeric id, /auth/session must return
-// the human-readable email as "username" — not the raw sub.
-func TestAuthHandler_Session_DBUserReturnsEmailAsUsername(t *testing.T) {
-	cfg := testAuthConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	u := seedLocalUserWithPassword(t, mocks.Users, "eve@test.local", "x", "editor", true)
-
-	claims := jwt.MapClaims{
-		"sub":      strconv.FormatInt(u.ID, 10),
-		"role":     "editor",
-		"provider": "local",
-	}
-	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
-	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
-	rr := httptest.NewRecorder()
-	handler.Session(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Session() status = %d, want 200", rr.Code)
-	}
-	var resp map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
-	data, _ := resp["data"].(map[string]any)
-	if data["username"] != "eve@test.local" {
-		t.Errorf("Session() username = %v, want email (eve@test.local)", data["username"])
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newAuthFixture(t)
+			req := httptest.NewRequest(http.MethodGet, "/auth/session", nil)
+			if tc.claims != nil {
+				req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsKey, tc.claims(t, f)))
+			}
+			rr := httptest.NewRecorder()
+			f.h.Session(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want != http.StatusOK {
+				return
+			}
+			data := authData(t, rr)
+			wantUsername := strings.ReplaceAll(tc.wantUsername, "{ed}", f.ed.Email)
+			if data["username"] != wantUsername || data["provider"] != "local" {
+				t.Errorf("username, provider = %v, %v, want %s, local", data["username"], data["provider"], wantUsername)
+			}
+			if tc.checkExpiry != nil {
+				expiresIn, _ := data["expires_in"].(float64)
+				tc.checkExpiry(t, f, expiresIn)
+			}
+		})
 	}
 }
 
-// After a successful ChangeMyPassword, the user must be able to log in with the
-// new password and not the old one. This guards against store/handler drift
-// where the hash ends up stored under a different key or not persisted at all.
-func TestAuthHandler_Login_AfterChangePassword(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	const oldPwd = "old-password-12"
-	const newPwd = "new-password-34"
-	email := "sean" + "@" + "test.local"
-	u := seedLocalUserWithPassword(t, mocks.Users, email, oldPwd, "viewer", true)
-
-	authHandler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-	userHandler := NewUserHandler(mocks.Users, zap.NewNop())
-
-	// Change password via the user handler.
-	body, _ := json.Marshal(map[string]string{
-		"current_password": oldPwd,
-		"new_password":     newPwd,
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/password", bytes.NewReader(body))
-	claims := jwt.MapClaims{"sub": strconv.FormatInt(u.ID, 10), "role": "viewer"}
-	req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsKey, claims))
-	rr := httptest.NewRecorder()
-	userHandler.ChangeMyPassword(rr, req)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("ChangeMyPassword: want 204, got %d: %s", rr.Code, rr.Body.String())
+func TestAuthHandler_Refresh(t *testing.T) {
+	t.Parallel()
+	current := func(_ *testing.T, f *authFixture) string { return f.refresh }
+	rows := []struct {
+		name    string
+		present func(t *testing.T, f *authFixture) string // the refresh cookie; "" sends none
+		want    int
+		check   func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder)
+	}{
+		// A refresh rotates the family (previous_jti set, grace window open)
+		// and the refresh cookie, and is audited against the family.
+		{name: "rotates", present: current, want: http.StatusOK,
+			check: func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
+				for _, name := range []string{"jwt", "refresh_jwt", "csrf_token"} {
+					if c := authCookie(rr, name); c == nil || c.Value == "" {
+						t.Errorf("%s cookie not set", name)
+					}
+				}
+				if c := authCookie(rr, "refresh_jwt"); c != nil && c.Value == f.refresh {
+					t.Error("refresh_jwt cookie not rotated")
+				}
+				if fam := f.family(t); fam.PreviousJTI == nil || fam.GraceUntil == nil || !fam.GraceUntil.After(time.Now()) || fam.Status != store.RefreshTokenFamilyStatusActive {
+					t.Errorf("family = %+v, want active with previous_jti and a future grace_until", fam)
+				}
+				if data := authData(t, rr); data["username"] != "alice" || data["provider"] != "local" || data["expires_in"] == nil {
+					t.Errorf("data = %v, want username alice, provider local and expires_in", data)
+				}
+				if evt := f.events(t, store.AuditActionRefreshSuccess, 1)[0]; evt.ActorLabel != "alice" || evt.TargetID != f.famID {
+					t.Errorf("refresh.success = %+v, want alice on family %s", evt, f.famID)
+				}
+			}},
+		// Within the grace window the previous token still works, tolerating
+		// multi-tab races.
+		{name: "previous token within grace window", want: http.StatusOK,
+			present: func(t *testing.T, f *authFixture) string {
+				if rr := f.refreshWith(f.refresh); rr.Code != http.StatusOK {
+					t.Fatalf("first refresh: status = %d", rr.Code)
+				}
+				return f.refresh
+			}},
+		// Outside it a previous token is theft: the family is marked
+		// compromised and the compromise is audited.
+		{name: "reuse outside grace window", want: http.StatusUnauthorized,
+			present: func(t *testing.T, f *authFixture) string {
+				if err := f.families.Rotate(context.Background(), f.famID, "rotated-jti", 0); err != nil {
+					t.Fatal(err)
+				}
+				return f.refresh
+			},
+			check: func(t *testing.T, f *authFixture, _ *httptest.ResponseRecorder) {
+				if fam := f.family(t); fam.Status != store.RefreshTokenFamilyStatusCompromised {
+					t.Errorf("family status = %q, want compromised", fam.Status)
+				}
+				if evt := f.events(t, store.AuditActionRefreshCompromise, 1)[0]; evt.Outcome != store.AuditOutcomeFailure || evt.TargetID != f.famID {
+					t.Errorf("refresh.compromise = %+v, want failure on family %s", evt, f.famID)
+				}
+			}},
+		{name: "revoked family", want: http.StatusUnauthorized,
+			present: func(t *testing.T, f *authFixture) string {
+				_ = f.families.Revoke(context.Background(), f.famID)
+				return f.refresh
+			}},
+		{name: "compromised family", want: http.StatusUnauthorized,
+			present: func(t *testing.T, f *authFixture) string {
+				_ = f.families.MarkCompromised(context.Background(), f.famID)
+				return f.refresh
+			}},
+		{name: "missing cookie", want: http.StatusUnauthorized, present: func(*testing.T, *authFixture) string { return "" }},
+		{name: "invalid token", want: http.StatusUnauthorized, present: func(*testing.T, *authFixture) string { return "not.a.valid.jwt" }},
+		{name: "rotation disabled", want: http.StatusUnauthorized,
+			present: func(_ *testing.T, f *authFixture) string {
+				f.h.familyStore = nil
+				return f.refresh
+			}},
+		{name: "token without fam claim", want: http.StatusUnauthorized,
+			present: func(t *testing.T, f *authFixture) string {
+				token, _ := f.mintRefresh(t, "")
+				return token
+			}},
 	}
-
-	// Old password must be rejected.
-	rrOld := postLogin(t, authHandler, email, oldPwd)
-	if rrOld.Code != http.StatusUnauthorized {
-		t.Errorf("login with old password: want 401, got %d: %s", rrOld.Code, rrOld.Body.String())
-	}
-
-	// New password must be accepted.
-	rrNew := postLogin(t, authHandler, email, newPwd)
-	if rrNew.Code != http.StatusOK {
-		t.Errorf("login with new password: want 200, got %d: %s", rrNew.Code, rrNew.Body.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// F-1: audit emission
-// ---------------------------------------------------------------------------
-
-// Successful login must emit one auth.login.success event with actor_label set
-// to the submitted username.
-func TestAuthHandler_Login_EmitsAudit_Success(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).
-		WithUserStore(mocks.Users).
-		WithAuditLogger(mocks.Audit)
-
-	rr := postLogin(t, handler, "admin", "password")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("login status = %d, want 200", rr.Code)
-	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionLoginSuccess)
-	if len(events) != 1 {
-		t.Fatalf("auth.login.success events = %d, want 1", len(events))
-	}
-	got := events[0]
-	if got.Outcome != store.AuditOutcomeSuccess {
-		t.Errorf("outcome = %q, want success", got.Outcome)
-	}
-	if got.ActorLabel != "admin" {
-		t.Errorf("actor_label = %q, want %q", got.ActorLabel, "admin")
-	}
-	if got.TargetType != store.AuditTargetUser {
-		t.Errorf("target_type = %q, want %q", got.TargetType, store.AuditTargetUser)
-	}
-	// Should not also have emitted a failure event for this request.
-	if n := len(mocks.Audit.EventsByAction(store.AuditActionLoginFailure)); n != 0 {
-		t.Errorf("unexpected login.failure events = %d", n)
-	}
-}
-
-// Failed login (wrong password) must emit one auth.login.failure event with
-// outcome=failure, ActorID nil (no user resolved), and actor_label = the
-// submitted username.
-func TestAuthHandler_Login_EmitsAudit_Failure(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).
-		WithUserStore(mocks.Users).
-		WithAuditLogger(mocks.Audit)
-
-	rr := postLogin(t, handler, "admin", "wrong-password-here")
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("login status = %d, want 401", rr.Code)
-	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
-	if len(events) != 1 {
-		t.Fatalf("auth.login.failure events = %d, want 1", len(events))
-	}
-	got := events[0]
-	if got.Outcome != store.AuditOutcomeFailure {
-		t.Errorf("outcome = %q, want failure", got.Outcome)
-	}
-	if got.ActorID != nil {
-		t.Errorf("actor_id = %v, want nil for unauthenticated failure", got.ActorID)
-	}
-	if got.ActorLabel != "admin" {
-		t.Errorf("actor_label = %q, want %q", got.ActorLabel, "admin")
-	}
-	// Must not also have emitted a success.
-	if n := len(mocks.Audit.EventsByAction(store.AuditActionLoginSuccess)); n != 0 {
-		t.Errorf("unexpected login.success events = %d", n)
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newAuthFixture(t)
+			rr := f.refreshWith(tc.present(t, f))
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.check != nil {
+				tc.check(t, f, rr)
+			}
+		})
 	}
 }
 
-// Logout must emit one auth.logout event with the JWT subject in actor_label.
-func TestAuthHandler_Logout_EmitsAudit(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithAuditLogger(mocks.Audit)
-
+// Logout revokes the refresh-token family, so the refresh token is dead at
+// once, and is audited under the caller's subject.
+func TestAuthHandler_Logout(t *testing.T) {
+	t.Parallel()
+	f := newAuthFixture(t)
 	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
-	claims := jwt.MapClaims{"sub": "admin", "role": "admin"}
-	req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsKey, claims))
+	req.AddCookie(&http.Cookie{Name: "refresh_jwt", Value: f.refresh})
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsKey, jwt.MapClaims{"sub": "admin", "role": "admin"}))
 	rr := httptest.NewRecorder()
-	handler.Logout(rr, req)
+	f.h.Logout(rr, req)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("logout status = %d, want 200", rr.Code)
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
 	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionLogout)
-	if len(events) != 1 {
-		t.Fatalf("auth.logout events = %d, want 1", len(events))
+	if fam := f.family(t); fam.Status != store.RefreshTokenFamilyStatusRevoked {
+		t.Errorf("family status = %q, want revoked", fam.Status)
 	}
-	if events[0].ActorLabel != "admin" {
-		t.Errorf("actor_label = %q, want admin", events[0].ActorLabel)
+	if evt := f.events(t, store.AuditActionLogout, 1)[0]; evt.ActorLabel != "admin" {
+		t.Errorf("logout actor_label = %q, want admin", evt.ActorLabel)
 	}
-}
-
-// Successful refresh must emit auth.refresh.success.
-func TestAuthHandler_Refresh_EmitsAudit_Success(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	familyStore := testutil.NewMemRefreshTokenFamilyStore()
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, familyStore).WithAuditLogger(mocks.Audit)
-
-	familyID, err := security.NewFamilyID()
-	if err != nil {
-		t.Fatalf("NewFamilyID: %v", err)
-	}
-	_, refreshToken, _, refreshJTI, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
-	if err != nil {
-		t.Fatalf("GenerateTokensForFamily: %v", err)
-	}
-	if err := familyStore.Create(context.Background(), store.RefreshTokenFamily{
-		FamilyID:   familyID,
-		UserID:     "alice",
-		Role:       "admin",
-		Provider:   "local",
-		CurrentJTI: refreshJTI,
-		Status:     store.RefreshTokenFamilyStatusActive,
-		ExpiresAt:  time.Now().Add(cfg.RefreshTokenExpiry.Duration()),
-	}); err != nil {
-		t.Fatalf("Create family: %v", err)
-	}
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("refresh status = %d, want 200: %s", rr.Code, rr.Body.String())
-	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionRefreshSuccess)
-	if len(events) != 1 {
-		t.Fatalf("auth.refresh.success events = %d, want 1", len(events))
-	}
-	got := events[0]
-	if got.ActorLabel != "alice" {
-		t.Errorf("actor_label = %q, want alice", got.ActorLabel)
-	}
-	if got.TargetID != familyID {
-		t.Errorf("target_id = %q, want family id %q", got.TargetID, familyID)
-	}
-}
-
-// Reuse-detected refresh must emit auth.refresh.compromise with outcome=failure.
-func TestAuthHandler_Refresh_EmitsAudit_Compromise(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	familyStore := testutil.NewMemRefreshTokenFamilyStore()
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, familyStore).WithAuditLogger(mocks.Audit)
-
-	familyID, err := security.NewFamilyID()
-	if err != nil {
-		t.Fatalf("NewFamilyID: %v", err)
-	}
-	_, refreshToken, _, refreshJTI, err := jwtManager.GenerateTokensForFamily("alice", "admin", "local", familyID)
-	if err != nil {
-		t.Fatalf("GenerateTokensForFamily: %v", err)
-	}
-	// Seed the family but rotate to a different JTI. Presenting the original
-	// token now is unambiguous reuse.
-	if err := familyStore.Create(context.Background(), store.RefreshTokenFamily{
-		FamilyID:   familyID,
-		UserID:     "alice",
-		Role:       "admin",
-		Provider:   "local",
-		CurrentJTI: "different-current-jti",
-		Status:     store.RefreshTokenFamilyStatusActive,
-		ExpiresAt:  time.Now().Add(cfg.RefreshTokenExpiry.Duration()),
-	}); err != nil {
-		t.Fatalf("Create family: %v", err)
-	}
-	_ = refreshJTI
-
-	rr := httptest.NewRecorder()
-	handler.Refresh(rr, newRefreshRequest(refreshToken))
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("refresh status = %d, want 401", rr.Code)
-	}
-
-	events := mocks.Audit.EventsByAction(store.AuditActionRefreshCompromise)
-	if len(events) != 1 {
-		t.Fatalf("auth.refresh.compromise events = %d, want 1", len(events))
-	}
-	if events[0].Outcome != store.AuditOutcomeFailure {
-		t.Errorf("outcome = %q, want failure", events[0].Outcome)
-	}
-	if events[0].TargetID != familyID {
-		t.Errorf("target_id = %q, want %q", events[0].TargetID, familyID)
-	}
-}
-
-// Env admin has a non-numeric sub — Session must echo the subject verbatim.
-func TestAuthHandler_Session_EnvUserReturnsSubjectVerbatim(t *testing.T) {
-	cfg := testAuthConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewAuthHandler(cfg, jwtManager, nil).WithUserStore(mocks.Users)
-
-	claims := jwt.MapClaims{
-		"sub":      "admin",
-		"role":     "admin",
-		"provider": "local",
-	}
-	ctx := context.WithValue(context.Background(), middleware.ClaimsKey, claims)
-	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil).WithContext(ctx)
-	rr := httptest.NewRecorder()
-	handler.Session(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Session() status = %d, want 200", rr.Code)
-	}
-	var resp map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
-	data, _ := resp["data"].(map[string]any)
-	if data["username"] != "admin" {
-		t.Errorf("Session() username = %v, want 'admin'", data["username"])
-	}
-}
-
-// ---------------------------------------------------------------------------
-// F-4: per-account brute-force throttle integration tests.
-//
-// These exercise AuthHandler.Login with a wired AccountThrottler. We use a
-// tiny window/threshold/backoff so the test stays fast.
-// ---------------------------------------------------------------------------
-
-// newTestThrottler builds an AccountThrottler with parameters tuned for fast
-// tests: 5min window, soft=1, lockout at 3 failures, lockoutDuration 100ms,
-// backoffMax 1ms (so the soft-delay sleep does not slow the suite).
-func newTestLoginThrottler() *middleware.AccountThrottler {
-	return middleware.NewAccountThrottler(
-		5*time.Minute,        // window
-		1,                    // softThreshold
-		3,                    // lockoutThreshold
-		100*time.Millisecond, // lockoutDuration
-		1*time.Millisecond,   // backoffMax (negligible; we don't measure delay here)
-	)
-}
-
-// TestLogin_LockoutReturns429AfterThreshold — wire AuthHandler with throttler
-// set to threshold=3 → 4 bad logins → 4th returns 429 with `Retry-After`
-// header and audit metadata.lockout=true.
-func TestLogin_LockoutReturns429AfterThreshold(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).
-		WithUserStore(mocks.Users).
-		WithAuditLogger(mocks.Audit).
-		WithAccountThrottler(newTestLoginThrottler())
-
-	// 3 bad logins exhaust soft + escalating tier; the 3rd records the
-	// failure that crosses the lockout threshold.
-	for i := 1; i <= 3; i++ {
-		rr := postLogin(t, handler, "admin", "wrong")
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt %d: status = %d, want 401", i, rr.Code)
-		}
-	}
-
-	// 4th attempt should be rejected with 429 BEFORE any credential check.
-	rr := postLogin(t, handler, "admin", "wrong")
-	if rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("4th attempt: status = %d, want 429", rr.Code)
-	}
-	if rr.Header().Get("Retry-After") == "" {
-		t.Errorf("4th attempt: expected Retry-After header on 429")
-	}
-
-	// Audit must include a failure event with metadata.lockout=true. The
-	// lockout-triggering failure (#3) and the 4th attempt (rejected at the
-	// gate) are both expected to carry lockout metadata.
-	events := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
-	if len(events) < 4 {
-		t.Fatalf("login.failure events = %d, want >= 4", len(events))
-	}
-	var sawLockoutMeta bool
-	for _, evt := range events {
-		if len(evt.Metadata) == 0 {
-			continue
-		}
-		var meta map[string]any
-		if err := json.Unmarshal(evt.Metadata, &meta); err != nil {
-			continue
-		}
-		if v, ok := meta["lockout"].(bool); ok && v {
-			sawLockoutMeta = true
-			break
-		}
-	}
-	if !sawLockoutMeta {
-		t.Errorf("expected at least one login.failure event with metadata.lockout=true")
-	}
-}
-
-// TestLogin_SuccessResetsCounter — 2 failures → 1 success → 2 more failures
-// → 5th attempt should NOT be locked out (count was reset on success).
-func TestLogin_SuccessResetsCounter(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).
-		WithUserStore(mocks.Users).
-		WithAuditLogger(mocks.Audit).
-		WithAccountThrottler(newTestLoginThrottler())
-
-	// 2 failures.
-	for i := 1; i <= 2; i++ {
-		rr := postLogin(t, handler, "admin", "wrong")
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("pre-success failure %d: status = %d, want 401", i, rr.Code)
-		}
-	}
-
-	// 1 success — counter should reset.
-	rr := postLogin(t, handler, "admin", "password")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("success login: status = %d, want 200", rr.Code)
-	}
-
-	// 2 more failures. Without reset these would be the 4th/5th in a row and
-	// trigger lockout. With the reset they must each return 401 (not 429).
-	for i := 1; i <= 2; i++ {
-		rr := postLogin(t, handler, "admin", "wrong")
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("post-success failure %d: status = %d, want 401 (success should reset counter)", i, rr.Code)
-		}
-	}
-}
-
-// TestLogin_NilThrottlerSkipsCheck — control test: with no throttler wired
-// the handler must behave exactly as before (no 429, no lockout).
-func TestLogin_NilThrottlerSkipsCheck(t *testing.T) {
-	cfg := testAuthConfig()
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-	mocks := testutil.New()
-	handler := NewAuthHandler(cfg, jwtManager, nil).
-		WithUserStore(mocks.Users).
-		WithAuditLogger(mocks.Audit)
-	// NB: no WithAccountThrottler call.
-
-	// 10 bad logins must all return 401 (no 429 ever surfaces).
-	for i := 1; i <= 10; i++ {
-		rr := postLogin(t, handler, "admin", "wrong")
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt %d (no throttler): status = %d, want 401", i, rr.Code)
-		}
+	if rr := f.refreshWith(f.refresh); rr.Code != http.StatusUnauthorized {
+		t.Errorf("refresh after logout: status = %d, want 401", rr.Code)
 	}
 }

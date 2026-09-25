@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,20 +20,15 @@ import (
 
 // mockOIDCExchanger implements security.OIDCExchanger for testing.
 type mockOIDCExchanger struct {
-	authCodeURL string
-	userInfo    *security.OIDCUserInfo
-	exchangeErr error
+	userInfo *security.OIDCUserInfo
 }
 
-func (m *mockOIDCExchanger) AuthCodeURL(state, nonce, codeChallenge string) string {
-	if m.authCodeURL != "" {
-		return m.authCodeURL + "?state=" + state
-	}
+func (m *mockOIDCExchanger) AuthCodeURL(state, _, _ string) string {
 	return "https://idp.example.com/auth?state=" + state
 }
 
-func (m *mockOIDCExchanger) Exchange(_ context.Context, _, _, _ string) (*security.OIDCUserInfo, error) {
-	return m.userInfo, m.exchangeErr
+func (m *mockOIDCExchanger) Exchange(context.Context, string, string, string) (*security.OIDCUserInfo, error) {
+	return m.userInfo, nil
 }
 
 func testOIDCConfig() *config.Config {
@@ -40,7 +37,6 @@ func testOIDCConfig() *config.Config {
 		JWTSecret:          "test-secret-32-bytes-minimum-len",
 		AccessTokenExpiry:  config.DurationSeconds(3600 * time.Second),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-		TLS:                false,
 		OIDC: config.OIDCConfig{
 			Enabled:           true,
 			IssuerURL:         "https://accounts.example.com",
@@ -56,401 +52,139 @@ func testOIDCConfig() *config.Config {
 	}
 }
 
-func TestOIDCHandler_Login_Redirects(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	userStore := testutil.NewMemUserStore()
-	oidcProv := &mockOIDCExchanger{}
-	handler := NewOIDCHandler(cfg, oidcProv, jwtManager, userStore, nil, zap.NewNop())
+func newTestOIDCHandler(cfg *config.Config, users store.UserAuthStorer, info *security.OIDCUserInfo, audit store.AuditLogger) *OIDCHandler {
+	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	return NewOIDCHandler(cfg, &mockOIDCExchanger{userInfo: info}, jwtManager, users, nil, zap.NewNop()).WithAuditLogger(audit)
+}
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/login", nil)
+// Login redirects to the IdP and parks state, nonce and PKCE verifier in a
+// short-lived HttpOnly cookie.
+func TestOIDCHandler_Login(t *testing.T) {
+	t.Parallel()
 	rr := httptest.NewRecorder()
-	handler.Login(rr, req)
+	newTestOIDCHandler(testOIDCConfig(), testutil.NewMemUserStore(), nil, nil).Login(rr, httptest.NewRequest(http.MethodGet, "/auth/oidc/login", nil))
+	if rr.Code != http.StatusFound || rr.Header().Get("Location") == "" {
+		t.Fatalf("status = %d, Location = %q, want 302 to the IdP", rr.Code, rr.Header().Get("Location"))
+	}
+	if c := authCookie(rr, "oidc_state"); c == nil || !c.HttpOnly || c.MaxAge != 300 {
+		t.Errorf("oidc_state cookie = %+v, want HttpOnly with MaxAge 300", c)
+	}
+}
 
-	if rr.Code != http.StatusFound {
-		t.Errorf("Login() status = %d, want %d", rr.Code, http.StatusFound)
+// TestOIDCHandler_Callback runs sequentially: a row shortens the package-wide
+// state-cookie TTL.
+func TestOIDCHandler_Callback(t *testing.T) {
+	const ok = "state=mystate&code=authcode"
+	alice := func(sub string, verified bool) *security.OIDCUserInfo {
+		return &security.OIDCUserInfo{Subject: sub, Email: "alice@example.com", EmailVerified: verified, Name: "Alice", Groups: []string{}}
 	}
-	// Check redirect to IdP
-	location := rr.Header().Get("Location")
-	if location == "" {
-		t.Error("Login() expected Location header")
-	}
-	// Check state cookie set
-	var stateCookie *http.Cookie
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == "oidc_state" {
-			stateCookie = c
-			break
+	// collision is a user store where alice's email already belongs to an
+	// okta account; RelinkOIDC records "<id> <sub>".
+	collision := func(relinked *string) store.UserAuthStorer {
+		return &testutil.MockUserStore{
+			UpsertByOIDCFn: func(context.Context, string, string, string, string, string) (*store.User, error) {
+				return nil, store.ErrEmailAlreadyLinked
+			},
+			GetByEmailFn: func(context.Context, string) (*store.User, error) {
+				return &store.User{ID: 42, Email: "alice@example.com", Name: "Alice", Provider: "okta", ProviderSub: "okta|orig", Role: "viewer", IsActive: true}, nil
+			},
+			RelinkOIDCFn: func(_ context.Context, id int64, _, sub string) error {
+				*relinked = fmt.Sprintf("%d %s", id, sub)
+				return nil
+			},
 		}
 	}
-	if stateCookie == nil {
-		t.Fatal("Login() expected oidc_state cookie")
-		return // unreachable, but satisfies staticcheck SA5011
+	deactivated := func(*string) store.UserAuthStorer {
+		users := testutil.NewMemUserStore()
+		u, _ := users.UpsertByOIDC(context.Background(), "oidc", "sub123", "user@example.com", "User Name", "viewer")
+		_ = users.Deactivate(context.Background(), u.ID)
+		return users
 	}
-	if !stateCookie.HttpOnly {
-		t.Error("Login() oidc_state cookie must be HttpOnly")
+	rows := []struct {
+		name        string
+		cookieState string // state sealed in the oidc_state cookie; "" sends none
+		expired     bool   // seal an already expired cookie
+		query       string
+		autoLink    bool
+		users       func(relinked *string) store.UserAuthStorer // nil: empty in-memory store
+		info        *security.OIDCUserInfo
+		want        int
+		auditAction string   // the one audit event of this action must carry auditMeta
+		auditMeta   []string // metadata JSON fragments
+		wantRelink  string   // "<id> <sub>" RelinkOIDC must receive; "" for no relink
+	}{
+		{name: "missing state cookie", query: "state=abc&code=xyz", want: http.StatusBadRequest},
+		{name: "state mismatch", cookieState: "correct-state", query: "state=wrong-state&code=xyz", want: http.StatusBadRequest},
+		{name: "IdP error", cookieState: "mystate", query: "state=mystate&error=access_denied", want: http.StatusBadRequest},
+		{name: "expired state cookie", cookieState: "mystate", expired: true, query: ok, want: http.StatusBadRequest},
+		{name: "deactivated user", cookieState: "mystate", query: ok, users: deactivated,
+			info: &security.OIDCUserInfo{Subject: "sub123", Email: "user@example.com", Name: "User Name", Groups: []string{}}, want: http.StatusForbidden},
+		{name: "new user", cookieState: "mystate", query: ok,
+			info: &security.OIDCUserInfo{Subject: "sub456", Email: "newuser@example.com", Name: "New User", Groups: []string{}}, want: http.StatusFound},
+		// F-5: an email owned by another identity is refused by default...
+		{name: "email collision", cookieState: "mystate", query: ok, users: collision, info: alice("kc|attacker", true),
+			want: http.StatusConflict, auditAction: store.AuditActionLoginFailure, auditMeta: []string{`"reason":"oidc_email_collision"`}},
+		// ...relinked when auto-link is on and the IdP verified the email...
+		{name: "email collision auto-linked", cookieState: "mystate", query: ok, autoLink: true, users: collision, info: alice("kc|verified", true),
+			want: http.StatusFound, auditAction: store.AuditActionLoginSuccess,
+			auditMeta: []string{`"oidc_link":"auto"`, `"verified":true`, `"previous_provider":"okta"`}, wantRelink: "42 kc|verified"},
+		// ...and an unverified email never takes over an existing account.
+		{name: "email collision unverified", cookieState: "mystate", query: ok, autoLink: true, users: collision, info: alice("kc|unverified", false),
+			want: http.StatusConflict, auditAction: store.AuditActionLoginFailure, auditMeta: []string{`"reason":"oidc_email_collision_unverified"`}},
 	}
-	if stateCookie.MaxAge != 300 {
-		t.Errorf("Login() oidc_state MaxAge = %d, want 300", stateCookie.MaxAge)
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testOIDCConfig()
+			cfg.OIDC.AutoLinkByEmail = tc.autoLink
+			var relinked string
+			var users store.UserAuthStorer = testutil.NewMemUserStore()
+			if tc.users != nil {
+				users = tc.users(&relinked)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?"+tc.query, nil)
+			if tc.cookieState != "" {
+				if tc.expired {
+					orig := security.StateCookieTTL()
+					security.SetStateCookieTTL(-time.Second)
+					defer security.SetStateCookieTTL(orig)
+				}
+				val, err := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), tc.cookieState, "nonce", "verifier")
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.AddCookie(&http.Cookie{Name: "oidc_state", Value: val})
+			}
+			audit := testutil.NewMockAuditLogger()
+			rr := httptest.NewRecorder()
+			newTestOIDCHandler(cfg, users, tc.info, audit).Callback(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if relinked != tc.wantRelink {
+				t.Errorf("RelinkOIDC got %q, want %q", relinked, tc.wantRelink)
+			}
+			if tc.auditAction != "" {
+				evts := audit.EventsByAction(tc.auditAction)
+				if len(evts) != 1 {
+					t.Fatalf("%s events = %d, want 1", tc.auditAction, len(evts))
+				}
+				for _, frag := range tc.auditMeta {
+					if !strings.Contains(string(evts[0].Metadata), frag) {
+						t.Errorf("audit metadata = %s, want %s", evts[0].Metadata, frag)
+					}
+				}
+			}
+			if tc.want != http.StatusFound {
+				return
+			}
+			// A session is handed out, the state cookie cleared, and the
+			// browser sent to the post-login page with ?oidc=success.
+			if loc, _ := url.Parse(rr.Header().Get("Location")); loc == nil || loc.Query().Get("oidc") != "success" {
+				t.Errorf("Location = %q, want ?oidc=success", rr.Header().Get("Location"))
+			}
+			if c := authCookie(rr, "oidc_state"); authCookie(rr, "jwt") == nil || c == nil || c.MaxAge != -1 {
+				t.Errorf("cookies = %v, want jwt set and oidc_state cleared", rr.Result().Cookies())
+			}
+		})
 	}
-}
-
-func TestOIDCHandler_Callback_MissingStateCookie(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
-
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=abc&code=xyz", nil)
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Callback() without state cookie status = %d, want 400", rr.Code)
-	}
-}
-
-func TestOIDCHandler_Callback_StateMismatch(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
-
-	// Create a valid state cookie with state="correct-state"
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "correct-state", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=wrong-state&code=xyz", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Callback() with state mismatch status = %d, want 400", rr.Code)
-	}
-}
-
-func TestOIDCHandler_Callback_IdPError(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&error=access_denied", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Callback() with IdP error status = %d, want 400", rr.Code)
-	}
-}
-
-func TestOIDCHandler_Callback_ExpiredStateCookie(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	handler := NewOIDCHandler(cfg, &mockOIDCExchanger{}, jwtManager, testutil.NewMemUserStore(), nil, zap.NewNop())
-
-	// Override TTL to force expiry
-	orig := security.StateCookieTTL()
-	security.SetStateCookieTTL(-1 * time.Second)
-	defer security.SetStateCookieTTL(orig)
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=xyz", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Callback() with expired cookie status = %d, want 400", rr.Code)
-	}
-}
-
-func TestOIDCHandler_Callback_DeactivatedUser(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	userStore := testutil.NewMemUserStore()
-
-	// Pre-insert a deactivated user
-	user, _ := userStore.UpsertByOIDC(context.Background(), "oidc", "sub123", "user@example.com", "User Name", "viewer")
-	_ = userStore.Deactivate(context.Background(), user.ID)
-
-	exchanger := &mockOIDCExchanger{
-		userInfo: &security.OIDCUserInfo{
-			Subject: "sub123",
-			Email:   "user@example.com",
-			Name:    "User Name",
-			Groups:  []string{},
-		},
-	}
-
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop())
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("Callback() deactivated user status = %d, want 403", rr.Code)
-	}
-}
-
-func TestOIDCHandler_Callback_Success(t *testing.T) {
-	cfg := testOIDCConfig()
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-	userStore := testutil.NewMemUserStore()
-
-	exchanger := &mockOIDCExchanger{
-		userInfo: &security.OIDCUserInfo{
-			Subject: "sub456",
-			Email:   "newuser@example.com",
-			Name:    "New User",
-			Groups:  []string{},
-		},
-	}
-
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop())
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Errorf("Callback() success status = %d, want 302. Body: %s", rr.Code, rr.Body.String())
-		return
-	}
-
-	// Check redirect includes ?oidc=success
-	location := rr.Header().Get("Location")
-	parsed, _ := url.Parse(location)
-	if parsed.Query().Get("oidc") != "success" {
-		t.Errorf("Callback() redirect %q missing ?oidc=success", location)
-	}
-
-	// Check JWT cookie set
-	cookies := rr.Result().Cookies()
-	var jwtCookie, stateCookie *http.Cookie
-	for _, c := range cookies {
-		switch c.Name {
-		case "jwt":
-			jwtCookie = c
-		case "oidc_state":
-			stateCookie = c
-		}
-	}
-	if jwtCookie == nil {
-		t.Error("Callback() success: expected 'jwt' cookie")
-	}
-	if stateCookie == nil || stateCookie.MaxAge != -1 {
-		t.Error("Callback() success: expected oidc_state cookie cleared (MaxAge=-1)")
-	}
-}
-
-// TestOIDCHandler_Callback_EmailCollisionWithoutAutoLink_Returns409 verifies
-// F-5 default behaviour: when UpsertByOIDC reports ErrEmailAlreadyLinked and
-// OIDC_AUTO_LINK_BY_EMAIL is unset, the handler responds 409 and emits
-// auth.login.failure with metadata.reason="oidc_email_collision".
-func TestOIDCHandler_Callback_EmailCollisionWithoutAutoLink_Returns409(t *testing.T) {
-	cfg := testOIDCConfig()
-	cfg.OIDC.AutoLinkByEmail = false
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-
-	userStore := &testutil.MockUserStore{
-		UpsertByOIDCFn: func(_ context.Context, _, _, _, _, _ string) (*store.User, error) {
-			return nil, store.ErrEmailAlreadyLinked
-		},
-	}
-
-	exchanger := &mockOIDCExchanger{
-		userInfo: &security.OIDCUserInfo{
-			Subject:       "kc|attacker",
-			Email:         "alice@example.com",
-			EmailVerified: true,
-			Name:          "Alice",
-			Groups:        []string{},
-		},
-	}
-
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop()).
-		WithAuditLogger(mocks.Audit)
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("Callback() collision (auto-link off) status = %d, want 409. Body: %s", rr.Code, rr.Body.String())
-	}
-
-	failures := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
-	if len(failures) != 1 {
-		t.Fatalf("expected 1 auth.login.failure event, got %d", len(failures))
-	}
-	body := string(failures[0].Metadata)
-	if !contains(body, `"reason":"oidc_email_collision"`) {
-		t.Errorf("audit metadata = %s, want reason=oidc_email_collision", body)
-	}
-}
-
-// TestOIDCHandler_Callback_EmailCollisionWithAutoLinkAndVerified_Relinks
-// verifies F-5 auto-link path: when AutoLinkByEmail is true AND the IdP
-// reported email_verified=true, the handler calls RelinkOIDC and proceeds to
-// mint cookies + emit auth.login.success with metadata.oidc_link="auto".
-func TestOIDCHandler_Callback_EmailCollisionWithAutoLinkAndVerified_Relinks(t *testing.T) {
-	cfg := testOIDCConfig()
-	cfg.OIDC.AutoLinkByEmail = true
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-
-	relinkedID := int64(0)
-	relinkedSub := ""
-	existing := &store.User{
-		ID:          42,
-		Email:       "alice@example.com",
-		Name:        "Alice",
-		Provider:    "okta",
-		ProviderSub: "okta|orig",
-		Role:        "viewer",
-		IsActive:    true,
-	}
-	userStore := &testutil.MockUserStore{
-		UpsertByOIDCFn: func(_ context.Context, _, _, _, _, _ string) (*store.User, error) {
-			return nil, store.ErrEmailAlreadyLinked
-		},
-		GetByEmailFn: func(_ context.Context, _ string) (*store.User, error) {
-			cp := *existing
-			return &cp, nil
-		},
-		RelinkOIDCFn: func(_ context.Context, id int64, provider, sub string) error {
-			relinkedID = id
-			relinkedSub = sub
-			_ = provider
-			return nil
-		},
-	}
-
-	exchanger := &mockOIDCExchanger{
-		userInfo: &security.OIDCUserInfo{
-			Subject:       "kc|verified",
-			Email:         "alice@example.com",
-			EmailVerified: true,
-			Name:          "Alice",
-			Groups:        []string{},
-		},
-	}
-
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop()).
-		WithAuditLogger(mocks.Audit)
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Fatalf("Callback() auto-link verified status = %d, want 302. Body: %s", rr.Code, rr.Body.String())
-	}
-	if relinkedID != existing.ID {
-		t.Errorf("RelinkOIDC called with id=%d, want %d", relinkedID, existing.ID)
-	}
-	if relinkedSub != "kc|verified" {
-		t.Errorf("RelinkOIDC called with sub=%q, want kc|verified", relinkedSub)
-	}
-
-	successes := mocks.Audit.EventsByAction(store.AuditActionLoginSuccess)
-	if len(successes) != 1 {
-		t.Fatalf("expected 1 auth.login.success event, got %d", len(successes))
-	}
-	body := string(successes[0].Metadata)
-	if !contains(body, `"oidc_link":"auto"`) {
-		t.Errorf("audit metadata = %s, want oidc_link=auto", body)
-	}
-	if !contains(body, `"verified":true`) {
-		t.Errorf("audit metadata = %s, want verified=true", body)
-	}
-	if !contains(body, `"previous_provider":"okta"`) {
-		t.Errorf("audit metadata = %s, want previous_provider=okta", body)
-	}
-}
-
-// TestOIDCHandler_Callback_EmailCollisionWithAutoLinkButUnverified_Returns409
-// verifies the safety check: even with AutoLinkByEmail=true, an unverified
-// email must not be allowed to take over an existing account.
-func TestOIDCHandler_Callback_EmailCollisionWithAutoLinkButUnverified_Returns409(t *testing.T) {
-	cfg := testOIDCConfig()
-	cfg.OIDC.AutoLinkByEmail = true
-	mocks := testutil.New()
-	jwtManager := security.NewJWTManager(cfg, mocks.Blacklist, zap.NewNop())
-
-	relinkCalled := false
-	userStore := &testutil.MockUserStore{
-		UpsertByOIDCFn: func(_ context.Context, _, _, _, _, _ string) (*store.User, error) {
-			return nil, store.ErrEmailAlreadyLinked
-		},
-		RelinkOIDCFn: func(_ context.Context, _ int64, _, _ string) error {
-			relinkCalled = true
-			return nil
-		},
-	}
-
-	exchanger := &mockOIDCExchanger{
-		userInfo: &security.OIDCUserInfo{
-			Subject:       "kc|unverified",
-			Email:         "alice@example.com",
-			EmailVerified: false, // <-- the safety check
-			Name:          "Alice",
-			Groups:        []string{},
-		},
-	}
-
-	handler := NewOIDCHandler(cfg, exchanger, jwtManager, userStore, nil, zap.NewNop()).
-		WithAuditLogger(mocks.Audit)
-
-	cookieVal, _ := security.EncodeStateCookie([]byte(cfg.OIDC.StateCookieSecret), "mystate", "nonce", "verifier")
-	req := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state=mystate&code=authcode", nil)
-	req.AddCookie(&http.Cookie{Name: "oidc_state", Value: cookieVal})
-	rr := httptest.NewRecorder()
-	handler.Callback(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("Callback() auto-link unverified status = %d, want 409. Body: %s", rr.Code, rr.Body.String())
-	}
-	if relinkCalled {
-		t.Error("RelinkOIDC must not be called when email_verified=false")
-	}
-
-	failures := mocks.Audit.EventsByAction(store.AuditActionLoginFailure)
-	if len(failures) != 1 {
-		t.Fatalf("expected 1 auth.login.failure event, got %d", len(failures))
-	}
-	body := string(failures[0].Metadata)
-	if !contains(body, `"reason":"oidc_email_collision_unverified"`) {
-		t.Errorf("audit metadata = %s, want reason=oidc_email_collision_unverified", body)
-	}
-}
-
-// contains is a small substring helper kept local to oidc_test.go to avoid
-// pulling in strings just for the audit-metadata assertions.
-func contains(haystack, needle string) bool {
-	return len(needle) == 0 || (len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0)
-}
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

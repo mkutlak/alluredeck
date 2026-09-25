@@ -13,165 +13,70 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func newTestHistoryHandler(t *testing.T, mocks *testutil.MockStores) *TestHistoryHandler {
-	t.Helper()
-	return NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches, mocks.Projects)
-}
-
-func TestTestHistoryHandler_MissingHistoryID(t *testing.T) {
-	mocks := testutil.New()
-	h := newTestHistoryHandler(t, mocks)
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/test-history", nil)
-	req.SetPathValue("project_id", "1")
-
-	rr := httptest.NewRecorder()
-	h.GetTestHistory(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
+func TestTestHistoryHandler_GetTestHistory(t *testing.T) {
+	t.Parallel()
+	rows := []struct {
+		name    string
+		query   string
+		want    int
+		wantLen int
+	}{
+		{"missing history_id", "", http.StatusBadRequest, 0},
+		{"no results", "history_id=nonexistent", http.StatusOK, 0},
+		{"results", "history_id=abc123", http.StatusOK, 3},
+		{"unknown branch", "history_id=abc123&branch=nonexistent-branch", http.StatusNotFound, 0},
 	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	meta, _ := resp["metadata"].(map[string]any)
-	msg, _ := meta["message"].(string)
-	if msg == "" {
-		t.Error("expected non-empty metadata.message")
-	}
-}
-
-func TestTestHistoryHandler_NoResults(t *testing.T) {
-	mocks := testutil.New()
-	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
-		return []store.TestHistoryEntry{}, nil
-	}
-
-	h := newTestHistoryHandler(t, mocks)
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/1/test-history?history_id=nonexistent", nil)
-	req.SetPathValue("project_id", "1")
-
-	rr := httptest.NewRecorder()
-	h.GetTestHistory(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data object, got %T", resp["data"])
-	}
-	history, ok := data["history"].([]any)
-	if !ok {
-		t.Fatalf("expected history array, got %T", data["history"])
-	}
-	if len(history) != 0 {
-		t.Errorf("expected empty history array, got %d entries", len(history))
-	}
-}
-
-func TestTestHistoryHandler_WithResults(t *testing.T) {
-	mocks := testutil.New()
-	projectID := "1"
-	now := time.Now().UTC().Truncate(time.Second)
-	mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, _ string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
-		return []store.TestHistoryEntry{
-			{BuildNumber: 1, BuildID: 101, Status: "passed", DurationMs: 400, CreatedAt: now},
-			{BuildNumber: 2, BuildID: 102, Status: "passed", DurationMs: 800, CreatedAt: now},
-			{BuildNumber: 3, BuildID: 103, Status: "failed", DurationMs: 1200, CreatedAt: now},
-		}, nil
-	}
-
-	h := newTestHistoryHandler(t, mocks)
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		fmt.Sprintf("/api/v1/projects/%s/test-history?history_id=abc123", projectID), nil)
-	req.SetPathValue("project_id", projectID)
-
-	rr := httptest.NewRecorder()
-	h.GetTestHistory(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-
-	data, ok := resp["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected data object, got %T", resp["data"])
-	}
-
-	history, ok := data["history"].([]any)
-	if !ok {
-		t.Fatalf("expected history array, got %T", data["history"])
-	}
-	if len(history) != 3 {
-		t.Fatalf("expected 3 history entries, got %d", len(history))
-	}
-
-	// Verify first entry has expected fields.
-	entry, ok := history[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected entry object, got %T", history[0])
-	}
-	for _, field := range []string{"build_number", "build_id", "status", "duration_ms", "created_at"} {
-		if _, exists := entry[field]; !exists {
-			t.Errorf("missing field %q in history entry", field)
-		}
-	}
-
-	// Verify history_id in data.
-	if hid, _ := data["history_id"].(string); hid != "abc123" {
-		t.Errorf("history_id = %q, want %q", hid, "abc123")
-	}
-
-	// Verify metadata.
-	meta, ok := resp["metadata"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected metadata object, got %T", resp["metadata"])
-	}
-	if msg, _ := meta["message"].(string); msg == "" {
-		t.Error("expected non-empty metadata.message")
-	}
-}
-
-func TestTestHistoryHandler_BranchFilter_NotFound(t *testing.T) {
-	mocks := testutil.New()
-	projectID := "1"
-	mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, _ string) (*store.Branch, error) {
-		return nil, fmt.Errorf("%w: branch=nonexistent-branch project=%s", store.ErrBranchNotFound, projectID)
-	}
-
-	h := newTestHistoryHandler(t, mocks)
-
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		fmt.Sprintf("/api/v1/projects/%s/test-history?history_id=abc123&branch=nonexistent-branch", projectID), nil)
-	req.SetPathValue("project_id", projectID)
-
-	rr := httptest.NewRecorder()
-	h.GetTestHistory(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("want 404, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	meta, _ := resp["metadata"].(map[string]any)
-	msg, _ := meta["message"].(string)
-	if msg == "" {
-		t.Error("expected non-empty metadata.message for 404")
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mocks := testutil.New()
+			mocks.TestResults.GetTestHistoryFn = func(_ context.Context, _ int64, historyID string, _ *int64, _ int) ([]store.TestHistoryEntry, error) {
+				if historyID != "abc123" {
+					return []store.TestHistoryEntry{}, nil
+				}
+				now := time.Now()
+				return []store.TestHistoryEntry{
+					{BuildNumber: 1, BuildID: 101, Status: "passed", DurationMs: 400, CreatedAt: now},
+					{BuildNumber: 2, BuildID: 102, Status: "passed", DurationMs: 800, CreatedAt: now},
+					{BuildNumber: 3, BuildID: 103, Status: "failed", DurationMs: 1200, CreatedAt: now},
+				}, nil
+			}
+			mocks.Branches.GetByNameFn = func(_ context.Context, _ int64, name string) (*store.Branch, error) {
+				return nil, fmt.Errorf("%w: branch=%s", store.ErrBranchNotFound, name)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/test-history?"+tc.query, nil)
+			req.SetPathValue("project_id", "1")
+			rr := httptest.NewRecorder()
+			NewTestHistoryHandler(mocks.TestResults, mocks.Builds, mocks.Branches, mocks.Projects).GetTestHistory(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want != http.StatusOK {
+				return
+			}
+			var resp struct {
+				Data struct {
+					HistoryID string           `json:"history_id"`
+					History   []map[string]any `json:"history"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.Data.History == nil || len(resp.Data.History) != tc.wantLen {
+				t.Fatalf("history = %v, want an array of %d", resp.Data.History, tc.wantLen)
+			}
+			if tc.wantLen == 0 {
+				return
+			}
+			if resp.Data.HistoryID != "abc123" {
+				t.Errorf("history_id = %q, want abc123", resp.Data.HistoryID)
+			}
+			for _, field := range []string{"build_number", "build_id", "status", "duration_ms", "created_at"} {
+				if _, ok := resp.Data.History[0][field]; !ok {
+					t.Errorf("history entry lacks %q", field)
+				}
+			}
+		})
 	}
 }

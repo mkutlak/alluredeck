@@ -5,348 +5,67 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
 
-// ---- GetReportCategories ----------------------------------------------------
-
-func TestGetReportCategories_LatestReport(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "catproject"
-	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
-		t.Fatal(err)
+// TestReportHandler_Widgets serves the categories and environment widgets of
+// a report; a missing widget file is an empty list, not an error.
+func TestReportHandler_Widgets(t *testing.T) {
+	t.Parallel()
+	categories, environment := (*ReportHandler).GetReportCategories, (*ReportHandler).GetReportEnvironment
+	const (
+		twoCategories = `[{"name":"Product defects","matchedStatistic":{"failed":3,"total":3}},{"name":"Test defects","matchedStatistic":{"broken":2,"total":2}}]`
+		oneEnvEntry   = `[{"name":"Version","values":["1.2.3"]}]`
+	)
+	rows := []struct {
+		name     string
+		endpoint func(*ReportHandler, http.ResponseWriter, *http.Request)
+		files    map[string]string // relative to the project's reports dir
+		project  string            // project_id path value; "" uses the seeded project
+		reportID string
+		want     int
+		wantLen  int
+	}{
+		{"categories", categories, map[string]string{"latest/widgets/categories.json": twoCategories}, "", "latest", http.StatusOK, 2},
+		{"categories missing file", categories, nil, "", "latest", http.StatusOK, 0},
+		{"categories invalid project id", categories, nil, "../evil", "latest", http.StatusBadRequest, 0},
+		{"environment of a numbered build", environment, map[string]string{"5/widgets/environment.json": oneEnvEntry}, "", "5", http.StatusOK, 1},
+		{"environment missing file", environment, nil, "", "latest", http.StatusOK, 0},
+		{"environment invalid project id", environment, nil, "../evil", "latest", http.StatusBadRequest, 0},
 	}
-	catJSON := `[{"name":"Product defects","matchedStatistic":{"failed":3,"broken":0,"known":0,"unknown":0,"total":3}},{"name":"Test defects","matchedStatistic":{"failed":0,"broken":2,"known":0,"unknown":0,"total":2}}]`
-	if err := os.WriteFile(filepath.Join(widgetsDir, "categories.json"), []byte(catJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/categories", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportCategories(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data to be array, got %T: %v", resp["data"], resp["data"])
-	}
-	if len(data) != 2 {
-		t.Fatalf("expected 2 categories, got %d", len(data))
-	}
-}
-
-func TestGetReportCategories_MissingFile(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "nocat"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/categories", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportCategories(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(data))
-	}
-}
-
-func TestGetReportCategories_InvalidProjectID(t *testing.T) {
-	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/../evil/reports/latest/categories", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", "../evil")
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportCategories(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d", rr.Code)
-	}
-}
-
-func TestGetReportCategories_EmptyCategories(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "emptycat"
-	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(widgetsDir, "categories.json"), []byte(`[]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/categories", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportCategories(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(data))
-	}
-}
-
-// ---- GetReportEnvironment ---------------------------------------------------
-
-func TestGetReportEnvironment_LatestReport(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "myproject"
-	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	envJSON := `[{"name":"Browser","values":["Chrome 120"]},{"name":"OS","values":["Linux","macOS"]},{"name":"Java","values":["17.0.8"]}]`
-	if err := os.WriteFile(filepath.Join(widgetsDir, "environment.json"), []byte(envJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/environment", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportEnvironment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, ok := resp["data"].([]any)
-	if !ok {
-		t.Fatalf("expected data to be array, got %T: %v", resp["data"], resp["data"])
-	}
-	if len(data) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(data))
-	}
-}
-
-func TestGetReportEnvironment_SpecificBuild(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "proj"
-	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "5", "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	envJSON := `[{"name":"Version","values":["1.2.3"]}]`
-	if err := os.WriteFile(filepath.Join(widgetsDir, "environment.json"), []byte(envJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/5/environment", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "5")
-
-	rr := httptest.NewRecorder()
-	h.GetReportEnvironment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(data))
-	}
-}
-
-func TestGetReportEnvironment_MissingFile(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "noreports"
-	if err := os.MkdirAll(filepath.Join(projectsDir, projectSlug), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/environment", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportEnvironment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(data))
-	}
-}
-
-func TestGetReportEnvironment_InvalidProjectID(t *testing.T) {
-	projectsDir := t.TempDir()
-	h, _ := newTestReportHandler(t, projectsDir)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/../evil/reports/latest/environment", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", "../evil")
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportEnvironment(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d", rr.Code)
-	}
-}
-
-func TestGetReportEnvironment_EmptyJSON(t *testing.T) {
-	projectsDir := t.TempDir()
-	projectSlug := "empty"
-	widgetsDir := filepath.Join(projectsDir, projectSlug, "reports", "latest", "widgets")
-	if err := os.MkdirAll(widgetsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(widgetsDir, "environment.json"), []byte(`[]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h, mocks := newTestReportHandler(t, projectsDir)
-	proj, err := mocks.Projects.CreateProject(context.Background(), projectSlug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectIDStr := strconv.FormatInt(proj.ID, 10)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		"/api/v1/projects/"+projectIDStr+"/reports/latest/environment", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SetPathValue("project_id", projectIDStr)
-	req.SetPathValue("report_id", "latest")
-
-	rr := httptest.NewRecorder()
-	h.GetReportEnvironment(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := resp["data"].([]any)
-	if len(data) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(data))
+	for _, tc := range rows {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeReportTree(t, filepath.Join(dir, "proj", "reports"), tc.files)
+			h, mocks := newTestReportHandler(t, dir)
+			p, _ := mocks.Projects.CreateProject(context.Background(), "proj")
+			project := tc.project
+			if project == "" {
+				project = strconv.FormatInt(p.ID, 10)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+project+"/reports/"+tc.reportID, nil)
+			req.SetPathValue("project_id", project)
+			req.SetPathValue("report_id", tc.reportID)
+			rr := httptest.NewRecorder()
+			tc.endpoint(h, rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
+			}
+			if tc.want != http.StatusOK {
+				return
+			}
+			var resp struct {
+				Data []any `json:"data"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.Data == nil || len(resp.Data) != tc.wantLen {
+				t.Errorf("data = %v, want an array of %d", resp.Data, tc.wantLen)
+			}
+		})
 	}
 }
