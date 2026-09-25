@@ -402,8 +402,8 @@ func TestLoadConfig_YAML(t *testing.T) {
 // --- Validate() rules ---
 
 // TestValidate covers every rejection and acceptance path in Config.Validate:
-// DatabaseURL shape, S3 requirements, MCP server requirements, and the full
-// OIDC field-by-field validation chain.
+// DatabaseURL shape, the insecure default JWT secret, S3 requirements, MCP
+// server requirements, and the full OIDC field-by-field validation chain.
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -431,6 +431,22 @@ func TestValidate(t *testing.T) {
 		{
 			name: "DatabaseURLKeywordForm",
 			cfg:  &Config{DatabaseURL: "host=localhost dbname=mydb user=app", JWTSecret: "some-safe-secret"},
+		},
+		{
+			// Anyone who reads the source could forge tokens signed with the
+			// shipped default, so security must refuse to start with it.
+			name:    "InsecureDefaultJWTSecretWithSecurity",
+			cfg:     &Config{DatabaseURL: "postgres://localhost/test", SecurityEnabled: true, JWTSecret: defaultJWTSecret},
+			wantErr: ErrInsecureJWTSecret,
+		},
+		{
+			// The guard applies only when security is enabled.
+			name: "DefaultJWTSecretWithoutSecurity",
+			cfg:  &Config{DatabaseURL: "postgres://localhost/test", SecurityEnabled: false, JWTSecret: defaultJWTSecret},
+		},
+		{
+			name: "StrongJWTSecretWithSecurity",
+			cfg:  &Config{DatabaseURL: "postgres://localhost/test", SecurityEnabled: true, JWTSecret: "some-safe-secret"},
 		},
 		{
 			name: "S3RequiresEndpoint",
