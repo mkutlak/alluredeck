@@ -111,22 +111,27 @@ export const queryKeys = {
     ] as const,
 }
 
+// Key families whose second slot is the project id. Filters use the bare
+// [family, projectId] prefix: TanStack matches filter keys slot by slot, so a
+// builder's trailing `undefined` (e.g. reportHistory(pid)) would never match a
+// live key such as ['report-history', pid, 1, undefined, 20].
+const PROJECT_SCOPED_FAMILIES = [
+  'report-history',
+  'report-categories',
+  'report-environment',
+  'report-stability',
+  'report-known-failures',
+  'report-timeline',
+  'report-history-analytics',
+  'low-performing-tests',
+  'known-issues',
+  'attachments',
+  'trends',
+  'pipeline-runs',
+] as const
+
 function projectScopedKeys(projectId: string) {
-  return [
-    queryKeys.reportHistory(projectId),
-    queryKeys.reportCategories(projectId),
-    queryKeys.reportCategoriesLatest(projectId),
-    queryKeys.reportEnvironment(projectId),
-    queryKeys.reportStability(projectId),
-    queryKeys.reportKnownFailures(projectId),
-    queryKeys.reportTimeline(projectId),
-    queryKeys.reportHistoryAnalytics(projectId),
-    queryKeys.lowPerforming(projectId),
-    queryKeys.knownIssues(projectId),
-    queryKeys.attachments(projectId, 'latest'),
-    queryKeys.trends(projectId, 100),
-    queryKeys.pipelineRuns(projectId),
-  ]
+  return PROJECT_SCOPED_FAMILIES.map((family) => [family, projectId] as const)
 }
 
 /**
