@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/riverqueue/river/rivertype"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -91,14 +90,4 @@ func hasAttr(attrs []attribute.KeyValue, key, value string) bool {
 		}
 	}
 	return false
-}
-
-// TestNewOTelHTTPClient checks the instrumented client helper wraps its
-// transport with otelhttp and keeps the timeout. The helper currently has no
-// production caller (webhooks use newWebhookHTTPClient).
-func TestNewOTelHTTPClient(t *testing.T) {
-	client := newOTelHTTPClient(10 * time.Second)
-	if _, ok := client.Transport.(*otelhttp.Transport); !ok || client.Timeout != 10*time.Second {
-		t.Errorf("client = {Transport: %T, Timeout: %v}, want {*otelhttp.Transport, 10s}", client.Transport, client.Timeout)
-	}
 }
