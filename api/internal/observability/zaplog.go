@@ -3,8 +3,6 @@ package observability
 import (
 	"context"
 
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -73,31 +71,4 @@ func extractContext(fields []zapcore.Field) context.Context {
 		}
 	}
 	return nil
-}
-
-// LogWithContext logs a message at Info level, attaching the given context
-// as a field named "ctx" so that NewTraceCore can extract the active span.
-// This helper is used in tests and by the logging middleware.
-func LogWithContext(logger *zap.Logger, ctx context.Context, msg string, fields ...zap.Field) {
-	logger.Info(msg, append([]zap.Field{zap.Any("ctx", ctx)}, fields...)...)
-}
-
-// StartTestSpan starts a real SDK span using an in-process tracer provider,
-// so the resulting span context has valid (non-zero) trace and span IDs.
-// Returns the derived context, the hex span ID string, and the hex trace ID string.
-// Intended for use in tests only.
-func StartTestSpan(ctx context.Context) (context.Context, string, string) {
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(resource.Empty()),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-	)
-	tracer := tp.Tracer("test")
-	newCtx, span := tracer.Start(ctx, "test-span")
-	sc := span.SpanContext()
-	return newCtx, sc.SpanID().String(), sc.TraceID().String()
-}
-
-// EndTestSpan ends the span stored in ctx (obtained from StartTestSpan).
-func EndTestSpan(ctx context.Context) {
-	trace.SpanFromContext(ctx).End()
 }

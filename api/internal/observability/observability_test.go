@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -73,17 +74,22 @@ func TestSampleRatioClamping(t *testing.T) {
 	}
 }
 
-// TestTraceCore adds trace_id and span_id to entries logged with an active
-// span in their context field, and leaves other entries unchanged.
+// TestTraceCore adds trace_id and span_id to entries whose "ctx" field
+// carries a valid span, and leaves entries without one unchanged.
 func TestTraceCore(t *testing.T) {
 	t.Parallel()
 	core, logs := observer.New(zapcore.DebugLevel)
 	logger := zap.New(observability.NewTraceCore(core))
 
-	ctx, spanID, traceID := observability.StartTestSpan(context.Background())
-	defer observability.EndTestSpan(ctx)
-	logger.Info("no span")
-	observability.LogWithContext(logger, ctx, "in span")
+	const traceID, spanID = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
+	tid, terr := trace.TraceIDFromHex(traceID)
+	sid, serr := trace.SpanIDFromHex(spanID)
+	if terr != nil || serr != nil {
+		t.Fatalf("span ids: %v, %v", terr, serr)
+	}
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{TraceID: tid, SpanID: sid}))
+	logger.Info("no span", zap.Any("ctx", context.Background()))
+	logger.Info("in span", zap.Any("ctx", ctx))
 
 	entries := logs.All()
 	if len(entries) != 2 {
