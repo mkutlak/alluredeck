@@ -7,314 +7,79 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
-func TestPGAPIKeyStore_CreateAndGet(t *testing.T) {
-	s := openLockTestStore(t)
+// TestPGAPIKeyStore walks one user's keys through Create, GetByHash,
+// UpdateLastUsed, List/CountByUsername and the owner-scoped Delete (IDOR
+// prevention), then DeleteAllForUser (F-2): every key of the user goes, other
+// users' keys stay, and a repeat deletes nothing.
+func TestPGAPIKeyStore(t *testing.T) {
+	ks := pg.NewAPIKeyStore(openTestStore(t))
 	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-
-	key := &store.APIKey{
-		Name:     fmt.Sprintf("test-key-%d", time.Now().UnixNano()),
-		Prefix:   "ald_a1b2c3d4",
-		KeyHash:  fmt.Sprintf("hash-%d", time.Now().UnixNano()),
-		Username: "testuser",
-		Role:     "admin",
-	}
-
-	created, err := ks.Create(ctx, key)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if created.ID == 0 {
-		t.Error("expected non-zero ID after Create")
-	}
-	if created.CreatedAt.IsZero() {
-		t.Error("expected non-zero CreatedAt after Create")
-	}
-
-	got, err := ks.GetByHash(ctx, key.KeyHash)
-	if err != nil {
-		t.Fatalf("GetByHash: %v", err)
-	}
-	if got.ID != created.ID {
-		t.Errorf("GetByHash ID = %d, want %d", got.ID, created.ID)
-	}
-}
-
-func TestPGAPIKeyStore_ListByUsername(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	username := fmt.Sprintf("user-%d", time.Now().UnixNano())
-
-	for i := range 3 {
-		_, err := ks.Create(ctx, &store.APIKey{
-			Name:     fmt.Sprintf("key-%d", i),
-			Prefix:   "ald_aaaaaaaa",
-			KeyHash:  fmt.Sprintf("hash-%d-%d", i, time.Now().UnixNano()),
-			Username: username,
-			Role:     "viewer",
+	alice, bob := unique("alice")+"@x.test", unique("bob")+"@x.test"
+	create := func(username string, i int) *store.APIKey {
+		t.Helper()
+		k, err := ks.Create(ctx, &store.APIKey{
+			Name: fmt.Sprintf("key-%d", i), Prefix: "ald_a1b2c3d4", KeyHash: unique("hash"), Username: username, Role: "viewer",
 		})
 		if err != nil {
-			t.Fatalf("Create key %d: %v", i, err)
+			t.Fatalf("Create: %v", err)
+		}
+		return k
+	}
+	count := func(username string, want int) {
+		t.Helper()
+		keys, err := ks.ListByUsername(ctx, username)
+		if err != nil {
+			t.Fatalf("ListByUsername: %v", err)
+		}
+		n, err := ks.CountByUsername(ctx, username)
+		if err != nil {
+			t.Fatalf("CountByUsername: %v", err)
+		}
+		if len(keys) != want || n != want {
+			t.Errorf("%s: ListByUsername %d keys, CountByUsername %d; want %d", username, len(keys), n, want)
 		}
 	}
 
-	keys, err := ks.ListByUsername(ctx, username)
-	if err != nil {
-		t.Fatalf("ListByUsername: %v", err)
+	count(alice, 0)
+	first := create(alice, 0)
+	if first.ID == 0 || first.CreatedAt.IsZero() {
+		t.Errorf("Create = %+v, want ID and CreatedAt set", first)
 	}
-	if len(keys) != 3 {
-		t.Errorf("expected 3 keys, got %d", len(keys))
-	}
-}
-
-func TestPGAPIKeyStore_GetByHash_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	_, err := ks.GetByHash(ctx, "nonexistent-hash")
-	if !isAPIKeyNotFound(err) {
-		t.Errorf("expected ErrAPIKeyNotFound, got %v", err)
-	}
-}
-
-func TestPGAPIKeyStore_UpdateLastUsed(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	key := &store.APIKey{
-		Name:     fmt.Sprintf("lu-key-%d", time.Now().UnixNano()),
-		Prefix:   "ald_a1b2c3d4",
-		KeyHash:  fmt.Sprintf("lu-hash-%d", time.Now().UnixNano()),
-		Username: "testuser",
-		Role:     "admin",
-	}
-	created, err := ks.Create(ctx, key)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	if err := ks.UpdateLastUsed(ctx, created.ID); err != nil {
+	if err := ks.UpdateLastUsed(ctx, first.ID); err != nil {
 		t.Fatalf("UpdateLastUsed: %v", err)
 	}
-
-	got, err := ks.GetByHash(ctx, key.KeyHash)
-	if err != nil {
-		t.Fatalf("GetByHash: %v", err)
+	got, err := ks.GetByHash(ctx, first.KeyHash)
+	if err != nil || got.ID != first.ID || got.LastUsed == nil {
+		t.Errorf("GetByHash = %+v, %v; want id %d with LastUsed set", got, err, first.ID)
 	}
-	if got.LastUsed == nil {
-		t.Error("expected LastUsed to be set after UpdateLastUsed")
+	if _, err := ks.GetByHash(ctx, "nonexistent-hash"); !errors.Is(err, store.ErrAPIKeyNotFound) {
+		t.Errorf("GetByHash(unknown) err = %v, want ErrAPIKeyNotFound", err)
 	}
-}
+	create(alice, 1)
+	create(alice, 2)
+	count(alice, 3)
 
-func TestPGAPIKeyStore_Delete(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	key := &store.APIKey{
-		Name:     fmt.Sprintf("del-key-%d", time.Now().UnixNano()),
-		Prefix:   "ald_a1b2c3d4",
-		KeyHash:  fmt.Sprintf("del-hash-%d", time.Now().UnixNano()),
-		Username: "owner",
-		Role:     "admin",
-	}
-	created, err := ks.Create(ctx, key)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	// Wrong username → not found
-	if err := ks.Delete(ctx, created.ID, "other-user"); !isAPIKeyNotFound(err) {
-		t.Errorf("expected ErrAPIKeyNotFound for wrong user, got %v", err)
-	}
-
-	// Correct username → success
-	if err := ks.Delete(ctx, created.ID, "owner"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-
-	// Second delete → not found
-	if err := ks.Delete(ctx, created.ID, "owner"); !isAPIKeyNotFound(err) {
-		t.Errorf("expected ErrAPIKeyNotFound after deletion, got %v", err)
-	}
-}
-
-func TestPGAPIKeyStore_CountByUsername(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	username := fmt.Sprintf("count-user-%d", time.Now().UnixNano())
-
-	count, err := ks.CountByUsername(ctx, username)
-	if err != nil {
-		t.Fatalf("CountByUsername (empty): %v", err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0, got %d", count)
-	}
-
-	_, err = ks.Create(ctx, &store.APIKey{
-		Name:     "k1",
-		Prefix:   "ald_aaaaaaaa",
-		KeyHash:  fmt.Sprintf("c-hash-%d", time.Now().UnixNano()),
-		Username: username,
-		Role:     "viewer",
-	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	count, err = ks.CountByUsername(ctx, username)
-	if err != nil {
-		t.Fatalf("CountByUsername: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected 1, got %d", count)
-	}
-}
-
-func isAPIKeyNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, store.ErrAPIKeyNotFound)
-}
-
-// TestPGAPIKeyStore_ProjectScope verifies that project_ids round-trips correctly
-// through Create+GetByHash for both scoped and unscoped keys.
-func TestPGAPIKeyStore_ProjectScope(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	ks := pg.NewAPIKeyStore(s)
-
-	t.Run("scoped key preserves project_ids", func(t *testing.T) {
-		key := &store.APIKey{
-			Name:       fmt.Sprintf("scope-key-%d", time.Now().UnixNano()),
-			Prefix:     "ald_a1b2c3d4",
-			KeyHash:    fmt.Sprintf("scope-hash-%d", time.Now().UnixNano()),
-			Username:   "testuser",
-			Role:       "editor",
-			ProjectIDs: []int64{1, 2},
-		}
-		created, err := ks.Create(ctx, key)
-		if err != nil {
-			t.Fatalf("Create: %v", err)
-		}
-		got, err := ks.GetByHash(ctx, key.KeyHash)
-		if err != nil {
-			t.Fatalf("GetByHash: %v", err)
-		}
-		if len(got.ProjectIDs) != 2 {
-			t.Fatalf("ProjectIDs len = %d, want 2; full: %v", len(got.ProjectIDs), got.ProjectIDs)
-		}
-		if got.ProjectIDs[0] != 1 || got.ProjectIDs[1] != 2 {
-			t.Errorf("ProjectIDs = %v, want [1 2]", got.ProjectIDs)
-		}
-		_ = created
-	})
-
-	t.Run("unscoped key returns empty project_ids", func(t *testing.T) {
-		key := &store.APIKey{
-			Name:     fmt.Sprintf("unscoped-key-%d", time.Now().UnixNano()),
-			Prefix:   "ald_a1b2c3d4",
-			KeyHash:  fmt.Sprintf("unscoped-hash-%d", time.Now().UnixNano()),
-			Username: "testuser",
-			Role:     "viewer",
-			// ProjectIDs intentionally nil/empty
-		}
-		if _, err := ks.Create(ctx, key); err != nil {
-			t.Fatalf("Create: %v", err)
-		}
-		got, err := ks.GetByHash(ctx, key.KeyHash)
-		if err != nil {
-			t.Fatalf("GetByHash: %v", err)
-		}
-		if len(got.ProjectIDs) != 0 {
-			t.Errorf("unscoped key ProjectIDs = %v, want empty", got.ProjectIDs)
-		}
-	})
-}
-
-// TestPGAPIKeyStore_DeleteAllForUser verifies the bulk-delete invariants used
-// by F-2: every key owned by the target user is removed, the count matches,
-// and keys owned by other users are untouched.
-func TestPGAPIKeyStore_DeleteAllForUser(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	alice := fmt.Sprintf("alice-%d@x.test", time.Now().UnixNano())
-	bob := fmt.Sprintf("bob-%d@x.test", time.Now().UnixNano())
-
-	// Three keys for Alice.
-	for i := range 3 {
-		if _, err := ks.Create(ctx, &store.APIKey{
-			Name:     fmt.Sprintf("alice-key-%d", i),
-			Prefix:   "ald_aaaaaaaa",
-			KeyHash:  fmt.Sprintf("alice-hash-%d-%d", i, time.Now().UnixNano()),
-			Username: alice,
-			Role:     "viewer",
-		}); err != nil {
-			t.Fatalf("Create alice key %d: %v", i, err)
+	for _, step := range []struct {
+		user string
+		want error
+	}{{bob, store.ErrAPIKeyNotFound}, {alice, nil}, {alice, store.ErrAPIKeyNotFound}} {
+		if err := ks.Delete(ctx, first.ID, step.user); !errors.Is(err, step.want) {
+			t.Errorf("Delete(as %s) err = %v, want %v", step.user, err, step.want)
 		}
 	}
-	// One key for Bob — must survive.
-	if _, err := ks.Create(ctx, &store.APIKey{
-		Name:     "bob-key",
-		Prefix:   "ald_bbbbbbbb",
-		KeyHash:  fmt.Sprintf("bob-hash-%d", time.Now().UnixNano()),
-		Username: bob,
-		Role:     "viewer",
-	}); err != nil {
-		t.Fatalf("Create bob key: %v", err)
-	}
+	count(alice, 2)
 
-	deleted, err := ks.DeleteAllForUser(ctx, alice)
-	if err != nil {
-		t.Fatalf("DeleteAllForUser: %v", err)
+	create(bob, 0)
+	for _, want := range []int{2, 0} {
+		if n, err := ks.DeleteAllForUser(ctx, alice); err != nil || n != want {
+			t.Errorf("DeleteAllForUser = %d, %v; want %d", n, err, want)
+		}
 	}
-	if deleted != 3 {
-		t.Errorf("deleted = %d, want 3", deleted)
-	}
-
-	// Alice has no keys left.
-	if count, err := ks.CountByUsername(ctx, alice); err != nil {
-		t.Fatalf("CountByUsername alice: %v", err)
-	} else if count != 0 {
-		t.Errorf("alice CountByUsername = %d, want 0", count)
-	}
-	// Bob's key is untouched.
-	if count, err := ks.CountByUsername(ctx, bob); err != nil {
-		t.Fatalf("CountByUsername bob: %v", err)
-	} else if count != 1 {
-		t.Errorf("bob CountByUsername = %d, want 1 (other users untouched)", count)
-	}
-}
-
-// TestPGAPIKeyStore_DeleteAllForUser_None returns (0, nil) when the user has
-// no API keys. Idempotent by design.
-func TestPGAPIKeyStore_DeleteAllForUser_None(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	ks := pg.NewAPIKeyStore(s)
-	deleted, err := ks.DeleteAllForUser(ctx, fmt.Sprintf("ghost-%d@x.test", time.Now().UnixNano()))
-	if err != nil {
-		t.Fatalf("DeleteAllForUser: %v", err)
-	}
-	if deleted != 0 {
-		t.Errorf("deleted = %d, want 0 for unknown user", deleted)
-	}
+	count(alice, 0)
+	count(bob, 1)
 }

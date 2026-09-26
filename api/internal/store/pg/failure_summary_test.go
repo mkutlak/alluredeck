@@ -1,158 +1,57 @@
 package pg_test
 
 import (
-	"context"
-	"fmt"
+	"reflect"
 	"testing"
-	"time"
-
-	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
-// seedFailureSummaryFixture creates a project + one build and returns the
-// FailureSummaryStore plus the project/build identifiers.
-func seedFailureSummaryFixture(t *testing.T) (fs *pg.FailureSummaryStore, projectID, buildID int64) {
-	t.Helper()
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-	fs = pg.NewFailureSummaryStore(s)
-
-	slug := fmt.Sprintf("failsum-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
+// TestFailureSummaryStore: a miss is (nil, nil); Upsert round-trips every
+// field with created_at from the DB default; a second Upsert for the same
+// (build, history) replaces the row; nil evidence reads back empty, never NULL.
+func TestFailureSummaryStore(t *testing.T) {
+	f := newFixture(t)
+	fs := pg.NewFailureSummaryStore(f.s)
+	b := f.build(1)
+	get := func(historyID string) *store.FailureSummary {
+		t.Helper()
+		got, err := fs.Get(f.ctx, b, historyID)
+		if err != nil {
+			t.Fatalf("Get(%s): %v", historyID, err)
+		}
+		return got
 	}
-	projectID = proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err = trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-	return fs, projectID, buildID
-}
-
-func TestFailureSummaryStore_GetMiss(t *testing.T) {
-	fs, _, buildID := seedFailureSummaryFixture(t)
-	got, err := fs.Get(context.Background(), buildID, "no-such-history")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got != nil {
-		t.Errorf("expected nil on cache miss, got %+v", got)
-	}
-}
-
-func TestFailureSummaryStore_UpsertThenGet(t *testing.T) {
-	fs, projectID, buildID := seedFailureSummaryFixture(t)
-	ctx := context.Background()
-
-	in := store.FailureSummary{
-		BuildID:       buildID,
-		HistoryID:     "h1",
-		ProjectID:     projectID,
-		InputHash:     "hash-v1",
-		Hypothesis:    "The product returned 500.",
-		Category:      "product_bug",
-		Confidence:    "medium",
-		Evidence:      []string{"status 500 from /users", "last passed 3 builds ago"},
-		Model:         "llama3.1",
-		PromptVersion: 1,
-	}
-	if err := fs.Upsert(ctx, in); err != nil {
-		t.Fatalf("Upsert: %v", err)
+	if got := get("no-such-history"); got != nil {
+		t.Errorf("Get on a miss = %+v, want nil", got)
 	}
 
-	got, err := fs.Get(ctx, buildID, "h1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected a cached summary, got nil")
-	}
-	if got.InputHash != "hash-v1" || got.Hypothesis != in.Hypothesis {
-		t.Errorf("scalar fields mismatch: %+v", got)
-	}
-	if got.Category != "product_bug" || got.Confidence != "medium" || got.Model != "llama3.1" {
-		t.Errorf("category/confidence/model mismatch: %+v", got)
-	}
-	if got.PromptVersion != 1 {
-		t.Errorf("prompt_version: got %d, want 1", got.PromptVersion)
-	}
-	if len(got.Evidence) != 2 || got.Evidence[0] != "status 500 from /users" {
-		t.Errorf("evidence round-trip mismatch: %+v", got.Evidence)
-	}
-	if got.CreatedAt.IsZero() {
-		t.Error("created_at should be populated by the DB default")
-	}
-}
-
-func TestFailureSummaryStore_UpsertReplaces(t *testing.T) {
-	fs, projectID, buildID := seedFailureSummaryFixture(t)
-	ctx := context.Background()
-
-	first := store.FailureSummary{
-		BuildID: buildID, HistoryID: "h1", ProjectID: projectID,
-		InputHash: "hash-v1", Hypothesis: "first guess", Category: "flake",
-		Confidence: "low", Evidence: []string{"a"}, Model: "m1", PromptVersion: 1,
-	}
-	if err := fs.Upsert(ctx, first); err != nil {
-		t.Fatalf("Upsert first: %v", err)
-	}
-
-	second := store.FailureSummary{
-		BuildID: buildID, HistoryID: "h1", ProjectID: projectID,
-		InputHash: "hash-v2", Hypothesis: "revised guess", Category: "product_bug",
-		Confidence: "high", Evidence: []string{"b", "c"}, Model: "m2", PromptVersion: 1,
-	}
-	if err := fs.Upsert(ctx, second); err != nil {
-		t.Fatalf("Upsert second: %v", err)
-	}
-
-	got, err := fs.Get(ctx, buildID, "h1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected a cached summary, got nil")
-	}
-	if got.InputHash != "hash-v2" || got.Hypothesis != "revised guess" || got.Category != "product_bug" {
-		t.Errorf("expected the replaced row, got %+v", got)
-	}
-	if len(got.Evidence) != 2 {
-		t.Errorf("expected replaced evidence of len 2, got %+v", got.Evidence)
-	}
-}
-
-// TestFailureSummaryStore_EmptyEvidenceRoundTrips verifies nil/empty evidence
-// stores as a JSON array and reads back as empty, never NULL.
-func TestFailureSummaryStore_EmptyEvidenceRoundTrips(t *testing.T) {
-	fs, projectID, buildID := seedFailureSummaryFixture(t)
-	ctx := context.Background()
-
-	if err := fs.Upsert(ctx, store.FailureSummary{
-		BuildID: buildID, HistoryID: "h2", ProjectID: projectID,
-		InputHash: "h", Hypothesis: "no evidence", Category: "test_bug",
-		Model: "m", PromptVersion: 1, Evidence: nil,
-	}); err != nil {
-		t.Fatalf("Upsert: %v", err)
-	}
-	got, err := fs.Get(ctx, buildID, "h2")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got == nil || len(got.Evidence) != 0 {
-		t.Errorf("expected empty evidence, got %+v", got)
+	for _, in := range []store.FailureSummary{
+		{BuildID: b, HistoryID: "h1", ProjectID: f.id, InputHash: "hash-v1", Hypothesis: "The product returned 500.",
+			Category: "product_bug", Confidence: "medium", Evidence: []string{"status 500 from /users", "last passed 3 builds ago"},
+			Model: "llama3.1", PromptVersion: 1},
+		{BuildID: b, HistoryID: "h1", ProjectID: f.id, InputHash: "hash-v2", Hypothesis: "revised guess",
+			Category: "flake", Confidence: "high", Evidence: []string{"b"}, Model: "m2", PromptVersion: 2},
+		{BuildID: b, HistoryID: "h2", ProjectID: f.id, InputHash: "h", Hypothesis: "no evidence",
+			Category: "test_bug", Model: "m", PromptVersion: 1, Evidence: nil},
+	} {
+		if err := fs.Upsert(f.ctx, in); err != nil {
+			t.Fatalf("Upsert %s/%s: %v", in.HistoryID, in.InputHash, err)
+		}
+		got := get(in.HistoryID)
+		if got == nil || got.CreatedAt.IsZero() {
+			t.Fatalf("Get(%s) = %+v, want the row with created_at set", in.HistoryID, got)
+		}
+		got.CreatedAt = in.CreatedAt
+		if in.Evidence == nil { // stored as a JSON array, so it reads back empty, not null
+			if got.Evidence == nil || len(got.Evidence) != 0 {
+				t.Errorf("Get(%s).Evidence = %#v, want an empty non-nil slice", in.HistoryID, got.Evidence)
+			}
+			got.Evidence = nil
+		}
+		if !reflect.DeepEqual(*got, in) {
+			t.Errorf("Get(%s) = %+v, want %+v", in.HistoryID, *got, in)
+		}
 	}
 }

@@ -15,392 +15,166 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
-// newFamilyID returns a random 32-char hex string padded into a UUID shape so
-// every test run uses a unique primary key without introducing a new
-// dependency on google/uuid.
+// newFamilyID returns a random v4-shaped UUID (no google/uuid dependency).
 func newFamilyID(t *testing.T) string {
 	t.Helper()
 	var buf [16]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		t.Fatalf("rand.Read: %v", err)
 	}
-	// Format as a v4-shaped UUID so the PG UUID type accepts it.
 	buf[6] = (buf[6] & 0x0f) | 0x40
 	buf[8] = (buf[8] & 0x3f) | 0x80
 	h := hex.EncodeToString(buf[:])
 	return fmt.Sprintf("%s-%s-%s-%s-%s", h[0:8], h[8:12], h[12:16], h[16:20], h[20:32])
 }
 
-func newTestFamily(t *testing.T) store.RefreshTokenFamily {
-	t.Helper()
-	now := time.Now().UTC()
-	return store.RefreshTokenFamily{
-		FamilyID:   newFamilyID(t),
-		UserID:     fmt.Sprintf("user-%d", time.Now().UnixNano()),
-		Role:       "viewer",
-		Provider:   "local",
-		CurrentJTI: fmt.Sprintf("jti-%d", time.Now().UnixNano()),
-		Status:     store.RefreshTokenFamilyStatusActive,
-		ExpiresAt:  now.Add(24 * time.Hour),
+// familyFixture is a refresh-token family store plus a helper that creates an
+// active family for userID expiring after ttl.
+func familyFixture(t *testing.T) (*pg.RefreshTokenFamilyStore, func(userID string, ttl time.Duration) store.RefreshTokenFamily) {
+	rs := pg.NewRefreshTokenFamilyStore(openTestStore(t))
+	return rs, func(userID string, ttl time.Duration) store.RefreshTokenFamily {
+		t.Helper()
+		fam := store.RefreshTokenFamily{
+			FamilyID: newFamilyID(t), UserID: userID, Role: "viewer", Provider: "local",
+			CurrentJTI: unique("jti"), Status: store.RefreshTokenFamilyStatusActive, ExpiresAt: time.Now().UTC().Add(ttl),
+		}
+		if err := rs.Create(context.Background(), fam); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		return fam
 	}
 }
 
-func isRefreshFamilyNotFound(err error) bool {
-	return errors.Is(err, store.ErrRefreshFamilyNotFound)
-}
-
-// ---------------------------------------------------------------------------
-// Create + GetByID
-// ---------------------------------------------------------------------------
-
+// TestPGRefreshTokenFamilyStore_CreateAndGetByID round-trips a family; an
+// unknown id reads as (nil, nil) and an empty FamilyID is rejected.
 func TestPGRefreshTokenFamilyStore_CreateAndGetByID(t *testing.T) {
-	s := openLockTestStore(t)
+	rs, create := familyFixture(t)
 	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	fam := newTestFamily(t)
-
-	if err := rs.Create(ctx, fam); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	fam := create(unique("user"), 24*time.Hour)
 
 	got, err := rs.GetByID(ctx, fam.FamilyID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+	if err != nil || got == nil {
+		t.Fatalf("GetByID = %v, %v", got, err)
 	}
-	if got == nil {
-		t.Fatal("expected non-nil family after create")
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() || got.ExpiresAt.Sub(fam.ExpiresAt).Abs() > time.Second {
+		t.Errorf("timestamps: created %v updated %v expires %v, want set and expires ~%v",
+			got.CreatedAt, got.UpdatedAt, got.ExpiresAt, fam.ExpiresAt)
 	}
-	if got.FamilyID != fam.FamilyID {
-		t.Errorf("FamilyID = %q, want %q", got.FamilyID, fam.FamilyID)
+	got.CreatedAt, got.UpdatedAt, got.ExpiresAt = fam.CreatedAt, fam.UpdatedAt, fam.ExpiresAt
+	if *got != fam {
+		t.Errorf("GetByID = %+v, want %+v (no previous JTI, no grace)", *got, fam)
 	}
-	if got.UserID != fam.UserID {
-		t.Errorf("UserID = %q, want %q", got.UserID, fam.UserID)
-	}
-	if got.Role != fam.Role {
-		t.Errorf("Role = %q, want %q", got.Role, fam.Role)
-	}
-	if got.Provider != fam.Provider {
-		t.Errorf("Provider = %q, want %q", got.Provider, fam.Provider)
-	}
-	if got.CurrentJTI != fam.CurrentJTI {
-		t.Errorf("CurrentJTI = %q, want %q", got.CurrentJTI, fam.CurrentJTI)
-	}
-	if got.PreviousJTI != nil {
-		t.Errorf("PreviousJTI = %v, want nil", got.PreviousJTI)
-	}
-	if got.GraceUntil != nil {
-		t.Errorf("GraceUntil = %v, want nil", got.GraceUntil)
-	}
-	if got.Status != store.RefreshTokenFamilyStatusActive {
-		t.Errorf("Status = %q, want %q", got.Status, store.RefreshTokenFamilyStatusActive)
-	}
-	if got.CreatedAt.IsZero() {
-		t.Error("expected non-zero CreatedAt")
-	}
-	if got.UpdatedAt.IsZero() {
-		t.Error("expected non-zero UpdatedAt")
-	}
-	if got.ExpiresAt.Sub(fam.ExpiresAt).Abs() > time.Second {
-		t.Errorf("ExpiresAt drift = %v, want <= 1s", got.ExpiresAt.Sub(fam.ExpiresAt))
-	}
-}
 
-func TestPGRefreshTokenFamilyStore_GetByID_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	got, err := rs.GetByID(ctx, newFamilyID(t))
-	if err != nil {
-		t.Fatalf("GetByID: unexpected error %v", err)
+	if got, err := rs.GetByID(ctx, newFamilyID(t)); err != nil || got != nil {
+		t.Errorf("GetByID(unknown) = %+v, %v; want nil, nil", got, err)
 	}
-	if got != nil {
-		t.Errorf("expected nil family for missing ID, got %+v", got)
-	}
-}
-
-func TestPGRefreshTokenFamilyStore_Create_RejectsEmptyFamilyID(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	fam := newTestFamily(t)
 	fam.FamilyID = ""
-
 	if err := rs.Create(ctx, fam); err == nil {
-		t.Fatal("expected error for empty FamilyID, got nil")
+		t.Error("Create with an empty FamilyID: want error, got nil")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Rotate
-// ---------------------------------------------------------------------------
-
+// TestPGRefreshTokenFamilyStore_Rotate moves the current JTI to previous and
+// opens a grace window of ~graceSeconds from now.
 func TestPGRefreshTokenFamilyStore_Rotate(t *testing.T) {
-	s := openLockTestStore(t)
+	rs, create := familyFixture(t)
 	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	fam := newTestFamily(t)
-	if err := rs.Create(ctx, fam); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	newJTI := fmt.Sprintf("new-jti-%d", time.Now().UnixNano())
+	fam := create(unique("user"), 24*time.Hour)
+	newJTI := unique("new-jti")
 	before := time.Now().UTC()
-	const graceSeconds = 30
-	if err := rs.Rotate(ctx, fam.FamilyID, newJTI, graceSeconds); err != nil {
+	const grace = 30 * time.Second
+	if err := rs.Rotate(ctx, fam.FamilyID, newJTI, int(grace/time.Second)); err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
-
 	got, err := rs.GetByID(ctx, fam.FamilyID)
-	if err != nil {
-		t.Fatalf("GetByID after rotate: %v", err)
+	if err != nil || got == nil {
+		t.Fatalf("GetByID after rotate = %v, %v", got, err)
 	}
-	if got == nil {
-		t.Fatal("expected family after rotate")
+	if got.CurrentJTI != newJTI || got.PreviousJTI == nil || *got.PreviousJTI != fam.CurrentJTI {
+		t.Errorf("JTIs current=%q previous=%v, want %q and %q", got.CurrentJTI, got.PreviousJTI, newJTI, fam.CurrentJTI)
 	}
-	if got.CurrentJTI != newJTI {
-		t.Errorf("CurrentJTI = %q, want %q", got.CurrentJTI, newJTI)
+	lo, hi := before.Add(grace-2*time.Second), time.Now().UTC().Add(grace+2*time.Second)
+	if got.GraceUntil == nil || got.GraceUntil.Before(lo) || got.GraceUntil.After(hi) {
+		t.Errorf("GraceUntil = %v, want within [%v, %v]", got.GraceUntil, lo, hi)
 	}
-	if got.PreviousJTI == nil || *got.PreviousJTI != fam.CurrentJTI {
-		t.Errorf("PreviousJTI = %v, want %q", got.PreviousJTI, fam.CurrentJTI)
-	}
-	if got.GraceUntil == nil {
-		t.Fatal("expected GraceUntil to be set after rotate")
-	}
-	// grace_until must be strictly in the future relative to the pre-rotate
-	// timestamp and roughly equal to now + graceSeconds.
-	minGrace := before.Add(graceSeconds * time.Second)
-	if got.GraceUntil.Before(minGrace.Add(-2 * time.Second)) {
-		t.Errorf("GraceUntil = %v, want >= %v", got.GraceUntil, minGrace.Add(-2*time.Second))
-	}
-	maxGrace := time.Now().UTC().Add(graceSeconds * time.Second).Add(2 * time.Second)
-	if got.GraceUntil.After(maxGrace) {
-		t.Errorf("GraceUntil = %v, want <= %v", got.GraceUntil, maxGrace)
-	}
-	if !got.UpdatedAt.After(fam.CreatedAt.Add(-time.Second)) {
-		t.Errorf("UpdatedAt = %v, want >= %v", got.UpdatedAt, fam.CreatedAt)
+	if got.UpdatedAt.Before(got.CreatedAt) {
+		t.Errorf("UpdatedAt %v before CreatedAt %v", got.UpdatedAt, got.CreatedAt)
 	}
 }
 
-func TestPGRefreshTokenFamilyStore_Rotate_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
+// TestPGRefreshTokenFamilyStore_StatusTransitions: MarkCompromised and Revoke
+// set their status; every mutator on an unknown family is
+// ErrRefreshFamilyNotFound.
+func TestPGRefreshTokenFamilyStore_StatusTransitions(t *testing.T) {
+	rs, create := familyFixture(t)
 	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	err := rs.Rotate(ctx, newFamilyID(t), "new-jti", 30)
-	if !isRefreshFamilyNotFound(err) {
-		t.Errorf("expected ErrRefreshFamilyNotFound, got %v", err)
+	tests := []struct {
+		name   string
+		apply  func(id string) error
+		status string // "" = no row to inspect
+	}{
+		{"MarkCompromised", func(id string) error { return rs.MarkCompromised(ctx, id) }, store.RefreshTokenFamilyStatusCompromised},
+		{"Revoke", func(id string) error { return rs.Revoke(ctx, id) }, store.RefreshTokenFamilyStatusRevoked},
+		{"Rotate", func(id string) error { return rs.Rotate(ctx, id, "new-jti", 30) }, ""},
+	}
+	for _, tt := range tests {
+		if tt.status != "" {
+			fam := create(unique("user"), 24*time.Hour)
+			if err := tt.apply(fam.FamilyID); err != nil {
+				t.Fatalf("%s: %v", tt.name, err)
+			}
+			if got, err := rs.GetByID(ctx, fam.FamilyID); err != nil || got == nil || got.Status != tt.status {
+				t.Errorf("%s: GetByID = %+v, %v; want status %q", tt.name, got, err, tt.status)
+			}
+		}
+		if err := tt.apply(newFamilyID(t)); !errors.Is(err, store.ErrRefreshFamilyNotFound) {
+			t.Errorf("%s(unknown) err = %v, want ErrRefreshFamilyNotFound", tt.name, err)
+		}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MarkCompromised / Revoke
-// ---------------------------------------------------------------------------
-
-func TestPGRefreshTokenFamilyStore_MarkCompromised(t *testing.T) {
-	s := openLockTestStore(t)
+// TestPGRefreshTokenFamilyStore_RevokeAllForUser (F-2): only the user's
+// families transition, only active ones are counted, other users' families
+// survive, and a repeat (no active families left) is (0, nil).
+func TestPGRefreshTokenFamilyStore_RevokeAllForUser(t *testing.T) {
+	rs, create := familyFixture(t)
 	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	fam := newTestFamily(t)
-	if err := rs.Create(ctx, fam); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	if err := rs.MarkCompromised(ctx, fam.FamilyID); err != nil {
-		t.Fatalf("MarkCompromised: %v", err)
-	}
-
-	got, err := rs.GetByID(ctx, fam.FamilyID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	if got.Status != store.RefreshTokenFamilyStatusCompromised {
-		t.Errorf("Status = %q, want %q", got.Status, store.RefreshTokenFamilyStatusCompromised)
-	}
-}
-
-func TestPGRefreshTokenFamilyStore_MarkCompromised_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	err := rs.MarkCompromised(ctx, newFamilyID(t))
-	if !isRefreshFamilyNotFound(err) {
-		t.Errorf("expected ErrRefreshFamilyNotFound, got %v", err)
-	}
-}
-
-func TestPGRefreshTokenFamilyStore_Revoke(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	fam := newTestFamily(t)
-	if err := rs.Create(ctx, fam); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	if err := rs.Revoke(ctx, fam.FamilyID); err != nil {
+	user, other := unique("user"), unique("other")
+	active := []store.RefreshTokenFamily{create(user, 24*time.Hour), create(user, 24*time.Hour)}
+	if err := rs.Revoke(ctx, create(user, 24*time.Hour).FamilyID); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
+	otherFam := create(other, 24*time.Hour)
 
-	got, err := rs.GetByID(ctx, fam.FamilyID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	if got.Status != store.RefreshTokenFamilyStatusRevoked {
-		t.Errorf("Status = %q, want %q", got.Status, store.RefreshTokenFamilyStatusRevoked)
-	}
-}
-
-func TestPGRefreshTokenFamilyStore_Revoke_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	err := rs.Revoke(ctx, newFamilyID(t))
-	if !isRefreshFamilyNotFound(err) {
-		t.Errorf("expected ErrRefreshFamilyNotFound, got %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// RevokeAllForUser
-// ---------------------------------------------------------------------------
-
-// TestPGRefreshTokenFamilyStore_RevokeAllForUser verifies the bulk-revoke
-// invariants used by F-2: only families belonging to the user transition,
-// only currently-active rows are counted, and rows for other users survive.
-func TestPGRefreshTokenFamilyStore_RevokeAllForUser(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-
-	userID := fmt.Sprintf("user-%d", time.Now().UnixNano())
-	otherID := fmt.Sprintf("other-%d", time.Now().UnixNano())
-
-	// Three families for userID: two active, one already revoked.
-	famActive1 := newTestFamily(t)
-	famActive1.UserID = userID
-	if err := rs.Create(ctx, famActive1); err != nil {
-		t.Fatalf("Create famActive1: %v", err)
-	}
-	famActive2 := newTestFamily(t)
-	famActive2.UserID = userID
-	if err := rs.Create(ctx, famActive2); err != nil {
-		t.Fatalf("Create famActive2: %v", err)
-	}
-	famAlreadyRevoked := newTestFamily(t)
-	famAlreadyRevoked.UserID = userID
-	if err := rs.Create(ctx, famAlreadyRevoked); err != nil {
-		t.Fatalf("Create famAlreadyRevoked: %v", err)
-	}
-	if err := rs.Revoke(ctx, famAlreadyRevoked.FamilyID); err != nil {
-		t.Fatalf("Revoke famAlreadyRevoked: %v", err)
-	}
-
-	// One active family for an unrelated user — must survive untouched.
-	famOther := newTestFamily(t)
-	famOther.UserID = otherID
-	if err := rs.Create(ctx, famOther); err != nil {
-		t.Fatalf("Create famOther: %v", err)
-	}
-
-	revoked, err := rs.RevokeAllForUser(ctx, userID)
-	if err != nil {
-		t.Fatalf("RevokeAllForUser: %v", err)
-	}
-	if revoked != 2 {
-		t.Errorf("revoked = %d, want 2 (only active families count)", revoked)
-	}
-
-	for _, fam := range []store.RefreshTokenFamily{famActive1, famActive2} {
-		got, err := rs.GetByID(ctx, fam.FamilyID)
-		if err != nil || got == nil {
-			t.Fatalf("GetByID %s: got=%v err=%v", fam.FamilyID, got, err)
-		}
-		if got.Status != store.RefreshTokenFamilyStatusRevoked {
-			t.Errorf("family %s status = %q, want revoked", fam.FamilyID, got.Status)
+	for _, want := range []int{2, 0} {
+		if n, err := rs.RevokeAllForUser(ctx, user); err != nil || n != want {
+			t.Errorf("RevokeAllForUser = %d, %v; want %d", n, err, want)
 		}
 	}
-
-	// Family belonging to another user must not be revoked.
-	gotOther, err := rs.GetByID(ctx, famOther.FamilyID)
-	if err != nil || gotOther == nil {
-		t.Fatalf("GetByID famOther: got=%v err=%v", gotOther, err)
-	}
-	if gotOther.Status != store.RefreshTokenFamilyStatusActive {
-		t.Errorf("famOther.Status = %q, want active (other user's families must survive)", gotOther.Status)
-	}
-}
-
-// TestPGRefreshTokenFamilyStore_RevokeAllForUser_NoActive returns 0 and a nil
-// error when the user has no active families (e.g. they have never logged in
-// or every family is already revoked / compromised). Idempotent by design.
-func TestPGRefreshTokenFamilyStore_RevokeAllForUser_NoActive(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-	revoked, err := rs.RevokeAllForUser(ctx, fmt.Sprintf("ghost-%d", time.Now().UnixNano()))
-	if err != nil {
-		t.Fatalf("RevokeAllForUser: %v", err)
-	}
-	if revoked != 0 {
-		t.Errorf("revoked = %d, want 0 for unknown user", revoked)
+	for fam, want := range map[string]string{
+		active[0].FamilyID: store.RefreshTokenFamilyStatusRevoked,
+		active[1].FamilyID: store.RefreshTokenFamilyStatusRevoked,
+		otherFam.FamilyID:  store.RefreshTokenFamilyStatusActive,
+	} {
+		if got, err := rs.GetByID(ctx, fam); err != nil || got == nil || got.Status != want {
+			t.Errorf("family %s = %+v, %v; want status %q", fam, got, err, want)
+		}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DeleteExpired
-// ---------------------------------------------------------------------------
-
+// TestPGRefreshTokenFamilyStore_DeleteExpired deletes expired families and
+// keeps unexpired ones.
 func TestPGRefreshTokenFamilyStore_DeleteExpired(t *testing.T) {
-	s := openLockTestStore(t)
+	rs, create := familyFixture(t)
 	ctx := context.Background()
-
-	rs := pg.NewRefreshTokenFamilyStore(s)
-
-	// Row that is already expired — must be deleted.
-	expired := newTestFamily(t)
-	expired.ExpiresAt = time.Now().UTC().Add(-time.Hour)
-	if err := rs.Create(ctx, expired); err != nil {
-		t.Fatalf("Create expired: %v", err)
+	expired, fresh := create(unique("user"), -time.Hour), create(unique("user"), time.Hour)
+	if n, err := rs.DeleteExpired(ctx); err != nil || n < 1 {
+		t.Errorf("DeleteExpired = %d, %v; want >= 1", n, err)
 	}
-
-	// Row that has not yet expired — must survive.
-	fresh := newTestFamily(t)
-	fresh.ExpiresAt = time.Now().UTC().Add(time.Hour)
-	if err := rs.Create(ctx, fresh); err != nil {
-		t.Fatalf("Create fresh: %v", err)
+	if got, err := rs.GetByID(ctx, expired.FamilyID); err != nil || got != nil {
+		t.Errorf("expired family = %+v, %v; want deleted", got, err)
 	}
-
-	n, err := rs.DeleteExpired(ctx)
-	if err != nil {
-		t.Fatalf("DeleteExpired: %v", err)
-	}
-	if n < 1 {
-		t.Errorf("DeleteExpired count = %d, want >= 1", n)
-	}
-
-	gone, err := rs.GetByID(ctx, expired.FamilyID)
-	if err != nil {
-		t.Fatalf("GetByID expired: %v", err)
-	}
-	if gone != nil {
-		t.Errorf("expected expired family to be deleted, got %+v", gone)
-	}
-
-	still, err := rs.GetByID(ctx, fresh.FamilyID)
-	if err != nil {
-		t.Fatalf("GetByID fresh: %v", err)
-	}
-	if still == nil {
-		t.Error("expected fresh family to survive DeleteExpired")
+	if got, err := rs.GetByID(ctx, fresh.FamilyID); err != nil || got == nil {
+		t.Errorf("fresh family = %+v, %v; want it to survive", got, err)
 	}
 }

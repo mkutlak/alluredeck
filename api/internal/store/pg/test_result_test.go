@@ -1,1060 +1,309 @@
 package pg_test
 
 import (
-	"context"
-	"fmt"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/mkutlak/alluredeck/api/internal/parser"
 	"github.com/mkutlak/alluredeck/api/internal/store"
-	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
-// TestInsertBatch_DuplicateHistoryID_LatestAttemptWins reproduces the
-// production "duplicate key value violates unique constraint
-// idx_test_results_build_history" warning (runner/allure.go).
-//
-// When a single build contains multiple test results sharing the same
-// non-empty historyId — the Allure retry/flaky case, where every attempt is a
-// separate *-result.json and parseStabilityEntries emits one stabilityEntry
-// per file — InsertBatch must NOT abort the whole transaction. It must collapse
-// the attempts into a single row keyed by (build_id, history_id) and keep the
-// latest attempt (greatest stop_ms) as the surviving row, so a retried test
-// records its final outcome.
-func TestInsertBatch_DuplicateHistoryID_LatestAttemptWins(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
+// TestInsertBatch_DuplicateHistoryID reproduces the production "duplicate key
+// value violates unique constraint idx_test_results_build_history" warning:
+// Allure retry attempts share one non-empty historyId in a build. InsertBatch
+// must collapse them to one row keeping the latest attempt (greatest stop_ms)
+// whatever the batch order — the latest is listed first, so last-writer-wins
+// would keep the stale "failed" — while empty historyIds are never collapsed.
+func TestInsertBatch_DuplicateHistoryID(t *testing.T) {
+	f := newFixture(t)
+	b := f.build(1)
+	latest := f.result(b, "ui.printer.settings", "passed", "hist-printer")
+	latest.Flaky, latest.Retries, latest.StartMs, latest.StopMs = true, 1, new(int64(150)), new(int64(200))
+	earlier := f.result(b, "ui.printer.settings", "failed", "hist-printer")
+	earlier.StartMs, earlier.StopMs = new(int64(60)), new(int64(100))
+	f.insert(latest, earlier, f.result(b, "a", "passed", ""), f.result(b, "b", "failed", ""))
 
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-insertbatch-dup-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
+	if n := f.count("SELECT COUNT(*) FROM test_results WHERE build_id=$1 AND history_id=''", b); n != 2 {
+		t.Errorf("empty-historyId rows = %d, want 2", n)
 	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
+	if n := f.count("SELECT COUNT(*) FROM test_results WHERE build_id=$1 AND history_id='hist-printer'", b); n != 1 {
+		t.Fatalf("rows for (build_id, history_id) = %d, want 1", n)
 	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-
-	// Two attempts of the same test (same historyId). The first attempt failed;
-	// the retry passed. The final outcome is "passed". The latest attempt is
-	// listed FIRST here on purpose: a naive last-writer-wins (DO UPDATE with no
-	// ordering guard) would leave the stale "failed" row, so this asserts the
-	// implementation keeps the row with the greatest stop_ms regardless of
-	// batch order.
-	results := []store.TestResult{
-		{
-			BuildID: buildID, ProjectID: projectID,
-			TestName: "printer settings", FullName: "ui.printer.settings",
-			Status: "passed", HistoryID: "hist-printer", DurationMs: 50,
-			Flaky: true, Retries: 1, StartMs: new(int64(150)), StopMs: new(int64(200)),
-		},
-		{
-			BuildID: buildID, ProjectID: projectID,
-			TestName: "printer settings", FullName: "ui.printer.settings",
-			Status: "failed", HistoryID: "hist-printer", DurationMs: 40,
-			Flaky: false, Retries: 0, StartMs: new(int64(60)), StopMs: new(int64(100)),
-		},
-	}
-
-	if err := trStore.InsertBatch(ctx, results); err != nil {
-		t.Fatalf("InsertBatch with duplicate historyId returned error (want nil): %v", err)
-	}
-
-	// Exactly one row must survive for (build_id, history_id).
-	var count int
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT COUNT(*) FROM test_results WHERE build_id=$1 AND history_id=$2",
-		buildID, "hist-printer").Scan(&count); err != nil {
-		t.Fatalf("count rows: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("row count for (build_id, history_id): got %d, want 1", count)
-	}
-
-	// The surviving row must be the latest attempt: passed, flaky, retries=1.
 	var (
 		status  string
 		flaky   bool
 		retries int
 		stopMs  *int64
 	)
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT status, flaky, retries, stop_ms FROM test_results WHERE build_id=$1 AND history_id=$2",
-		buildID, "hist-printer").Scan(&status, &flaky, &retries, &stopMs); err != nil {
+	if err := f.s.Pool().QueryRow(f.ctx,
+		"SELECT status, flaky, retries, stop_ms FROM test_results WHERE build_id=$1 AND history_id='hist-printer'",
+		b).Scan(&status, &flaky, &retries, &stopMs); err != nil {
 		t.Fatalf("scan surviving row: %v", err)
 	}
-	if status != "passed" {
-		t.Errorf("status: got %q, want %q (latest attempt should win)", status, "passed")
-	}
-	if !flaky {
-		t.Errorf("flaky: got false, want true (from latest attempt)")
-	}
-	if retries != 1 {
-		t.Errorf("retries: got %d, want 1 (from latest attempt)", retries)
-	}
-	if stopMs == nil || *stopMs != 200 {
-		t.Errorf("stop_ms: got %v, want 200 (latest attempt)", stopMs)
+	if status != "passed" || !flaky || retries != 1 || stopMs == nil || *stopMs != 200 {
+		t.Errorf("survivor = (%q, flaky=%v, retries=%d, stop_ms=%v), want the latest attempt (passed, true, 1, 200)",
+			status, flaky, retries, stopMs)
 	}
 }
 
-// TestInsertBatch_EmptyHistoryID_AllRowsInserted verifies the partial unique
-// index (WHERE history_id != ”) does NOT collapse rows with an empty
-// historyId: two such results must both be inserted, and the ON CONFLICT clause
-// must not erroneously swallow them.
-func TestInsertBatch_EmptyHistoryID_AllRowsInserted(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-insertbatch-empty-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-
-	results := []store.TestResult{
-		{BuildID: buildID, ProjectID: projectID, TestName: "a", Status: "passed", HistoryID: ""},
-		{BuildID: buildID, ProjectID: projectID, TestName: "b", Status: "failed", HistoryID: ""},
-	}
-	if err := trStore.InsertBatch(ctx, results); err != nil {
-		t.Fatalf("InsertBatch with empty historyId returned error: %v", err)
-	}
-
-	var count int
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT COUNT(*) FROM test_results WHERE build_id=$1 AND history_id=''", buildID).Scan(&count); err != nil {
-		t.Fatalf("count rows: %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("empty-historyId rows: got %d, want 2", count)
-	}
-}
-
-// TestInsertBatchFull_DuplicateHistoryID_NoDuplicateChildren guards the
-// enrichment path: when two retry attempts of the same test (same historyId)
-// reach InsertBatchFull, they collapse onto one test_results row. Without
-// de-duplication, each attempt's labels/parameters/steps/attachments would be
-// re-inserted under that single surviving row id, doubling the child rows. The
-// fix keeps only the latest attempt (greatest StopMs), so exactly one row and
-// one set of children survive.
-func TestInsertBatchFull_DuplicateHistoryID_NoDuplicateChildren(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-insertbatchfull-dup-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-
-	// Two attempts of the same test. The latest (greater StopMs) passed; each
-	// carries its own label, parameter, step and attachment.
-	mkResult := func(status string, stopMs int64) *parser.Result {
+// TestInsertBatchFull_DuplicateHistoryID covers the enrichment path for Allure
+// retries: one *-result.json per attempt, sharing a historyId, collapse onto one
+// test_results row with one set of labels/parameters/steps/attachments (not one
+// per attempt), and the siblings become that row's attempts, ordered by StopMs
+// rather than input order.
+func TestInsertBatchFull_DuplicateHistoryID(t *testing.T) {
+	f := newFixture(t)
+	b := f.build(1)
+	mk := func(status, msg string, stopMs int64) *parser.Result {
 		return &parser.Result{
-			Name: "printer settings", FullName: "ui.printer.settings",
-			HistoryID: "hist-printer", Status: status, StartMs: stopMs - 40, StopMs: stopMs,
+			Name: "printer settings", FullName: "ui.printer.settings", HistoryID: "hist-printer",
+			Status: status, StatusMessage: msg, StartMs: stopMs - 40, StopMs: stopMs,
 			Labels:      []parser.Label{{Name: "suite", Value: "printer"}},
 			Parameters:  []parser.Parameter{{Name: "browser", Value: "chromium"}},
 			Steps:       []parser.Step{{Name: "open dialog", Status: status, Order: 0}},
 			Attachments: []parser.Attachment{{Name: "screenshot", Source: "shot-" + status + ".png", MimeType: "image/png"}},
 		}
 	}
-	results := []*parser.Result{
-		mkResult("failed", 100),
-		mkResult("passed", 200),
-	}
+	// Newest first, so trusting input order reverses the attempt sequence.
+	f.insertFull(b, mk("passed", "", 300), mk("failed", "connection refused", 100), mk("failed", "connection refused", 200))
 
-	if err := trStore.InsertBatchFull(ctx, buildID, projectID, results); err != nil {
-		t.Fatalf("InsertBatchFull with duplicate historyId returned error: %v", err)
+	q := "SELECT COUNT(*) FROM test_results WHERE build_id=$1 AND history_id='hist-printer'"
+	if n := f.count(q, b); n != 1 {
+		t.Fatalf("test_results rows = %d, want 1", n)
 	}
-
-	// Exactly one test_results row, and exactly one of each child kind.
 	var resultID int64
 	var status string
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT id, status FROM test_results WHERE build_id=$1 AND history_id=$2",
-		buildID, "hist-printer").Scan(&resultID, &status); err != nil {
-		t.Fatalf("expected exactly one surviving row: %v", err)
+	if err := f.s.Pool().QueryRow(f.ctx, "SELECT id, status FROM test_results WHERE build_id=$1 AND history_id='hist-printer'",
+		b).Scan(&resultID, &status); err != nil {
+		t.Fatalf("scan surviving row: %v", err)
 	}
-
-	for _, c := range []struct {
-		table string
-		want  int
-	}{
-		{"test_labels", 1},
-		{"test_parameters", 1},
-		{"test_steps", 1},
-		{"test_attachments", 1},
-	} {
-		var n int
-		if err := s.Pool().QueryRow(ctx,
-			"SELECT COUNT(*) FROM "+c.table+" WHERE test_result_id=$1", resultID).Scan(&n); err != nil {
-			t.Fatalf("count %s: %v", c.table, err)
-		}
-		if n != c.want {
-			t.Errorf("%s rows: got %d, want %d (duplicate enrichment children)", c.table, n, c.want)
+	if status != "passed" {
+		t.Errorf("surviving status = %q, want passed (latest attempt wins)", status)
+	}
+	for _, table := range []string{"test_labels", "test_parameters", "test_steps", "test_attachments"} {
+		if n := f.count("SELECT COUNT(*) FROM "+table+" WHERE test_result_id=$1", resultID); n != 1 {
+			t.Errorf("%s rows = %d, want 1 (duplicate enrichment children)", table, n)
 		}
 	}
-}
-
-// TestInsertBatchFull_PersistsFlakyAndRetries verifies InsertBatchFull writes
-// the Flaky/Retries fields from parser.Result (the Playwright enrichment path,
-// which — unlike Allure's InsertBatch — previously had no column mapping for
-// them at all) and that a re-upsert (ON CONFLICT) updates them in place.
-func TestInsertBatchFull_PersistsFlakyAndRetries(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-insertbatchfull-flaky-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
+	got, err := f.results.GetAttempts(f.ctx, f.id, b, "hist-printer")
 	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
+		t.Fatalf("GetAttempts: %v", err)
 	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
+	want := []store.TestAttemptRow{
+		{AttemptIndex: 0, Status: "failed", StatusMessage: "connection refused"},
+		{AttemptIndex: 1, Status: "failed", StatusMessage: "connection refused"},
+		{AttemptIndex: 2, Status: "passed"},
 	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-
-	result := &parser.Result{
-		Name: "flaky pw test", FullName: "spec/flaky.ts > flaky pw test",
-		HistoryID: "hist-flaky-pw", Status: "passed",
-		StartMs: 100, StopMs: 200, Flaky: true, Retries: 2,
-	}
-
-	if err := trStore.InsertBatchFull(ctx, buildID, projectID, []*parser.Result{result}); err != nil {
-		t.Fatalf("InsertBatchFull: %v", err)
-	}
-
-	var flaky bool
-	var retries int
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
-		buildID, "hist-flaky-pw").Scan(&flaky, &retries); err != nil {
-		t.Fatalf("scan flaky/retries: %v", err)
-	}
-	if !flaky {
-		t.Error("flaky: got false, want true")
-	}
-	if retries != 2 {
-		t.Errorf("retries: got %d, want 2", retries)
-	}
-
-	// Re-upsert must MERGE, not clobber: a later pass carrying flaky=false /
-	// retries=0 (exactly what the Allure parser produces on parser.Result during
-	// the enrichment pass) must NOT wipe a flaky flag an earlier pass recorded.
-	// flaky is OR-merged; retries takes the max.
-	result.Flaky = false
-	result.Retries = 0
-	if err := trStore.InsertBatchFull(ctx, buildID, projectID, []*parser.Result{result}); err != nil {
-		t.Fatalf("InsertBatchFull (re-upsert): %v", err)
-	}
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
-		buildID, "hist-flaky-pw").Scan(&flaky, &retries); err != nil {
-		t.Fatalf("scan flaky/retries (post re-upsert): %v", err)
-	}
-	if !flaky {
-		t.Error("flaky: got false, want true preserved after a clobbering re-upsert")
-	}
-	if retries != 2 {
-		t.Errorf("retries: got %d, want 2 preserved after re-upsert", retries)
+	if !slices.Equal(got, want) {
+		t.Errorf("attempts = %+v, want %+v", got, want)
 	}
 }
 
-// TestInsertBatch_ThenInsertBatchFull_PreservesAllureFlaky reproduces the real
-// Allure ingest sequence: InsertBatch records the authoritative flaky/retries
-// from stability entries, then InsertBatchFull runs for enrichment with
-// parser.Result rows whose Flaky/Retries are zero (the Allure parser never sets
-// them). The enrichment UPSERT must NOT clobber the flaky flag back to false.
-func TestInsertBatch_ThenInsertBatchFull_PreservesAllureFlaky(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
+// TestInsertBatchFull_MergesFlakyAndRetries: InsertBatchFull writes Flaky and
+// Retries (the Playwright path), and a re-upsert carrying zeros — what the
+// Allure parser yields during enrichment — must not clobber values recorded
+// earlier by InsertBatchFull or by InsertBatch (Allure stability data): flaky
+// is OR-merged and retries takes the max.
+func TestInsertBatchFull_MergesFlakyAndRetries(t *testing.T) {
+	f := newFixture(t)
+	b := f.build(1)
+	pw := &parser.Result{
+		Name: "flaky pw test", FullName: "spec/flaky.ts > flaky pw test", HistoryID: "hist-pw",
+		Status: "passed", StartMs: 100, StopMs: 200, Flaky: true, Retries: 2,
+	}
+	wantFlaky := func(historyID string, retries int) {
+		t.Helper()
+		var flaky bool
+		var got int
+		if err := f.s.Pool().QueryRow(f.ctx, "SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
+			b, historyID).Scan(&flaky, &got); err != nil {
+			t.Fatalf("scan %s: %v", historyID, err)
+		}
+		if !flaky || got != retries {
+			t.Errorf("%s: flaky=%v retries=%d, want true/%d", historyID, flaky, got, retries)
+		}
+	}
+	f.insertFull(b, pw)
+	wantFlaky("hist-pw", 2)
 
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
+	allure := f.result(b, "suite > flaky allure test", "passed", "hist-allure")
+	allure.Flaky, allure.Retries, allure.StartMs, allure.StopMs = true, 3, new(int64(10)), new(int64(110))
+	f.insert(allure)
 
-	slug := fmt.Sprintf("test-allure-flaky-preserve-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-
-	// 1. InsertBatch: the authoritative flaky/retries from Allure stability data.
-	if err := trStore.InsertBatch(ctx, []store.TestResult{{
-		BuildID: buildID, ProjectID: projectID,
-		TestName: "flaky allure test", FullName: "suite > flaky allure test",
-		HistoryID: "hist-allure-flaky", Status: "passed", DurationMs: 100,
-		Flaky: true, Retries: 3, StartMs: new(int64(10)), StopMs: new(int64(110)),
-	}}); err != nil {
-		t.Fatalf("InsertBatch: %v", err)
-	}
-
-	// 2. InsertBatchFull enrichment: the Allure parser leaves Flaky/Retries zero.
-	if err := trStore.InsertBatchFull(ctx, buildID, projectID, []*parser.Result{{
-		Name: "flaky allure test", FullName: "suite > flaky allure test",
-		HistoryID: "hist-allure-flaky", Status: "passed",
-		StartMs: 10, StopMs: 110, // Flaky/Retries deliberately zero, as Allure yields
-	}}); err != nil {
-		t.Fatalf("InsertBatchFull: %v", err)
-	}
-
-	var flaky bool
-	var retries int
-	if err := s.Pool().QueryRow(ctx,
-		"SELECT flaky, retries FROM test_results WHERE build_id=$1 AND history_id=$2",
-		buildID, "hist-allure-flaky").Scan(&flaky, &retries); err != nil {
-		t.Fatalf("scan flaky/retries: %v", err)
-	}
-	if !flaky {
-		t.Error("flaky: got false, want true — InsertBatchFull clobbered the Allure flaky flag")
-	}
-	if retries != 3 {
-		t.Errorf("retries: got %d, want 3 — InsertBatchFull clobbered the Allure retries", retries)
-	}
+	pw.Flaky, pw.Retries = false, 0
+	f.insertFull(b, pw, &parser.Result{
+		Name: "flaky allure test", FullName: "suite > flaky allure test", HistoryID: "hist-allure",
+		Status: "passed", StartMs: 10, StopMs: 110,
+	})
+	wantFlaky("hist-pw", 2)
+	wantFlaky("hist-allure", 3)
 }
 
-// TestGetTestHistory_ReturnsFlakyAndRetries verifies GetTestHistory surfaces
-// the per-run Flaky/Retries fields alongside status and duration.
-func TestGetTestHistory_ReturnsFlakyAndRetries(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-history-flaky-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
+// TestGetTestHistory: every run of the test comes back with its flaky/retries
+// and branch name, via a LEFT JOIN so a build without branch_id still appears.
+func TestGetTestHistory(t *testing.T) {
+	f := newFixture(t)
+	main := f.branch("main")
+	for i, status := range []string{"failed", "passed", "failed"} {
+		order := i + 1
+		r := f.result(f.build(order), "spec/branch.ts > branch test", status, "hist-branch")
+		if order == 2 {
+			r.Flaky, r.Retries = true, 3
+		}
+		f.insert(r)
+		if order > 1 {
+			if err := f.builds.UpdateBuildBranchID(f.ctx, f.id, order, main.ID); err != nil {
+				t.Fatalf("UpdateBuildBranchID %d: %v", order, err)
+			}
+		}
 	}
 
-	const historyID = "hist-flaky-history"
-	results := []store.TestResult{
-		{
-			BuildID: buildID, ProjectID: projectID,
-			TestName: "flaky history test", FullName: "spec/history.ts > flaky history test",
-			Status: "passed", HistoryID: historyID, DurationMs: 500,
-			Flaky: true, Retries: 3,
-		},
-	}
-	if err := trStore.InsertBatch(ctx, results); err != nil {
-		t.Fatalf("InsertBatch: %v", err)
-	}
-
-	entries, err := trStore.GetTestHistory(ctx, projectID, historyID, nil, 10)
+	entries, err := f.results.GetTestHistory(f.ctx, f.id, "hist-branch", nil, 10)
 	if err != nil {
 		t.Fatalf("GetTestHistory: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("entries count: got %d, want 1", len(entries))
+	got := map[int]store.TestHistoryEntry{}
+	for _, e := range entries {
+		got[e.BuildNumber] = store.TestHistoryEntry{BuildNumber: e.BuildNumber, Status: e.Status, Flaky: e.Flaky, Retries: e.Retries, BranchName: e.BranchName}
 	}
-	if !entries[0].Flaky {
-		t.Error("entries[0].Flaky: got false, want true")
+	want := map[int]store.TestHistoryEntry{
+		1: {BuildNumber: 1, Status: "failed"},
+		2: {BuildNumber: 2, Status: "passed", Flaky: true, Retries: 3, BranchName: "main"},
+		3: {BuildNumber: 3, Status: "failed", BranchName: "main"},
 	}
-	if entries[0].Retries != 3 {
-		t.Errorf("entries[0].Retries: got %d, want 3", entries[0].Retries)
+	if len(entries) != 3 || !reflect.DeepEqual(got, want) {
+		t.Errorf("history = %+v, want %+v", got, want)
 	}
 }
 
-// TestGetLastPassingBuild_ReturnsMostRecentPriorPass exercises the new
-// GetLastPassingBuild query against a real Postgres. It verifies: (1) it returns
-// the most recent build STRICTLY before beforeBuildOrder where the test passed;
-// (2) the beforeBuildOrder bound is exclusive; (3) (nil, nil) is returned when
-// the test never passed; and (4) commit_sha is surfaced from the build row.
-func TestGetLastPassingBuild_ReturnsMostRecentPriorPass(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-lastgood-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	const historyID = "hLG"
-
-	// Build a per-test history: order 1 passed, 2 failed, 3 passed, 4 failed
-	// (current). Builds inserted in ascending order so builds.id (a monotonic
-	// IDENTITY) tracks build_order.
-	statuses := []struct {
+// TestGetLastPassingBuild finds the latest pass strictly before a build_order,
+// optionally scoped to a branch. Build 7 of "hOoO" is backfilled after build
+// 10, so its IDENTITY id is higher: keying on builds.id instead of build_order
+// answers 5 instead of 7.
+func TestGetLastPassingBuild(t *testing.T) {
+	f := newFixture(t)
+	main, feature := f.branch("main"), f.branch("feature")
+	ids := map[int]int64{}
+	for _, r := range []struct {
 		order  int
+		branch *store.Branch
 		status string
-	}{
-		{1, "passed"},
-		{2, "failed"},
-		{3, "passed"},
-		{4, "failed"},
+	}{{1, main, "passed"}, {2, feature, "failed"}, {3, feature, "passed"}, {4, nil, "failed"}} {
+		ids[r.order] = f.build(r.order)
+		if r.branch != nil {
+			if err := f.builds.UpdateBuildBranchID(f.ctx, f.id, r.order, r.branch.ID); err != nil {
+				t.Fatalf("UpdateBuildBranchID %d: %v", r.order, err)
+			}
+		}
+		f.insert(f.result(ids[r.order], "suite > lg test", r.status, "h"))
 	}
-	buildIDByOrder := make(map[int]int64, len(statuses))
-	for _, st := range statuses {
-		if err := buildStore.InsertBuild(ctx, projectID, st.order); err != nil {
-			t.Fatalf("InsertBuild %d: %v", st.order, err)
-		}
-		bid, err := trStore.GetBuildID(ctx, projectID, st.order)
-		if err != nil {
-			t.Fatalf("GetBuildID %d: %v", st.order, err)
-		}
-		buildIDByOrder[st.order] = bid
-		if err := trStore.InsertBatch(ctx, []store.TestResult{{
-			BuildID: bid, ProjectID: projectID,
-			TestName: "lg test", FullName: "suite > lg test",
-			HistoryID: historyID, Status: st.status, DurationMs: 100,
-		}}); err != nil {
-			t.Fatalf("InsertBatch order %d: %v", st.order, err)
-		}
-	}
-	// Attach a commit SHA to the last-good build (order 3) to confirm it surfaces.
-	if err := buildStore.UpdateBuildCIMetadata(ctx, projectID, 3, store.CIMetadata{CommitSHA: "sha-order-3"}); err != nil {
+	f.insert(f.result(ids[4], "suite > never", "failed", "hNever"), f.result(ids[1], "suite > unrelated", "passed", ""))
+	if err := f.builds.UpdateBuildCIMetadata(f.ctx, f.id, 3, store.CIMetadata{CommitSHA: "sha-order-3"}); err != nil {
 		t.Fatalf("UpdateBuildCIMetadata: %v", err)
 	}
-
-	// 1. Before the current build (order 4): most recent prior pass is order 3.
-	got, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 4)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(before order 4): %v", err)
-	}
-	if got == nil {
-		t.Fatal("want a last-good build before order 4, got nil")
-	}
-	if got.BuildNumber != 3 {
-		t.Errorf("build_number: got %d, want 3 (most recent prior pass)", got.BuildNumber)
-	}
-	if got.BuildID != buildIDByOrder[3] {
-		t.Errorf("build_id: got %d, want %d", got.BuildID, buildIDByOrder[3])
-	}
-	if got.Status != "passed" {
-		t.Errorf("status: got %q, want passed", got.Status)
-	}
-	if got.CICommitSHA == nil || *got.CICommitSHA != "sha-order-3" {
-		t.Errorf("ci_commit_sha: got %v, want sha-order-3", got.CICommitSHA)
-	}
-
-	// 2. beforeBuildOrder is exclusive: before order 3 (the pass itself), the
-	//    query must skip order 3 and return the earlier pass at order 1.
-	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 3)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(before order 3): %v", err)
-	}
-	if got == nil {
-		t.Fatal("want a last-good build before order 3, got nil")
-	}
-	if got.BuildNumber != 1 {
-		t.Errorf("build_number: got %d, want 1 (exclusive bound skips order 3)", got.BuildNumber)
-	}
-
-	// 3. Before order 1 there is no prior pass → (nil, nil).
-	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 1)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(before order 1): %v", err)
-	}
-	if got != nil {
-		t.Errorf("want nil when no prior passing build exists, got %+v", got)
-	}
-
-	// 4. A test that never passed → (nil, nil).
-	if err := trStore.InsertBatch(ctx, []store.TestResult{{
-		BuildID: buildIDByOrder[4], ProjectID: projectID,
-		TestName: "never", FullName: "suite > never", HistoryID: "hNever",
-		Status: "failed", DurationMs: 50,
-	}}); err != nil {
-		t.Fatalf("InsertBatch never: %v", err)
-	}
-	got, err = trStore.GetLastPassingBuild(ctx, projectID, "hNever", nil, 4)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(hNever): %v", err)
-	}
-	if got != nil {
-		t.Errorf("want nil for a test that never passed, got %+v", got)
-	}
-}
-
-// TestGetLastPassingBuild_EmptyHistoryIDGuard verifies that an empty historyID
-// short-circuits to (nil, nil) instead of matching the many unrelated
-// test_results rows that share the empty history_id (tests without a stable
-// identity). Without the guard, `tr.history_id=”` would match any such row
-// with status='passed' below the bound, yielding a spurious last-good result
-// for a test that isn't even the one being diagnosed.
-func TestGetLastPassingBuild_EmptyHistoryIDGuard(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-lastgood-emptyhid-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-	// A passed row with an empty history_id — unrelated to any specific test's
-	// identity, but exactly the kind of row an unguarded query would match.
-	if err := trStore.InsertBatch(ctx, []store.TestResult{{
-		BuildID: buildID, ProjectID: projectID,
-		TestName: "unrelated", FullName: "suite > unrelated",
-		HistoryID: "", Status: "passed", DurationMs: 10,
-	}}); err != nil {
-		t.Fatalf("InsertBatch: %v", err)
-	}
-
-	got, err := trStore.GetLastPassingBuild(ctx, projectID, "", nil, 2)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(\"\"): %v", err)
-	}
-	if got != nil {
-		t.Errorf("want nil for an empty historyID (must not match unrelated empty-history_id rows), got %+v", got)
-	}
-}
-
-// TestGetLastPassingBuild_OutOfOrderIngestion_UsesBuildOrderNotID is a
-// regression test for keying GetLastPassingBuild on build_order instead of the
-// surrogate builds.id. Builds are not guaranteed to be ingested in build_order
-// sequence: a backfill/reconciliation pass can insert an older (lower
-// build_order) build AFTER newer ones already exist, so its IDENTITY-generated
-// id is HIGHER than builds with a greater build_order. This test constructs
-// exactly that: build_order 5 and 10 are inserted first (ids increasing with
-// insertion order), then build_order 7 is backfilled afterward and receives a
-// HIGHER id than build_order 10 despite being chronologically earlier. The
-// correct last-good build (by build_order, the human-facing build number)
-// before build_order 10 is build_order 7 — the one with the greatest
-// build_order below the bound — NOT the one with the greatest id.
-func TestGetLastPassingBuild_OutOfOrderIngestion_UsesBuildOrderNotID(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-lastgood-outoforder-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	const historyID = "hOutOfOrder"
-
-	// Ingestion order (matches insertion order below, NOT build_order order):
-	//   1st inserted: build_order=5,  status=passed  → gets the LOWEST id
-	//   2nd inserted: build_order=10, status=failed   → gets a HIGHER id (current)
-	//   3rd inserted: build_order=7,  status=passed   → backfilled LAST, gets the
-	//                                                    HIGHEST id despite build_order
-	//                                                    7 < 10.
-	type seed struct {
+	for _, r := range []struct {
 		order  int
 		status string
+	}{{5, "passed"}, {10, "failed"}, {7, "passed"}} {
+		ids[r.order] = f.build(r.order)
+		f.insert(f.result(ids[r.order], "suite > out of order", r.status, "hOoO"))
 	}
-	for _, sd := range []seed{
-		{5, "passed"},
-		{10, "failed"},
-		{7, "passed"}, // backfilled out of order
-	} {
-		if err := buildStore.InsertBuild(ctx, projectID, sd.order); err != nil {
-			t.Fatalf("InsertBuild order=%d: %v", sd.order, err)
-		}
-		bid, err := trStore.GetBuildID(ctx, projectID, sd.order)
-		if err != nil {
-			t.Fatalf("GetBuildID order=%d: %v", sd.order, err)
-		}
-		if err := trStore.InsertBatch(ctx, []store.TestResult{{
-			BuildID: bid, ProjectID: projectID,
-			TestName: "out of order test", FullName: "suite > out of order test",
-			HistoryID: historyID, Status: sd.status, DurationMs: 100,
-		}}); err != nil {
-			t.Fatalf("InsertBatch order=%d: %v", sd.order, err)
-		}
+	if ids[7] <= ids[10] {
+		t.Fatalf("premise: backfilled build 7 id %d must exceed build 10 id %d", ids[7], ids[10])
 	}
 
-	// Sanity-check the premise: build_order=7's id must be greater than
-	// build_order=10's id (the whole point of the regression). If this ever
-	// stops holding (e.g. IDENTITY behavior changes), the test premise itself
-	// is invalid, so fail loudly rather than silently passing for the wrong
-	// reason.
-	idOf := func(order int) int64 {
-		bid, err := trStore.GetBuildID(ctx, projectID, order)
-		if err != nil {
-			t.Fatalf("GetBuildID order=%d: %v", order, err)
-		}
-		return bid
-	}
-	if idOf(7) <= idOf(10) {
-		t.Fatalf("test premise violated: expected build_order=7's id (%d) > build_order=10's id (%d)", idOf(7), idOf(10))
-	}
-
-	got, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 10)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(before order 10): %v", err)
-	}
-	if got == nil {
-		t.Fatal("want a last-good build before order 10, got nil")
-	}
-	if got.BuildNumber != 7 {
-		t.Errorf("build_number: got %d, want 7 (greatest build_order below the bound) — "+
-			"a build_order=5 result here means the query is still keying on builds.id", got.BuildNumber)
-	}
-}
-
-// TestGetLastPassingBuild_BranchScoped verifies that when branchID is non-nil
-// the query only considers builds on that branch, and that a nil branchID scopes
-// cross-branch (returning the most recent prior pass on any branch).
-func TestGetLastPassingBuild_BranchScoped(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	branchStore := pg.NewBranchStore(s)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-lastgood-branch-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	mainBranch, _, err := branchStore.GetOrCreate(ctx, projectID, "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate main: %v", err)
-	}
-	featureBranch, _, err := branchStore.GetOrCreate(ctx, projectID, "feature")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature: %v", err)
-	}
-
-	const historyID = "hBr"
-	// order 1 (main): passed; order 2 (feature): passed; order 3 (feature):
-	// failed (current). Inserted ascending so ids track build_order.
-	builds := []struct {
-		order    int
-		branchID int64
-		status   string
+	tests := []struct {
+		name      string
+		historyID string
+		branchID  *int64
+		before    int
+		want      int // build_order; 0 = no last-good build
 	}{
-		{1, mainBranch.ID, "passed"},
-		{2, featureBranch.ID, "passed"},
-		{3, featureBranch.ID, "failed"},
+		{"most recent prior pass", "h", nil, 4, 3},
+		{"bound is exclusive", "h", nil, 3, 1},
+		{"no prior pass", "h", nil, 1, 0},
+		{"scoped to main", "h", &main.ID, 4, 1},
+		{"scoped to feature", "h", &feature.ID, 4, 3},
+		{"never passed", "hNever", nil, 4, 0},
+		{"empty historyId never matches unrelated empty-history rows", "", nil, 2, 0},
+		{"orders by build_order, not builds.id", "hOoO", nil, 10, 7},
 	}
-	buildIDByOrder := make(map[int]int64, len(builds))
-	for _, b := range builds {
-		if err := buildStore.InsertBuild(ctx, projectID, b.order); err != nil {
-			t.Fatalf("InsertBuild %d: %v", b.order, err)
-		}
-		if err := buildStore.UpdateBuildBranchID(ctx, projectID, b.order, b.branchID); err != nil {
-			t.Fatalf("UpdateBuildBranchID %d: %v", b.order, err)
-		}
-		bid, err := trStore.GetBuildID(ctx, projectID, b.order)
+	for _, tt := range tests {
+		got, err := f.results.GetLastPassingBuild(f.ctx, f.id, tt.historyID, tt.branchID, tt.before)
 		if err != nil {
-			t.Fatalf("GetBuildID %d: %v", b.order, err)
+			t.Fatalf("%s: %v", tt.name, err)
 		}
-		buildIDByOrder[b.order] = bid
-		if err := trStore.InsertBatch(ctx, []store.TestResult{{
-			BuildID: bid, ProjectID: projectID,
-			TestName: "br test", FullName: "suite > br test",
-			HistoryID: historyID, Status: b.status, DurationMs: 100,
-		}}); err != nil {
-			t.Fatalf("InsertBatch order %d: %v", b.order, err)
+		gotOrder := 0
+		if got != nil {
+			gotOrder = got.BuildNumber
+		}
+		if gotOrder != tt.want {
+			t.Errorf("%s: last-good build = %d, want %d", tt.name, gotOrder, tt.want)
 		}
 	}
 
-	const currentOrder = 3
-
-	// Feature-scoped: only the feature-branch pass at order 2 qualifies.
-	got, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, &featureBranch.ID, currentOrder)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(feature): %v", err)
+	got, err := f.results.GetLastPassingBuild(f.ctx, f.id, "h", nil, 4)
+	if err != nil || got == nil {
+		t.Fatalf("GetLastPassingBuild = %v, %v", got, err)
 	}
-	if got == nil || got.BuildNumber != 2 {
-		t.Fatalf("feature-scoped: got %+v, want build_number 2", got)
-	}
-
-	// Main-scoped: only the main-branch pass at order 1 qualifies.
-	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, &mainBranch.ID, currentOrder)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(main): %v", err)
-	}
-	if got == nil || got.BuildNumber != 1 {
-		t.Fatalf("main-scoped: got %+v, want build_number 1", got)
-	}
-
-	// Cross-branch (nil): most recent prior pass on any branch is order 2.
-	got, err = trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, currentOrder)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild(cross-branch): %v", err)
-	}
-	if got == nil || got.BuildNumber != 2 {
-		t.Fatalf("cross-branch: got %+v, want build_number 2", got)
+	got.CreatedAt = time.Time{}
+	sha := "sha-order-3"
+	want := store.TestHistoryEntry{BuildNumber: 3, BuildID: ids[3], Status: "passed", DurationMs: 100, CICommitSHA: &sha, BranchName: "feature"}
+	if !reflect.DeepEqual(*got, want) {
+		t.Errorf("last-good = %+v, want %+v", *got, want)
 	}
 }
 
-// TestCountFailedByBuild_CountsDistinctFullNames pins the distinct-count
-// contract. Playwright ingestion writes two rows per test — an enriched row
-// and an empty shell — under two different history_id schemes ("md5:md5" and
-// "md5.md5"), so a plain COUNT(*) double-counts every failure. The count must
-// be over DISTINCT full_name so the number matches the failures a human sees.
+// TestCountFailedByBuild_CountsDistinctFullNames: Playwright writes an enriched
+// row and an empty shell per test under two history_id schemes, so the count
+// is over DISTINCT full_name of failed+broken rows.
 func TestCountFailedByBuild_CountsDistinctFullNames(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-countfailed-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-
-	// Two duplicate rows for "login" (both failed) + one broken "checkout" +
-	// one passing "search" → two distinct failing tests.
-	if err := trStore.InsertBatch(ctx, []store.TestResult{
-		{BuildID: buildID, ProjectID: projectID, TestName: "login", FullName: "spec/a.ts > login",
-			Status: "failed", HistoryID: "abc:abc", DurationMs: 10},
-		{BuildID: buildID, ProjectID: projectID, TestName: "login", FullName: "spec/a.ts > login",
-			Status: "failed", HistoryID: "abc.abc", DurationMs: 10},
-		{BuildID: buildID, ProjectID: projectID, TestName: "checkout", FullName: "spec/b.ts > checkout",
-			Status: "broken", HistoryID: "def:def", DurationMs: 20},
-		{BuildID: buildID, ProjectID: projectID, TestName: "search", FullName: "spec/c.ts > search",
-			Status: "passed", HistoryID: "ghi:ghi", DurationMs: 30},
-	}); err != nil {
-		t.Fatalf("InsertBatch: %v", err)
-	}
-
-	got, err := trStore.CountFailedByBuild(ctx, projectID, buildID)
-	if err != nil {
-		t.Fatalf("CountFailedByBuild: %v", err)
-	}
-	if got != 2 {
-		t.Errorf("CountFailedByBuild: got %d, want 2 (distinct full_name over failed+broken)", got)
+	f := newFixture(t)
+	b := f.build(1)
+	f.insert(f.result(b, "spec/a.ts > login", "failed", "abc:abc"), f.result(b, "spec/a.ts > login", "failed", "abc.abc"),
+		f.result(b, "spec/b.ts > checkout", "broken", "def:def"), f.result(b, "spec/c.ts > search", "passed", "ghi:ghi"))
+	if got, err := f.results.CountFailedByBuild(f.ctx, f.id, b); err != nil || got != 2 {
+		t.Errorf("CountFailedByBuild = %d, %v; want 2", got, err)
 	}
 }
 
-// TestGetByHistoryID_AnyStatusAndAbsent verifies GetByHistoryID returns the
-// row whatever its status (so get_test_failure works for a passing test), that
-// it carries the surrogate id and status_message, and that a missing row is
-// reported as (nil, nil) rather than an error.
+// TestGetByHistoryID_AnyStatusAndAbsent: GetByHistoryID returns the row
+// whatever its status, with its surrogate id and status_message; a missing or
+// empty historyId is (nil, nil). ListFailedByBuild selects the same surrogate
+// id so callers can address the row without a re-lookup.
 func TestGetByHistoryID_AnyStatusAndAbsent(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
+	f := newFixture(t)
+	b := f.build(1)
+	pass := f.result(b, "spec/green.ts > green test", "passed", "hist-passing")
+	pass.Retries, pass.Flaky = 2, true
+	f.insert(pass, f.result(b, "spec/red.ts > red test", "failed", "hist-red"))
+	// InsertBatch does not write status_message.
+	f.exec("UPDATE test_results SET status_message='assert failed' WHERE build_id=$1 AND history_id='hist-passing'", b)
 
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-getbyhistory-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
+	got, err := f.results.GetByHistoryID(f.ctx, f.id, b, "hist-passing")
+	if err != nil || got == nil {
+		t.Fatalf("GetByHistoryID(passing) = %v, %v; want the row", got, err)
 	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
+	if got.ID == 0 || got.Status != "passed" || got.StatusMessage != "assert failed" || got.Retries != 2 || !got.Flaky {
+		t.Errorf("GetByHistoryID(passing) = %+v", got)
 	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
+	for _, hid := range []string{"no-such-history-id", ""} {
+		if got, err := f.results.GetByHistoryID(f.ctx, f.id, b, hid); err != nil || got != nil {
+			t.Errorf("GetByHistoryID(%q) = %+v, %v; want nil, nil", hid, got, err)
+		}
 	}
 
-	const passingID = "hist-passing"
-	if err := trStore.InsertBatch(ctx, []store.TestResult{{
-		BuildID: buildID, ProjectID: projectID,
-		TestName: "green test", FullName: "spec/green.ts > green test",
-		Status: "passed", HistoryID: passingID, DurationMs: 42, Retries: 2, Flaky: true,
-	}}); err != nil {
-		t.Fatalf("InsertBatch: %v", err)
+	red, err := f.results.GetByHistoryID(f.ctx, f.id, b, "hist-red")
+	if err != nil || red == nil {
+		t.Fatalf("GetByHistoryID(red) = %v, %v", red, err)
 	}
-	// InsertBatch does not write status_message; set it directly so the scan is
-	// exercised end to end.
-	if _, err := s.Pool().Exec(ctx,
-		"UPDATE test_results SET status_message=$1 WHERE build_id=$2 AND history_id=$3",
-		"assert failed", buildID, passingID); err != nil {
-		t.Fatalf("set status_message: %v", err)
-	}
-
-	got, err := trStore.GetByHistoryID(ctx, projectID, buildID, passingID)
-	if err != nil {
-		t.Fatalf("GetByHistoryID: %v", err)
-	}
-	if got == nil {
-		t.Fatal("GetByHistoryID: got nil for a passing test, want the row (any status)")
-	}
-	if got.Status != "passed" {
-		t.Errorf("status: got %q, want passed", got.Status)
-	}
-	if got.ID == 0 {
-		t.Error("id: got 0, want the test_results surrogate key")
-	}
-	if got.StatusMessage != "assert failed" {
-		t.Errorf("status_message: got %q, want %q", got.StatusMessage, "assert failed")
-	}
-	if got.Retries != 2 || !got.Flaky {
-		t.Errorf("retries/flaky: got %d/%v, want 2/true", got.Retries, got.Flaky)
-	}
-
-	absent, err := trStore.GetByHistoryID(ctx, projectID, buildID, "no-such-history-id")
-	if err != nil {
-		t.Fatalf("GetByHistoryID(absent): got error %v, want nil", err)
-	}
-	if absent != nil {
-		t.Errorf("GetByHistoryID(absent): got %+v, want nil", absent)
-	}
-
-	empty, err := trStore.GetByHistoryID(ctx, projectID, buildID, "")
-	if err != nil {
-		t.Fatalf("GetByHistoryID(empty): got error %v, want nil", err)
-	}
-	if empty != nil {
-		t.Errorf("GetByHistoryID(empty history_id): got %+v, want nil", empty)
-	}
-}
-
-// TestListFailedByBuild_PopulatesID verifies the surrogate key is selected so
-// callers can address the exact row (attachments, steps) without a re-lookup.
-func TestListFailedByBuild_PopulatesID(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-listfailed-id-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	if err := buildStore.InsertBuild(ctx, projectID, 1); err != nil {
-		t.Fatalf("InsertBuild: %v", err)
-	}
-	buildID, err := trStore.GetBuildID(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetBuildID: %v", err)
-	}
-	if err := trStore.InsertBatch(ctx, []store.TestResult{{
-		BuildID: buildID, ProjectID: projectID,
-		TestName: "red test", FullName: "spec/red.ts > red test",
-		Status: "failed", HistoryID: "hist-red", DurationMs: 11,
-	}}); err != nil {
-		t.Fatalf("InsertBatch: %v", err)
-	}
-
-	rows, err := trStore.ListFailedByBuild(ctx, projectID, buildID, 10)
+	rows, err := f.results.ListFailedByBuild(f.ctx, f.id, b, 10)
 	if err != nil {
 		t.Fatalf("ListFailedByBuild: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("rows: got %d, want 1", len(rows))
-	}
-	if rows[0].ID == 0 {
-		t.Error("rows[0].ID: got 0, want the test_results surrogate key")
-	}
-}
-
-// TestGetTestHistory_PopulatesBranchName verifies the LEFT JOIN onto branches
-// so a history item can say which branch each run came from. The join must be
-// a LEFT join: builds predating branch tracking have a NULL branch_id and must
-// still appear in the history with an empty branch name.
-func TestGetTestHistory_PopulatesBranchName(t *testing.T) {
-	s := openLockTestStore(t)
-	ctx := context.Background()
-	logger := zap.NewNop()
-
-	projectStore := pg.NewProjectStore(s, logger)
-	buildStore := pg.NewBuildStore(s, logger)
-	branchStore := pg.NewBranchStore(s)
-	trStore := pg.NewTestResultStore(s, logger)
-
-	slug := fmt.Sprintf("test-history-branchname-%d", time.Now().UnixNano())
-	proj, err := projectStore.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	projectID := proj.ID
-	t.Cleanup(func() { _ = projectStore.DeleteProject(context.Background(), projectID) })
-
-	mainBranch, _, err := branchStore.GetOrCreate(ctx, projectID, "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate main: %v", err)
-	}
-
-	const historyID = "hist-branch-name"
-	// order 1: no branch_id (legacy); order 2: main; order 3: main, passing.
-	for _, b := range []struct {
-		order    int
-		branchID *int64
-		status   string
-	}{
-		{1, nil, "failed"},
-		{2, &mainBranch.ID, "passed"},
-		{3, &mainBranch.ID, "failed"},
-	} {
-		if err := buildStore.InsertBuild(ctx, projectID, b.order); err != nil {
-			t.Fatalf("InsertBuild %d: %v", b.order, err)
-		}
-		if b.branchID != nil {
-			if err := buildStore.UpdateBuildBranchID(ctx, projectID, b.order, *b.branchID); err != nil {
-				t.Fatalf("UpdateBuildBranchID %d: %v", b.order, err)
-			}
-		}
-		bid, err := trStore.GetBuildID(ctx, projectID, b.order)
-		if err != nil {
-			t.Fatalf("GetBuildID %d: %v", b.order, err)
-		}
-		if err := trStore.InsertBatch(ctx, []store.TestResult{{
-			BuildID: bid, ProjectID: projectID,
-			TestName: "branch test", FullName: "spec/branch.ts > branch test",
-			Status: b.status, HistoryID: historyID, DurationMs: 100,
-		}}); err != nil {
-			t.Fatalf("InsertBatch %d: %v", b.order, err)
-		}
-	}
-
-	entries, err := trStore.GetTestHistory(ctx, projectID, historyID, nil, 10)
-	if err != nil {
-		t.Fatalf("GetTestHistory: %v", err)
-	}
-	if len(entries) != 3 {
-		t.Fatalf("entries: got %d, want 3 (LEFT JOIN must keep the branch-less build)", len(entries))
-	}
-	byOrder := make(map[int]store.TestHistoryEntry, len(entries))
-	for _, e := range entries {
-		byOrder[e.BuildNumber] = e
-	}
-	if got := byOrder[3].BranchName; got != "main" {
-		t.Errorf("build 3 branch_name: got %q, want main", got)
-	}
-	if got := byOrder[1].BranchName; got != "" {
-		t.Errorf("build 1 (no branch_id) branch_name: got %q, want empty", got)
-	}
-
-	// GetLastPassingBuild must carry the branch name the same way.
-	lg, err := trStore.GetLastPassingBuild(ctx, projectID, historyID, nil, 3)
-	if err != nil {
-		t.Fatalf("GetLastPassingBuild: %v", err)
-	}
-	if lg == nil {
-		t.Fatal("GetLastPassingBuild: got nil, want build 2")
-	}
-	if lg.BranchName != "main" {
-		t.Errorf("last-good branch_name: got %q, want main", lg.BranchName)
+	if len(rows) != 1 || rows[0].ID == 0 || rows[0].ID != red.ID {
+		t.Errorf("ListFailedByBuild = %+v, want the one failed row with id %d", rows, red.ID)
 	}
 }

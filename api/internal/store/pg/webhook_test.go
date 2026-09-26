@@ -3,9 +3,8 @@
 package pg_test
 
 import (
-	"context"
 	"errors"
-	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -16,456 +15,144 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
-// testEncKey is a fixed 32-byte key for integration tests.
-var testEncKey = security.DeriveEncryptionKey("test-encryption-secret")
-
-// createWebhookTestProject inserts a project row via ProjectStore and returns its int64 ID.
-// The project is deleted on test cleanup.
-func createWebhookTestProject(t *testing.T, s *pg.PGStore) int64 {
-	t.Helper()
-	ctx := context.Background()
-	slug := fmt.Sprintf("wh-test-%d", time.Now().UnixNano())
-	ps := pg.NewProjectStore(s, zap.NewNop())
-	proj, err := ps.CreateProject(ctx, slug)
-	if err != nil {
-		t.Fatalf("createWebhookTestProject: %v", err)
-	}
-	t.Cleanup(func() { _ = ps.DeleteProject(context.Background(), proj.ID) })
-	return proj.ID
+func newWebhookStore(f *fixture) *pg.WebhookStore {
+	return pg.NewWebhookStore(f.s, security.DeriveEncryptionKey("test-encryption-secret"), zap.NewNop())
 }
 
-func newTestWebhook(projectID int64) *store.Webhook {
+// TestPGWebhookStore walks one project's webhooks: Create stamps the id and
+// timestamps; GetByID decrypts URL and secret (nil when none was set); List
+// never returns secrets; ListActiveForEvent keeps only active subscribers of
+// the event; Update re-encrypts; Delete is scoped to the owning project (IDOR
+// prevention). Unknown ids are ErrWebhookNotFound.
+func TestPGWebhookStore(t *testing.T) {
+	f := newFixture(t)
+	ws := newWebhookStore(f)
+	list := func() []store.Webhook {
+		t.Helper()
+		hooks, err := ws.List(f.ctx, f.id)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		return hooks
+	}
+	if hooks := list(); len(hooks) != 0 {
+		t.Errorf("List without webhooks = %+v, want none", hooks)
+	}
+
 	secret := "s3cr3t"
-	return &store.Webhook{
-		ProjectID:  projectID,
-		Name:       fmt.Sprintf("hook-%d", time.Now().UnixNano()),
-		TargetType: "generic",
-		URL:        "https://example.com/hook",
-		Secret:     &secret,
-		Events:     []string{"report_completed"},
-		IsActive:   true,
-	}
-}
-
-func isWebhookNotFound(err error) bool {
-	return errors.Is(err, store.ErrWebhookNotFound)
-}
-
-// ---------------------------------------------------------------------------
-// Create / GetByID
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_CreateAndGetByID(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	wh := newTestWebhook(projectID)
-	created, err := ws.Create(ctx, wh)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if created.ID == "" {
-		t.Error("expected non-empty ID after Create")
-	}
-	if created.CreatedAt.IsZero() {
-		t.Error("expected non-zero CreatedAt after Create")
-	}
-	if created.UpdatedAt.IsZero() {
-		t.Error("expected non-zero UpdatedAt after Create")
-	}
-
-	got, err := ws.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	if got.ID != created.ID {
-		t.Errorf("ID = %s, want %s", got.ID, created.ID)
-	}
-	if got.URL != "https://example.com/hook" {
-		t.Errorf("URL = %s, want https://example.com/hook", got.URL)
-	}
-	if got.Secret == nil || *got.Secret != "s3cr3t" {
-		t.Error("expected decrypted secret to match")
-	}
-	if len(got.Events) != 1 || got.Events[0] != "report_completed" {
-		t.Errorf("Events = %v, want [report_completed]", got.Events)
-	}
-}
-
-func TestPGWebhookStore_GetByID_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	_, err := ws.GetByID(ctx, "00000000-0000-0000-0000-000000000000")
-	if !isWebhookNotFound(err) {
-		t.Errorf("expected ErrWebhookNotFound, got %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Create without Secret
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_Create_NoSecret(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	wh := &store.Webhook{
-		ProjectID:  projectID,
-		Name:       "no-secret-hook",
-		TargetType: "slack",
-		URL:        "https://hooks.slack.com/test",
-		Secret:     nil,
-		Events:     []string{"report_completed"},
-		IsActive:   true,
-	}
-	created, err := ws.Create(ctx, wh)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	got, err := ws.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	if got.Secret != nil {
-		t.Error("expected nil Secret for webhook created without secret")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// List
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_List(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	for i := range 3 {
-		wh := newTestWebhook(projectID)
-		wh.Name = fmt.Sprintf("hook-%d", i)
-		if _, err := ws.Create(ctx, wh); err != nil {
-			t.Fatalf("Create hook %d: %v", i, err)
+	created := map[string]*store.Webhook{}
+	var active *store.Webhook
+	for _, wh := range []store.Webhook{
+		{Name: "active", TargetType: "generic", URL: "https://example.com/hook", Secret: &secret, Events: []string{"report_completed"}, IsActive: true},
+		{Name: "inactive", TargetType: "generic", URL: "https://example.com/inactive", Events: []string{"report_completed"}},
+		{Name: "other event", TargetType: "slack", URL: "https://hooks.slack.com/test", Events: []string{"build_started"}, IsActive: true},
+	} {
+		wh.ProjectID = f.id
+		c, err := ws.Create(f.ctx, &wh)
+		if err != nil {
+			t.Fatalf("Create %s: %v", wh.Name, err)
+		}
+		if c.ID == "" || c.CreatedAt.IsZero() || c.UpdatedAt.IsZero() {
+			t.Errorf("Create %s = %+v, want the id and timestamps set", wh.Name, c)
+		}
+		if got, err := ws.GetByID(f.ctx, c.ID); err != nil || !reflect.DeepEqual(got, c) {
+			t.Errorf("GetByID(%s) = %+v, %v; want %+v", wh.Name, got, err, c)
+		}
+		created[c.ID] = c
+		if wh.Name == "active" {
+			active = c
 		}
 	}
 
-	list, err := ws.List(ctx, projectID)
-	if err != nil {
-		t.Fatalf("List: %v", err)
+	hooks := list()
+	if len(hooks) != len(created) {
+		t.Errorf("List = %d webhooks, want %d", len(hooks), len(created))
 	}
-	if len(list) != 3 {
-		t.Errorf("expected 3 webhooks, got %d", len(list))
-	}
-	// Secrets are not returned by List.
-	for _, wh := range list {
-		if wh.Secret != nil {
-			t.Errorf("expected nil Secret in list response for webhook %s", wh.ID)
-		}
-		if wh.URL == "" {
-			t.Errorf("expected non-empty URL in list response for webhook %s", wh.ID)
+	for _, wh := range hooks {
+		if c := created[wh.ID]; c == nil || wh.URL != c.URL || wh.Secret != nil {
+			t.Errorf("List row %+v: want a created webhook with its URL and no secret", wh)
 		}
 	}
-}
-
-func TestPGWebhookStore_List_Empty(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	list, err := ws.List(ctx, projectID)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(list) != 0 {
-		t.Errorf("expected empty list, got %d items", len(list))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Update
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_Update(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	wh := newTestWebhook(projectID)
-	created, err := ws.Create(ctx, wh)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+	if got, err := ws.ListActiveForEvent(f.ctx, f.id, "report_completed"); err != nil ||
+		len(got) != 1 || got[0].ID != active.ID || got[0].URL != active.URL {
+		t.Errorf("ListActiveForEvent = %+v, %v; want only %s", got, err, active.ID)
 	}
 
+	upd := *active
 	newSecret := "new-secret"
-	created.Name = "updated-name"
-	created.URL = "https://updated.example.com/hook"
-	created.Secret = &newSecret
-	created.IsActive = false
-
-	if err := ws.Update(ctx, created); err != nil {
+	upd.Name, upd.URL, upd.Secret, upd.IsActive = "updated-name", "https://updated.example.com/hook", &newSecret, false
+	if err := ws.Update(f.ctx, &upd); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+	got, err := ws.GetByID(f.ctx, upd.ID)
+	if err != nil || got.Name != upd.Name || got.URL != upd.URL || got.Secret == nil || *got.Secret != newSecret || got.IsActive {
+		t.Errorf("GetByID after Update = %+v, %v; want %+v", got, err, upd)
+	}
 
-	got, err := ws.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("GetByID after update: %v", err)
+	const unknown = "00000000-0000-0000-0000-000000000000"
+	if _, err := ws.GetByID(f.ctx, unknown); !errors.Is(err, store.ErrWebhookNotFound) {
+		t.Errorf("GetByID(unknown) err = %v, want ErrWebhookNotFound", err)
 	}
-	if got.Name != "updated-name" {
-		t.Errorf("Name = %s, want updated-name", got.Name)
+	ghost := upd
+	ghost.ID = unknown
+	if err := ws.Update(f.ctx, &ghost); !errors.Is(err, store.ErrWebhookNotFound) {
+		t.Errorf("Update(unknown) err = %v, want ErrWebhookNotFound", err)
 	}
-	if got.URL != "https://updated.example.com/hook" {
-		t.Errorf("URL = %s, want updated URL", got.URL)
-	}
-	if got.Secret == nil || *got.Secret != "new-secret" {
-		t.Error("expected updated secret")
-	}
-	if got.IsActive {
-		t.Error("expected IsActive = false after update")
-	}
-}
 
-func TestPGWebhookStore_Update_NotFound(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	wh := &store.Webhook{
-		ID:         "00000000-0000-0000-0000-000000000000",
-		ProjectID:  0, // no such project
-		Name:       "ghost",
-		TargetType: "generic",
-		URL:        "https://example.com",
-		Events:     []string{"report_completed"},
-		IsActive:   true,
+	other := f.newProject(0)
+	for _, step := range []struct {
+		projectID int64
+		want      error
+	}{{other.ID, store.ErrWebhookNotFound}, {f.id, nil}, {f.id, store.ErrWebhookNotFound}} {
+		if err := ws.Delete(f.ctx, upd.ID, step.projectID); !errors.Is(err, step.want) {
+			t.Errorf("Delete(project %d) err = %v, want %v", step.projectID, err, step.want)
+		}
 	}
-	if err := ws.Update(ctx, wh); !isWebhookNotFound(err) {
-		t.Errorf("expected ErrWebhookNotFound, got %v", err)
+	if _, err := ws.GetByID(f.ctx, upd.ID); !errors.Is(err, store.ErrWebhookNotFound) {
+		t.Errorf("GetByID after Delete err = %v, want ErrWebhookNotFound", err)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Delete
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_Delete(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-	otherProjectID := createWebhookTestProject(t, s)
-
-	wh := newTestWebhook(projectID)
-	created, err := ws.Create(ctx, wh)
+// TestPGWebhookStore_Deliveries: ListDeliveries pages a webhook's deliveries
+// with the total alongside (empty before the first), and PruneDeliveries
+// deletes only deliveries older than the cutoff.
+func TestPGWebhookStore_Deliveries(t *testing.T) {
+	f := newFixture(t)
+	ws := newWebhookStore(f)
+	hook, err := ws.Create(f.ctx, &store.Webhook{ProjectID: f.id, Name: "hook", TargetType: "generic",
+		URL: "https://example.com/hook", Events: []string{"report_completed"}, IsActive: true})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	page := func(perPage, wantLen, wantTotal int) {
+		t.Helper()
+		ds, total, err := ws.ListDeliveries(f.ctx, hook.ID, 1, perPage)
+		if err != nil || len(ds) != wantLen || total != wantTotal {
+			t.Errorf("ListDeliveries(perPage %d) = %d rows, total %d, %v; want %d, %d", perPage, len(ds), total, err, wantLen, wantTotal)
+		}
+	}
+	page(10, 0, 0)
 
-	// Wrong project → not found.
-	if err := ws.Delete(ctx, created.ID, otherProjectID); !isWebhookNotFound(err) {
-		t.Errorf("expected ErrWebhookNotFound for wrong project, got %v", err)
+	status, body, duration := 200, `{"ok":true}`, 42
+	for _, d := range []*store.WebhookDelivery{
+		{Attempt: 1, StatusCode: &status, ResponseBody: &body, DurationMs: &duration},
+		{Attempt: 2},
+	} {
+		d.WebhookID, d.Event, d.Payload, d.DeliveredAt = hook.ID, "report_completed", `{"event":"report_completed"}`, time.Now().UTC()
+		if err := ws.InsertDelivery(f.ctx, d); err != nil || d.ID == "" {
+			t.Fatalf("InsertDelivery attempt %d: id %q, %v", d.Attempt, d.ID, err)
+		}
 	}
+	page(10, 2, 2)
+	page(1, 1, 2)
 
-	// Correct project → success.
-	if err := ws.Delete(ctx, created.ID, projectID); err != nil {
-		t.Fatalf("Delete: %v", err)
+	for _, step := range []struct {
+		cutoff time.Time
+		want   int64
+	}{{time.Now().Add(-24 * time.Hour), 0}, {time.Now().Add(time.Hour), 2}} {
+		if n, err := ws.PruneDeliveries(f.ctx, step.cutoff); err != nil || n != step.want {
+			t.Errorf("PruneDeliveries(%v) = %d, %v; want %d", step.cutoff, n, err, step.want)
+		}
 	}
-
-	// Second delete → not found.
-	if err := ws.Delete(ctx, created.ID, projectID); !isWebhookNotFound(err) {
-		t.Errorf("expected ErrWebhookNotFound after deletion, got %v", err)
-	}
-
-	// GetByID → not found.
-	if _, err := ws.GetByID(ctx, created.ID); !isWebhookNotFound(err) {
-		t.Errorf("expected ErrWebhookNotFound after deletion, got %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ListActiveForEvent
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_ListActiveForEvent(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	// Active webhook for report_completed.
-	active := newTestWebhook(projectID)
-	active.Events = []string{"report_completed"}
-	active.IsActive = true
-	if _, err := ws.Create(ctx, active); err != nil {
-		t.Fatalf("Create active: %v", err)
-	}
-
-	// Inactive webhook.
-	inactive := newTestWebhook(projectID)
-	inactive.Events = []string{"report_completed"}
-	inactive.IsActive = false
-	if _, err := ws.Create(ctx, inactive); err != nil {
-		t.Fatalf("Create inactive: %v", err)
-	}
-
-	// Active but different event.
-	other := newTestWebhook(projectID)
-	other.Events = []string{"build_started"}
-	other.IsActive = true
-	if _, err := ws.Create(ctx, other); err != nil {
-		t.Fatalf("Create other-event: %v", err)
-	}
-
-	list, err := ws.ListActiveForEvent(ctx, projectID, "report_completed")
-	if err != nil {
-		t.Fatalf("ListActiveForEvent: %v", err)
-	}
-	if len(list) != 1 {
-		t.Errorf("expected 1 active webhook for report_completed, got %d", len(list))
-	}
-	if list[0].URL == "" {
-		t.Error("expected non-empty URL in ListActiveForEvent result")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// InsertDelivery / ListDeliveries / PruneDeliveries
-// ---------------------------------------------------------------------------
-
-func TestPGWebhookStore_DeliveryLifecycle(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	wh := newTestWebhook(projectID)
-	created, err := ws.Create(ctx, wh)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	statusCode := 200
-	respBody := `{"ok":true}`
-	durationMs := 42
-
-	delivery := &store.WebhookDelivery{
-		WebhookID:    created.ID,
-		Event:        "report_completed",
-		Payload:      `{"event":"report_completed"}`,
-		StatusCode:   &statusCode,
-		ResponseBody: &respBody,
-		Attempt:      1,
-		DurationMs:   &durationMs,
-		DeliveredAt:  time.Now().UTC(),
-	}
-	if err := ws.InsertDelivery(ctx, delivery); err != nil {
-		t.Fatalf("InsertDelivery: %v", err)
-	}
-	if delivery.ID == "" {
-		t.Error("expected non-empty ID after InsertDelivery")
-	}
-
-	// Insert a second delivery.
-	delivery2 := &store.WebhookDelivery{
-		WebhookID:   created.ID,
-		Event:       "report_completed",
-		Payload:     `{"event":"report_completed"}`,
-		Attempt:     2,
-		DeliveredAt: time.Now().UTC(),
-	}
-	if err := ws.InsertDelivery(ctx, delivery2); err != nil {
-		t.Fatalf("InsertDelivery 2: %v", err)
-	}
-
-	// ListDeliveries — page 1, 10 per page.
-	deliveries, total, err := ws.ListDeliveries(ctx, created.ID, 1, 10)
-	if err != nil {
-		t.Fatalf("ListDeliveries: %v", err)
-	}
-	if total != 2 {
-		t.Errorf("total = %d, want 2", total)
-	}
-	if len(deliveries) != 2 {
-		t.Errorf("len(deliveries) = %d, want 2", len(deliveries))
-	}
-
-	// ListDeliveries — pagination: page 1, 1 per page.
-	page1, total1, err := ws.ListDeliveries(ctx, created.ID, 1, 1)
-	if err != nil {
-		t.Fatalf("ListDeliveries page1: %v", err)
-	}
-	if total1 != 2 {
-		t.Errorf("total1 = %d, want 2", total1)
-	}
-	if len(page1) != 1 {
-		t.Errorf("len(page1) = %d, want 1", len(page1))
-	}
-
-	// PruneDeliveries — prune nothing (cutoff in the past).
-	n, err := ws.PruneDeliveries(ctx, time.Now().Add(-24*time.Hour))
-	if err != nil {
-		t.Fatalf("PruneDeliveries (noop): %v", err)
-	}
-	if n != 0 {
-		t.Errorf("expected 0 pruned, got %d", n)
-	}
-
-	// PruneDeliveries — prune all (cutoff in the future).
-	n, err = ws.PruneDeliveries(ctx, time.Now().Add(time.Hour))
-	if err != nil {
-		t.Fatalf("PruneDeliveries (all): %v", err)
-	}
-	if n != 2 {
-		t.Errorf("expected 2 pruned, got %d", n)
-	}
-
-	// Verify empty after prune.
-	deliveries, total, err = ws.ListDeliveries(ctx, created.ID, 1, 10)
-	if err != nil {
-		t.Fatalf("ListDeliveries after prune: %v", err)
-	}
-	if total != 0 || len(deliveries) != 0 {
-		t.Errorf("expected empty deliveries after prune, got total=%d len=%d", total, len(deliveries))
-	}
-}
-
-func TestPGWebhookStore_ListDeliveries_Empty(t *testing.T) {
-	s := openLockTestStore(t)
-	ws := pg.NewWebhookStore(s, testEncKey, zap.NewNop())
-	ctx := context.Background()
-
-	projectID := createWebhookTestProject(t, s)
-
-	wh := newTestWebhook(projectID)
-	created, err := ws.Create(ctx, wh)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	deliveries, total, err := ws.ListDeliveries(ctx, created.ID, 1, 10)
-	if err != nil {
-		t.Fatalf("ListDeliveries: %v", err)
-	}
-	if total != 0 {
-		t.Errorf("expected total=0, got %d", total)
-	}
-	if len(deliveries) != 0 {
-		t.Errorf("expected empty slice, got %d items", len(deliveries))
-	}
+	page(10, 0, 0)
 }
