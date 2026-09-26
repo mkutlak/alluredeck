@@ -20,71 +20,53 @@ function makeSuite(overrides?: Partial<PipelineSuite>): PipelineSuite {
 }
 
 describe('RunSuiteChip', () => {
-  it('renders the suite slug', () => {
-    renderWithProviders(<RunSuiteChip suite={makeSuite()} />)
-    expect(screen.getByText('api-cloud')).toBeInTheDocument()
+  it.each([
+    { suite: makeSuite(), label: 'api-cloud' },
+    { suite: makeSuite({ display_name: 'API Cloud' }), label: 'API Cloud' },
+  ])('labels the chip $label, preferring display_name over slug', ({ suite, label }) => {
+    renderWithProviders(<RunSuiteChip suite={suite} />)
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.queryByText('api-cloud') !== null).toBe(label === 'api-cloud')
   })
 
-  it('prefers display_name over slug', () => {
-    renderWithProviders(<RunSuiteChip suite={makeSuite({ display_name: 'API Cloud' })} />)
-    expect(screen.getByText('API Cloud')).toBeInTheDocument()
-    expect(screen.queryByText('api-cloud')).not.toBeInTheDocument()
+  it.each([4, 0])('shows a failed-count badge only for failures > 0 (%i)', (failed) => {
+    renderWithProviders(<RunSuiteChip suite={makeSuite({ failed, status: 'degraded' })} />)
+    expect(screen.queryByText(String(failed)) !== null).toBe(failed > 0)
   })
 
-  it('links to the report using numeric project_id and build_number', () => {
-    renderWithProviders(
-      <RunSuiteChip
-        suite={makeSuite({ project_id: 2, build_number: 9, builds: [{ build_id: 1, build_number: 9 }] })}
-      />,
-    )
-    expect(screen.getByTestId('run-suite-chip')).toHaveAttribute('href', '/projects/2/reports/9')
-  })
-
-  it('shows the failed count when there are failures', () => {
-    renderWithProviders(<RunSuiteChip suite={makeSuite({ failed: 4, status: 'degraded' })} />)
-    expect(screen.getByText('4')).toBeInTheDocument()
-  })
-
-  it('does not show a failed count badge when failed is 0', () => {
-    renderWithProviders(<RunSuiteChip suite={makeSuite({ failed: 0 })} />)
-    expect(screen.queryByText('0')).not.toBeInTheDocument()
-  })
-
-  it('has data-testid="run-suite-chip"', () => {
-    renderWithProviders(<RunSuiteChip suite={makeSuite()} />)
-    expect(screen.getByTestId('run-suite-chip')).toBeInTheDocument()
-  })
-
-  describe('sharded suites', () => {
-    const sharded = makeSuite({
-      project_id: 84,
-      slug: 'ui-users',
-      failed: 4,
-      status: 'degraded',
-      build_number: 656,
-      builds: [
-        { build_id: 17463, build_number: 654 },
-        { build_id: 17464, build_number: 655 },
-        { build_id: 17465, build_number: 656 },
-      ],
-    })
-
-    it('marks how many builds contributed', () => {
-      renderWithProviders(<RunSuiteChip suite={sharded} />)
-      const marker = screen.getByTestId('run-suite-chip-shards')
-      expect(marker).toHaveTextContent('3')
-    })
-
-    // No single report represents a suite that three shards uploaded to, so
-    // linking at one of them would hide the other two.
-    it('links to the project rather than one arbitrary shard report', () => {
-      renderWithProviders(<RunSuiteChip suite={sharded} />)
-      expect(screen.getByTestId('run-suite-chip')).toHaveAttribute('href', '/projects/84')
-    })
-
-    it('does not show a shard marker for a single-build suite', () => {
-      renderWithProviders(<RunSuiteChip suite={makeSuite()} />)
-      expect(screen.queryByTestId('run-suite-chip-shards')).not.toBeInTheDocument()
-    })
+  it.each([
+    {
+      name: 'a single build links to its report',
+      suite: makeSuite({
+        project_id: 2,
+        build_number: 9,
+        builds: [{ build_id: 1, build_number: 9 }],
+      }),
+      href: '/projects/2/reports/9',
+      shards: null,
+    },
+    {
+      // No single report represents a suite that three shards uploaded to, so
+      // linking at one of them would hide the other two.
+      name: 'a sharded suite links to the project',
+      suite: makeSuite({
+        project_id: 84,
+        slug: 'ui-users',
+        failed: 4,
+        status: 'degraded',
+        build_number: 656,
+        builds: [
+          { build_id: 17463, build_number: 654 },
+          { build_id: 17464, build_number: 655 },
+          { build_id: 17465, build_number: 656 },
+        ],
+      }),
+      href: '/projects/84',
+      shards: '3',
+    },
+  ])('$name by numeric project_id, marking shards', ({ suite, href, shards }) => {
+    renderWithProviders(<RunSuiteChip suite={suite} />)
+    expect(screen.getByTestId('run-suite-chip')).toHaveAttribute('href', href)
+    expect(screen.queryByTestId('run-suite-chip-shards')?.textContent ?? null).toBe(shards)
   })
 })

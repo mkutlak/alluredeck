@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/render'
 import { DefectDetail } from '../DefectDetail'
@@ -68,55 +68,41 @@ describe('DefectDetail', () => {
     vi.clearAllMocks()
   })
 
-  it('shows a loading message while tests are fetching', () => {
-    vi.mocked(defectsApi.fetchDefectTests).mockReturnValue(new Promise(() => {}))
+  it.each([
+    { state: 'loading', tests: () => new Promise<never>(() => {}), text: /loading tests/i },
+    { state: 'empty', tests: () => Promise.resolve([]), text: /no test occurrences found/i },
+    {
+      state: 'error',
+      tests: () => Promise.reject(new Error('boom')),
+      text: /failed to load tests/i,
+    },
+  ])('shows the $state message for affected tests', async ({ tests, text }) => {
+    vi.mocked(defectsApi.fetchDefectTests).mockImplementation(tests)
     renderDetail()
-    expect(screen.getByText(/loading tests/i)).toBeInTheDocument()
+    expect(await screen.findByText(text)).toBeInTheDocument()
   })
 
-  it('shows an empty message when no test occurrences exist', async () => {
-    vi.mocked(defectsApi.fetchDefectTests).mockResolvedValue([])
-    renderDetail()
-    await waitFor(() => {
-      expect(screen.getByText(/no test occurrences found/i)).toBeInTheDocument()
-    })
-  })
-
-  it('shows an error message when the tests fetch fails', async () => {
-    vi.mocked(defectsApi.fetchDefectTests).mockRejectedValue(new Error('boom'))
-    renderDetail()
-    await waitFor(() => {
-      expect(screen.getByText(/failed to load tests/i)).toBeInTheDocument()
-    })
-  })
-
-  it('renders test rows and a flaky badge for flaky occurrences', async () => {
+  it('renders test rows and a flaky badge for flaky occurrences only', async () => {
     vi.mocked(defectsApi.fetchDefectTests).mockResolvedValue([
       makeTestRow({ test_name: 'flaky test', flaky: true, retries: 2 }),
       makeTestRow({ test_name: 'stable test', flaky: false }),
     ])
     renderDetail()
 
-    await waitFor(() => {
-      expect(screen.getByText('flaky test')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('flaky test')).toBeInTheDocument()
     expect(screen.getByText('stable test')).toBeInTheDocument()
     expect(screen.getByTestId('flaky-badge')).toHaveTextContent('flaky · 2x')
   })
 
-  it('does not render a flaky badge for non-flaky rows', async () => {
-    vi.mocked(defectsApi.fetchDefectTests).mockResolvedValue([makeTestRow({ flaky: false })])
-    renderDetail()
-
-    await waitFor(() => {
-      expect(screen.getByText('should login')).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('flaky-badge')).not.toBeInTheDocument()
-  })
-
-  it('renders defect metadata', () => {
+  // Builds are numbered by build_order, never by builds.id (ids diverge on backfill).
+  it('labels first and last seen builds by build_order, not build id', () => {
     vi.mocked(defectsApi.fetchDefectTests).mockResolvedValue([])
-    renderDetail()
+    renderDetail({
+      first_seen_build_id: 101,
+      last_seen_build_id: 105,
+      first_seen_build_order: 1,
+      last_seen_build_order: 5,
+    })
     expect(screen.getByText('Build #1')).toBeInTheDocument()
     expect(screen.getByText('Build #5')).toBeInTheDocument()
   })

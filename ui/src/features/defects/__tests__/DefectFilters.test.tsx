@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DefectFilters, type DefectFilterValues } from '../DefectFilters'
 
-function renderFilters(overrides: Partial<DefectFilterValues> = {}, onFilterChange = vi.fn()) {
+function renderFilters(overrides: Partial<DefectFilterValues> = {}) {
+  const onFilterChange = vi.fn()
   const filters: DefectFilterValues = {
     category: '',
     resolution: '',
@@ -12,96 +13,49 @@ function renderFilters(overrides: Partial<DefectFilterValues> = {}, onFilterChan
     ...overrides,
   }
   render(<DefectFilters filters={filters} onFilterChange={onFilterChange} />)
-  return { onFilterChange }
+  return onFilterChange
 }
 
 describe('DefectFilters', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('renders a search input with the current value', () => {
-    renderFilters({ search: 'null pointer' })
-    expect(screen.getByLabelText('Search defects')).toHaveValue('null pointer')
-  })
-
   it('calls onFilterChange with updated search text', async () => {
-    const user = userEvent.setup()
-    const { onFilterChange } = renderFilters()
-    await user.type(screen.getByLabelText('Search defects'), 'x')
+    const onFilterChange = renderFilters()
+    await userEvent.type(screen.getByLabelText('Search defects'), 'x')
     expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ search: 'x' }))
   })
 
-  it('renders category, resolution, and sort as comboboxes defaulting to "All"', () => {
+  // Radix Select forbids '' as an item value; the UI shows an "all" sentinel instead.
+  it('shows the empty-string filters as "All" and the default sort', () => {
     renderFilters()
-    const comboboxes = screen.getAllByRole('combobox')
-    expect(comboboxes).toHaveLength(3)
-    expect(comboboxes[0]).toHaveTextContent(/all categories/i)
-    expect(comboboxes[1]).toHaveTextContent(/all resolutions/i)
-    expect(comboboxes[2]).toHaveTextContent(/last seen/i)
-  })
-
-  it('selecting a category maps the UI value back to the API contract', async () => {
-    const user = userEvent.setup()
-    const { onFilterChange } = renderFilters()
-
-    const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[0]!)
-    const option = await screen.findByRole('option', { name: /^product bug$/i })
-    await user.click(option)
-
-    expect(onFilterChange).toHaveBeenCalledWith(
-      expect.objectContaining({ category: 'product_bug' }),
+    expect(screen.getByRole('combobox', { name: /category/i })).toHaveTextContent(/all categories/i)
+    expect(screen.getByRole('combobox', { name: /resolution/i })).toHaveTextContent(
+      /all resolutions/i,
     )
+    expect(screen.getByRole('combobox', { name: /sort by/i })).toHaveTextContent(/last seen/i)
   })
 
-  it('selecting "All categories" maps back to the empty-string sentinel', async () => {
+  it.each([
+    { select: /category/i, from: {}, option: /^product bug$/i, want: { category: 'product_bug' } },
+    {
+      select: /category/i,
+      from: { category: 'product_bug' as const },
+      option: /^all categories$/i,
+      want: { category: '' },
+    },
+    { select: /resolution/i, from: {}, option: /^fixed$/i, want: { resolution: 'fixed' } },
+    {
+      select: /resolution/i,
+      from: { resolution: 'fixed' as const },
+      option: /^all resolutions$/i,
+      want: { resolution: '' },
+    },
+    { select: /sort by/i, from: {}, option: /^occurrences$/i, want: { sort: 'occurrence_count' } },
+  ])('maps option $option back to $want', async ({ select, from, option, want }) => {
     const user = userEvent.setup()
-    const { onFilterChange } = renderFilters({ category: 'product_bug' })
+    const onFilterChange = renderFilters(from)
 
-    const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[0]!)
-    const option = await screen.findByRole('option', { name: /^all categories$/i })
-    await user.click(option)
+    await user.click(screen.getByRole('combobox', { name: select }))
+    await user.click(await screen.findByRole('option', { name: option }))
 
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ category: '' }))
-  })
-
-  it('selecting a resolution maps the UI value back to the API contract', async () => {
-    const user = userEvent.setup()
-    const { onFilterChange } = renderFilters()
-
-    const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[1]!)
-    const option = await screen.findByRole('option', { name: /^fixed$/i })
-    await user.click(option)
-
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ resolution: 'fixed' }))
-  })
-
-  it('selecting "All resolutions" maps back to the empty-string sentinel', async () => {
-    const user = userEvent.setup()
-    const { onFilterChange } = renderFilters({ resolution: 'fixed' })
-
-    const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[1]!)
-    const option = await screen.findByRole('option', { name: /^all resolutions$/i })
-    await user.click(option)
-
-    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ resolution: '' }))
-  })
-
-  it('selecting a sort option propagates the raw value', async () => {
-    const user = userEvent.setup()
-    const { onFilterChange } = renderFilters()
-
-    const comboboxes = screen.getAllByRole('combobox')
-    await user.click(comboboxes[2]!)
-    const option = await screen.findByRole('option', { name: /^occurrences$/i })
-    await user.click(option)
-
-    expect(onFilterChange).toHaveBeenCalledWith(
-      expect.objectContaining({ sort: 'occurrence_count' }),
-    )
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining(want))
   })
 })

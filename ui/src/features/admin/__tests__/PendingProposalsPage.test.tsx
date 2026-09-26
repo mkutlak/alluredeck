@@ -7,30 +7,21 @@ import { createTestQueryClient } from '@/test/render'
 import { PendingProposalsPage } from '../PendingProposalsPage'
 import * as proposalsApi from '@/api/proposals'
 import * as systemApi from '@/api/system'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, type Role } from '@/store/auth'
+import type { ConfigData } from '@/types/api'
 import type { DefectProposal, FlakyProposal, KnownIssueProposal } from '@/types/proposals'
 
 import { mockApiClient } from '@/test/mocks/api-client'
 
-vi.mock('@/store/auth', () => ({
-  useAuthStore: vi.fn(),
-  selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
-}))
 vi.mock('@/api/proposals')
 vi.mock('@/api/system')
 mockApiClient()
 
-import type { AuthState } from '@/store/auth'
-
-type AuthSelector = (s: Partial<AuthState>) => unknown
-
-function renderPage(initialPath = '/admin/proposals', isAdmin = true) {
-  vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-    (selector as AuthSelector)({ roles: isAdmin ? ['admin'] : [] }),
-  )
+function renderPage(roles: Role[] = ['admin']) {
+  useAuthStore.setState({ roles })
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
-      <MemoryRouter initialEntries={[initialPath]}>
+      <MemoryRouter initialEntries={['/admin/proposals']}>
         <Routes>
           <Route path="/admin/proposals" element={<PendingProposalsPage />} />
           <Route path="/" element={<div data-testid="dashboard" />} />
@@ -40,25 +31,11 @@ function renderPage(initialPath = '/admin/proposals', isAdmin = true) {
   )
 }
 
-function makeConfig(mcpEnabled = true) {
-  return {
-    data: {
-      version: '1.0.0',
-      dev_mode: false,
-      check_results_every_seconds: '30',
-      keep_history: true,
-      keep_history_latest: 20,
-      tls: false,
-      security_enabled: true,
-      url_prefix: '',
-      api_response_less_verbose: false,
-      optimize_storage: false,
-      make_viewer_endpoints_public: false,
-      oidc_enabled: false,
-      mcp_enabled: mcpEnabled,
-    },
+function mockConfig(mcpEnabled: boolean) {
+  vi.mocked(systemApi.getConfig).mockResolvedValue({
+    data: { mcp_enabled: mcpEnabled } as ConfigData,
     metadata: { message: 'OK' },
-  }
+  })
 }
 
 function makeDefectProposal(overrides: Partial<DefectProposal> = {}): DefectProposal {
@@ -74,9 +51,7 @@ function makeDefectProposal(overrides: Partial<DefectProposal> = {}): DefectProp
   }
 }
 
-function makeKnownIssueProposal(
-  overrides: Partial<KnownIssueProposal> = {},
-): KnownIssueProposal {
+function makeKnownIssueProposal(overrides: Partial<KnownIssueProposal> = {}): KnownIssueProposal {
   return {
     id: 2,
     project_id: 1,
@@ -108,79 +83,59 @@ function makeFlakyProposal(overrides: Partial<FlakyProposal> = {}): FlakyProposa
 describe('PendingProposalsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(systemApi.getConfig).mockResolvedValue(makeConfig(true))
-    vi.mocked(proposalsApi.listDefectProposals).mockResolvedValue({
-      items: [],
-      next_cursor: '',
-    })
+    mockConfig(true)
+    vi.mocked(proposalsApi.listDefectProposals).mockResolvedValue({ items: [], next_cursor: '' })
     vi.mocked(proposalsApi.listKnownIssueProposals).mockResolvedValue({
       items: [],
       next_cursor: '',
     })
-    vi.mocked(proposalsApi.listFlakyProposals).mockResolvedValue({
-      items: [],
-      next_cursor: '',
-    })
+    vi.mocked(proposalsApi.listFlakyProposals).mockResolvedValue({ items: [], next_cursor: '' })
   })
 
   it('redirects non-admin to dashboard', () => {
-    renderPage('/admin/proposals', false)
+    renderPage([])
     expect(screen.getByTestId('dashboard')).toBeInTheDocument()
     expect(screen.queryByText('Pending Proposals')).not.toBeInTheDocument()
   })
 
+  it('shows the page title and empty state for an admin with MCP enabled', async () => {
+    renderPage()
+    expect(screen.getByText('Pending Proposals')).toBeInTheDocument()
+    expect(await screen.findByText(/No pending proposals/i)).toBeInTheDocument()
+  })
+
   it('shows MCP disabled message when mcp_enabled is false', async () => {
-    vi.mocked(systemApi.getConfig).mockResolvedValue(makeConfig(false))
+    mockConfig(false)
     renderPage()
-    await waitFor(() => {
-      expect(screen.getByText(/MCP server is not enabled/i)).toBeInTheDocument()
-    })
+    expect(await screen.findByText(/MCP server is not enabled/i)).toBeInTheDocument()
   })
 
-  it('renders page title for admin with mcp enabled', async () => {
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('Pending Proposals')).toBeInTheDocument()
-    })
-  })
-
-  it('shows empty state when no defect proposals', async () => {
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText(/No pending proposals/i)).toBeInTheDocument()
-    })
-  })
-
-  it('renders defect proposal rows when data present', async () => {
-    vi.mocked(proposalsApi.listDefectProposals).mockResolvedValue({
-      items: [
-        makeDefectProposal({ id: 1, fingerprint_hash: 'abc123def456', proposed_category: 'test_bug' }),
-        makeDefectProposal({ id: 2, fingerprint_hash: 'xyz999aaa111', proposed_category: 'product_bug' }),
-      ],
-      next_cursor: '',
-    })
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('test_bug')).toBeInTheDocument()
-      expect(screen.getByText('product_bug')).toBeInTheDocument()
-    })
-  })
-
-  it('shows known issue dry_run_match_count prominently', async () => {
-    vi.mocked(proposalsApi.listKnownIssueProposals).mockResolvedValue({
-      items: [makeKnownIssueProposal({ dry_run_match_count: 42 })],
-      next_cursor: '',
-    })
+  it.each([
+    {
+      tab: /known issues/i,
+      setup: () =>
+        vi.mocked(proposalsApi.listKnownIssueProposals).mockResolvedValue({
+          items: [makeKnownIssueProposal({ dry_run_match_count: 42 })],
+          next_cursor: '',
+        }),
+      // dry_run_match_count is shown prominently.
+      texts: ['42', /recent failures/i],
+    },
+    {
+      tab: /flaky tests/i,
+      setup: () =>
+        vi.mocked(proposalsApi.listFlakyProposals).mockResolvedValue({
+          items: [makeFlakyProposal({ test_full_name: 'Checkout > payment flow' })],
+          next_cursor: '',
+        }),
+      texts: ['Checkout > payment flow'],
+    },
+  ])('lists proposals on the $tab tab', async ({ tab, setup, texts }) => {
+    setup()
     renderPage()
 
-    // Switch to Known Issues tab
-    const knownIssueTab = screen.getByRole('button', { name: /known issues/i })
-    await userEvent.click(knownIssueTab)
-
-    await waitFor(() => {
-      expect(screen.getByText('42')).toBeInTheDocument()
-      expect(screen.getByText(/recent failures/i)).toBeInTheDocument()
-    })
+    await userEvent.click(screen.getByRole('button', { name: tab }))
+    for (const text of texts) expect(await screen.findByText(text)).toBeInTheDocument()
   })
 
   it('clicking Approve opens confirmation dialog and calls mutation', async () => {
@@ -189,14 +144,10 @@ describe('PendingProposalsPage', () => {
       next_cursor: '',
     })
     vi.mocked(proposalsApi.approveProposal).mockResolvedValue()
-
     renderPage()
 
-    const approveBtn = await screen.findByRole('button', { name: /approve/i })
-    await userEvent.click(approveBtn)
-
-    const confirmBtn = await screen.findByRole('button', { name: /^approve$/i })
-    await userEvent.click(confirmBtn)
+    await userEvent.click(await screen.findByRole('button', { name: /approve/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^approve$/i }))
 
     await waitFor(() => {
       expect(proposalsApi.approveProposal).toHaveBeenCalledWith('defect', 7)
@@ -209,20 +160,13 @@ describe('PendingProposalsPage', () => {
       next_cursor: '',
     })
     vi.mocked(proposalsApi.rejectProposal).mockResolvedValue()
-
     renderPage()
 
-    const rejectBtn = await screen.findByRole('button', { name: /reject/i })
-    await userEvent.click(rejectBtn)
-
-    // Confirm button should be disabled with no reason
+    await userEvent.click(await screen.findByRole('button', { name: /reject/i }))
     const confirmBtn = await screen.findByRole('button', { name: /^reject$/i })
     expect(confirmBtn).toBeDisabled()
 
-    // Type a reason
-    const input = screen.getByRole('textbox', { name: /rejection reason/i })
-    await userEvent.type(input, 'Not valid')
-
+    await userEvent.type(screen.getByRole('textbox', { name: /rejection reason/i }), 'Not valid')
     expect(confirmBtn).not.toBeDisabled()
     await userEvent.click(confirmBtn)
 
@@ -233,21 +177,6 @@ describe('PendingProposalsPage', () => {
     })
   })
 
-  it('shows flaky test proposals on Flaky Tests tab', async () => {
-    vi.mocked(proposalsApi.listFlakyProposals).mockResolvedValue({
-      items: [makeFlakyProposal({ test_full_name: 'Checkout > payment flow' })],
-      next_cursor: '',
-    })
-    renderPage()
-
-    const flakyTab = screen.getByRole('button', { name: /flaky tests/i })
-    await userEvent.click(flakyTab)
-
-    await waitFor(() => {
-      expect(screen.getByText('Checkout > payment flow')).toBeInTheDocument()
-    })
-  })
-
   it('shows Load more button when next_cursor is non-empty', async () => {
     vi.mocked(proposalsApi.listDefectProposals).mockResolvedValue({
       items: [makeDefectProposal()],
@@ -255,8 +184,6 @@ describe('PendingProposalsPage', () => {
     })
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument()
-    })
+    expect(await screen.findByRole('button', { name: /load more/i })).toBeInTheDocument()
   })
 })

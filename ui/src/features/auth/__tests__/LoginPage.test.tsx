@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router'
+import userEvent from '@testing-library/user-event'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, type InitialEntry } from 'react-router'
+import { createTestQueryClient } from '@/test/render'
 import { LoginPage } from '../LoginPage'
 import * as authApi from '@/api/auth'
 import * as systemApi from '@/api/system'
 import { mockApiClient } from '@/test/mocks/api-client'
 import { useAuthStore } from '@/store/auth'
+import type { ApiResponse, ConfigData } from '@/types/api'
 
 vi.mock('@/api/auth')
 vi.mock('@/api/system')
@@ -21,90 +24,98 @@ vi.mock('react-router', async () => {
   }
 })
 
-function renderLogin(route = '/login') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function config(oidcEnabled: boolean): ApiResponse<ConfigData> {
+  return { data: { oidc_enabled: oidcEnabled } as ConfigData, metadata: { message: 'ok' } }
+}
+
+// `seeded` pre-fills the /config cache (fresh for its 5-minute staleTime), so the
+// first render already reflects it.
+function renderLogin(entry: InitialEntry = '/login', seeded?: ApiResponse<ConfigData>) {
+  const qc = createTestQueryClient()
+  if (seeded) qc.setQueryData(['config'], seeded)
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[route]}>
+      <MemoryRouter initialEntries={[entry]}>
         <LoginPage />
       </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
-function mockConfigResponse(oidcEnabled: boolean) {
-  vi.mocked(systemApi.getConfig).mockResolvedValue({
-    data: {
-      version: '2.0',
-      dev_mode: false,
-      check_results_every_seconds: '30',
-      keep_history: true,
-      keep_history_latest: 25,
-      tls: false,
-      security_enabled: true,
-      url_prefix: '',
-      api_response_less_verbose: false,
-      optimize_storage: false,
-      make_viewer_endpoints_public: false,
-      oidc_enabled: oidcEnabled,
-    },
-    metadata: { message: 'ok' },
-  })
+async function signIn(username: string, password: string) {
+  const user = userEvent.setup()
+  if (username) await user.type(screen.getByLabelText(/username/i), username)
+  if (password) await user.type(screen.getByLabelText(/password/i), password)
+  await user.click(screen.getByRole('button', { name: /sign in$/i }))
 }
 
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAuthStore.getState().clearAuth()
+    vi.mocked(systemApi.getConfig).mockReturnValue(new Promise(() => {}))
   })
 
-  describe('SSO button visibility', () => {
-    it('renders SSO button when oidc_enabled is true', async () => {
-      mockConfigResponse(true)
+  describe('local login', () => {
+    it.each([
+      { name: 'no redirect state', from: undefined, want: '/' },
+      { name: 'a valid internal path', from: '/dashboard', want: '/dashboard' },
+      // Open-redirect guard: a protocol-relative URL is not an internal path.
+      { name: 'a protocol-relative URL (//evil.com)', from: '//evil.com', want: '/' },
+    ])('logs in and navigates to $want for $name', async ({ from, want }) => {
+      vi.mocked(authApi.login).mockResolvedValue({
+        data: { csrf_token: 'csrf123', expires_in: 3600, roles: ['admin'] },
+        metadata: { message: 'ok' },
+      })
+      renderLogin(from ? { pathname: '/login', state: { from: { pathname: from } } } : '/login')
 
-      renderLogin()
+      await signIn('admin', 'secret')
 
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /sign in with sso/i })).toBeInTheDocument()
+        expect(mockNavigate).toHaveBeenCalledWith(want, { replace: true })
       })
+      // TanStack Query v5 passes an internal context object as the second arg to mutationFn.
+      expect(authApi.login).toHaveBeenCalledWith(
+        { username: 'admin', password: 'secret' },
+        expect.anything(),
+      )
+      expect(useAuthStore.getState().isAuthenticated).toBe(true)
     })
 
-    it('does not render SSO button when oidc_enabled is false', async () => {
-      mockConfigResponse(false)
-
+    it.each([
+      { name: 'fields are empty', username: '', reject: false, alert: /required/i },
+      { name: 'the API rejects', username: 'admin', reject: true, alert: /invalid/i },
+    ])('shows an error alert when $name', async ({ username, reject, alert }) => {
+      if (reject) vi.mocked(authApi.login).mockRejectedValue(new Error('Invalid username/password'))
       renderLogin()
 
-      // Wait for config to load, then verify no SSO button
-      await waitFor(() => {
-        expect(systemApi.getConfig).toHaveBeenCalled()
-      })
-      expect(screen.queryByRole('link', { name: /sign in with sso/i })).not.toBeInTheDocument()
-    })
+      await signIn(username, username && 'wrong')
 
-    it('does not render SSO button while config is loading', () => {
-      // Config never resolves
-      vi.mocked(systemApi.getConfig).mockReturnValue(new Promise(() => {}))
-
-      renderLogin()
-
-      expect(screen.queryByRole('link', { name: /sign in with sso/i })).not.toBeInTheDocument()
+      expect(await screen.findByRole('alert')).toHaveTextContent(alert)
+      expect(mockNavigate).not.toHaveBeenCalled()
     })
   })
 
-  describe('SSO button navigation', () => {
-    it('SSO button links to backend OIDC login URL', async () => {
-      mockConfigResponse(true)
-
+  describe('SSO', () => {
+    it('links the SSO button to the backend OIDC login URL when oidc_enabled is true', async () => {
+      vi.mocked(systemApi.getConfig).mockResolvedValue(config(true))
       renderLogin()
 
       const ssoButton = await screen.findByRole('link', { name: /sign in with sso/i })
       expect(ssoButton).toHaveAttribute('href', 'http://localhost:5050/auth/oidc/login')
     })
+
+    it.each([
+      { name: 'oidc_enabled is false', seeded: config(false) },
+      { name: 'config is still loading', seeded: undefined },
+    ])('does not render the SSO button when $name', ({ seeded }) => {
+      renderLogin('/login', seeded)
+      expect(screen.queryByRole('link', { name: /sign in with sso/i })).not.toBeInTheDocument()
+    })
   })
 
   describe('OIDC callback handling', () => {
     it('calls getSession and populates auth store on ?oidc=success', async () => {
-      mockConfigResponse(false)
       vi.mocked(authApi.getSession).mockResolvedValue({
         data: {
           username: 'sso-user',
@@ -118,40 +129,17 @@ describe('LoginPage', () => {
       renderLogin('/login?oidc=success')
 
       await waitFor(() => {
-        expect(authApi.getSession).toHaveBeenCalled()
-      })
-
-      await waitFor(() => {
         const state = useAuthStore.getState()
         expect(state.isAuthenticated).toBe(true)
         expect(state.username).toBe('sso-user')
         expect(state.provider).toBe('oidc')
       })
-
       expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true })
     })
 
-    it('does not call getSession without ?oidc=success', async () => {
-      mockConfigResponse(false)
-
+    it('does not call getSession without ?oidc=success', () => {
       renderLogin('/login')
-
-      await waitFor(() => {
-        expect(systemApi.getConfig).toHaveBeenCalled()
-      })
       expect(authApi.getSession).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('local login still works', () => {
-    it('renders username and password fields', async () => {
-      mockConfigResponse(false)
-
-      renderLogin()
-
-      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
-      expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /sign in$/i })).toBeInTheDocument()
     })
   })
 })

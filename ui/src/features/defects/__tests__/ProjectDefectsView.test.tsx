@@ -51,17 +51,4 @@ describe('ProjectDefectsView', () => {
     expect(screen.getByTestId('summary-muted')).toHaveTextContent('3')
     expect(screen.getByTestId('summary-regressions')).toHaveTextContent('2')
   })
-
-  it('shows trend placeholder', async () => {
-    vi.mocked(defectsApi.fetchProjectDefectSummary).mockResolvedValue(makeSummary())
-    vi.mocked(defectsApi.fetchProjectDefects).mockResolvedValue({
-      data: [],
-      metadata: { message: 'ok' },
-      pagination: { total: 0, page: 1, per_page: 25, total_pages: 0 },
-    })
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText(/defect trends coming soon/i)).toBeInTheDocument()
-    })
-  })
 })

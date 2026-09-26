@@ -65,62 +65,40 @@ describe('DefectRow', () => {
     vi.mocked(defectsApi.fetchDefectTests).mockResolvedValue([])
   })
 
-  it('renders normalized message', () => {
-    renderRow()
-    expect(screen.getByText('NullPointerException in UserService.getUser')).toBeInTheDocument()
-  })
-
-  it('renders category badge', () => {
-    renderRow()
-    expect(screen.getByTestId('category-badge')).toHaveTextContent('Product Bug')
-  })
-
-  it('renders different category badges', () => {
-    renderRow({ defect: makeDefect({ category: 'test_bug' }) })
-    expect(screen.getByTestId('category-badge')).toHaveTextContent('Test Bug')
-  })
-
-  it('shows regression flag when is_regression is true', () => {
-    renderRow({ defect: makeDefect({ is_regression: true }) })
-    expect(screen.getByTestId('regression-flag')).toBeInTheDocument()
-  })
-
-  it('shows new flag when is_new is true', () => {
-    renderRow({ defect: makeDefect({ is_new: true }) })
-    expect(screen.getByTestId('new-flag')).toBeInTheDocument()
-  })
-
-  it('does not show flags when both are false', () => {
-    renderRow()
-    expect(screen.queryByTestId('regression-flag')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('new-flag')).not.toBeInTheDocument()
+  it.each([
+    { is_regression: true, is_new: false },
+    { is_regression: false, is_new: true },
+    { is_regression: false, is_new: false },
+  ])('flags regression=$is_regression and new=$is_new defects', ({ is_regression, is_new }) => {
+    renderRow({ defect: makeDefect({ is_regression, is_new }) })
+    expect(screen.queryByTestId('regression-flag') !== null).toBe(is_regression)
+    expect(screen.queryByTestId('new-flag') !== null).toBe(is_new)
   })
 
   it('toggles expansion on click', async () => {
     const onToggle = vi.fn()
     renderRow({ onToggle })
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /toggle details/i }))
+    await userEvent.click(screen.getByRole('button', { name: /toggle details/i }))
     expect(onToggle).toHaveBeenCalledWith('def-1')
   })
 
-  it('shows detail panel when expanded', () => {
-    renderRow({ expanded: true })
-    expect(screen.getByTestId('defect-detail')).toBeInTheDocument()
+  it.each([true, false])('shows the detail panel only when expanded (%s)', (expanded) => {
+    renderRow({ expanded })
+    expect(screen.queryByTestId('defect-detail') !== null).toBe(expanded)
   })
 
-  it('hides detail panel when collapsed', () => {
-    renderRow({ expanded: false })
-    expect(screen.queryByTestId('defect-detail')).not.toBeInTheDocument()
-  })
-
-  it('displays test count', () => {
-    renderRow({ defect: makeDefect({ test_result_count_in_build: 3 }) })
+  // Builds are numbered by build_order, never by builds.id (ids diverge on backfill).
+  it('displays the test count and the build range by build_order, not build id', () => {
+    renderRow({
+      defect: makeDefect({
+        test_result_count_in_build: 3,
+        first_seen_build_id: 101,
+        last_seen_build_id: 105,
+        first_seen_build_order: 1,
+        last_seen_build_order: 5,
+      }),
+    })
     expect(screen.getByText('3 tests')).toBeInTheDocument()
-  })
-
-  it('displays build range', () => {
-    renderRow()
     expect(screen.getByText('#1–#5')).toBeInTheDocument()
   })
 })

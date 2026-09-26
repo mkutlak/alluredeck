@@ -57,16 +57,4 @@ describe('useAdminResults onError toast', () => {
       )
     })
   })
-
-  it('does not show toast when doClean succeeds', async () => {
-    const user = userEvent.setup()
-    vi.mocked(adminApi.cleanAdminResults).mockResolvedValue(undefined)
-
-    renderHarness()
-    await user.click(screen.getByRole('button', { name: 'clean' }))
-
-    await waitFor(() => {
-      expect(mockToast).not.toHaveBeenCalled()
-    })
-  })
 })

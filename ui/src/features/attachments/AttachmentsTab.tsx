@@ -18,20 +18,18 @@ import {
 import { AttachmentRow } from './AttachmentRow'
 import { AttachmentLightbox } from './AttachmentLightbox'
 import { isPlaywrightTrace } from '@/features/trace/utils'
-import { isLogMime } from './utils'
+import { filterAttachments, type MimeFilter } from './utils'
 import { FilterBar } from '@/components/app/FilterBar'
 import { Segmented } from '@/components/ui/segmented'
 import type { AttachmentEntry, AttachmentGroup } from '@/types/api'
 
-const MIME_FILTERS = [
+const MIME_FILTERS: { label: string; value: MimeFilter }[] = [
   { label: 'All', value: '' },
   { label: 'Images', value: 'image' },
   { label: 'Logs', value: 'text' },
   { label: 'Traces', value: 'trace' },
   { label: 'Other', value: 'other' },
-] as const
-
-type MimeFilter = (typeof MIME_FILTERS)[number]['value']
+]
 
 type StatusFilterValue = 'all' | AttachmentStatusFilter
 
@@ -49,25 +47,6 @@ const statusStyles: Record<string, string> = {
   broken: STATUS_TEXT_CLASSES.broken,
   skipped: STATUS_TEXT_CLASSES.skipped,
   unknown: 'text-muted-foreground',
-}
-
-function filterAttachments(
-  attachments: AttachmentEntry[],
-  mimeFilter: MimeFilter,
-): AttachmentEntry[] {
-  if (mimeFilter === '') return attachments
-  if (mimeFilter === 'image') return attachments.filter((a) => a.mime_type.startsWith('image/'))
-  if (mimeFilter === 'text') return attachments.filter((a) => isLogMime(a.mime_type))
-  if (mimeFilter === 'trace')
-    return attachments.filter((a) => isPlaywrightTrace(a.name, a.mime_type))
-  if (mimeFilter === 'other')
-    return attachments.filter(
-      (a) =>
-        !a.mime_type.startsWith('image/') &&
-        !isLogMime(a.mime_type) &&
-        !isPlaywrightTrace(a.name, a.mime_type),
-    )
-  return attachments
 }
 
 export function AttachmentsTab() {

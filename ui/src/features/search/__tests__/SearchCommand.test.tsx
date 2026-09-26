@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/render'
 import * as searchApi from '@/api/search'
@@ -12,145 +12,65 @@ vi.mock('@/api/search')
 vi.mock('@/api/projects')
 mockApiClient()
 
-function renderSearch() {
-  return renderWithProviders(<SearchCommand />)
+// Project 1 is a group (has children); project 2 is a leaf.
+const index = [
+  { project_id: 1, slug: 'parent-project', children: [2] },
+  { project_id: 2, slug: 'child-project', parent_id: 1 },
+]
+const project = (project_id: number, slug: string) => ({
+  project_id,
+  slug,
+  created_at: '2026-01-01T00:00:00Z',
+})
+const loginTest = {
+  project_id: 1,
+  slug: 'my-project',
+  test_name: 'LoginTest',
+  full_name: 'com.auth.LoginTest',
+  status: 'passed',
 }
 
 describe('SearchCommand', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Default: empty project index (no groups)
     vi.mocked(projectsApi.getProjectIndex).mockResolvedValue({
-      data: [],
+      data: index,
       metadata: { message: 'ok' },
     })
   })
 
-  it('opens dialog on Cmd+K', async () => {
-    const user = userEvent.setup()
-    renderSearch()
-
-    await user.keyboard('{Meta>}k{/Meta}')
-    expect(screen.getByPlaceholderText(/search projects/i)).toBeInTheDocument()
-  })
-
-  it('shows empty state when no results', async () => {
-    const user = userEvent.setup()
-    vi.mocked(searchApi.search).mockResolvedValue({
-      data: { projects: [], tests: [] },
-      metadata: { message: 'Search results' },
-    })
-    renderSearch()
-
-    await user.keyboard('{Meta>}k{/Meta}')
-    await user.type(screen.getByPlaceholderText(/search projects/i), 'nonexistent')
-
-    await waitFor(() => {
-      expect(screen.getByText(/no results/i)).toBeInTheDocument()
-    })
-  })
-
-  it('displays project results', async () => {
+  it.each([
+    { name: 'no results', projects: [], tests: [], see: /no results/i, icon: null },
+    { name: 'a test result', projects: [], tests: [loginTest], see: 'LoginTest', icon: null },
+    {
+      name: 'a group project',
+      projects: [project(1, 'parent-project')],
+      tests: [],
+      see: 'parent-project',
+      icon: 'icon-folder',
+    },
+    {
+      name: 'a leaf project',
+      projects: [project(2, 'child-project')],
+      tests: [],
+      see: 'child-project',
+      icon: 'icon-file-text',
+    },
+  ])('opens on Cmd+K and shows $name', async ({ projects, tests, see, icon }) => {
     const user = userEvent.setup()
     vi.mocked(searchApi.search).mockResolvedValue({
-      data: {
-        projects: [{ project_id: 1, slug: 'my-project', created_at: '2026-01-01T00:00:00Z' }],
-        tests: [],
-      },
+      data: { projects, tests },
       metadata: { message: 'Search results' },
     })
-    renderSearch()
+    renderWithProviders(<SearchCommand />)
 
     await user.keyboard('{Meta>}k{/Meta}')
-    await user.type(screen.getByPlaceholderText(/search projects/i), 'my')
+    await user.type(screen.getByPlaceholderText(/search projects/i), 'query')
 
-    await waitFor(() => {
-      expect(screen.getByText('my-project')).toBeInTheDocument()
-    })
-  })
-
-  it('displays test results with status badge', async () => {
-    const user = userEvent.setup()
-    vi.mocked(searchApi.search).mockResolvedValue({
-      data: {
-        projects: [],
-        tests: [
-          {
-            project_id: 1,
-            slug: 'my-project',
-            test_name: 'LoginTest',
-            full_name: 'com.auth.LoginTest',
-            status: 'passed',
-          },
-        ],
-      },
-      metadata: { message: 'Search results' },
-    })
-    renderSearch()
-
-    await user.keyboard('{Meta>}k{/Meta}')
-    await user.type(screen.getByPlaceholderText(/search projects/i), 'login')
-
-    await waitFor(() => {
-      expect(screen.getByText('LoginTest')).toBeInTheDocument()
-    })
-  })
-
-  it('shows Folder icon for group project results', async () => {
-    const user = userEvent.setup()
-    // Project 1 is a group (has children)
-    vi.mocked(projectsApi.getProjectIndex).mockResolvedValue({
-      data: [
-        { project_id: 1, slug: 'parent-project', children: [2] },
-        { project_id: 2, slug: 'child-project', parent_id: 1 },
-      ],
-      metadata: { message: 'ok' },
-    })
-    vi.mocked(searchApi.search).mockResolvedValue({
-      data: {
-        projects: [{ project_id: 1, slug: 'parent-project', created_at: '2026-01-01T00:00:00Z' }],
-        tests: [],
-      },
-      metadata: { message: 'Search results' },
-    })
-    renderSearch()
-
-    await user.keyboard('{Meta>}k{/Meta}')
-    await user.type(screen.getByPlaceholderText(/search projects/i), 'parent')
-
-    await waitFor(() => {
-      expect(screen.getByText('parent-project')).toBeInTheDocument()
-    })
-    expect(document.querySelector('[data-testid="icon-folder"]')).toBeInTheDocument()
-    expect(document.querySelector('[data-testid="icon-file-text"]')).not.toBeInTheDocument()
-  })
-
-  it('shows FileText icon for leaf project results', async () => {
-    const user = userEvent.setup()
-    // Project 2 is a leaf (no children)
-    vi.mocked(projectsApi.getProjectIndex).mockResolvedValue({
-      data: [
-        { project_id: 1, slug: 'parent-project', children: [2] },
-        { project_id: 2, slug: 'child-project', parent_id: 1 },
-      ],
-      metadata: { message: 'ok' },
-    })
-    vi.mocked(searchApi.search).mockResolvedValue({
-      data: {
-        projects: [{ project_id: 2, slug: 'child-project', created_at: '2026-01-01T00:00:00Z' }],
-        tests: [],
-      },
-      metadata: { message: 'Search results' },
-    })
-    renderSearch()
-
-    await user.keyboard('{Meta>}k{/Meta}')
-    await user.type(screen.getByPlaceholderText(/search projects/i), 'child')
-
-    await waitFor(() => {
-      expect(screen.getByText('child-project')).toBeInTheDocument()
-    })
-    expect(document.querySelector('[data-testid="icon-file-text"]')).toBeInTheDocument()
-    expect(document.querySelector('[data-testid="icon-folder"]')).not.toBeInTheDocument()
+    expect(await screen.findByText(see)).toBeInTheDocument()
+    // Groups get a folder icon, leaf projects a file icon.
+    for (const id of ['icon-folder', 'icon-file-text']) {
+      expect(screen.queryByTestId(id) !== null).toBe(id === icon)
+    }
   })
 })

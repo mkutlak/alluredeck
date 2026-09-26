@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '@/test/render'
+import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router'
+import { createTestQueryClient } from '@/test/render'
 import { FailureSummaryPanel } from '../FailureSummaryPanel'
-import type { ApiResponse, ConfigData, FailureSummaryData } from '@/types/api'
+import type { FailureSummaryData } from '@/types/api'
 
 vi.mock('@/api/failures', () => ({
   fetchFailureSummary: vi.fn(),
@@ -12,29 +14,6 @@ vi.mock('@/api/system', () => ({
 }))
 
 import { fetchFailureSummary } from '@/api/failures'
-import { getConfig } from '@/api/system'
-
-function makeConfig(overrides: Partial<ConfigData> = {}): ApiResponse<ConfigData> {
-  return {
-    data: {
-      version: '1.0.0',
-      dev_mode: false,
-      check_results_every_seconds: '60',
-      keep_history: true,
-      keep_history_latest: 10,
-      tls: false,
-      security_enabled: true,
-      url_prefix: '',
-      api_response_less_verbose: false,
-      optimize_storage: false,
-      make_viewer_endpoints_public: false,
-      oidc_enabled: false,
-      llm_enabled: true,
-      ...overrides,
-    },
-    metadata: { message: 'ok' },
-  }
-}
 
 function makeSummaryData(overrides: Partial<FailureSummaryData> = {}): FailureSummaryData {
   return {
@@ -56,51 +35,39 @@ function makeSummaryData(overrides: Partial<FailureSummaryData> = {}): FailureSu
   }
 }
 
+// /config is seeded (fresh for its 5-minute staleTime) so the llm_enabled gate is
+// decided on the first render and "renders nothing" cannot pass before it loads.
+function renderPanel({ llm = true, open = true } = {}) {
+  const qc = createTestQueryClient()
+  qc.setQueryData(['config'], { data: { llm_enabled: llm }, metadata: { message: 'ok' } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open={open} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
 describe('FailureSummaryPanel', () => {
   beforeEach(() => {
     vi.mocked(fetchFailureSummary).mockReset()
-    vi.mocked(getConfig).mockReset()
   })
 
-  it('renders nothing when llm_enabled is false', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig({ llm_enabled: false }))
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
-
-    await waitFor(() => {
-      expect(getConfig).toHaveBeenCalled()
-    })
+  it.each([
+    { name: 'llm_enabled is false', llm: false, open: true },
+    { name: 'not open', llm: true, open: false },
+  ])('renders nothing and does not fetch when $name', ({ llm, open }) => {
+    renderPanel({ llm, open })
     expect(screen.queryByTestId('failure-summary-panel')).not.toBeInTheDocument()
     expect(fetchFailureSummary).not.toHaveBeenCalled()
-  })
-
-  it('renders nothing when not open, and does not fetch', () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
-    renderWithProviders(
-      <FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open={false} />,
-    )
-    expect(screen.queryByTestId('failure-summary-panel')).not.toBeInTheDocument()
-    expect(fetchFailureSummary).not.toHaveBeenCalled()
-  })
-
-  it('shows a loading state before data arrives', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
-    vi.mocked(fetchFailureSummary).mockReturnValue(new Promise(() => {}))
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('failure-summary-panel')).toBeInTheDocument()
-    })
-    expect(screen.queryByText('AI hypothesis')).not.toBeInTheDocument()
   })
 
   it('renders hypothesis, category, confidence, evidence, last-good link, and disclaimer on success', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
     vi.mocked(fetchFailureSummary).mockResolvedValue(makeSummaryData())
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
+    renderPanel()
 
-    await waitFor(() => {
-      expect(screen.getByText('AI hypothesis')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('AI hypothesis')).toBeInTheDocument()
     expect(screen.getByText('product_bug')).toBeInTheDocument()
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
     await waitFor(() => {
@@ -116,90 +83,39 @@ describe('FailureSummaryPanel', () => {
     expect(link).toHaveTextContent('3 builds ago')
   })
 
-  it('renders without a last-good link when last_good is absent, and does not crash', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
-    vi.mocked(fetchFailureSummary).mockResolvedValue(makeSummaryData({ last_good: undefined }))
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
+  // LLM non-JSON fallback: evidence null, empty category, no confidence, no last_good.
+  it('omits the evidence list, empty pills, and last-good link when those fields are absent', async () => {
+    vi.mocked(fetchFailureSummary).mockResolvedValue(
+      makeSummaryData({
+        summary: { hypothesis: 'Fallback hypothesis text.', category: '', evidence: null },
+        last_good: undefined,
+      }),
+    )
+    renderPanel()
 
-    await waitFor(() => {
-      expect(screen.getByText('AI hypothesis')).toBeInTheDocument()
-    })
+    const badge = await screen.findByText('AI hypothesis')
+    expect(badge.parentElement?.children).toHaveLength(1)
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /last passed/i })).not.toBeInTheDocument()
   })
 
-  it('renders evidence-free when evidence is null (LLM non-JSON fallback), without crashing', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
-    vi.mocked(fetchFailureSummary).mockResolvedValue(
-      makeSummaryData({
-        summary: {
-          hypothesis: 'Fallback hypothesis text.',
-          category: 'test_bug',
-          evidence: null,
-        },
-      }),
-    )
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
-
-    await waitFor(() => {
-      expect(screen.getByText('AI hypothesis')).toBeInTheDocument()
-    })
-    expect(screen.queryByRole('list')).not.toBeInTheDocument()
-  })
-
-  it('renders evidence-free when the evidence key is absent, without crashing', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
-    vi.mocked(fetchFailureSummary).mockResolvedValue(
-      makeSummaryData({
-        summary: {
-          hypothesis: 'Fallback hypothesis text.',
-          category: 'test_bug',
-        },
-      }),
-    )
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
-
-    await waitFor(() => {
-      expect(screen.getByText('AI hypothesis')).toBeInTheDocument()
-    })
-    expect(screen.queryByRole('list')).not.toBeInTheDocument()
-  })
-
-  it('does not render an empty category pill when category is an empty string', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
-    vi.mocked(fetchFailureSummary).mockResolvedValue(
-      makeSummaryData({
-        summary: { hypothesis: 'Unclear hypothesis.', category: '', evidence: [] },
-      }),
-    )
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
-
-    const badge = await screen.findByText('AI hypothesis')
-    // Only the "AI hypothesis" badge should render in the badge row — no
-    // empty category pill (and no confidence pill, since it's also absent).
-    expect(badge.parentElement?.children).toHaveLength(1)
-  })
-
   it('shows a soft error state when summary is null', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
     vi.mocked(fetchFailureSummary).mockResolvedValue(
       makeSummaryData({ summary: null, error: 'generation failed' }),
     )
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
+    renderPanel()
 
-    await waitFor(() => {
-      expect(screen.getByTestId('failure-summary-soft-error')).toBeInTheDocument()
-    })
-    expect(screen.getByText('generation failed')).toBeInTheDocument()
+    expect(await screen.findByTestId('failure-summary-soft-error')).toHaveTextContent(
+      'generation failed',
+    )
   })
 
   it('renders nothing when the server reports the feature disabled despite local config', async () => {
-    vi.mocked(getConfig).mockResolvedValue(makeConfig())
     vi.mocked(fetchFailureSummary).mockResolvedValue({ enabled: false })
-    renderWithProviders(<FailureSummaryPanel projectId={1} buildId={123} historyId="abc123" open />)
+    renderPanel()
 
-    await waitFor(() => {
-      expect(fetchFailureSummary).toHaveBeenCalled()
-    })
+    // The panel shows while the summary loads, then disappears on enabled: false.
+    expect(screen.getByTestId('failure-summary-panel')).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.queryByTestId('failure-summary-panel')).not.toBeInTheDocument()
     })

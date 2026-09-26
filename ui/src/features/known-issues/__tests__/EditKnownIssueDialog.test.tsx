@@ -27,105 +27,49 @@ function makeIssue(overrides: Partial<KnownIssue> = {}): KnownIssue {
   }
 }
 
-function renderDialog(issue: KnownIssue, onOpenChange = vi.fn()) {
-  return render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <EditKnownIssueDialog
-        projectId="myproject"
-        issue={issue}
-        open={true}
-        onOpenChange={onOpenChange}
-      />
-    </QueryClientProvider>,
-  )
-}
-
 describe('EditKnownIssueDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('sends ticket_url as empty string (not undefined) when field is empty', async () => {
-    const user = userEvent.setup()
-    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue(makeIssue())
-
-    const issue = makeIssue({ ticket_url: '', description: 'Some desc', is_active: true })
-    renderDialog(issue)
-
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    await waitFor(() => {
-      expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
-        ticket_url: '',
-        description: 'Some desc',
-        is_active: true,
-      })
-    })
-  })
-
-  it('sends description as empty string (not undefined) when field is empty', async () => {
-    const user = userEvent.setup()
-    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue(makeIssue())
-
-    const issue = makeIssue({
+  // Empty fields are sent as '' (not undefined) and untouched fields keep their values.
+  it.each([
+    { name: 'empty ticket_url', ticket_url: '', description: 'Some desc', uncheck: false },
+    {
+      name: 'empty description',
       ticket_url: 'https://jira.com/PROJ-1',
       description: '',
-      is_active: true,
-    })
-    renderDialog(issue)
-
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    await waitFor(() => {
-      expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
-        ticket_url: 'https://jira.com/PROJ-1',
-        description: '',
-        is_active: true,
-      })
-    })
-  })
-
-  it('preserves all fields when only toggling is_active to false', async () => {
-    const user = userEvent.setup()
-    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue(makeIssue({ is_active: false }))
-
-    const issue = makeIssue({
+      uncheck: false,
+    },
+    {
+      name: 'only is_active toggled off',
       ticket_url: 'https://jira.com/PROJ-42',
       description: 'Flaky in CI',
-      is_active: true,
-    })
-    renderDialog(issue)
-
-    await user.click(screen.getByRole('checkbox'))
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    await waitFor(() => {
-      expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
-        ticket_url: 'https://jira.com/PROJ-42',
-        description: 'Flaky in CI',
-        is_active: false,
-      })
-    })
-  })
-
-  it('sends all fields with actual values when submitting with no changes', async () => {
+      uncheck: true,
+    },
+  ])('saves every field with $name', async ({ ticket_url, description, uncheck }) => {
     const user = userEvent.setup()
-    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue(makeIssue())
+    const issue = makeIssue({ ticket_url, description, is_active: true })
+    vi.mocked(kiApi.updateKnownIssue).mockResolvedValue(issue)
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <EditKnownIssueDialog
+          projectId="myproject"
+          issue={issue}
+          open={true}
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    )
 
-    const issue = makeIssue({
-      ticket_url: 'https://jira.com/PROJ-1',
-      description: 'Known flake',
-      is_active: true,
-    })
-    renderDialog(issue)
-
+    if (uncheck) await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: /save/i }))
 
     await waitFor(() => {
       expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
-        ticket_url: 'https://jira.com/PROJ-1',
-        description: 'Known flake',
-        is_active: true,
+        ticket_url,
+        description,
+        is_active: !uncheck,
       })
     })
   })

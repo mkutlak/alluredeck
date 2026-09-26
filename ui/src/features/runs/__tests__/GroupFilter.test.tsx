@@ -18,20 +18,30 @@ vi.mock('@/api/projects', () => ({
   getProjects: vi.fn(),
 }))
 
+async function openFilter() {
+  const user = userEvent.setup()
+  renderWithProviders(<GroupFilter />)
+  await user.click(await screen.findByRole('button'))
+  return user
+}
+
 describe('GroupFilter', () => {
   beforeEach(() => {
     useUIStore.setState({ runsFeedGroupIds: [] })
   })
 
-  it('shows "All groups" when nothing is selected', async () => {
+  it.each([
+    { selected: [], label: 'All groups' },
+    { selected: [10], label: '1 group selected' },
+    { selected: [10, 20], label: '2 groups selected' },
+  ])('labels the trigger $label', async ({ selected, label }) => {
+    useUIStore.setState({ runsFeedGroupIds: selected })
     renderWithProviders(<GroupFilter />)
-    expect(await screen.findByText('All groups')).toBeInTheDocument()
+    expect(await screen.findByText(label)).toBeInTheDocument()
   })
 
   it('lists only parent projects (entries with children)', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<GroupFilter />)
-    await user.click(await screen.findByRole('button'))
+    await openFilter()
 
     expect(screen.getByText('Acme')).toBeInTheDocument()
     expect(screen.getByText('globex')).toBeInTheDocument()
@@ -39,34 +49,14 @@ describe('GroupFilter', () => {
     expect(screen.queryByText('standalone')).not.toBeInTheDocument()
   })
 
-  it('checking a group writes it to runsFeedGroupIds', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<GroupFilter />)
-    await user.click(await screen.findByRole('button'))
+  it.each([
+    { selected: [], want: [10] },
+    { selected: [10, 20], want: [20] },
+  ])('toggling Acme turns runsFeedGroupIds $selected into $want', async ({ selected, want }) => {
+    useUIStore.setState({ runsFeedGroupIds: selected })
+    const user = await openFilter()
     await user.click(screen.getByText('Acme'))
 
-    expect(useUIStore.getState().runsFeedGroupIds).toEqual([10])
-  })
-
-  it('unchecking a selected group removes it from runsFeedGroupIds', async () => {
-    useUIStore.setState({ runsFeedGroupIds: [10, 20] })
-    const user = userEvent.setup()
-    renderWithProviders(<GroupFilter />)
-    await user.click(await screen.findByRole('button'))
-    await user.click(screen.getByText('Acme'))
-
-    expect(useUIStore.getState().runsFeedGroupIds).toEqual([20])
-  })
-
-  it('shows a selection count when groups are selected', async () => {
-    useUIStore.setState({ runsFeedGroupIds: [10] })
-    renderWithProviders(<GroupFilter />)
-    expect(await screen.findByText('1 group selected')).toBeInTheDocument()
-  })
-
-  it('pluralizes the selection count for multiple groups', async () => {
-    useUIStore.setState({ runsFeedGroupIds: [10, 20] })
-    renderWithProviders(<GroupFilter />)
-    expect(await screen.findByText('2 groups selected')).toBeInTheDocument()
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual(want)
   })
 })

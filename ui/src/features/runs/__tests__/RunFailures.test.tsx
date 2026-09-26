@@ -95,9 +95,13 @@ function makeFailure(overrides?: Partial<RunFailure>): RunFailure {
   }
 }
 
-function respond(failures: RunFailure[], truncated = false): RunFailuresResponse {
-  return { data: failures, metadata: { message: 'ok', truncated } }
+function renderRun(failures: RunFailure[], run = makeRun(), truncated = false) {
+  const response: RunFailuresResponse = { data: failures, metadata: { message: 'ok', truncated } }
+  vi.mocked(fetchRunFailures).mockResolvedValue(response)
+  return renderWithProviders(<RunFailures run={run} />)
 }
+
+const summaryToggle = { name: /toggle ai failure summary/i }
 
 beforeEach(() => {
   vi.mocked(fetchRunFailures).mockReset()
@@ -108,87 +112,74 @@ beforeEach(() => {
 })
 
 describe('RunFailures', () => {
-  it('fetches the whole run in a single request', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-    renderWithProviders(<RunFailures run={makeRun()} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('should login')).toBeInTheDocument()
-    })
-    expect(fetchRunFailures).toHaveBeenCalledTimes(1)
-    expect(fetchRunFailures).toHaveBeenCalledWith(10, '196765')
-  })
-
-  it('keys the request by commit SHA when the run has no pipeline id', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(respond([]))
-    renderWithProviders(<RunFailures run={makeRun({ pipeline_id: undefined })} />)
-
-    await waitFor(() => {
-      expect(fetchRunFailures).toHaveBeenCalledWith(10, 'abc1234')
-    })
-  })
-
-  it('renders an error state when the request fails', async () => {
-    vi.mocked(fetchRunFailures).mockRejectedValue(new Error('network error'))
-    renderWithProviders(<RunFailures run={makeRun()} />)
-
-    expect(await screen.findByText(/failed to load failures/i)).toBeInTheDocument()
-  })
-
-  it('reports when a run has no failing tests', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(respond([]))
-    renderWithProviders(<RunFailures run={makeRun()} />)
-
-    expect(await screen.findByText(/no failing tests in this run/i)).toBeInTheDocument()
-  })
-
-  it('does not request anything when the run has no group project', () => {
-    renderWithProviders(<RunFailures run={makeRun({ group_project_id: undefined })} />)
-    expect(fetchRunFailures).not.toHaveBeenCalled()
-    expect(screen.getByText(/failure details are unavailable/i)).toBeInTheDocument()
-  })
-
-  it('shows badges for flaky, new and known failures', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(
-      respond([makeFailure({ flaky: true, retries: 2, new_failed: true, known: true })]),
-    )
-    renderWithProviders(<RunFailures run={makeRun()} />)
-
-    expect(await screen.findByTestId('flaky-badge')).toBeInTheDocument()
-    expect(screen.getByText('new')).toBeInTheDocument()
-    expect(screen.getByText('known')).toBeInTheDocument()
-  })
-
-  it('links a failure to its suite report by numeric project id and build number', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-    renderWithProviders(<RunFailures run={makeRun()} />)
+  // Links use the numeric project id and build number of the failure's suite.
+  it.each([
+    { name: 'CI pipeline id', run: makeRun(), key: '196765' },
+    {
+      name: 'commit SHA (no pipeline id)',
+      run: makeRun({ pipeline_id: undefined }),
+      key: 'abc1234',
+    },
+  ])('fetches the whole run in one request keyed by $name', async ({ run, key }) => {
+    renderRun([makeFailure()], run)
 
     const link = await screen.findByRole('link', { name: 'should login' })
     expect(link).toHaveAttribute('href', '/projects/2/reports/3')
+    expect(fetchRunFailures).toHaveBeenCalledTimes(1)
+    expect(fetchRunFailures).toHaveBeenCalledWith(10, key)
+  })
+
+  it.each([
+    {
+      name: 'a failed request',
+      setup: () => vi.mocked(fetchRunFailures).mockRejectedValue(new Error('network error')),
+      run: makeRun(),
+      text: /failed to load failures/i,
+    },
+    {
+      name: 'no failing tests',
+      setup: () =>
+        vi.mocked(fetchRunFailures).mockResolvedValue({
+          data: [],
+          metadata: { message: 'ok', truncated: false },
+        }),
+      run: makeRun(),
+      text: /no failing tests in this run/i,
+    },
+    {
+      name: 'unavailable without a group project',
+      setup: () => {},
+      run: makeRun({ group_project_id: undefined }),
+      text: /failure details are unavailable/i,
+    },
+  ])('reports $name', async ({ setup, run, text }) => {
+    setup()
+    renderWithProviders(<RunFailures run={run} />)
+
+    expect(await screen.findByText(text)).toBeInTheDocument()
+    if (run.group_project_id == null) expect(fetchRunFailures).not.toHaveBeenCalled()
   })
 
   it('notes when the API truncated the result', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()], true))
-    renderWithProviders(<RunFailures run={makeRun()} />)
-
+    renderRun([makeFailure()], makeRun(), true)
     expect(await screen.findByText(/this run has more/i)).toBeInTheDocument()
   })
 
   // The same test arrives twice with different history_ids because two
   // ingestion paths write it; only one copy carries the error message.
-  it('collapses duplicate copies of one test into a single row', async () => {
-    vi.mocked(fetchRunFailures).mockResolvedValue(
-      respond([
-        makeFailure({ history_id: '1ab6c50a.d93c', retries: 3, error_message: '' }),
-        makeFailure({ history_id: '462170f6:d93c', retries: 0 }),
-      ]),
-    )
-    renderWithProviders(<RunFailures run={makeRun()} />)
+  it('collapses duplicate copies of one test into a single row with merged badges', async () => {
+    renderRun([
+      makeFailure({ history_id: '1ab6c50a.d93c', retries: 3, flaky: true, error_message: '' }),
+      makeFailure({ history_id: '462170f6:d93c', new_failed: true, known: true }),
+    ])
 
     await waitFor(() => {
       expect(screen.getAllByTestId('run-failure-row')).toHaveLength(1)
     })
-    expect(screen.getByText('1 failure · 1 suite')).toBeInTheDocument()
+    expect(screen.getByText('1 failure · 1 suite · 1 new')).toBeInTheDocument()
+    expect(screen.getByTestId('flaky-badge')).toHaveTextContent('flaky · 3x')
+    expect(screen.getByText('new')).toBeInTheDocument()
+    expect(screen.getByText('known')).toBeInTheDocument()
   })
 
   describe('grouping', () => {
@@ -204,110 +195,61 @@ describe('RunFailures', () => {
       }),
     ]
 
-    it('groups by suite by default', async () => {
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond(twoSuites))
-      renderWithProviders(<RunFailures run={makeRun()} />)
+    it('groups by suite by default, opening only the first group until one is clicked', async () => {
+      const user = userEvent.setup()
+      renderRun(twoSuites)
 
       await waitFor(() => {
         expect(screen.getAllByTestId('run-failure-group')).toHaveLength(2)
       })
       expect(screen.getByText('ui-tests')).toBeInTheDocument()
-      expect(screen.getByText('api-tests')).toBeInTheDocument()
-    })
-
-    it('opens only the first group so the drawer stays short', async () => {
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond(twoSuites))
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
       // ui-tests has two failures and sorts first; its rows show, api-tests' do not.
-      await waitFor(() => {
-        expect(screen.getByText('a')).toBeInTheDocument()
-      })
+      expect(screen.getByText('a')).toBeInTheDocument()
       expect(screen.queryByText('c')).not.toBeInTheDocument()
-    })
 
-    it('expands a collapsed group on click', async () => {
-      const user = userEvent.setup()
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond(twoSuites))
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
-      await waitFor(() => {
-        expect(screen.getByText('api-tests')).toBeInTheDocument()
-      })
       await user.click(screen.getByText('api-tests'))
       expect(screen.getByText('c')).toBeInTheDocument()
     })
 
     // 18+ failures per run routinely share one message differing only in a
     // timeout value; by-error states that once.
-    it('clusters failures by normalised error signature', async () => {
+    it('clusters failures by normalised error signature and persists the choice', async () => {
       const user = userEvent.setup()
-      vi.mocked(fetchRunFailures).mockResolvedValue(
-        respond([
-          makeFailure({
-            test_name: 'a',
-            full_name: 'a.js:1:1',
-            error_message: 'Timed out 5000ms waiting for expect(locator)',
-          }),
-          makeFailure({
-            test_name: 'b',
-            full_name: 'b.js:1:1',
-            error_message: 'Timed out 10000ms waiting for expect(locator)',
-          }),
-          makeFailure({
-            test_name: 'c',
-            full_name: 'c.js:1:1',
-            error_message: 'Failed to execute query',
-          }),
-        ]),
-      )
-      renderWithProviders(<RunFailures run={makeRun()} />)
+      renderRun([
+        makeFailure({
+          test_name: 'a',
+          full_name: 'a.js:1:1',
+          error_message: 'Timed out 5000ms waiting for expect(locator)',
+        }),
+        makeFailure({
+          test_name: 'b',
+          full_name: 'b.js:1:1',
+          error_message: 'Timed out 10000ms waiting for expect(locator)',
+        }),
+        makeFailure({
+          test_name: 'c',
+          full_name: 'c.js:1:1',
+          error_message: 'Failed to execute query',
+        }),
+      ])
 
-      await waitFor(() => {
-        expect(screen.getByTestId('run-failure-grouping')).toBeInTheDocument()
-      })
-      await user.click(screen.getByTestId('run-failure-grouping-error'))
+      await user.click(await screen.findByTestId('run-failure-grouping-error'))
 
       await waitFor(() => {
         expect(screen.getAllByTestId('run-failure-group')).toHaveLength(2)
       })
       expect(screen.getByText('Timed out Nms waiting for expect(locator)')).toBeInTheDocument()
       expect(screen.getByText('2 tests · 1 suite')).toBeInTheDocument()
-    })
-
-    it('persists the grouping choice in the UI store', async () => {
-      const user = userEvent.setup()
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('run-failure-grouping')).toBeInTheDocument()
-      })
-      await user.click(screen.getByTestId('run-failure-grouping-error'))
-
       expect(useUIStore.getState().runsFailureGrouping).toBe('error')
     })
   })
 
   describe('sharded suites', () => {
     it('links every contributing build from the group header', async () => {
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      const run = makeRun({
-        suites: [
-          makeSuite({
-            builds: [
-              { build_id: 101, build_number: 1 },
-              { build_id: 102, build_number: 2 },
-              { build_id: 103, build_number: 3 },
-            ],
-          }),
-        ],
-      })
-      renderWithProviders(<RunFailures run={run} />)
+      const builds = [1, 2, 3].map((n) => ({ build_id: 100 + n, build_number: n }))
+      renderRun([makeFailure()], makeRun({ suites: [makeSuite({ builds })] }))
 
-      await waitFor(() => {
-        expect(screen.getByText('3 shards')).toBeInTheDocument()
-      })
+      expect(await screen.findByText('3 shards')).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /#1/ })).toHaveAttribute(
         'href',
         '/projects/2/reports/1',
@@ -320,78 +262,36 @@ describe('RunFailures', () => {
   })
 
   describe('AI failure summary', () => {
-    it('shows a collapsed toggle per failure when llm is enabled', async () => {
-      vi.mocked(getConfig).mockResolvedValue(makeConfig())
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      renderWithProviders(<RunFailures run={makeRun()} />)
+    it.each([
+      {
+        name: 'llm_enabled is false',
+        config: () => Promise.resolve(makeConfig({ llm_enabled: false })),
+      },
+      { name: 'config is still resolving', config: () => new Promise<never>(() => {}) },
+    ])('does not render the toggle when $name', async ({ config }) => {
+      vi.mocked(getConfig).mockReturnValue(config())
+      renderRun([makeFailure()])
 
-      const toggle = await screen.findByRole('button', { name: /toggle ai failure summary/i })
+      expect(await screen.findByText('should login')).toBeInTheDocument()
+      expect(screen.queryByRole('button', summaryToggle)).not.toBeInTheDocument()
+    })
+
+    it('toggles a collapsed summary panel for the failure build and history id', async () => {
+      const user = userEvent.setup()
+      vi.mocked(getConfig).mockResolvedValue(makeConfig())
+      vi.mocked(fetchFailureSummary).mockResolvedValue({
+        enabled: true,
+        summary: { hypothesis: 'Looks like a stale selector.', category: 'test_bug', evidence: [] },
+        disclaimer: 'AI hypothesis — verify before acting.',
+      })
+      renderRun([makeFailure()])
+
+      const toggle = await screen.findByRole('button', summaryToggle)
       expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    })
 
-    it('does not render the toggle when llm_enabled is false', async () => {
-      vi.mocked(getConfig).mockResolvedValue(makeConfig({ llm_enabled: false }))
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
-      await waitFor(() => {
-        expect(screen.getByText('should login')).toBeInTheDocument()
-      })
-      expect(
-        screen.queryByRole('button', { name: /toggle ai failure summary/i }),
-      ).not.toBeInTheDocument()
-    })
-
-    it('does not render the toggle while config is still resolving', async () => {
-      vi.mocked(getConfig).mockReturnValue(new Promise(() => {}))
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
-      await waitFor(() => {
-        expect(screen.getByText('should login')).toBeInTheDocument()
-      })
-      expect(
-        screen.queryByRole('button', { name: /toggle ai failure summary/i }),
-      ).not.toBeInTheDocument()
-    })
-
-    it('mounts the summary panel with the failure build and history id', async () => {
-      const user = userEvent.setup()
-      vi.mocked(getConfig).mockResolvedValue(makeConfig())
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      vi.mocked(fetchFailureSummary).mockResolvedValue({
-        enabled: true,
-        summary: {
-          hypothesis: 'Looks like a stale selector.',
-          category: 'test_bug',
-          evidence: ['Element not found'],
-        },
-        disclaimer: 'AI hypothesis — verify before acting.',
-      })
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
-      await user.click(await screen.findByRole('button', { name: /toggle ai failure summary/i }))
-
-      await waitFor(() => {
-        expect(fetchFailureSummary).toHaveBeenCalledWith(2, 103, 'h1')
-      })
-      expect(await screen.findByText('AI hypothesis')).toBeInTheDocument()
-    })
-
-    it('collapses the panel again on a second click', async () => {
-      const user = userEvent.setup()
-      vi.mocked(getConfig).mockResolvedValue(makeConfig())
-      vi.mocked(fetchRunFailures).mockResolvedValue(respond([makeFailure()]))
-      vi.mocked(fetchFailureSummary).mockResolvedValue({
-        enabled: true,
-        summary: { hypothesis: 'Stale selector.', category: 'test_bug', evidence: [] },
-        disclaimer: 'AI hypothesis — verify before acting.',
-      })
-      renderWithProviders(<RunFailures run={makeRun()} />)
-
-      const toggle = await screen.findByRole('button', { name: /toggle ai failure summary/i })
       await user.click(toggle)
       expect(await screen.findByText('AI hypothesis')).toBeInTheDocument()
+      expect(fetchFailureSummary).toHaveBeenCalledWith(2, 103, 'h1')
 
       await user.click(toggle)
       await waitFor(() => {

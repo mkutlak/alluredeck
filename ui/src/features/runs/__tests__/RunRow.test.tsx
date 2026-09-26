@@ -97,25 +97,21 @@ beforeEach(() => {
 })
 
 describe('RunRow', () => {
-  it('has data-testid="run-row"', () => {
-    renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByTestId('run-row')).toBeInTheDocument()
-  })
-
-  it('renders the pipeline id and branch', () => {
-    renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByText('196765')).toBeInTheDocument()
+  it.each([
+    { run: makeRun(), id: '196765' },
+    // No pipeline id: fall back to the truncated SHA.
+    { run: makeRun({ pipeline_id: undefined }), id: 'abc1234' },
+  ])('identifies the run by $id, with its branch', ({ run, id }) => {
+    renderWithProviders(<RunRow run={run} />)
+    expect(screen.getByText(id)).toBeInTheDocument()
     expect(screen.getByText('main')).toBeInTheDocument()
   })
 
-  it('falls back to the truncated SHA when there is no pipeline id', () => {
-    renderWithProviders(<RunRow run={makeRun({ pipeline_id: undefined })} />)
-    expect(screen.getByText('abc1234')).toBeInTheDocument()
-  })
-
-  it('links the group label to the numeric group_project_id', () => {
+  it('links the group label to the numeric group_project_id, outside the toggle button', async () => {
     renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByRole('link', { name: /acme/i })).toHaveAttribute('href', '/projects/10')
+    const link = await screen.findByRole('link', { name: /acme/i })
+    expect(link).toHaveAttribute('href', '/projects/10')
+    expect(screen.getByTestId('run-row-toggle')).not.toContainElement(link)
   })
 
   it('falls back to group_slug when group_project_id is absent', () => {
@@ -128,62 +124,42 @@ describe('RunRow', () => {
 
   // Auto-expanding every failing run is what made a page of ten runs
   // unscannable, and it fetched failures nobody had asked to see.
-  it('is collapsed by default even when suites failed', () => {
-    renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByTestId('run-row-toggle')).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByTestId('run-failures')).not.toBeInTheDocument()
-  })
-
-  it('fetches no failures until the run is expanded', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<RunRow run={makeRun()} />)
-    expect(fetchRunFailures).not.toHaveBeenCalled()
-
-    await user.click(screen.getByTestId('run-row-toggle'))
-    expect(fetchRunFailures).toHaveBeenCalledTimes(1)
-  })
-
-  it('toggles the failure drawer', async () => {
+  it('is collapsed without fetching failures until toggled open, and toggles closed', async () => {
     const user = userEvent.setup()
     renderWithProviders(<RunRow run={makeRun()} />)
     const toggle = screen.getByTestId('run-row-toggle')
 
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('run-failures')).not.toBeInTheDocument()
+    expect(fetchRunFailures).not.toHaveBeenCalled()
+
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(await screen.findByTestId('run-failures')).toBeInTheDocument()
+    expect(fetchRunFailures).toHaveBeenCalledTimes(1)
 
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByTestId('run-failures')).not.toBeInTheDocument()
   })
 
-  it('shows only failing suites as chips, with the passing ones counted', () => {
-    renderWithProviders(<RunRow run={makeRun()} />)
-    const chips = screen.getAllByTestId('run-suite-chip')
-    expect(chips).toHaveLength(1)
-    expect(chips[0]).toHaveTextContent('ui-tests')
-    expect(screen.getByText('· 1 passed')).toBeInTheDocument()
-  })
-
-  it('renders no chip row at all for a fully passing run', () => {
-    renderWithProviders(<RunRow run={allPassingRun()} />)
-    expect(screen.queryByTestId('run-suite-chips')).not.toBeInTheDocument()
-  })
-
-  it('summarises failing suites and total failures', () => {
-    renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByText('1/2 suites failing · 15 failed tests')).toBeInTheDocument()
-  })
-
-  it('reports all suites passing without a failure count', () => {
-    renderWithProviders(<RunRow run={allPassingRun()} />)
-    expect(screen.getByText('1/1 suites passed')).toBeInTheDocument()
-  })
-
-  it('keeps the group link outside the toggle button', () => {
-    renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByTestId('run-row-toggle')).not.toContainElement(
-      screen.getByRole('link', { name: /acme/i }),
+  it.each([
+    {
+      // Failing suites become chips; a green run gets none.
+      run: makeRun(),
+      summary: '1/2 suites failing · 15 failed tests',
+      chips: ['ui-tests'],
+    },
+    {
+      run: allPassingRun(),
+      summary: '1/1 suites passed',
+      chips: [],
+    },
+  ])('summarises the run as $summary with chips $chips', ({ run, summary, chips }) => {
+    renderWithProviders(<RunRow run={run} />)
+    expect(screen.getByText(summary)).toBeInTheDocument()
+    expect(screen.queryAllByTestId('run-suite-chip').map((c) => c.textContent)).toEqual(
+      chips.map((c) => expect.stringContaining(c)),
     )
   })
 })

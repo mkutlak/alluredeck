@@ -23,71 +23,64 @@ vi.mock('@/api/branches', () => ({
 import { fetchBranches } from '@/api/branches'
 
 function makeBranch(name: string, projectId: number) {
-  return { id: 1, project_id: projectId, name, is_default: false, created_at: '2024-01-01T00:00:00Z' }
+  return {
+    id: 1,
+    project_id: projectId,
+    name,
+    is_default: false,
+    created_at: '2024-01-01T00:00:00Z',
+  }
+}
+
+async function openOptions() {
+  const user = userEvent.setup()
+  renderWithProviders(<FeedBranchSelect />)
+  await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled())
+  await user.click(screen.getByRole('combobox'))
+  return user
 }
 
 describe('FeedBranchSelect', () => {
   beforeEach(() => {
     vi.mocked(fetchBranches).mockReset()
+    vi.mocked(fetchBranches).mockImplementation((projectId: string) =>
+      Promise.resolve(projectId === '10' ? [makeBranch('main', 10)] : [makeBranch('develop', 20)]),
+    )
     useUIStore.setState({ selectedBranch: undefined, runsFeedGroupIds: [] })
   })
 
-  it('unions branch names across all parent groups when none is selected', async () => {
-    vi.mocked(fetchBranches).mockImplementation((projectId: string) =>
-      Promise.resolve(
-        projectId === '10' ? [makeBranch('main', 10)] : [makeBranch('develop', 20)],
-      ),
-    )
-    const user = userEvent.setup()
-    renderWithProviders(<FeedBranchSelect />)
-
-    await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled())
-    await user.click(screen.getByRole('combobox'))
+  it.each([
+    { name: 'all parent groups', groups: [], absent: [] },
+    { name: 'only the selected groups', groups: [10], absent: ['develop'] },
+  ])('offers the union of branches across $name', async ({ groups, absent }) => {
+    useUIStore.setState({ runsFeedGroupIds: groups })
+    await openOptions()
 
     expect(await screen.findByRole('option', { name: 'main' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'develop' })).toBeInTheDocument()
+    for (const name of ['develop'].filter((n) => !absent.includes(n))) {
+      expect(screen.getByRole('option', { name })).toBeInTheDocument()
+    }
+    for (const name of absent) {
+      expect(screen.queryByRole('option', { name })).not.toBeInTheDocument()
+    }
   })
 
-  it('only queries selected groups when runsFeedGroupIds is non-empty', async () => {
-    useUIStore.setState({ runsFeedGroupIds: [10] })
-    vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main', 10)])
+  // The stored branch is shared across pages; one the feed lacks falls back to
+  // "All branches". Assert after loading: the disabled loading state always reads "All branches".
+  it.each([
+    { stored: 'nonexistent', shown: 'All branches' },
+    { stored: 'main', shown: 'main' },
+  ])('shows $shown for the stored branch $stored', async ({ stored, shown }) => {
+    useUIStore.setState({ selectedBranch: stored })
     renderWithProviders(<FeedBranchSelect />)
 
-    await waitFor(() => {
-      expect(fetchBranches).toHaveBeenCalledWith('10')
-    })
-    expect(fetchBranches).not.toHaveBeenCalledWith('20')
-  })
-
-  it('shows "All branches" when the stored selectedBranch is not in the union', async () => {
-    useUIStore.setState({ selectedBranch: 'nonexistent' })
-    vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main', 10)])
-    renderWithProviders(<FeedBranchSelect />)
-
-    await waitFor(() => {
-      expect(screen.getByRole('combobox')).toHaveTextContent('All branches')
-    })
-  })
-
-  it('shows the stored branch when it is present in the union', async () => {
-    useUIStore.setState({ selectedBranch: 'main' })
-    vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main', 10)])
-    renderWithProviders(<FeedBranchSelect />)
-
-    await waitFor(() => {
-      expect(screen.getByRole('combobox')).toHaveTextContent('main')
-    })
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeEnabled())
+    expect(screen.getByRole('combobox')).toHaveTextContent(shown)
   })
 
   it('calls setSelectedBranch when a branch is chosen', async () => {
-    vi.mocked(fetchBranches).mockResolvedValue([makeBranch('main', 10), makeBranch('develop', 20)])
-    const user = userEvent.setup()
-    renderWithProviders(<FeedBranchSelect />)
-
-    await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled())
-    await user.click(screen.getByRole('combobox'))
-    const option = await screen.findByRole('option', { name: 'develop' })
-    await user.click(option)
+    const user = await openOptions()
+    await user.click(await screen.findByRole('option', { name: 'develop' }))
 
     expect(useUIStore.getState().selectedBranch).toBe('develop')
   })

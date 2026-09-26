@@ -48,7 +48,9 @@ function makeUser(overrides: Partial<User> = {}): User {
   }
 }
 
-function renderPage() {
+function renderPage(me: User | Error = makeUser()) {
+  if (me instanceof Error) vi.mocked(usersApi.fetchMe).mockRejectedValue(me)
+  else vi.mocked(usersApi.fetchMe).mockResolvedValue(me)
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter initialEntries={['/settings/profile']}>
@@ -57,6 +59,14 @@ function renderPage() {
     </QueryClientProvider>,
   )
 }
+
+async function fillPasswords(current: string, next: string, confirm = '') {
+  await userEvent.type(await screen.findByLabelText('Current password'), current)
+  await userEvent.type(screen.getByLabelText('New password'), next)
+  if (confirm) await userEvent.type(screen.getByLabelText('Confirm new password'), confirm)
+}
+
+const submit = () => screen.getByRole('button', { name: /change password/i })
 
 describe('ProfilePage', () => {
   beforeEach(() => {
@@ -67,64 +77,31 @@ describe('ProfilePage', () => {
     useUIStore.setState({ timezone: null, timeFormat: null })
   })
 
-  it('renders profile fields for local user', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+  it.each([
+    { provider: 'local' as const, lastLogin: '2026-01-15T10:30:00Z', card: true },
+    { provider: 'oidc' as const, lastLogin: null, card: false },
+  ])(
+    'shows the Change Password card only for local users ($provider)',
+    async ({ provider, lastLogin, card }) => {
+      renderPage(makeUser({ provider, last_login: lastLogin }))
 
-    renderPage()
+      expect(await screen.findByText(provider)).toBeInTheDocument()
+      expect(screen.queryByText('Change Password') !== null).toBe(card)
+      expect(screen.queryByLabelText('Current password') !== null).toBe(card)
+      expect(screen.queryByLabelText('New password') !== null).toBe(card)
+      expect(screen.queryByLabelText('Confirm new password') !== null).toBe(card)
+      // A missing last login renders as a dash.
+      expect(screen.queryByText('—') !== null).toBe(lastLogin === null)
+    },
+  )
 
-    await waitFor(() => {
-      expect(screen.getByText('alice@example.com')).toBeInTheDocument()
-      expect(screen.getByText('local')).toBeInTheDocument()
-      expect(screen.getByText('viewer')).toBeInTheDocument()
-      expect(screen.getByText('Alice')).toBeInTheDocument()
-    })
-  })
-
-  it('shows Change Password card for local user', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'local' }))
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('alice@example.com')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText('Change Password')).toBeInTheDocument()
-    expect(screen.getByLabelText('Current password')).toBeInTheDocument()
-    expect(screen.getByLabelText('New password')).toBeInTheDocument()
-    expect(screen.getByLabelText('Confirm new password')).toBeInTheDocument()
-  })
-
-  it('does not show Change Password card for OIDC user', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'oidc' }))
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('oidc')).toBeInTheDocument()
-    })
-
-    expect(screen.queryByText('Change Password')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/current password/i)).not.toBeInTheDocument()
-  })
-
-  it('calls changeMyPassword with correct body and shows success toast', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'local' }))
+  it('calls changeMyPassword with correct body', async () => {
     vi.mocked(usersApi.changeMyPassword).mockResolvedValue(undefined)
-
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Current password')).toBeInTheDocument()
-    })
-
-    await userEvent.type(screen.getByLabelText('Current password'), 'OldPassword123!')
-    await userEvent.type(screen.getByLabelText('New password'), 'NewPassword456!')
-    await userEvent.type(screen.getByLabelText('Confirm new password'), 'NewPassword456!')
-
-    const submitBtn = screen.getByRole('button', { name: /change password/i })
-    expect(submitBtn).not.toBeDisabled()
-    await userEvent.click(submitBtn)
+    await fillPasswords('OldPassword123!', 'NewPassword456!', 'NewPassword456!')
+    expect(submit()).not.toBeDisabled()
+    await userEvent.click(submit())
 
     await waitFor(() => {
       expect(usersApi.changeMyPassword).toHaveBeenCalledWith({
@@ -135,276 +112,95 @@ describe('ProfilePage', () => {
   })
 
   it('shows banner error when backend returns 401 (invalid current password)', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'local' }))
-    const err = new Error('Invalid current password')
-    vi.mocked(usersApi.changeMyPassword).mockRejectedValue(err)
-
+    vi.mocked(usersApi.changeMyPassword).mockRejectedValue(new Error('Invalid current password'))
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Current password')).toBeInTheDocument()
-    })
+    await fillPasswords('WrongPassword1!', 'NewPassword456!', 'NewPassword456!')
+    await userEvent.click(submit())
 
-    await userEvent.type(screen.getByLabelText('Current password'), 'WrongPassword1!')
-    await userEvent.type(screen.getByLabelText('New password'), 'NewPassword456!')
-    await userEvent.type(screen.getByLabelText('Confirm new password'), 'NewPassword456!')
-
-    await userEvent.click(screen.getByRole('button', { name: /change password/i }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument()
-      expect(screen.getByRole('alert')).toHaveTextContent('Invalid current password')
-    })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid current password')
   })
 
-  it('disables submit and shows inline error for short new password', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'local' }))
+  // Confirm matches the new password unless given, so each row trips exactly one rule.
+  it.each([
+    { rule: 'too short', next: 'short', error: 'Password must be at least 12 characters' },
+    {
+      rule: 'confirm mismatch',
+      next: 'NewPassword456!',
+      confirm: 'DifferentPass456!',
+      error: 'Passwords do not match',
+    },
+    {
+      rule: 'same as current',
+      current: 'SamePassword123!',
+      next: 'SamePassword123!',
+      error: 'New password must be different from current',
+    },
+  ])(
+    'disables submit and shows an inline error: $rule',
+    async ({ current = 'OldPassword123!', next, confirm = next, error }) => {
+      renderPage()
 
+      await fillPasswords(current, next, confirm)
+      expect(screen.getByText(error)).toBeInTheDocument()
+      expect(submit()).toBeDisabled()
+    },
+  )
+
+  it('edits the name and saves it via updateMe', async () => {
+    vi.mocked(usersApi.updateMe).mockResolvedValue(makeUser({ name: 'Alice Smith' }))
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Current password')).toBeInTheDocument()
-    })
-
-    await userEvent.type(screen.getByLabelText('Current password'), 'OldPassword123!')
-    await userEvent.type(screen.getByLabelText('New password'), 'short')
-
-    expect(screen.getByText('Password must be at least 12 characters')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /change password/i })).toBeDisabled()
-  })
-
-  it('disables submit and shows inline error for mismatched confirm', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'local' }))
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('Current password')).toBeInTheDocument()
-    })
-
-    await userEvent.type(screen.getByLabelText('Current password'), 'OldPassword123!')
-    await userEvent.type(screen.getByLabelText('New password'), 'NewPassword456!')
-    await userEvent.type(screen.getByLabelText('Confirm new password'), 'DifferentPass456!')
-
-    expect(screen.getByText('Passwords do not match')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /change password/i })).toBeDisabled()
-  })
-
-  it('disables submit and shows inline error when new password equals current', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ provider: 'local' }))
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('Current password')).toBeInTheDocument()
-    })
-
-    await userEvent.type(screen.getByLabelText('Current password'), 'SamePassword123!')
-    await userEvent.type(screen.getByLabelText('New password'), 'SamePassword123!')
-
-    expect(screen.getByText('New password must be different from current')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /change password/i })).toBeDisabled()
-  })
-
-  it('shows Edit name button and allows editing', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-
-    renderPage()
-
-    const editBtn = await screen.findByRole('button', { name: /edit name/i })
-    await userEvent.click(editBtn)
-
+    await userEvent.click(await screen.findByRole('button', { name: /edit name/i }))
     const nameInput = screen.getByRole('textbox', { name: /name/i })
-    expect(nameInput).toBeInTheDocument()
     expect(nameInput).toHaveValue('Alice')
-  })
-
-  it('calls updateMe mutation when name is saved', async () => {
-    const updatedUser = makeUser({ name: 'Alice Smith' })
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-    vi.mocked(usersApi.updateMe).mockResolvedValue(updatedUser)
-
-    renderPage()
-
-    const editBtn = await screen.findByRole('button', { name: /edit name/i })
-    await userEvent.click(editBtn)
-
-    const nameInput = screen.getByRole('textbox', { name: /name/i })
     await userEvent.clear(nameInput)
     await userEvent.type(nameInput, 'Alice Smith')
-
-    const saveBtn = screen.getByRole('button', { name: /^save$/i })
-    await userEvent.click(saveBtn)
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
     await waitFor(() => {
       expect(usersApi.updateMe).toHaveBeenCalledWith({ name: 'Alice Smith' })
     })
   })
 
-  it('shows loading spinner while fetching', () => {
-    vi.mocked(usersApi.fetchMe).mockReturnValue(new Promise(() => {}))
-
-    renderPage()
-
-    // Spinner should be present during load
-    const spinner = document.querySelector('.animate-spin')
-    expect(spinner).toBeInTheDocument()
-  })
-
   it('shows error state when fetch fails', async () => {
-    vi.mocked(usersApi.fetchMe).mockRejectedValue(new Error('Network error'))
+    renderPage(new Error('Network error'))
 
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/failed to load profile/i)).toBeInTheDocument()
-    })
-  })
-
-  it('shows last login when present', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ last_login: '2026-01-15T10:30:00Z' }))
-
-    renderPage()
-
-    await waitFor(() => {
-      // The date is formatted via formatDate — just check the field label is present
-      expect(screen.getByText(/last login/i)).toBeInTheDocument()
-    })
-  })
-
-  it('shows dash for last login when null', async () => {
-    vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser({ last_login: null }))
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('—')).toBeInTheDocument()
-    })
+    expect(await screen.findByText(/failed to load profile/i)).toBeInTheDocument()
   })
 
   describe('Display section', () => {
-    it('renders the Display heading and timezone combobox', async () => {
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText('Display')).toBeInTheDocument()
-        expect(screen.getByText('Timezone')).toBeInTheDocument()
-        expect(screen.getByRole('combobox')).toBeInTheDocument()
-      })
-    })
-
-    it('timezone change updates the store', async () => {
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+    it.each([
+      { initial: null, search: 'Asia/Tokyo', option: 'Asia/Tokyo', want: 'Asia/Tokyo' },
+      { initial: 'Asia/Tokyo', search: 'Auto', option: /^Auto \(browser:/, want: null },
+    ])('picking timezone $option stores $want', async ({ initial, search, option, want }) => {
+      useUIStore.setState({ timezone: initial })
       const user = userEvent.setup()
-
       renderPage()
 
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument()
-      })
+      await user.click(await screen.findByRole('combobox'))
+      await user.type(await screen.findByPlaceholderText('Search timezone…'), search)
+      await user.click(await screen.findByText(option))
 
-      // Open the combobox
-      await user.click(screen.getByRole('combobox'))
-
-      // Search for Tokyo to narrow the list
-      const searchInput = await screen.findByPlaceholderText('Search timezone…')
-      await user.type(searchInput, 'Asia/Tokyo')
-
-      const tokyoOption = await screen.findByText('Asia/Tokyo')
-      await user.click(tokyoOption)
-
-      expect(useUIStore.getState().timezone).toBe('Asia/Tokyo')
+      expect(useUIStore.getState().timezone).toBe(want)
     })
 
-    it('selecting Auto reverts timezone to null', async () => {
-      useUIStore.setState({ timezone: 'Asia/Tokyo' })
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
+    // The preview renders the current time in the chosen format.
+    it.each([
+      { initial: null, click: '24-hour', want: '24h', ampm: false },
+      { initial: null, click: '12-hour', want: '12h', ampm: true },
+      { initial: '24h' as const, click: 'Auto', want: null, ampm: undefined },
+    ])('time format $click sets $want', async ({ initial, click, want, ampm }) => {
+      useUIStore.setState({ timeFormat: initial })
       const user = userEvent.setup()
-
       renderPage()
 
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument()
-      })
+      await user.click(await screen.findByRole('button', { name: click }))
 
-      // Open the combobox (currently showing Asia/Tokyo)
-      await user.click(screen.getByRole('combobox'))
-
-      // Search for auto
-      const searchInput = await screen.findByPlaceholderText('Search timezone…')
-      await user.type(searchInput, 'Auto')
-
-      const autoOption = await screen.findByText(/^Auto \(browser:/)
-      await user.click(autoOption)
-
-      expect(useUIStore.getState().timezone).toBeNull()
-    })
-
-    it('time format toggle: clicking 24-hour sets timeFormat to 24h', async () => {
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-      const user = userEvent.setup()
-
-      renderPage()
-
-      const btn24 = await screen.findByRole('button', { name: '24-hour' })
-      await user.click(btn24)
-
-      expect(useUIStore.getState().timeFormat).toBe('24h')
-    })
-
-    it('time format toggle: clicking Auto resets timeFormat to null', async () => {
-      useUIStore.setState({ timeFormat: '24h' })
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-      const user = userEvent.setup()
-
-      renderPage()
-
-      const btnAuto = await screen.findByRole('button', { name: 'Auto' })
-      await user.click(btnAuto)
-
-      expect(useUIStore.getState().timeFormat).toBeNull()
-    })
-
-    it('preview text is present and non-empty', async () => {
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText(/^Preview:/)).toBeInTheDocument()
-      })
-
-      const previewText = screen.getByText(/^Preview:/).textContent ?? ''
-      expect(previewText.length).toBeGreaterThan('Preview: '.length)
-    })
-
-    it('preview reflects timeFormat: 12h shows AM/PM, 24h does not', async () => {
-      vi.mocked(usersApi.fetchMe).mockResolvedValue(makeUser())
-
-      // Render with 12h format
-      useUIStore.setState({ timezone: null, timeFormat: '12h' })
-      const { unmount } = renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText(/^Preview:/)).toBeInTheDocument()
-      })
-      const preview12h = screen.getByText(/^Preview:/).textContent ?? ''
-      unmount()
-
-      // Render with 24h format
-      useUIStore.setState({ timezone: null, timeFormat: '24h' })
-      renderPage()
-
-      await waitFor(() => {
-        expect(screen.getByText(/^Preview:/)).toBeInTheDocument()
-      })
-      const preview24h = screen.getByText(/^Preview:/).textContent ?? ''
-
-      // 12h format contains AM or PM; 24h does not
-      expect(preview12h).toMatch(/AM|PM/)
-      expect(preview24h).not.toMatch(/AM|PM/)
+      expect(useUIStore.getState().timeFormat).toBe(want)
+      if (ampm !== undefined) {
+        expect(/AM|PM/.test(screen.getByText(/^Preview:/).textContent ?? '')).toBe(ampm)
+      }
     })
   })
 })

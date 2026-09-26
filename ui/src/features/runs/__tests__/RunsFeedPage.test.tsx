@@ -1,4 +1,5 @@
 import { act, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
 import { RunsFeedPage } from '../RunsFeedPage'
@@ -41,7 +42,10 @@ vi.mock('@/api/builds', () => ({
 
 import { fetchRunsFeed } from '@/api/pipeline'
 
-function makeResponse(runs: PipelineRun[], overrides?: Partial<PaginatedResponse<PipelineRun[]>['pagination']>): PaginatedResponse<PipelineRun[]> {
+function makeResponse(
+  runs: PipelineRun[],
+  overrides?: Partial<PaginatedResponse<PipelineRun[]>['pagination']>,
+): PaginatedResponse<PipelineRun[]> {
   return {
     data: runs,
     metadata: { message: 'ok' },
@@ -83,16 +87,18 @@ function makeRun(overrides?: Partial<PipelineRun>): PipelineRun {
   }
 }
 
+// The branch select is enabled once the groups' branches have loaded, i.e. once
+// the effective branch filter is settled.
+async function waitForBranches() {
+  await waitFor(() => {
+    expect(screen.getByRole('combobox', { name: /filter by branch/i })).toBeEnabled()
+  })
+}
+
 describe('RunsFeedPage', () => {
   beforeEach(() => {
     vi.mocked(fetchRunsFeed).mockReset()
     useUIStore.setState({ selectedBranch: undefined, runsFeedGroupIds: [] })
-  })
-
-  it('has data-testid="runs-feed"', async () => {
-    vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
-    renderWithProviders(<RunsFeedPage />)
-    expect(screen.getByTestId('runs-feed')).toBeInTheDocument()
   })
 
   it('renders a row per run once data loads', async () => {
@@ -108,78 +114,62 @@ describe('RunsFeedPage', () => {
     vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
     renderWithProviders(<RunsFeedPage />)
 
-    await waitFor(() => {
-      expect(screen.getByText(/CI metadata/i)).toBeInTheDocument()
-    })
-    const link = screen.getByRole('link', { name: /projects/i })
-    expect(link).toHaveAttribute('href', '/projects')
+    expect(await screen.findByText(/CI metadata/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /projects/i })).toHaveAttribute('href', '/projects')
   })
 
-  it('passes selected group_id filters through to fetchRunsFeed', async () => {
-    useUIStore.setState({ runsFeedGroupIds: [10] })
+  it.each([
+    { name: 'no filters', branch: undefined, groups: [], want: [undefined, undefined] },
+    { name: 'a known stored branch', branch: 'main', groups: [], want: ['main', undefined] },
+    // The stored branch is shared across pages; one no group has must not filter the feed.
+    {
+      name: 'an unknown stored branch',
+      branch: 'nonexistent',
+      groups: [],
+      want: [undefined, undefined],
+    },
+    { name: 'selected groups', branch: undefined, groups: [10], want: [undefined, [10]] },
+  ])('requests the feed for $name', async ({ branch, groups, want }) => {
+    useUIStore.setState({ selectedBranch: branch, runsFeedGroupIds: groups })
     vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
     renderWithProviders(<RunsFeedPage />)
 
+    await waitForBranches()
     await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, undefined, [10])
+      expect(fetchRunsFeed).toHaveBeenLastCalledWith(1, undefined, ...want)
     })
   })
 
-  it('calls fetchRunsFeed with undefined groupIds when none are selected', async () => {
-    vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
-    renderWithProviders(<RunsFeedPage />)
-
-    await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, undefined, undefined)
-    })
-  })
-
-  it('resets to page 1 when the branch filter changes', async () => {
-    vi.mocked(fetchRunsFeed).mockResolvedValue(
-      makeResponse([makeRun()], { page: 2, total_pages: 3 }),
+  it.each([
+    {
+      name: 'branch',
+      change: () => useUIStore.setState({ selectedBranch: 'develop' }),
+      want: ['develop', undefined],
+    },
+    {
+      name: 'group',
+      change: () => useUIStore.getState().setRunsFeedGroupIds([10]),
+      want: [undefined, [10]],
+    },
+  ])('resets to page 1 when the $name filter changes', async ({ change, want }) => {
+    const user = userEvent.setup()
+    vi.mocked(fetchRunsFeed).mockImplementation((page = 1) =>
+      Promise.resolve(makeResponse([makeRun()], { page, total_pages: 3 })),
     )
-    useUIStore.setState({ selectedBranch: 'main' })
     renderWithProviders(<RunsFeedPage />)
+    await waitForBranches()
 
+    await user.click(await screen.findByRole('button', { name: /next/i }))
     await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, 'main', undefined)
+      expect(fetchRunsFeed).toHaveBeenLastCalledWith(2, undefined, undefined, undefined)
     })
 
-    vi.mocked(fetchRunsFeed).mockClear()
     act(() => {
-      useUIStore.setState({ selectedBranch: 'develop' })
+      change()
     })
 
     await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, 'develop', undefined)
-    })
-  })
-
-  it('sends no branch param when the stored branch is absent from the available branches', async () => {
-    useUIStore.setState({ selectedBranch: 'nonexistent' })
-    vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
-    renderWithProviders(<RunsFeedPage />)
-
-    await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, undefined, undefined)
-    })
-  })
-
-  it('resets to page 1 when the group filter changes', async () => {
-    vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([makeRun()]))
-    renderWithProviders(<RunsFeedPage />)
-
-    await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, undefined, undefined)
-    })
-
-    vi.mocked(fetchRunsFeed).mockClear()
-    act(() => {
-      useUIStore.getState().setRunsFeedGroupIds([10])
-    })
-
-    await waitFor(() => {
-      expect(fetchRunsFeed).toHaveBeenCalledWith(1, undefined, undefined, [10])
+      expect(fetchRunsFeed).toHaveBeenLastCalledWith(1, undefined, ...want)
     })
   })
 })

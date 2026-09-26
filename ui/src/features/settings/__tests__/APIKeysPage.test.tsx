@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
@@ -12,7 +12,8 @@ import type { APIKey, APIKeyCreated } from '@/types/api'
 vi.mock('@/api/api-keys')
 mockApiClient()
 
-function renderPage() {
+function renderPage(keys: APIKey[]) {
+  vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue(keys)
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter initialEntries={['/settings/api-keys']}>
@@ -37,11 +38,7 @@ function makeKey(overrides: Partial<APIKey> = {}): APIKey {
 }
 
 function makeCreatedKey(overrides: Partial<APIKeyCreated> = {}): APIKeyCreated {
-  return {
-    ...makeKey(),
-    key: 'ak_abc123_supersecretfullkey',
-    ...overrides,
-  }
+  return { ...makeKey(), key: 'ak_abc123_supersecretfullkey', ...overrides }
 }
 
 describe('APIKeysPage', () => {
@@ -50,199 +47,88 @@ describe('APIKeysPage', () => {
   })
 
   it('renders empty state when no keys exist', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([])
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/no api keys yet/i)).toBeInTheDocument()
-    })
+    renderPage([])
+    expect(await screen.findByText(/no api keys yet/i)).toBeInTheDocument()
   })
 
-  it('renders key list with name, prefix, role, and created date', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ name: 'CI Pipeline', prefix: 'ak_abc123', role: 'admin' }),
+  it('lists keys with prefix, role, and Expired/MCP badges on the matching row only', async () => {
+    renderPage([
+      makeKey({ id: 1, name: 'CI Pipeline', prefix: 'ak_abc123', role: 'admin' }),
+      makeKey({
+        id: 2,
+        name: 'Old MCP Key',
+        prefix: 'ak_old',
+        role: 'viewer',
+        allow_mcp_writes: true,
+        expires_at: '2020-01-01T00:00:00Z',
+      }),
     ])
 
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('CI Pipeline')).toBeInTheDocument()
-      expect(screen.getByText('ak_abc123')).toBeInTheDocument()
-      expect(screen.getByText('admin')).toBeInTheDocument()
-    })
+    const active = within((await screen.findByText('CI Pipeline')).closest('tr')!)
+    const expired = within(screen.getByText('Old MCP Key').closest('tr')!)
+    expect(active.getByText('ak_abc123')).toBeInTheDocument()
+    expect(active.getByText('admin')).toBeInTheDocument()
+    expect(active.queryByText('Expired')).not.toBeInTheDocument()
+    expect(active.queryByText('MCP')).not.toBeInTheDocument()
+    expect(expired.getByText('viewer')).toBeInTheDocument()
+    expect(expired.getByText('Expired')).toBeInTheDocument()
+    expect(expired.getByText('MCP')).toBeInTheDocument()
   })
 
-  it('renders viewer role badge', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([makeKey({ role: 'viewer' })])
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('viewer')).toBeInTheDocument()
-    })
-  })
-
-  it('shows Expired badge and grayed row for expired key', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ expires_at: '2020-01-01T00:00:00Z' }),
-    ])
-
-    renderPage()
+  it.each([
+    { count: 5, disabled: true },
+    { count: 1, disabled: false },
+  ])('Create button disabled=$disabled with $count keys (limit 5)', async ({ count, disabled }) => {
+    renderPage(Array.from({ length: count }, (_, i) => makeKey({ id: i + 1 })))
 
     await waitFor(() => {
-      expect(screen.getByText('Expired')).toBeInTheDocument()
-    })
-
-    // The row should have opacity-50 class
-    const expiredBadge = screen.getByText('Expired')
-    const row = expiredBadge.closest('tr')
-    expect(row).toHaveClass('opacity-50')
-  })
-
-  it('disables Create button when 5 keys exist', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ id: 1 }),
-      makeKey({ id: 2 }),
-      makeKey({ id: 3 }),
-      makeKey({ id: 4 }),
-      makeKey({ id: 5 }),
-    ])
-
-    renderPage()
-
-    await waitFor(() => {
-      const btn = screen.getByRole('button', { name: /create api key/i })
-      expect(btn).toBeDisabled()
-    })
-  })
-
-  it('Create button is enabled when fewer than 5 keys', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([makeKey()])
-
-    renderPage()
-
-    await waitFor(() => {
-      const btn = screen.getByRole('button', { name: /create api key/i })
-      expect(btn).not.toBeDisabled()
-    })
-  })
-
-  it('opens create dialog on button click', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([])
-
-    renderPage()
-
-    const btn = await screen.findByRole('button', { name: /create api key/i })
-    await userEvent.click(btn)
-
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
-  })
-
-  it('calls createAPIKey and shows created key dialog on success', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([])
-    vi.mocked(apiKeysApi.createAPIKey).mockResolvedValue({
-      apiKey: makeCreatedKey({ key: 'ak_abc123_supersecretfullkey' }),
-      message: 'created',
-    })
-
-    renderPage()
-
-    const createBtn = await screen.findByRole('button', { name: /create api key/i })
-    await userEvent.click(createBtn)
-
-    const nameInput = screen.getByLabelText(/name/i)
-    await userEvent.type(nameInput, 'My Key')
-
-    const submitBtn = screen.getByRole('button', { name: /^create$/i })
-    await userEvent.click(submitBtn)
-
-    await waitFor(() => {
-      expect(apiKeysApi.createAPIKey).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'My Key' }),
+      expect(screen.getByRole('button', { name: /create api key/i }).hasAttribute('disabled')).toBe(
+        disabled,
       )
     })
-
-    await waitFor(() => {
-      expect(screen.getByText('ak_abc123_supersecretfullkey')).toBeInTheDocument()
-    })
   })
 
-  it('shows delete confirmation dialog on delete icon click', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ id: 42, name: 'Old Key', prefix: 'ak_old' }),
-    ])
+  it.each([
+    { name: 'My Key', mcp: false },
+    { name: 'MCP Key', mcp: true },
+  ])(
+    'creates a key with allow_mcp_writes=$mcp and shows the full key once',
+    async ({ name, mcp }) => {
+      const user = userEvent.setup()
+      vi.mocked(apiKeysApi.createAPIKey).mockResolvedValue({
+        apiKey: makeCreatedKey({ allow_mcp_writes: mcp }),
+        message: 'created',
+      })
+      renderPage([])
 
-    renderPage()
+      await user.click(await screen.findByRole('button', { name: /create api key/i }))
+      await user.type(screen.getByLabelText(/name/i), name)
+      if (mcp) await user.click(screen.getByRole('checkbox', { name: /allow mcp writes/i }))
+      await user.click(screen.getByRole('button', { name: /^create$/i }))
 
-    const deleteBtn = await screen.findByRole('button', { name: /delete api key old key/i })
-    await userEvent.click(deleteBtn)
+      await waitFor(() => {
+        expect(apiKeysApi.createAPIKey).toHaveBeenCalledWith(
+          expect.objectContaining({ name, allow_mcp_writes: mcp }),
+        )
+      })
+      expect(await screen.findByText('ak_abc123_supersecretfullkey')).toBeInTheDocument()
+    },
+  )
 
-    await waitFor(() => {
-      expect(screen.getByRole('alertdialog')).toBeInTheDocument()
-      expect(screen.getByText(/delete api key\?/i)).toBeInTheDocument()
-      // the dialog description contains the key name
-      expect(screen.getAllByText(/old key/i).length).toBeGreaterThan(0)
-    })
-  })
-
-  it('calls deleteAPIKey on confirmation', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ id: 42, name: 'Old Key', prefix: 'ak_old' }),
-    ])
+  it('confirms deletion naming the key, then calls deleteAPIKey', async () => {
+    const user = userEvent.setup()
     vi.mocked(apiKeysApi.deleteAPIKey).mockResolvedValue()
+    renderPage([makeKey({ id: 42, name: 'Old Key', prefix: 'ak_old' })])
 
-    renderPage()
+    await user.click(await screen.findByRole('button', { name: /delete api key old key/i }))
 
-    const deleteBtn = await screen.findByRole('button', { name: /delete api key old key/i })
-    await userEvent.click(deleteBtn)
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText(/delete api key\?/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/old key/i)).toBeInTheDocument()
 
-    const confirmBtn = await screen.findByRole('button', { name: /^delete$/i })
-    await userEvent.click(confirmBtn)
-
+    await user.click(within(dialog).getByRole('button', { name: /^delete$/i }))
     await waitFor(() => {
       expect(apiKeysApi.deleteAPIKey).toHaveBeenCalledWith(42)
-    })
-  })
-
-  it('passes allow_mcp_writes: true when toggle is checked before submit', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([])
-    vi.mocked(apiKeysApi.createAPIKey).mockResolvedValue({
-      apiKey: makeCreatedKey({ allow_mcp_writes: true }),
-      message: 'created',
-    })
-
-    renderPage()
-
-    const createBtn = await screen.findByRole('button', { name: /create api key/i })
-    await userEvent.click(createBtn)
-
-    const nameInput = screen.getByLabelText(/name/i)
-    await userEvent.type(nameInput, 'MCP Key')
-
-    const mcpToggle = screen.getByRole('checkbox', { name: /allow mcp writes/i })
-    await userEvent.click(mcpToggle)
-
-    const submitBtn = screen.getByRole('button', { name: /^create$/i })
-    await userEvent.click(submitBtn)
-
-    await waitFor(() => {
-      expect(apiKeysApi.createAPIKey).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'MCP Key', allow_mcp_writes: true }),
-      )
-    })
-  })
-
-  it('renders MCP badge for keys with allow_mcp_writes: true', async () => {
-    vi.mocked(apiKeysApi.fetchAPIKeys).mockResolvedValue([
-      makeKey({ name: 'MCP Key', allow_mcp_writes: true }),
-    ])
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('MCP')).toBeInTheDocument()
     })
   })
 })

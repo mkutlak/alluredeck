@@ -14,7 +14,8 @@ vi.mock('@/api/webhooks')
 vi.mock('@/api/projects')
 mockApiClient()
 
-function renderPage(search = '?project=1') {
+function renderPage(webhooks: Webhook[] = [], search = '?project=1') {
+  vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue(webhooks)
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter initialEntries={[`/settings/webhooks${search}`]}>
@@ -53,113 +54,62 @@ describe('WebhooksPage', () => {
     })
   })
 
-  it('renders empty state when no webhooks configured', async () => {
-    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([])
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/no webhooks yet/i)).toBeInTheDocument()
-    })
+  it.each([
+    { name: 'the empty state', webhooks: [], texts: [/no webhooks yet/i] },
+    {
+      name: 'webhook names',
+      webhooks: [
+        makeWebhook({ id: 'wh-1', name: 'CI Alerts', target_type: 'slack' }),
+        makeWebhook({ id: 'wh-2', name: 'Discord Notifier', target_type: 'discord' }),
+      ],
+      texts: ['CI Alerts', 'Discord Notifier'],
+    },
+  ])('lists the selected project webhooks: $name', async ({ webhooks, texts }) => {
+    renderPage(webhooks)
+    for (const text of texts) expect(await screen.findByText(text)).toBeInTheDocument()
   })
 
-  it('renders webhooks list with webhook names', async () => {
-    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([
-      makeWebhook({ id: 'wh-1', name: 'CI Alerts', target_type: 'slack' }),
-      makeWebhook({ id: 'wh-2', name: 'Discord Notifier', target_type: 'discord' }),
-    ])
+  it.each([
+    { search: '', picker: /select a project\.\.\./i, prompt: true },
+    { search: '?project=1', picker: 'My Project', prompt: false },
+  ])('labels the project picker for search $search', async ({ search, picker, prompt }) => {
+    renderPage([], search)
 
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('CI Alerts')).toBeInTheDocument()
-      expect(screen.getByText('Discord Notifier')).toBeInTheDocument()
-    })
-  })
-
-  it('shows project selector prompt when no project in URL', async () => {
-    renderPage('')
-
-    await waitFor(() => {
-      expect(screen.getByText(/select a project to manage its webhooks/i)).toBeInTheDocument()
-    })
-    expect(screen.getByRole('button', { name: /select a project\.\.\./i })).toBeInTheDocument()
-  })
-
-  it('renders project picker button with selected project display name', async () => {
-    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([])
-
-    renderPage('?project=1')
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'My Project' })).toBeInTheDocument()
-    })
-  })
-
-  it('opens create dialog when add webhook button is clicked', async () => {
-    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([])
-
-    renderPage()
-
-    const btn = await screen.findByRole('button', { name: /add webhook/i })
-    await userEvent.click(btn)
-
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/url/i)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: picker })).toBeInTheDocument()
+    expect(screen.queryByText(/select a project to manage its webhooks/i) !== null).toBe(prompt)
+    expect(screen.queryByRole('button', { name: /add webhook/i }) !== null).toBe(!prompt)
   })
 
   it('calls createWebhook with form values on submit', async () => {
-    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([])
+    const user = userEvent.setup()
     vi.mocked(webhooksApi.createWebhook).mockResolvedValue(
       makeWebhook({ name: 'New Hook', url: 'https://example.com/hook' }),
     )
-
     renderPage()
 
-    const addBtn = await screen.findByRole('button', { name: /add webhook/i })
-    await userEvent.click(addBtn)
-
-    const nameInput = screen.getByLabelText(/^name$/i)
-    await userEvent.clear(nameInput)
-    await userEvent.type(nameInput, 'New Hook')
-
-    const urlInput = screen.getByLabelText(/^url$/i)
-    await userEvent.clear(urlInput)
-    await userEvent.type(urlInput, 'https://x.co/h')
-
-    const submitBtn = screen.getByRole('button', { name: /create/i })
-    await userEvent.click(submitBtn)
+    await user.click(await screen.findByRole('button', { name: /add webhook/i }))
+    await user.clear(screen.getByLabelText(/^name$/i))
+    await user.type(screen.getByLabelText(/^name$/i), 'New Hook')
+    await user.clear(screen.getByLabelText(/^url$/i))
+    await user.type(screen.getByLabelText(/^url$/i), 'https://x.co/h')
+    await user.click(screen.getByRole('button', { name: /create/i }))
 
     await waitFor(() => {
       expect(webhooksApi.createWebhook).toHaveBeenCalledWith(
         '1',
-        expect.objectContaining({
-          name: 'New Hook',
-          url: 'https://x.co/h',
-        }),
+        expect.objectContaining({ name: 'New Hook', url: 'https://x.co/h' }),
       )
     })
   }, 10000)
 
   it('calls deleteWebhook when delete is confirmed', async () => {
-    vi.mocked(webhooksApi.fetchWebhooks).mockResolvedValue([
-      makeWebhook({ id: 'wh-42', name: 'Old Hook' }),
-    ])
+    const user = userEvent.setup()
     vi.mocked(webhooksApi.deleteWebhook).mockResolvedValue()
+    renderPage([makeWebhook({ id: 'wh-42', name: 'Old Hook' })])
 
-    renderPage()
-
-    const deleteBtn = await screen.findByRole('button', { name: /delete webhook old hook/i })
-    await userEvent.click(deleteBtn)
-
-    await waitFor(() => {
-      expect(screen.getByRole('alertdialog')).toBeInTheDocument()
-      expect(screen.getByText(/delete webhook\?/i)).toBeInTheDocument()
-    })
-
-    const confirmBtn = screen.getByRole('button', { name: /^delete$/i })
-    await userEvent.click(confirmBtn)
+    await user.click(await screen.findByRole('button', { name: /delete webhook old hook/i }))
+    expect(await screen.findByText(/delete webhook\?/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^delete$/i }))
 
     await waitFor(() => {
       expect(webhooksApi.deleteWebhook).toHaveBeenCalledWith('1', 'wh-42')

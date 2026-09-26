@@ -1,34 +1,19 @@
 import { render, screen } from '@testing-library/react'
 import { FailureBadges } from '../FailureBadges'
 
+const BADGES = { flaky: /^flaky/, new: /^new$/, known: /^known$/ }
+
 describe('FailureBadges', () => {
-  it('renders no badges when all flags are false', () => {
-    render(<FailureBadges flaky={false} newFailed={false} known={false} />)
-    expect(screen.queryByText('flaky')).not.toBeInTheDocument()
-    expect(screen.queryByText('new')).not.toBeInTheDocument()
-    expect(screen.queryByText('known')).not.toBeInTheDocument()
-  })
-
-  it('renders the flaky badge when flaky is true', () => {
-    render(<FailureBadges flaky={true} newFailed={false} known={false} />)
-    expect(screen.getByText('flaky')).toBeInTheDocument()
-  })
-
-  it('renders the new badge when newFailed is true', () => {
-    render(<FailureBadges flaky={false} newFailed={true} known={false} />)
-    expect(screen.getByText('new')).toBeInTheDocument()
-  })
-
-  it('renders the known badge when known is true', () => {
-    render(<FailureBadges flaky={false} newFailed={false} known={true} />)
-    expect(screen.getByText('known')).toBeInTheDocument()
-  })
-
-  it('renders all three badges together', () => {
-    render(<FailureBadges flaky={true} newFailed={true} known={true} />)
-    expect(screen.getByText('flaky')).toBeInTheDocument()
-    expect(screen.getByText('new')).toBeInTheDocument()
-    expect(screen.getByText('known')).toBeInTheDocument()
+  it.each([
+    { flags: { flaky: false, newFailed: false, known: false }, want: [] },
+    { flags: { flaky: true, newFailed: false, known: false }, want: ['flaky'] },
+    { flags: { flaky: false, newFailed: true, known: false }, want: ['new'] },
+    { flags: { flaky: false, newFailed: false, known: true }, want: ['known'] },
+  ])('shows exactly the $want badges', ({ flags, want }) => {
+    render(<FailureBadges {...flags} />)
+    for (const [name, text] of Object.entries(BADGES)) {
+      expect(screen.queryByText(text) !== null).toBe(want.includes(name))
+    }
   })
 
   it('shows the retry count on the flaky badge when retries is given', () => {

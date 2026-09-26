@@ -19,21 +19,22 @@ function makeSuite(overrides: Partial<PipelineSuite> & { project_id: number }): 
   }
 }
 
+const failing = makeSuite({ project_id: 1, failed: 3, status: 'degraded' })
+
 describe('RunSuiteChips', () => {
   // A run of twenty suites where most passed cost three wrapped lines of chips.
-  it('renders only the failing suites and counts the rest', () => {
-    renderWithProviders(
-      <RunSuiteChips
-        suites={[
-          makeSuite({ project_id: 1, failed: 3, status: 'degraded' }),
-          makeSuite({ project_id: 2 }),
-          makeSuite({ project_id: 3 }),
-        ]}
-      />,
-    )
+  it.each([
+    {
+      name: 'with two passing',
+      suites: [failing, makeSuite({ project_id: 2 }), makeSuite({ project_id: 3 })],
+      passed: '· 2 passed',
+    },
+    { name: 'with none passing', suites: [failing], passed: null },
+  ])('renders only the failing suites and counts the rest ($name)', ({ suites, passed }) => {
+    renderWithProviders(<RunSuiteChips suites={suites} />)
 
     expect(screen.getAllByTestId('run-suite-chip')).toHaveLength(1)
-    expect(screen.getByText('· 2 passed')).toBeInTheDocument()
+    expect(screen.queryByText(/passed/)?.textContent ?? null).toBe(passed)
   })
 
   it('orders failing suites worst first', () => {
@@ -69,12 +70,5 @@ describe('RunSuiteChips', () => {
       <RunSuiteChips suites={[makeSuite({ project_id: 1 }), makeSuite({ project_id: 2 })]} />,
     )
     expect(screen.queryByTestId('run-suite-chips')).not.toBeInTheDocument()
-  })
-
-  it('omits the passed count when nothing passed', () => {
-    renderWithProviders(
-      <RunSuiteChips suites={[makeSuite({ project_id: 1, failed: 1, status: 'failed' })]} />,
-    )
-    expect(screen.queryByText(/passed/)).not.toBeInTheDocument()
   })
 })
