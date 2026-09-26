@@ -37,10 +37,6 @@ export const categoryChartConfig = {
   broken: { label: 'Broken', color: 'hsl(var(--chart-3))' },
 } satisfies ChartConfig
 
-export const sparklineChartConfig = {
-  passRate: { label: 'Pass Rate', color: 'hsl(var(--chart-5))' },
-} satisfies ChartConfig
-
 import { STATUS_COLORS, CATEGORY_COLORS, CATEGORY_DEFAULT_COLOR } from '@/lib/status-colors'
 export { STATUS_COLORS, CATEGORY_COLORS, CATEGORY_DEFAULT_COLOR }
 
