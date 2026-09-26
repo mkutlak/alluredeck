@@ -292,7 +292,9 @@ func TestS3Store_ProjectsAndResults(t *testing.T) {
 
 // TestS3Store_Reports reads report state under projects/<id>/reports/:
 // latest exists iff it holds objects, builds are the numeric common prefixes,
-// and stats come from the Allure 2 summary widget. Report IDs are validated.
+// and stats come from the Allure 2 summary widget or, for Allure 3, from
+// statistic.json with the duration taken from the test result files. Report
+// IDs are validated.
 func TestS3Store_Reports(t *testing.T) {
 	t.Parallel()
 	st := newTestS3Store(newFakeS3(map[string]string{
@@ -300,6 +302,11 @@ func TestS3Store_Reports(t *testing.T) {
 		"projects/p/reports/1/widgets/summary.json": `{"statistic":{"passed":10,"failed":2,"broken":1,"skipped":3,"unknown":0,"total":16},` +
 			`"time":{"duration":5000}}`,
 		"projects/p/reports/2/index.html": "<html/>",
+		// Build 2 is Allure 3: statistic.json has no timing, so the duration is the
+		// wall clock from the earliest start to the latest stop (not the 6000ms sum).
+		"projects/p/reports/2/widgets/statistic.json":   `{"passed":3,"failed":1,"broken":0,"skipped":0,"unknown":0,"total":4}`,
+		"projects/p/reports/2/data/test-results/a.json": `{"start":1700000000000,"stop":1700000002000}`,
+		"projects/p/reports/2/data/test-results/b.json": `{"start":1700000001000,"stop":1700000005000}`,
 	}), true)
 	ctx := context.Background()
 
@@ -311,9 +318,13 @@ func TestS3Store_Reports(t *testing.T) {
 	if builds, err := st.ListReportBuilds(ctx, "p"); err != nil || !slices.Equal(builds, []int{1, 2}) {
 		t.Errorf("ListReportBuilds = %v, %v", builds, err)
 	}
-	want := BuildStats{Passed: 10, Failed: 2, Broken: 1, Skipped: 3, Total: 16, DurationMs: 5000}
-	if stats, err := st.ReadBuildStats(ctx, "p", 1); err != nil || stats != want {
-		t.Errorf("ReadBuildStats = %+v, %v; want %+v", stats, err, want)
+	for build, want := range map[int]BuildStats{
+		1: {Passed: 10, Failed: 2, Broken: 1, Skipped: 3, Total: 16, DurationMs: 5000},
+		2: {Passed: 3, Failed: 1, Total: 4, DurationMs: 5000},
+	} {
+		if stats, err := st.ReadBuildStats(ctx, "p", build); err != nil || stats != want {
+			t.Errorf("ReadBuildStats(%d) = %+v, %v; want %+v", build, stats, err, want)
+		}
 	}
 	for id, want := range map[string]error{"": ErrReportIDEmpty, "latest": ErrReportIDInvalid} {
 		if err := st.DeleteReport(ctx, "p", id); !errors.Is(err, want) {

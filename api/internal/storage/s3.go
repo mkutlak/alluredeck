@@ -758,36 +758,22 @@ func (s *S3Store) getObjectBytes(ctx context.Context, key string) ([]byte, error
 	return data, nil
 }
 
-// durationFromTestResults computes total test duration (ms) from Allure test result JSON files in S3.
-// It lists *.json files under relPath, parses "start"/"stop" epoch-millisecond fields, and
-// returns the sum of individual test durations (stop - start per file).
-// Returns 0 when no valid timing data is found.
+// durationFromTestResults computes wall-clock build duration (ms) from the Allure test
+// result JSON files under relPath in S3; see wallClockDurationMs.
 func (s *S3Store) durationFromTestResults(ctx context.Context, projectID, relPath string) int64 {
 	entries, err := s.ReadDir(ctx, projectID, relPath)
 	if err != nil {
 		return 0
 	}
-	var totalDuration int64
+	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir || !strings.HasSuffix(e.Name, ".json") {
-			continue
-		}
-		data, err := s.ReadFile(ctx, projectID, relPath+"/"+e.Name)
-		if err != nil {
-			continue
-		}
-		var tr struct {
-			Start int64 `json:"start"`
-			Stop  int64 `json:"stop"`
-		}
-		if json.Unmarshal(data, &tr) != nil || tr.Start == 0 || tr.Stop == 0 {
-			continue
-		}
-		if tr.Stop > tr.Start {
-			totalDuration += tr.Stop - tr.Start
+		if !e.IsDir {
+			names = append(names, e.Name)
 		}
 	}
-	return totalDuration
+	return wallClockDurationMs(names, func(name string) ([]byte, error) {
+		return s.ReadFile(ctx, projectID, relPath+"/"+name)
+	})
 }
 
 // RenameProject copies all S3 objects from the old project prefix to the new one, then deletes the old prefix.

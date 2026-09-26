@@ -879,25 +879,40 @@ func isDirEmpty(name string) (bool, error) {
 	return false, nil
 }
 
-// durationFromTestResultFiles computes wall-clock build duration (ms) from Allure test
-// result JSON files. It scans all *.json files in dir, parses "start" and "stop" epoch-
-// millisecond fields, and returns max(stop) - min(start) across files. This matches what
-// CI reports as build duration regardless of how many tests ran in parallel — summing
-// per-test durations would multiply by the worker count.
-// Returns 0 when no valid timing data is found.
+// durationFromTestResultFiles computes wall-clock build duration (ms) from the Allure
+// test result JSON files in dir; see wallClockDurationMs.
 func durationFromTestResultFiles(dir string) int64 {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return wallClockDurationMs(names, func(name string) ([]byte, error) {
+		//nolint:gosec // G304: path built from known directory listing, not user input
+		return os.ReadFile(filepath.Join(dir, name))
+	})
+}
+
+// wallClockDurationMs computes wall-clock build duration (ms) from Allure test result
+// JSON files. It reads every *.json file among names via read, parses "start" and "stop"
+// epoch-millisecond fields, and returns max(stop) - min(start) across files. This matches
+// what CI reports as build duration regardless of how many tests ran in parallel —
+// summing per-test durations would multiply by the worker count. Files that fail to
+// read or parse, or carry no valid timing, are skipped.
+// Returns 0 when no valid timing data is found.
+func wallClockDurationMs(names []string, read func(name string) ([]byte, error)) int64 {
 	var minStart, maxStop int64
 	seen := false
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".json") {
 			continue
 		}
-		//nolint:gosec // G304: path built from known directory listing, not user input
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		data, err := read(name)
 		if err != nil {
 			continue
 		}
