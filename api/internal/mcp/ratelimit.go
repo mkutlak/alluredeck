@@ -205,10 +205,3 @@ func identityKey(r *http.Request) string {
 
 	return "unknown"
 }
-
-// ReservationFor is exported for testing — returns the limiter for a given key
-// so tests can inspect reservation state.
-func (rl *RateLimiter) ReservationFor(key string) *rate.Reservation {
-	lim := rl.getLimiter(key)
-	return lim.Reserve()
-}
