@@ -62,8 +62,8 @@ func TestStartCleanup_RemovesStaleEntries(t *testing.T) {
 
 // TestRateLimitMiddleware sends each row's requests from one RemoteAddr with
 // the given X-Forwarded-For. XFF picks the bucket only when trusted, and then
-// by its leftmost (client) address. A 429 carries Retry-After and the JSON
-// error envelope.
+// by its leftmost (client) address, whatever proxy chain follows it. A 429
+// carries Retry-After and the JSON error envelope.
 func TestRateLimitMiddleware(t *testing.T) {
 	type req struct {
 		xff  string
@@ -77,10 +77,10 @@ func TestRateLimitMiddleware(t *testing.T) {
 	}{
 		{"burst then 429", false, 2, []req{{"", http.StatusOK}, {"", http.StatusOK}, {"", http.StatusTooManyRequests}}},
 		{"untrusted XFF is ignored", false, 1, []req{{"203.0.113.50", http.StatusOK}, {"198.51.100.1", http.StatusTooManyRequests}}},
-		{"trusted XFF keys by the client address", true, 1, []req{
+		{"trusted XFF keys by the client address, not the proxy chain", true, 1, []req{
 			{"203.0.113.50, 70.41.3.18", http.StatusOK},
 			{"198.51.100.1", http.StatusOK},
-			{"203.0.113.50, 70.41.3.18", http.StatusTooManyRequests},
+			{"203.0.113.50, 10.9.9.9", http.StatusTooManyRequests},
 		}},
 	}
 	for _, tc := range tests {

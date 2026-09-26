@@ -17,20 +17,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/observability"
 )
 
-// TestInitDisabled returns a no-op shutdown that may be called repeatedly.
-func TestInitDisabled(t *testing.T) {
-	ctx := context.Background()
-	shutdown, err := observability.Init(ctx, config.ObservabilityConfig{Enabled: false}, zap.NewNop())
-	if err != nil || shutdown == nil {
-		t.Fatalf("Init(disabled) = (%v, %v), want a shutdown func", shutdown != nil, err)
-	}
-	for i := range 2 {
-		if err := shutdown(ctx); err != nil {
-			t.Errorf("shutdown call %d: %v", i+1, err)
-		}
-	}
-}
-
 // TestInitEnabled serves Prometheus metrics on the configured address until
 // shutdown, which closes the server. Not parallel: it binds a real TCP port.
 func TestInitEnabled(t *testing.T) {

@@ -179,9 +179,9 @@ func TestGetTestHistory(t *testing.T) {
 }
 
 // TestGetLastPassingBuild finds the latest pass strictly before a build_order,
-// optionally scoped to a branch. Build 7 of "hOoO" is backfilled after build
-// 10, so its IDENTITY id is higher: keying on builds.id instead of build_order
-// answers 5 instead of 7.
+// optionally scoped to a branch. The "hOoO" builds are ingested as 10, 7, 5
+// (backfills), so their IDENTITY ids run opposite to build_order: ordering by
+// builds.id answers 5 instead of 7, and bounding by build 10's id finds none.
 func TestGetLastPassingBuild(t *testing.T) {
 	f := newFixture(t)
 	main, feature := f.branch("main"), f.branch("feature")
@@ -206,12 +206,15 @@ func TestGetLastPassingBuild(t *testing.T) {
 	for _, r := range []struct {
 		order  int
 		status string
-	}{{5, "passed"}, {10, "failed"}, {7, "passed"}} {
+	}{{10, "failed"}, {7, "passed"}, {5, "passed"}} {
 		ids[r.order] = f.build(r.order)
+		if err := f.builds.UpdateBuildBranchID(f.ctx, f.id, r.order, feature.ID); err != nil {
+			t.Fatalf("UpdateBuildBranchID %d: %v", r.order, err)
+		}
 		f.insert(f.result(ids[r.order], "suite > out of order", r.status, "hOoO"))
 	}
-	if ids[7] <= ids[10] {
-		t.Fatalf("premise: backfilled build 7 id %d must exceed build 10 id %d", ids[7], ids[10])
+	if ids[5] <= ids[7] || ids[7] <= ids[10] {
+		t.Fatalf("premise: backfilled ids must run id(5) > id(7) > id(10), got %d, %d, %d", ids[5], ids[7], ids[10])
 	}
 
 	tests := []struct {
@@ -229,6 +232,7 @@ func TestGetLastPassingBuild(t *testing.T) {
 		{"never passed", "hNever", nil, 4, 0},
 		{"empty historyId never matches unrelated empty-history rows", "", nil, 2, 0},
 		{"orders by build_order, not builds.id", "hOoO", nil, 10, 7},
+		{"orders by build_order within a branch", "hOoO", &feature.ID, 10, 7},
 	}
 	for _, tt := range tests {
 		got, err := f.results.GetLastPassingBuild(f.ctx, f.id, tt.historyID, tt.branchID, tt.before)

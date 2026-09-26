@@ -199,7 +199,11 @@ func (f *fakeS3) CopyObject(_ context.Context, in *s3.CopyObjectInput, _ ...func
 	if err := f.record(in.Bucket, "Copy", source); err != nil {
 		return nil, err
 	}
-	v, ok := f.get(strings.TrimPrefix(source, testBucket+"/"))
+	key, ok := strings.CutPrefix(source, testBucket+"/")
+	if !ok {
+		return nil, fmt.Errorf("copy source %q is not %q+key", source, testBucket+"/")
+	}
+	v, ok := f.get(key)
 	if !ok {
 		return nil, &s3types.NoSuchKey{}
 	}
