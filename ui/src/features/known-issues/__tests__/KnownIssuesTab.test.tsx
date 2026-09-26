@@ -106,7 +106,7 @@ describe('KnownIssuesTab', () => {
         issue: makeIssue({ ticket_url: '', description: '', is_active: false }),
         showResolved: true,
       },
-    ])('$name, preserving the other fields', async ({ issue, showResolved }) => {
+    ])('$name, keeping other fields, and refreshes the list', async ({ issue, showResolved }) => {
       const user = userEvent.setup()
       vi.mocked(kiApi.listKnownIssues).mockResolvedValue([issue])
       vi.mocked(kiApi.updateKnownIssue).mockResolvedValue({ ...issue, is_active: !issue.is_active })
@@ -118,7 +118,9 @@ describe('KnownIssuesTab', () => {
           expect(kiApi.listKnownIssues).toHaveBeenLastCalledWith('myproject', false)
         })
       }
-      await user.click(await screen.findByRole('button', toggleButton))
+      const toggle = await screen.findByRole('button', toggleButton)
+      const listFetches = vi.mocked(kiApi.listKnownIssues).mock.calls.length
+      await user.click(toggle)
 
       await waitFor(() => {
         expect(kiApi.updateKnownIssue).toHaveBeenCalledWith('myproject', 1, {
@@ -126,6 +128,10 @@ describe('KnownIssuesTab', () => {
           description: issue.description,
           is_active: !issue.is_active,
         })
+      })
+      // The mutation's invalidation must hit the live ['known-issues', pid, flag] query.
+      await waitFor(() => {
+        expect(kiApi.listKnownIssues).toHaveBeenCalledTimes(listFetches + 1)
       })
     })
   })

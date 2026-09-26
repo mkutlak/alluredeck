@@ -23,8 +23,12 @@ export const queryKeys = {
     sort !== undefined || branch !== undefined
       ? (['low-performing-tests', pid, sort ?? undefined, branch ?? undefined] as const)
       : (['low-performing-tests', pid] as const),
+  // Omit showResolved for the bare prefix mutations invalidate: a trailing
+  // `undefined` slot would never match the live ['known-issues', pid, flag].
   knownIssues: (pid: string, showResolved?: boolean) =>
-    ['known-issues', pid, showResolved ?? undefined] as const,
+    showResolved !== undefined
+      ? (['known-issues', pid, showResolved] as const)
+      : (['known-issues', pid] as const),
   jobStatus: (pid: string, jid: string) => ['job-status', pid, jid] as const,
   buildComparison: (pid: string, a: number, b: number) => ['build-comparison', pid, a, b] as const,
   adminJobs: (page?: number, perPage?: number) =>
