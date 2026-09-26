@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Combobox, type ComboboxOption } from './combobox'
@@ -9,62 +9,49 @@ const OPTIONS: ComboboxOption[] = [
   { value: 'cherry', label: 'Cherry' },
 ]
 
+function renderCombobox(value: string | null, allowClear = false) {
+  const onChange = vi.fn()
+  const view = render(
+    <Combobox
+      options={OPTIONS}
+      value={value}
+      onChange={onChange}
+      allowClear={allowClear}
+      placeholder="Pick a fruit"
+    />,
+  )
+  return { ...view, onChange }
+}
+
 describe('Combobox', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('shows placeholder when value is null', () => {
-    render(<Combobox options={OPTIONS} value={null} onChange={vi.fn()} placeholder="Pick a fruit" />)
-    const trigger = screen.getByRole('combobox')
-    expect(trigger).toBeInTheDocument()
-    expect(trigger).toHaveTextContent('Pick a fruit')
-  })
-
-  it('shows matched label when value is set', () => {
-    render(<Combobox options={OPTIONS} value="banana" onChange={vi.fn()} placeholder="Pick a fruit" />)
-    const trigger = screen.getByRole('combobox')
-    expect(trigger).toBeInTheDocument()
-    expect(trigger).toHaveTextContent('Banana')
+  it.each([
+    [null, 'Pick a fruit'],
+    ['banana', 'Banana'],
+  ])('value %j shows %s on the trigger', (value, text) => {
+    renderCombobox(value)
+    expect(screen.getByRole('combobox')).toHaveTextContent(text)
   })
 
   it('calls onChange with the selected value when user picks an item', async () => {
     const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(<Combobox options={OPTIONS} value={null} onChange={onChange} placeholder="Pick a fruit" />)
+    const { onChange } = renderCombobox(null)
 
     await user.click(screen.getByRole('combobox'))
     await user.click(screen.getByText('Cherry'))
 
-    expect(onChange).toHaveBeenCalledOnce()
-    expect(onChange).toHaveBeenCalledWith('cherry')
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('cherry')
   })
 
-  it('calls onChange(null) when user clicks Clear selection', async () => {
+  it('offers Clear selection only with allowClear, and clearing calls onChange(null)', async () => {
     const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(
-      <Combobox
-        options={OPTIONS}
-        value="apple"
-        onChange={onChange}
-        allowClear
-        placeholder="Pick a fruit"
-      />,
-    )
-
-    await user.click(screen.getByRole('combobox'))
-    await user.click(screen.getByText('Clear selection'))
-
-    expect(onChange).toHaveBeenCalledOnce()
-    expect(onChange).toHaveBeenCalledWith(null)
-  })
-
-  it('does not render Clear selection when allowClear is false', async () => {
-    const user = userEvent.setup()
-    render(<Combobox options={OPTIONS} value="apple" onChange={vi.fn()} placeholder="Pick a fruit" />)
-
+    const { unmount } = renderCombobox('apple')
     await user.click(screen.getByRole('combobox'))
     expect(screen.queryByText('Clear selection')).not.toBeInTheDocument()
+    unmount()
+
+    const { onChange } = renderCombobox('apple', true)
+    await user.click(screen.getByRole('combobox'))
+    await user.click(screen.getByText('Clear selection'))
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(null)
   })
 })

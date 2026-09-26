@@ -1,106 +1,42 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
-import { createElement } from 'react'
+import { renderHook } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
+import { createElement, type ReactNode } from 'react'
 import { useUIStore } from '@/store/ui'
+import { projectNavItems } from '@/lib/projectNav'
 import { useTrackActiveTab } from '../useTrackActiveTab'
 
-// Reset store between tests
 beforeEach(() => {
   useUIStore.setState({ lastTabPerProject: {} })
 })
 
-function TestHook({ projectId }: { projectId: string | null }) {
-  useTrackActiveTab(projectId)
-  return null
-}
-
 function renderAt(path: string, projectId: string | null) {
-  render(
-    createElement(
-      MemoryRouter,
-      { initialEntries: [path] },
-      createElement(
-        Routes,
-        null,
-        // Match both the exact project route and sub-routes
-        createElement(Route, {
-          path: '/projects/:id/*',
-          element: createElement(TestHook, { projectId }),
-        }),
-        createElement(Route, {
-          path: '/*',
-          element: createElement(TestHook, { projectId }),
-        }),
-      ),
-    ),
-  )
+  renderHook(() => useTrackActiveTab(projectId), {
+    wrapper: ({ children }: { children: ReactNode }) =>
+      createElement(MemoryRouter, { initialEntries: [path] }, children),
+  })
+  return useUIStore.getState().lastTabPerProject
 }
 
 describe('useTrackActiveTab', () => {
-  it('records the Overview tab (empty string) for bare /projects/:id', () => {
-    renderAt('/projects/42', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('')
+  // Every tab the project nav offers is remembered ('' is Overview).
+  const navPaths = projectNavItems({ project_id: 42, slug: 'p' }).map((item) => item.to)
+
+  it.each(navPaths)('records the tab for %s', (path) => {
+    expect(renderAt(path, '42')).toEqual({ '42': path.replace(/^\/projects\/42\/?/, '') })
   })
 
-  it('records the analytics tab', () => {
-    renderAt('/projects/42/analytics', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('analytics')
-  })
-
-  it('records the defects tab', () => {
-    renderAt('/projects/42/defects', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('defects')
-  })
-
-  it('records the timeline tab', () => {
-    renderAt('/projects/42/timeline', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('timeline')
-  })
-
-  it('records the known-issues tab', () => {
-    renderAt('/projects/42/known-issues', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('known-issues')
-  })
-
-  it('records the attachments tab', () => {
-    renderAt('/projects/42/attachments', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('attachments')
-  })
-
-  it('is a no-op for deep sub-route reports/...', () => {
-    renderAt('/projects/42/reports/123', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBeUndefined()
-  })
-
-  it('is a no-op for deep sub-route trace/...', () => {
-    renderAt('/projects/42/trace/abc', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBeUndefined()
-  })
-
-  it('is a no-op for compare sub-route', () => {
-    renderAt('/projects/42/compare', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBeUndefined()
-  })
-
-  it('is a no-op for tests sub-route', () => {
-    renderAt('/projects/42/tests', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBeUndefined()
-  })
-
-  it('is a no-op when projectId is null', () => {
-    renderAt('/projects/42/analytics', null)
-    expect(useUIStore.getState().lastTabPerProject['42']).toBeUndefined()
-  })
-
-  it('is a no-op when not on a project route', () => {
-    renderAt('/', null)
-    expect(Object.keys(useUIStore.getState().lastTabPerProject)).toHaveLength(0)
+  it.each([
+    ['a deep sub-route', '/projects/42/reports/123', '42'],
+    ['a non-tab segment', '/projects/42/compare', '42'],
+    ['a null projectId', '/projects/42/analytics', null],
+    ['a non-project route', '/', null],
+  ])('is a no-op for %s', (_, path, projectId) => {
+    expect(renderAt(path, projectId)).toEqual({})
   })
 
   it('does not overwrite a stored tab when on a deep route', () => {
     useUIStore.setState({ lastTabPerProject: { '42': 'analytics' } })
-    renderAt('/projects/42/reports/123', '42')
-    expect(useUIStore.getState().lastTabPerProject['42']).toBe('analytics')
+    expect(renderAt('/projects/42/reports/123', '42')).toEqual({ '42': 'analytics' })
   })
 })

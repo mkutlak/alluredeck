@@ -1,176 +1,150 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { ApiError, NetworkError, extractErrorMessage } from './client'
 
-// ---------------------------------------------------------------------------
-// extractErrorMessage (static import — no fetch dependency)
-// ---------------------------------------------------------------------------
+let fetchSpy: ReturnType<typeof vi.fn<typeof fetch>>
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function refreshBody() {
+  return {
+    data: {
+      csrf_token: 'new-csrf',
+      expires_in: 3600,
+      roles: ['admin'],
+      username: 'alice',
+      provider: 'local',
+    },
+    metadata: { message: 'Session refreshed' },
+  }
+}
+
+const call = (i: number) => fetchSpy.mock.calls[i] as [string, RequestInit]
+const headersOf = (i: number) => call(i)[1].headers as Record<string, string>
+
+// Re-import after vi.resetModules() so the module picks up the stubbed fetch,
+// a fresh single-flight refresh promise, and the ApiError class it throws.
+async function getModule() {
+  vi.resetModules()
+  return import('./client')
+}
+
+function onUnauthorized() {
+  const handler = vi.fn()
+  window.addEventListener('allure:unauthorized', handler)
+  return handler
+}
+
+beforeEach(() => {
+  fetchSpy = vi.fn()
+  vi.stubGlobal('fetch', fetchSpy)
+  Object.defineProperty(document, 'cookie', { value: '', writable: true, configurable: true })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
 describe('extractErrorMessage', () => {
-  // These tests import statically because extractErrorMessage has no
-  // runtime dependency on fetch.
-  it('extracts metadata.message from ApiError', async () => {
-    const { extractErrorMessage, ApiError } = await import('./client')
-    const error = new ApiError('Request failed', {
-      status: 400,
-      data: { metadata: { message: 'Invalid credentials' } },
-    })
-    expect(extractErrorMessage(error)).toBe('Invalid credentials')
-  })
-
-  it('falls back to error.message when metadata absent', async () => {
-    const { extractErrorMessage, ApiError } = await import('./client')
-    const error = new ApiError('Network Error', {
-      status: 500,
-      data: {},
-    })
-    expect(extractErrorMessage(error)).toBe('Network Error')
-  })
-
-  it('extracts message from standard Error', async () => {
-    const { extractErrorMessage } = await import('./client')
-    expect(extractErrorMessage(new Error('Something went wrong'))).toBe('Something went wrong')
-  })
-
-  it('returns generic message for unknown error', async () => {
-    const { extractErrorMessage } = await import('./client')
-    expect(extractErrorMessage('oops')).toBe('An unexpected error occurred')
+  it.each([
+    [
+      'ApiError metadata.message',
+      new ApiError('Request failed', {
+        status: 400,
+        data: { metadata: { message: 'Invalid credentials' } },
+      }),
+      'Invalid credentials',
+    ],
+    [
+      'ApiError without metadata',
+      new ApiError('Network Error', { status: 500, data: {} }),
+      'Network Error',
+    ],
+    [
+      'NetworkError',
+      new NetworkError('Request timed out after 30s'),
+      'Cannot reach AllureDeck API — check your connection or the server.',
+    ],
+    ['plain Error', new Error('Something went wrong'), 'Something went wrong'],
+    ['non-Error value', 'oops', 'An unexpected error occurred'],
+  ])('maps %s', (_, error, expected) => {
+    expect(extractErrorMessage(error)).toBe(expected)
   })
 })
 
-// ---------------------------------------------------------------------------
-// apiClient (fetch wrapper)
-// ---------------------------------------------------------------------------
 describe('apiClient', () => {
-  let fetchSpy: ReturnType<typeof vi.fn>
-
-  function jsonResponse(body: unknown, status = 200): Response {
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  beforeEach(() => {
-    fetchSpy = vi.fn()
-    vi.stubGlobal('fetch', fetchSpy)
-    // Clear any CSRF cookie
-    Object.defineProperty(document, 'cookie', { value: '', writable: true, configurable: true })
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
-
-  // Re-import after each vi.resetModules() so the module picks up the
-  // stubbed fetch AND we get the same ApiError class the module uses.
-  async function getModule() {
-    vi.resetModules()
-    return import('./client')
-  }
-
-  it('GET constructs correct URL with params', async () => {
+  it('GET builds the query string, skipping undefined params but keeping falsy ones', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ ok: true }))
     const { apiClient } = await getModule()
 
     const res = await apiClient.get<{ ok: boolean }>('/test', {
-      params: { page: 1, q: 'hello' },
+      params: { page: 0, q: '', missing: undefined },
     })
 
     expect(res.data).toEqual({ ok: true })
-    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/test?')
-    expect(url).toContain('page=1')
-    expect(url).toContain('q=hello')
+    const [url, init] = call(0)
+    expect(url).toMatch(/\/test\?page=0&q=$/)
     expect(init.method).toBe('GET')
     expect(init.credentials).toBe('include')
   })
 
-  it('GET skips undefined params but preserves falsy values', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({}))
-    const { apiClient } = await getModule()
-
-    await apiClient.get('/test', {
-      params: { page: 0, q: '', missing: undefined },
-    })
-
-    const [url] = fetchSpy.mock.calls[0] as [string]
-    expect(url).toContain('page=0')
-    expect(url).toContain('q=')
-    expect(url).not.toContain('missing')
-  })
-
-  it('POST sends JSON body with correct headers', async () => {
+  it('POST sends a JSON body', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 1 }))
     const { apiClient } = await getModule()
 
     const res = await apiClient.post<{ id: number }>('/items', { name: 'test' })
 
     expect(res.data).toEqual({ id: 1 })
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    expect(init.method).toBe('POST')
-    expect(init.body).toBe(JSON.stringify({ name: 'test' }))
-    const headers = init.headers as Record<string, string>
-    expect(headers['Content-Type']).toBe('application/json')
+    expect(call(0)[1].method).toBe('POST')
+    expect(call(0)[1].body).toBe(JSON.stringify({ name: 'test' }))
+    expect(headersOf(0)['Content-Type']).toBe('application/json')
   })
 
-  it('injects CSRF token on mutating methods', async () => {
-    document.cookie = 'csrf_token=abc123'
-    // Each call needs its own Response (body can only be read once)
-    fetchSpy
-      .mockResolvedValueOnce(jsonResponse({}))
-      .mockResolvedValueOnce(jsonResponse({}))
-      .mockResolvedValueOnce(jsonResponse({}))
-      .mockResolvedValueOnce(jsonResponse({}))
-    const { apiClient } = await getModule()
+  it.each([
+    ['get', undefined],
+    ['post', 'abc123'],
+    ['put', 'abc123'],
+    ['delete', 'abc123'],
+    ['patch', 'abc123'],
+  ] as const)(
+    '%s sends X-CSRF-Token=%s (cookie only on mutating methods)',
+    async (method, expected) => {
+      document.cookie = 'csrf_token=abc123'
+      fetchSpy.mockResolvedValueOnce(jsonResponse({}))
+      const { apiClient } = await getModule()
 
-    await apiClient.post('/a', null)
-    await apiClient.put('/b', null)
-    await apiClient.delete('/c')
-    await apiClient.patch('/d', null)
+      await apiClient[method]('/x')
 
-    for (const call of fetchSpy.mock.calls) {
-      const [, init] = call as [string, RequestInit]
-      const headers = init.headers as Record<string, string>
-      expect(headers['X-CSRF-Token']).toBe('abc123')
-    }
-  })
+      expect(headersOf(0)['X-CSRF-Token']).toBe(expected)
+    },
+  )
 
-  it('does not inject CSRF token on GET', async () => {
-    document.cookie = 'csrf_token=abc123'
-    fetchSpy.mockResolvedValueOnce(jsonResponse({}))
-    const { apiClient } = await getModule()
-
-    await apiClient.get('/test')
-
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    const headers = init.headers as Record<string, string>
-    expect(headers['X-CSRF-Token']).toBeUndefined()
-  })
-
-  it('dispatches allure:unauthorized event on 401', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
-    const { apiClient, ApiError } = await getModule()
-    const handler = vi.fn()
-    window.addEventListener('allure:unauthorized', handler)
-
-    await expect(apiClient.get('/secret')).rejects.toThrow(ApiError)
-    expect(handler).toHaveBeenCalledTimes(1)
-
-    window.removeEventListener('allure:unauthorized', handler)
-  })
-
-  it('throws ApiError with parsed body on non-ok response', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ metadata: { message: 'Not found' } }, 404))
+  it.each([
+    [
+      'JSON',
+      jsonResponse({ metadata: { message: 'Not found' } }, 404),
+      404,
+      { metadata: { message: 'Not found' } },
+    ],
+    [
+      'non-JSON',
+      new Response('<html>Bad Gateway</html>', { status: 502, statusText: 'Bad Gateway' }),
+      502,
+      { message: 'Bad Gateway' },
+    ],
+  ])('throws ApiError carrying status and a %s error body', async (_, response, status, data) => {
+    fetchSpy.mockResolvedValueOnce(response)
     const { apiClient, ApiError } = await getModule()
 
-    try {
-      await apiClient.get('/missing')
-      expect.unreachable('should have thrown')
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError)
-      const apiErr = err as InstanceType<typeof ApiError>
-      expect(apiErr.response?.status).toBe(404)
-      expect(apiErr.response?.data).toEqual({ metadata: { message: 'Not found' } })
-    }
+    const err: unknown = await apiClient.get('/missing').catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as InstanceType<typeof ApiError>).response).toEqual({ status, data })
   })
 
   it('handles 204 No Content response', async () => {
@@ -182,111 +156,22 @@ describe('apiClient', () => {
     expect(res.data).toBeUndefined()
   })
 
-  it('strips Content-Type for FormData body', async () => {
+  it.each([
+    // The browser must generate the multipart boundary itself.
+    ['FormData drops', new FormData(), undefined],
+    ['a raw File keeps', new File(['data'], 'archive.tar.gz'), 'application/gzip'],
+  ])('%s the caller Content-Type and sends the body as-is', async (_, body, expected) => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({}))
     const { apiClient } = await getModule()
-    const formData = new FormData()
-    formData.append('file', new Blob(['data']), 'test.txt')
 
-    await apiClient.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    await apiClient.post('/upload', body, { headers: { 'Content-Type': 'application/gzip' } })
 
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    const headers = init.headers as Record<string, string>
-    // Content-Type must NOT be set so the browser auto-generates the boundary
-    expect(headers['Content-Type']).toBeUndefined()
-    expect(init.body).toBe(formData)
-  })
-
-  it('preserves Content-Type for raw File body', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({}))
-    const { apiClient } = await getModule()
-    const file = new File(['data'], 'archive.tar.gz')
-
-    await apiClient.post('/upload', file, {
-      headers: { 'Content-Type': 'application/gzip' },
-    })
-
-    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    const headers = init.headers as Record<string, string>
-    expect(headers['Content-Type']).toBe('application/gzip')
-    expect(init.body).toBe(file)
-  })
-
-  it('handles non-JSON error body gracefully', async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response('<html>Bad Gateway</html>', {
-        status: 502,
-        statusText: 'Bad Gateway',
-      }),
-    )
-    const { apiClient, ApiError } = await getModule()
-
-    try {
-      await apiClient.get('/broken')
-      expect.unreachable('should have thrown')
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError)
-      const apiErr = err as InstanceType<typeof ApiError>
-      expect(apiErr.response?.status).toBe(502)
-    }
-  })
-
-  it('exposes defaults.baseURL', async () => {
-    const { apiClient } = await getModule()
-    expect(apiClient.defaults.baseURL).toBeDefined()
-    expect(typeof apiClient.defaults.baseURL).toBe('string')
+    expect(headersOf(0)['Content-Type']).toBe(expected)
+    expect(call(0)[1].body).toBe(body)
   })
 })
 
-// ---------------------------------------------------------------------------
-// refresh-on-401 retry logic
-// ---------------------------------------------------------------------------
 describe('apiClient refresh-on-401', () => {
-  let fetchSpy: ReturnType<typeof vi.fn<typeof fetch>>
-
-  function jsonResponse(body: unknown, status = 200): Response {
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  function refreshBody(overrides: Record<string, unknown> = {}) {
-    return {
-      data: {
-        csrf_token: 'new-csrf',
-        expires_in: 3600,
-        roles: ['admin'],
-        username: 'alice',
-        provider: 'local',
-        ...overrides,
-      },
-      metadata: { message: 'Session refreshed' },
-    }
-  }
-
-  beforeEach(() => {
-    fetchSpy = vi.fn()
-    vi.stubGlobal('fetch', fetchSpy)
-    Object.defineProperty(document, 'cookie', { value: '', writable: true, configurable: true })
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
-
-  async function getModule() {
-    vi.resetModules()
-    return import('./client')
-  }
-
-  async function getAuthStore() {
-    return import('@/store/auth')
-  }
-
   it('successfully refreshes and retries on 401', async () => {
     fetchSpy
       .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
@@ -294,27 +179,24 @@ describe('apiClient refresh-on-401', () => {
       .mockResolvedValueOnce(jsonResponse({ ok: true, value: 42 }))
 
     const { apiClient } = await getModule()
-    const { useAuthStore } = await getAuthStore()
+    const { useAuthStore } = await import('@/store/auth') // same instance the client uses
     useAuthStore.getState().clearAuth()
 
     const res = await apiClient.get<{ ok: boolean; value: number }>('/widgets')
 
     expect(res.data).toEqual({ ok: true, value: 42 })
-    expect(fetchSpy).toHaveBeenCalledTimes(3)
-
-    const [firstUrl] = fetchSpy.mock.calls[0] as [string]
-    const [refreshUrl, refreshInit] = fetchSpy.mock.calls[1] as [string, RequestInit]
-    const [retryUrl] = fetchSpy.mock.calls[2] as [string]
-    expect(firstUrl).toContain('/widgets')
-    expect(refreshUrl).toContain('/auth/refresh')
-    expect(refreshInit.method).toBe('POST')
-    expect(retryUrl).toContain('/widgets')
-
-    const state = useAuthStore.getState()
-    expect(state.isAuthenticated).toBe(true)
-    expect(state.username).toBe('alice')
-    expect(state.roles).toEqual(['admin'])
-    expect(state.provider).toBe('local')
+    expect(fetchSpy.mock.calls.map((_, i) => new URL(call(i)[0]).pathname)).toEqual([
+      '/widgets',
+      '/auth/refresh',
+      '/widgets',
+    ])
+    expect(call(1)[1].method).toBe('POST')
+    expect(useAuthStore.getState()).toMatchObject({
+      isAuthenticated: true,
+      username: 'alice',
+      roles: ['admin'],
+      provider: 'local',
+    })
   })
 
   it('dispatches allure:unauthorized when refresh also fails', async () => {
@@ -323,57 +205,28 @@ describe('apiClient refresh-on-401', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'refresh denied' }, 401))
 
     const { apiClient, ApiError } = await getModule()
-    const handler = vi.fn()
-    window.addEventListener('allure:unauthorized', handler)
+    const handler = onUnauthorized()
 
     await expect(apiClient.get('/widgets')).rejects.toThrow(ApiError)
 
     expect(handler).toHaveBeenCalledTimes(1)
     expect(fetchSpy).toHaveBeenCalledTimes(2) // original + refresh, no retry
-    const [, refreshUrl] = fetchSpy.mock.calls.map((c) => c[0] as string)
-    expect(refreshUrl).toContain('/auth/refresh')
-
+    expect(call(1)[0]).toContain('/auth/refresh')
     window.removeEventListener('allure:unauthorized', handler)
   })
 
-  it('does not attempt refresh on /auth/refresh 401', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ error: 'refresh denied' }, 401))
+  it.each(['/auth/refresh', '/login'])('does not attempt refresh on %s 401', async (path) => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ error: 'denied' }, 401))
 
     const { apiClient, ApiError } = await getModule()
-    const handler = vi.fn()
-    window.addEventListener('allure:unauthorized', handler)
+    const handler = onUnauthorized()
 
-    await expect(apiClient.post('/auth/refresh')).rejects.toThrow(ApiError)
+    await expect(apiClient.post(path)).rejects.toThrow(ApiError)
 
     // Exactly one fetch: the original call. No follow-up /auth/refresh loop.
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [url] = fetchSpy.mock.calls[0] as [string]
-    expect(url).toContain('/auth/refresh')
+    expect(call(0)[0]).toContain(path)
     expect(handler).toHaveBeenCalledTimes(1)
-
-    window.removeEventListener('allure:unauthorized', handler)
-  })
-
-  it('does not attempt refresh on /login 401', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ error: 'bad credentials' }, 401))
-
-    const { apiClient, ApiError } = await getModule()
-    const handler = vi.fn()
-    window.addEventListener('allure:unauthorized', handler)
-
-    await expect(apiClient.post('/login', { username: 'x', password: 'y' })).rejects.toThrow(
-      ApiError,
-    )
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [url] = fetchSpy.mock.calls[0] as [string]
-    expect(url).toContain('/login')
-    // /login must not trigger a refresh POST
-    for (const call of fetchSpy.mock.calls) {
-      expect((call[0] as string)).not.toContain('/auth/refresh')
-    }
-    expect(handler).toHaveBeenCalledTimes(1)
-
     window.removeEventListener('allure:unauthorized', handler)
   })
 
@@ -386,17 +239,16 @@ describe('apiClient refresh-on-401', () => {
     })
 
     fetchSpy.mockImplementation((input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes('/auth/refresh')) {
         return refreshPending
       }
-      // First time each /x is hit, return 401; after the refresh we switch
-      // to returning 200. Track by occurrence count.
+      // prior counts the CURRENT call, so the first five hits of /x return 401
+      // and every retry after the refresh returns 200.
       const prior = fetchSpy.mock.calls.filter(
-        (c) => typeof c[0] === 'string' && (c[0]).includes('/x'),
+        (c) => typeof c[0] === 'string' && c[0].includes('/x'),
       ).length
-      // prior counts the CURRENT call, so the first hit has prior === 1
-      // and the first five calls all return 401, subsequent retries return 200.
       if (prior <= 5) {
         return Promise.resolve(jsonResponse({ error: 'unauthorized' }, 401))
       }
@@ -404,16 +256,12 @@ describe('apiClient refresh-on-401', () => {
     })
 
     const { apiClient } = await getModule()
-    const { useAuthStore } = await getAuthStore()
+    const { useAuthStore } = await import('@/store/auth') // same instance the client uses
     useAuthStore.getState().clearAuth()
 
-    const promises = [
+    const promises = Array.from({ length: 5 }, () =>
       apiClient.get<{ ok: boolean; n: number }>('/x'),
-      apiClient.get<{ ok: boolean; n: number }>('/x'),
-      apiClient.get<{ ok: boolean; n: number }>('/x'),
-      apiClient.get<{ ok: boolean; n: number }>('/x'),
-      apiClient.get<{ ok: boolean; n: number }>('/x'),
-    ]
+    )
 
     // Give the 5 original 401s a tick to land and register as waiters on the
     // single-flight refresh promise, then resolve /auth/refresh.
@@ -422,21 +270,11 @@ describe('apiClient refresh-on-401', () => {
 
     const results = await Promise.all(promises)
 
-    // All 5 callers received a successful retry response.
-    expect(results).toHaveLength(5)
-    for (const res of results) {
-      expect(res.data.ok).toBe(true)
-    }
-
-    // Exactly one call to /auth/refresh across the entire test.
+    expect(results.map((res) => res.data.ok)).toEqual([true, true, true, true, true])
     const refreshCalls = fetchSpy.mock.calls.filter(
-      (c) => typeof c[0] === 'string' && (c[0]).includes('/auth/refresh'),
+      (c) => typeof c[0] === 'string' && c[0].includes('/auth/refresh'),
     )
     expect(refreshCalls).toHaveLength(1)
-
-    // Sanity: auth store was updated once with the refreshed session.
-    const state = useAuthStore.getState()
-    expect(state.isAuthenticated).toBe(true)
-    expect(state.username).toBe('alice')
+    expect(useAuthStore.getState()).toMatchObject({ isAuthenticated: true, username: 'alice' })
   })
 })

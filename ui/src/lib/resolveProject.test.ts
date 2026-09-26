@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
+import { createTestQueryClient } from '@/test/render'
 import { resolveProjectFromParam, useProjectFromParam } from './resolveProject'
 import type { ProjectEntry } from '@/types/api'
 
-// ---------------------------------------------------------------------------
-// resolveProjectFromParam — pure function tests
-// ---------------------------------------------------------------------------
+vi.mock('@/api/projects', () => ({
+  getProjectIndex: vi.fn(),
+  getProject: vi.fn(),
+}))
+
+import { getProject, getProjectIndex } from '@/api/projects'
 
 const projects: ProjectEntry[] = [
   { project_id: 1, slug: 'alpha' },
@@ -16,114 +20,47 @@ const projects: ProjectEntry[] = [
 ]
 
 describe('resolveProjectFromParam', () => {
-  it('returns undefined when param is undefined', () => {
-    expect(resolveProjectFromParam(undefined, projects)).toBeUndefined()
-  })
-
-  it('returns undefined when param is empty string', () => {
-    expect(resolveProjectFromParam('', projects)).toBeUndefined()
-  })
-
-  it('returns undefined when projects is undefined', () => {
-    expect(resolveProjectFromParam('alpha', undefined)).toBeUndefined()
-  })
-
-  it('returns undefined for empty projects array', () => {
-    expect(resolveProjectFromParam('alpha', [])).toBeUndefined()
-  })
-
-  it('matches by project_id when param is a pure-digit string', () => {
-    const result = resolveProjectFromParam('42', projects)
-    expect(result).toBe(projects[1])
-  })
-
-  it('matches by slug when param is not a pure-digit string', () => {
-    const result = resolveProjectFromParam('alpha', projects)
-    expect(result).toBe(projects[0])
-  })
-
-  it('"42abc" falls through to slug match, not numeric match', () => {
-    // '42abc' is not /^\d+$/ so it tries slug match; no slug '42abc' exists
-    expect(resolveProjectFromParam('42abc', projects)).toBeUndefined()
-  })
-
-  it('slug that starts with digits but has letters is matched as slug', () => {
-    // '99problems' slug exists
-    const result = resolveProjectFromParam('99problems', projects)
-    expect(result).toBe(projects[2])
-  })
-
-  it('returns the exact project object, not a copy', () => {
-    const result = resolveProjectFromParam('1', projects)
-    expect(result).toBe(projects[0])
+  // Pure-digit params match project_id, anything else matches slug; the list's
+  // own object is returned, not a copy.
+  it.each([
+    ['42', 'the list', projects, projects[1]],
+    ['1', 'the list', projects, projects[0]],
+    ['alpha', 'the list', projects, projects[0]],
+    ['99problems', 'the list', projects, projects[2]],
+    ['42abc', 'the list', projects, undefined],
+    [undefined, 'the list', projects, undefined],
+    ['', 'the list', projects, undefined],
+    ['alpha', 'no list', undefined, undefined],
+    ['alpha', 'an empty list', [], undefined],
+  ])('resolves %j against %s', (param, _, list, expected) => {
+    expect(resolveProjectFromParam(param, list)).toBe(expected)
   })
 })
 
-// ---------------------------------------------------------------------------
-// useProjectFromParam — hook tests
-// ---------------------------------------------------------------------------
-
-vi.mock('@/api/projects', () => ({
-  getProjects: vi.fn(),
-  getProjectIndex: vi.fn(),
-}))
-
-import { getProjectIndex, getProjects } from '@/api/projects'
-
-const mockProject: ProjectEntry = { project_id: 7, slug: 'myproject' }
-
-function makeWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  return ({ children }: { children: React.ReactNode }) =>
-    createElement(QueryClientProvider, { client: queryClient }, children)
-}
-
 describe('useProjectFromParam', () => {
+  const notFound = new Error('not found')
+
   beforeEach(() => {
     vi.mocked(getProjectIndex).mockResolvedValue({
-      data: [mockProject],
+      data: [{ project_id: 7, slug: 'myproject' }],
       metadata: { message: 'ok' },
     })
-    vi.mocked(getProjects).mockResolvedValue({
-      data: [mockProject],
-      metadata: { message: 'ok' },
-      pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 },
-    })
+    // Params missing from the index fall back to a single-project fetch.
+    vi.mocked(getProject).mockRejectedValue(notFound)
   })
 
-  it('resolves project by slug after data loads', async () => {
-    const { result } = renderHook(() => useProjectFromParam('myproject'), {
-      wrapper: makeWrapper(),
+  it.each([
+    ['7', 7, null],
+    ['myproject', 7, null],
+    ['nonexistent', undefined, notFound],
+    [undefined, undefined, null],
+  ])('resolves %j to project_id %s (error %s)', async (param, expectedId, expectedError) => {
+    const qc = createTestQueryClient()
+    const { result } = renderHook(() => useProjectFromParam(param), {
+      wrapper: ({ children }) => createElement(QueryClientProvider, { client: qc }, children),
     })
     await waitFor(() => expect(result.current.isLoading).toBe(false))
-    expect(result.current.project).toBe(result.current.project)
-    expect(result.current.project?.project_id).toBe(7)
-    expect(result.current.error).toBeNull()
-  })
-
-  it('resolves project by numeric id after data loads', async () => {
-    const { result } = renderHook(() => useProjectFromParam('7'), {
-      wrapper: makeWrapper(),
-    })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    expect(result.current.project?.slug).toBe('myproject')
-  })
-
-  it('returns undefined project when param does not match', async () => {
-    const { result } = renderHook(() => useProjectFromParam('nonexistent'), {
-      wrapper: makeWrapper(),
-    })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    expect(result.current.project).toBeUndefined()
-  })
-
-  it('returns undefined project when param is undefined', async () => {
-    const { result } = renderHook(() => useProjectFromParam(undefined), {
-      wrapper: makeWrapper(),
-    })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    expect(result.current.project).toBeUndefined()
+    expect(result.current.project?.project_id).toBe(expectedId)
+    expect(result.current.error).toBe(expectedError)
   })
 })

@@ -1,32 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BreadcrumbBar } from '../BreadcrumbBar'
 import type { ProjectEntry } from '@/types/api'
-
-// Seed projects for tests
-const parentProject: ProjectEntry = {
-  project_id: 10,
-  slug: 'parent-group',
-  display_name: 'Parent Group',
-  children: [20],
-}
-
-const childProject: ProjectEntry = {
-  project_id: 20,
-  slug: 'child-proj',
-  display_name: 'Child Project',
-  parent_id: 10,
-}
-
-const standaloneProject: ProjectEntry = {
-  project_id: 30,
-  slug: 'standalone',
-  display_name: 'Standalone',
-}
-
-const allProjects = [parentProject, childProject, standaloneProject]
 
 vi.mock('@/lib/resolveProject', () => ({
   useProjectFromParam: vi.fn(),
@@ -34,169 +10,52 @@ vi.mock('@/lib/resolveProject', () => ({
 
 import { useProjectFromParam } from '@/lib/resolveProject'
 
-function makeQueryClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+const parent: ProjectEntry = { project_id: 10, slug: 'parent-group', display_name: 'Parent Group' }
+const child: ProjectEntry = {
+  project_id: 20,
+  slug: 'child-proj',
+  display_name: 'Child Project',
+  parent_id: 10,
 }
 
-function renderAtPath(path: string) {
+function renderAt(path: string, resolved: Partial<ReturnType<typeof useProjectFromParam>>) {
+  vi.mocked(useProjectFromParam).mockReturnValue({
+    project: undefined,
+    projects: [parent, child],
+    isLoading: false,
+    error: null,
+    ...resolved,
+  })
   return render(
-    <QueryClientProvider client={makeQueryClient()}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/analytics" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/known-issues" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/timeline" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/attachments" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/defects" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/tests" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/reports/:reportId" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/trace/:source" element={<BreadcrumbBar />} />
-          <Route path="/projects/:id/compare" element={<BreadcrumbBar />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/projects/:id/reports/:reportId" element={<BreadcrumbBar />} />
+        <Route path="/projects/:id" element={<BreadcrumbBar />} />
+      </Routes>
+    </MemoryRouter>,
   )
 }
 
+// Crumb derivation is covered by breadcrumbs.test.ts; this pins the wiring.
 describe('BreadcrumbBar', () => {
-  it('renders null on the dashboard route "/"', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: undefined,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    const { container } = renderAtPath('/')
-    expect(container.firstChild).toBeNull()
-  })
+  it('links every crumb but the current page, from the route and resolved project', () => {
+    renderAt('/projects/child-proj/reports/99', { project: child })
 
-  it('renders "Projects" link pointing to "/" for a standalone project', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: standaloneProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/30')
-    const projectsLink = screen.getByRole('link', { name: /projects/i })
-    expect(projectsLink).toHaveAttribute('href', '/')
-  })
-
-  it('renders current project name (non-linked) for standalone project at overview', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: standaloneProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/30')
-    expect(screen.getByText('Standalone')).toBeInTheDocument()
-    // Should not be a link
-    const allLinks = screen.getAllByRole('link')
-    const projectNameLinks = allLinks.filter((l) => l.textContent?.includes('Standalone'))
-    expect(projectNameLinks).toHaveLength(0)
-  })
-
-  it('renders parent segment with numeric link for child project', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: childProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/20')
-    // Parent link must use numeric project_id
-    const parentLink = screen.getByRole('link', { name: /parent group/i })
-    expect(parentLink).toHaveAttribute('href', '/projects/10')
-  })
-
-  it('renders tab segment as non-linked text when it is the current page', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: standaloneProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/30/analytics')
-    // "Analytics" should appear in the breadcrumb
-    expect(screen.getByText('Analytics')).toBeInTheDocument()
-    // It should NOT be a link (no href to analytics tab)
-    const links = screen.getAllByRole('link')
-    const analyticsLinks = links.filter((l) => l.textContent?.includes('Analytics'))
-    expect(analyticsLinks).toHaveLength(0)
-  })
-
-  it('renders tab segment as a link when a deeper sub-route is open (reports)', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: standaloneProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/30/reports/42')
-    // Overview tab link should point to project overview
-    const overviewLink = screen.getByRole('link', { name: /overview/i })
-    expect(overviewLink).toHaveAttribute('href', '/projects/30')
-    // Deep segment "Report #42" should be plain text, not a link
-    expect(screen.getByText(/report #42/i)).toBeInTheDocument()
-    const links = screen.getAllByRole('link')
-    const reportLinks = links.filter((l) => l.textContent?.match(/report #42/i))
-    expect(reportLinks).toHaveLength(0)
-  })
-
-  it('renders trace source as plain text deep segment', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: standaloneProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/30/trace/my-trace.zip')
-    expect(screen.getByText('my-trace.zip')).toBeInTheDocument()
-  })
-
-  it('renders compare page with "Build comparison" as plain text', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: standaloneProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/30/compare')
-    expect(screen.getByText(/build comparison/i)).toBeInTheDocument()
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((a) => [a.textContent, a.getAttribute('href')]),
+    ).toEqual([
+      ['Projects', '/'],
+      ['Parent Group', '/projects/10'],
+      ['Overview', '/projects/20'],
+    ])
+    expect(nav).toHaveTextContent(/Child Project.*Report #99$/)
   })
 
   it('shows skeleton placeholders while loading', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: undefined,
-      projects: undefined,
-      isLoading: true,
-      error: null,
-    })
-    renderAtPath('/projects/30')
-    // Skeleton elements rendered during loading
+    renderAt('/projects/30', { isLoading: true })
     expect(screen.getAllByTestId('breadcrumb-skeleton').length).toBeGreaterThan(0)
-  })
-
-  it('uses numeric project_id in all navigation links', () => {
-    vi.mocked(useProjectFromParam).mockReturnValue({
-      project: childProject,
-      projects: allProjects,
-      isLoading: false,
-      error: null,
-    })
-    renderAtPath('/projects/20/reports/99')
-    const links = screen.getAllByRole('link')
-    // None of the links should contain slug strings as href
-    links.forEach((link) => {
-      const href = link.getAttribute('href') ?? ''
-      expect(href).not.toMatch(/child-proj/)
-      expect(href).not.toMatch(/parent-group/)
-    })
-    // The parent link uses numeric id 10
-    const parentLink = screen.getByRole('link', { name: /parent group/i })
-    expect(parentLink).toHaveAttribute('href', '/projects/10')
   })
 })

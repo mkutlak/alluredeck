@@ -1,90 +1,53 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useAuthStore, selectIsAdmin, selectIsEditor } from '../auth'
-import type { AuthState } from '../auth'
+import { useAuthStore, selectIsAdmin, selectIsEditor, type Role } from '../auth'
 
-function getState(): AuthState {
-  return useAuthStore.getState()
-}
+const getState = () => useAuthStore.getState()
 
 describe('useAuthStore', () => {
   beforeEach(() => {
-    useAuthStore.getState().clearAuth()
+    getState().clearAuth()
   })
 
-  describe('setAuth', () => {
-    it('sets authentication state with local provider by default', () => {
-      getState().setAuth(['admin'], 'admin-user', 3600)
+  it.each([
+    [undefined, 'local'],
+    ['oidc', 'oidc'],
+  ] as const)(
+    'setAuth with provider %s stores a %s session expiring in expiresIn',
+    (provider, expected) => {
+      const before = Date.now()
+      getState().setAuth(['editor'], 'sso-user', 3600, provider)
 
-      const s = getState()
-      expect(s.isAuthenticated).toBe(true)
-      expect(s.roles).toEqual(['admin'])
-      expect(s.username).toBe('admin-user')
-      expect(s.provider).toBe('local')
-      expect(s.expiresAt).toBeGreaterThan(Date.now())
-    })
+      expect(getState()).toMatchObject({
+        isAuthenticated: true,
+        roles: ['editor'],
+        username: 'sso-user',
+        provider: expected,
+      })
+      expect(getState().expiresAt).toBeGreaterThanOrEqual(before + 3_600_000)
+    },
+  )
 
-    it('sets authentication state with oidc provider', () => {
-      getState().setAuth(['editor'], 'sso-user', 3600, 'oidc')
+  it('clearAuth resets all auth state including provider', () => {
+    getState().setAuth(['admin'], 'admin-user', 3600, 'oidc')
+    getState().clearAuth()
 
-      const s = getState()
-      expect(s.isAuthenticated).toBe(true)
-      expect(s.roles).toEqual(['editor'])
-      expect(s.username).toBe('sso-user')
-      expect(s.provider).toBe('oidc')
-    })
-
-    it('sets provider to local when explicitly passed', () => {
-      getState().setAuth(['viewer'], 'local-user', 3600, 'local')
-
-      expect(getState().provider).toBe('local')
-    })
-  })
-
-  describe('clearAuth', () => {
-    it('resets all auth state including provider', () => {
-      getState().setAuth(['admin'], 'admin-user', 3600, 'oidc')
-      getState().clearAuth()
-
-      const s = getState()
-      expect(s.isAuthenticated).toBe(false)
-      expect(s.roles).toEqual([])
-      expect(s.username).toBeNull()
-      expect(s.provider).toBeNull()
-      expect(s.expiresAt).toBeNull()
+    expect(getState()).toMatchObject({
+      isAuthenticated: false,
+      roles: [],
+      username: null,
+      provider: null,
+      expiresAt: null,
     })
   })
 
-  describe('selectIsAdmin', () => {
-    it('returns true for admin role', () => {
-      getState().setAuth(['admin'], 'a', 3600)
-      expect(selectIsAdmin(getState())).toBe(true)
-    })
-
-    it('returns false for editor role', () => {
-      getState().setAuth(['editor'], 'e', 3600)
-      expect(selectIsAdmin(getState())).toBe(false)
-    })
-
-    it('returns false for viewer role', () => {
-      getState().setAuth(['viewer'], 'v', 3600)
-      expect(selectIsAdmin(getState())).toBe(false)
-    })
-  })
-
-  describe('selectIsEditor', () => {
-    it('returns true for admin role', () => {
-      getState().setAuth(['admin'], 'a', 3600)
-      expect(selectIsEditor(getState())).toBe(true)
-    })
-
-    it('returns true for editor role', () => {
-      getState().setAuth(['editor'], 'e', 3600)
-      expect(selectIsEditor(getState())).toBe(true)
-    })
-
-    it('returns false for viewer role', () => {
-      getState().setAuth(['viewer'], 'v', 3600)
-      expect(selectIsEditor(getState())).toBe(false)
-    })
+  it.each<[Role[], boolean, boolean]>([
+    [['admin'], true, true],
+    [['editor'], false, true],
+    [['viewer'], false, false],
+    [[], false, false],
+  ])('roles %j -> isAdmin %s, isEditor %s', (roles, isAdmin, isEditor) => {
+    useAuthStore.setState({ roles })
+    expect(selectIsAdmin(getState())).toBe(isAdmin)
+    expect(selectIsEditor(getState())).toBe(isEditor)
   })
 })

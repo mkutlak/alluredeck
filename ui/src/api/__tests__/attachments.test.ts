@@ -50,37 +50,22 @@ describe('fetchAttachments', () => {
     )
   })
 
-  it('passes mime_type filter param', async () => {
-    mockGet.mockResolvedValueOnce({
-      data: { data: { groups: [], total: 0, limit: 100, offset: 0 } },
-    })
+  it.each([
+    [{ mimeType: 'image/' }, { mime_type: 'image/' }],
+    [
+      { limit: 50, offset: 10 },
+      { limit: 50, offset: 10 },
+    ],
+  ])('forwards options %o as params %o', async (opts, params) => {
+    mockGet.mockResolvedValueOnce({ data: { data: { groups: [], total: 0, limit: 0, offset: 0 } } })
 
-    await fetchAttachments('p1', 'latest', { mimeType: 'image/' })
+    await fetchAttachments('p1', '5', opts)
 
-    expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/latest/attachments', {
-      params: { mime_type: 'image/' },
-    })
-  })
-
-  it('passes limit and offset params', async () => {
-    mockGet.mockResolvedValueOnce({
-      data: { data: { groups: [], total: 0, limit: 50, offset: 10 } },
-    })
-
-    await fetchAttachments('p1', '5', { limit: 50, offset: 10 })
-
-    expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/5/attachments', {
-      params: { limit: 50, offset: 10 },
-    })
+    expect(mockGet).toHaveBeenCalledWith('/projects/p1/reports/5/attachments', { params })
   })
 })
 
 describe('attachmentFileUrl', () => {
-  it('constructs correct URL', () => {
-    const url = attachmentFileUrl('my-project', 'latest', 'screenshot.png')
-    expect(url).toBe('/api/v1/projects/my-project/reports/latest/attachments/screenshot.png')
-  })
-
   it('encodes special characters', () => {
     const url = attachmentFileUrl('my project', '5', 'file name.png')
     expect(url).toBe('/api/v1/projects/my%20project/reports/5/attachments/file%20name.png')

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { usePreferencesSync } from './usePreferencesSync'
-import { useUIStore } from '@/store/ui'
+import { useUIStore, type UIState } from '@/store/ui'
 import { useAuthStore } from '@/store/auth'
 
 vi.mock('@/api/preferences', () => ({
@@ -13,6 +13,10 @@ import { fetchPreferences, updatePreferences } from '@/api/preferences'
 
 const mockFetch = vi.mocked(fetchPreferences)
 const mockUpdate = vi.mocked(updatePreferences)
+
+function serverReturns(preferences: Record<string, unknown>, updated_at: string) {
+  mockFetch.mockResolvedValue({ data: { preferences, updated_at }, metadata: { message: 'ok' } })
+}
 
 describe('usePreferencesSync', () => {
   beforeEach(() => {
@@ -31,64 +35,42 @@ describe('usePreferencesSync', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('fetches and seeds preferences on mount when server is newer', async () => {
+  it.each<[string, Partial<UIState>, Record<string, unknown>, string, Partial<UIState>]>([
+    [
+      'seeds preferences when the server is newer',
+      { projectViewMode: 'grid' },
+      { projectViewMode: 'table' },
+      '2026-04-06T12:00:00Z',
+      { projectViewMode: 'table', _syncedAt: '2026-04-06T12:00:00Z' },
+    ],
+    [
+      'skips seeding when the server has no preferences',
+      { projectViewMode: 'grid' },
+      {},
+      '',
+      { projectViewMode: 'grid', _syncedAt: null },
+    ],
+    [
+      'coerces a non-array runsFeedGroupIds from the server into an empty array',
+      { runsFeedGroupIds: [1, 2] },
+      { runsFeedGroupIds: 'not-an-array' },
+      '2026-04-06T12:00:00Z',
+      { runsFeedGroupIds: [] },
+    ],
+  ])('on mount %s', async (_, local, preferences, updatedAt, expected) => {
     useAuthStore.setState({ isAuthenticated: true })
-    useUIStore.setState({ _syncedAt: null, projectViewMode: 'grid' })
-
-    mockFetch.mockResolvedValue({
-      data: {
-        preferences: { projectViewMode: 'table' },
-        updated_at: '2026-04-06T12:00:00Z',
-      },
-      metadata: { message: 'ok' },
-    })
+    useUIStore.setState(local)
+    serverReturns(preferences, updatedAt)
 
     renderHook(() => usePreferencesSync())
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
 
-    expect(useUIStore.getState().projectViewMode).toBe('table')
-    expect(useUIStore.getState()._syncedAt).toBe('2026-04-06T12:00:00Z')
-  })
-
-  it('skips seeding when server has no preferences', async () => {
-    useAuthStore.setState({ isAuthenticated: true })
-    useUIStore.setState({ projectViewMode: 'grid' })
-
-    mockFetch.mockResolvedValue({
-      data: { preferences: {}, updated_at: '' },
-      metadata: { message: 'ok' },
-    })
-
-    renderHook(() => usePreferencesSync())
-    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
-
-    expect(useUIStore.getState().projectViewMode).toBe('grid')
-  })
-
-  it('coerces a non-array runsFeedGroupIds from the server into an empty array', async () => {
-    useAuthStore.setState({ isAuthenticated: true })
-    useUIStore.setState({ _syncedAt: null, runsFeedGroupIds: [1, 2] })
-
-    mockFetch.mockResolvedValue({
-      data: {
-        preferences: { runsFeedGroupIds: 'not-an-array' },
-        updated_at: '2026-04-06T12:00:00Z',
-      },
-      metadata: { message: 'ok' },
-    })
-
-    renderHook(() => usePreferencesSync())
-    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
-
-    expect(useUIStore.getState().runsFeedGroupIds).toEqual([])
+    expect(useUIStore.getState()).toMatchObject(expected)
   })
 
   it('debounces state changes and flushes to server after 3s', async () => {
     useAuthStore.setState({ isAuthenticated: true })
-    mockFetch.mockResolvedValue({
-      data: { preferences: {}, updated_at: '' },
-      metadata: { message: 'ok' },
-    })
+    serverReturns({}, '')
     mockUpdate.mockResolvedValue({
       data: { preferences: {}, updated_at: '2026-04-06T12:01:00Z' },
       metadata: { message: 'ok' },
@@ -97,22 +79,16 @@ describe('usePreferencesSync', () => {
     renderHook(() => usePreferencesSync())
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
 
-    // Trigger a state change
     act(() => {
       useUIStore.setState({ projectViewMode: 'table' })
     })
-
-    // Not flushed yet
     expect(mockUpdate).not.toHaveBeenCalled()
 
-    // Advance past debounce
     await act(async () => {
       vi.advanceTimersByTime(3500)
     })
 
     expect(mockUpdate).toHaveBeenCalledTimes(1)
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ projectViewMode: 'table' }),
-    )
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectViewMode: 'table' }))
   })
 })

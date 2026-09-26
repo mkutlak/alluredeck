@@ -2,116 +2,29 @@ import { Link, useLocation, useParams } from 'react-router'
 import { FileText, Folder } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectFromParam } from '@/lib/resolveProject'
+import { buildBreadcrumbs, LOADING_CRUMB, type BreadcrumbParams } from './breadcrumbs'
 
-// Derive tab label + href from a pathname segment
-const TAB_SEGMENTS: Record<string, string> = {
-  analytics: 'Analytics',
-  'known-issues': 'Known Issues',
-  timeline: 'Timeline',
-  attachments: 'Attachments',
-  defects: 'Defects',
-  tests: 'Tests',
-  compare: 'Build Comparison',
-}
-
-interface Crumb {
-  label: string
-  href?: string
-  icon?: React.ReactNode
-}
-
-function useBreadcrumbs(): Crumb[] | null {
-  const location = useLocation()
-  const params = useParams<{ id?: string; reportId?: string; source?: string }>()
-  const { project, projects, isLoading } = useProjectFromParam(params.id)
-
-  if (location.pathname === '/') return null
-
-  // Always include root
-  const crumbs: Crumb[] = [{ label: 'Projects', href: '/' }]
-
-  if (!params.id) return crumbs
-
-  // Resolve parent if project has one
-  const parentId = project?.parent_id
-  if (isLoading) {
-    // Signal loading state via special sentinel
-    return [{ label: '__loading__' }]
-  }
-
-  if (parentId != null) {
-    const parent = projects?.find((p) => p.project_id === parentId)
-    crumbs.push({
-      label: parent?.display_name ?? parent?.slug ?? String(parentId),
-      href: `/projects/${parentId}`,
-      icon: <Folder size={14} className="text-muted-foreground" />,
-    })
-  }
-
-  // Current project (non-linked)
-  const projectLabel = project?.display_name ?? project?.slug ?? params.id
-  crumbs.push({
-    label: projectLabel,
-    icon: <FileText size={14} />,
-  })
-
-  // Determine sub-route segments after /projects/:id/
-  const afterId = location.pathname.replace(/^\/projects\/[^/]+\/?/, '')
-  const segments = afterId ? afterId.split('/').filter(Boolean) : []
-
-  const firstSeg = segments[0]
-  if (!firstSeg) return crumbs
-
-  // Deep sub-routes: reports/:reportId or trace/:source
-  if (firstSeg === 'reports' && params.reportId) {
-    // Tab segment "Overview" → linked to project overview
-    crumbs.push({
-      label: 'Overview',
-      href: `/projects/${project?.project_id ?? params.id}`,
-    })
-    crumbs.push({ label: `Report #${params.reportId}` })
-    return crumbs
-  }
-
-  if (firstSeg === 'trace' && params.source) {
-    // Tab segment "Attachments" → linked to attachments tab
-    crumbs.push({
-      label: 'Attachments',
-      href: `/projects/${project?.project_id ?? params.id}/attachments`,
-    })
-    crumbs.push({ label: decodeURIComponent(params.source) })
-    return crumbs
-  }
-
-  // Named tab segments
-  const tabLabel = TAB_SEGMENTS[firstSeg]
-  if (tabLabel) {
-    crumbs.push({ label: tabLabel })
-    return crumbs
-  }
-
-  // Unknown segment — show as plain text
-  crumbs.push({ label: firstSeg })
-  return crumbs
+const CRUMB_ICONS = {
+  folder: <Folder size={14} className="text-muted-foreground" />,
+  file: <FileText size={14} />,
 }
 
 export function BreadcrumbBar() {
   const location = useLocation()
-  const params = useParams<{ id?: string }>()
-  const { isLoading } = useProjectFromParam(params.id)
-  const crumbs = useBreadcrumbs()
+  const params = useParams<keyof BreadcrumbParams>()
+  const resolved = useProjectFromParam(params.id)
+  const crumbs = buildBreadcrumbs(location.pathname, params, resolved)
 
-  if (location.pathname === '/') return null
   if (!crumbs) return null
 
-  const isLoadingState = crumbs.length === 1 && crumbs[0]?.label === '__loading__'
+  const isLoadingState = crumbs.length === 1 && crumbs[0]?.label === LOADING_CRUMB
 
   return (
     <nav
       aria-label="Breadcrumb"
       className="bg-background flex h-10 shrink-0 items-center gap-1.5 border-b px-4 text-sm"
     >
-      {isLoadingState || isLoading ? (
+      {isLoadingState || resolved.isLoading ? (
         <>
           <Skeleton className="h-4 w-16" data-testid="breadcrumb-skeleton" />
           <span className="text-muted-foreground">/</span>
@@ -124,7 +37,7 @@ export function BreadcrumbBar() {
             return (
               <li key={i} className="flex items-center gap-1.5">
                 {i > 0 && <span className="text-muted-foreground select-none">/</span>}
-                {crumb.icon && <span className="flex items-center">{crumb.icon}</span>}
+                {crumb.icon && <span className="flex items-center">{CRUMB_ICONS[crumb.icon]}</span>}
                 {crumb.href && !isLast ? (
                   <Link
                     to={crumb.href}

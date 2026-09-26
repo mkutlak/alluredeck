@@ -4,86 +4,38 @@ import {
   toCategoryBreakdownData,
   STATUS_COLORS,
   CATEGORY_COLORS,
+  CATEGORY_DEFAULT_COLOR,
 } from './chart-utils'
 import type { CategoryEntry, ReportHistoryEntry } from '@/types/api'
 
-const makeEntry = (
-  id: string,
-  overrides: Partial<ReportHistoryEntry> = {},
-): ReportHistoryEntry => ({
-  report_id: id,
-  is_latest: false,
-  generated_at: `2024-01-${id.padStart(2, '0')}T10:00:00Z`,
-  duration_ms: 5000,
-  statistic: {
-    passed: 8,
-    failed: 1,
-    broken: 0,
-    skipped: 1,
-    unknown: 0,
-    total: 10,
-  },
-  ...overrides,
-})
-
-describe('STATUS_COLORS', () => {
-  it('has entries for all 4 statuses', () => {
-    expect(STATUS_COLORS.passed).toBeDefined()
-    expect(STATUS_COLORS.failed).toBeDefined()
-    expect(STATUS_COLORS.broken).toBeDefined()
-    expect(STATUS_COLORS.skipped).toBeDefined()
-  })
+const stat = (passed: number, failed: number, broken: number, skipped: number) => ({
+  passed,
+  failed,
+  broken,
+  skipped,
+  unknown: 0,
+  total: passed + failed + broken + skipped,
 })
 
 describe('toCategoryBreakdownData', () => {
-  const makeCategory = (
-    name: string,
-    matchedStatistic: CategoryEntry['matchedStatistic'] = {
-      failed: 2,
-      broken: 1,
-      known: 0,
-      unknown: 0,
-      total: 3,
-    },
-  ): CategoryEntry => ({ name, matchedStatistic })
-
-  it('returns empty array for empty input', () => {
-    expect(toCategoryBreakdownData([])).toEqual([])
-  })
-
-  it('filters out categories with null matchedStatistic', () => {
-    const entries = [makeCategory('Product defects'), makeCategory('Test defects', null)]
-    const result = toCategoryBreakdownData(entries)
-    expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Product defects')
-  })
-
-  it('filters out categories with zero total', () => {
-    const entries = [
-      makeCategory('Product defects'),
-      makeCategory('Empty', { failed: 0, broken: 0, known: 0, unknown: 0, total: 0 }),
+  it('keeps categories with matches, mapping known names to their colour', () => {
+    const matched = { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 }
+    const entries: CategoryEntry[] = [
+      { name: 'Product defects', matchedStatistic: matched },
+      { name: 'Test defects', matchedStatistic: null },
+      { name: 'Empty', matchedStatistic: { ...matched, failed: 0, broken: 0, total: 0 } },
+      { name: 'Some other defect', matchedStatistic: matched },
     ]
-    const result = toCategoryBreakdownData(entries)
-    expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Product defects')
-  })
-
-  it('maps fields correctly for known category', () => {
-    const entries = [
-      makeCategory('Product defects', { failed: 2, broken: 1, known: 0, unknown: 0, total: 3 }),
-    ]
-    const result = toCategoryBreakdownData(entries)
-    expect(result[0]!.name).toBe('Product defects')
-    expect(result[0]!.failed).toBe(2)
-    expect(result[0]!.broken).toBe(1)
-    expect(result[0]!.total).toBe(3)
-    expect(result[0]!.color).toBe(CATEGORY_COLORS['Product defects'])
-  })
-
-  it('uses default color for unknown category names', () => {
-    const entries = [makeCategory('Some other defect')]
-    const result = toCategoryBreakdownData(entries)
-    expect(result[0]!.color).toBe('#8c8fa1')
+    expect(toCategoryBreakdownData(entries)).toEqual([
+      {
+        name: 'Product defects',
+        failed: 2,
+        broken: 1,
+        total: 3,
+        color: CATEGORY_COLORS['Product defects'],
+      },
+      { name: 'Some other defect', failed: 2, broken: 1, total: 3, color: CATEGORY_DEFAULT_COLOR },
+    ])
   })
 })
 
@@ -92,28 +44,17 @@ describe('toStatusPieData', () => {
     expect(toStatusPieData([])).toEqual([])
   })
 
-  it('uses first entry (latest) for pie data', () => {
-    const entries = [
-      makeEntry('3', {
-        statistic: { passed: 9, failed: 0, broken: 0, skipped: 1, unknown: 0, total: 10 },
-      }),
-      makeEntry('2', {
-        statistic: { passed: 5, failed: 5, broken: 0, skipped: 0, unknown: 0, total: 10 },
-      }),
-    ]
-    const result = toStatusPieData(entries)
-    const passed = result.find((d) => d.name === 'Passed')
-    expect(passed?.value).toBe(9)
-  })
-
-  it('filters out zero-value statuses', () => {
-    const entries = [
-      makeEntry('1', {
-        statistic: { passed: 8, failed: 0, broken: 0, skipped: 2, unknown: 0, total: 10 },
-      }),
-    ]
-    const result = toStatusPieData(entries)
-    expect(result.every((d) => d.value > 0)).toBe(true)
-    expect(result.length).toBe(2)
+  it('slices the latest (first) entry and drops zero-value statuses', () => {
+    const entry = (report_id: string, statistic: ReportHistoryEntry['statistic']) => ({
+      report_id,
+      is_latest: false,
+      generated_at: '2024-01-01T10:00:00Z',
+      duration_ms: 5000,
+      statistic,
+    })
+    expect(toStatusPieData([entry('3', stat(9, 0, 0, 1)), entry('2', stat(5, 5, 0, 0))])).toEqual([
+      { name: 'Passed', value: 9, color: STATUS_COLORS.passed },
+      { name: 'Skipped', value: 1, color: STATUS_COLORS.skipped },
+    ])
   })
 })
