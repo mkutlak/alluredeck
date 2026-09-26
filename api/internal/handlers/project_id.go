@@ -118,34 +118,6 @@ func validateProjectID(projectsDir, projectID string) error {
 	return nil
 }
 
-// safeProjectID resolves to "default" when empty, then validates.
-func safeProjectID(projectsDir, raw string) (string, error) {
-	if raw == "" {
-		raw = "default"
-	}
-	if err := validateProjectID(projectsDir, raw); err != nil {
-		return "", err
-	}
-	return raw, nil
-}
-
-// extractProjectID extracts, unescapes, and validates the "project_id" path
-// parameter. On failure it writes a 400 response and returns ("", false).
-func extractProjectID(w http.ResponseWriter, r *http.Request, projectsDir string) (string, bool) {
-	raw := r.PathValue("project_id")
-	unescaped, err := url.PathUnescape(raw)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid project_id encoding")
-		return "", false
-	}
-	projectID, err := safeProjectID(projectsDir, unescaped)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return "", false
-	}
-	return projectID, true
-}
-
 // extractProjectIntID parses the numeric project ID from the URL path.
 func extractProjectIntID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	idStr := r.PathValue("project_id")
