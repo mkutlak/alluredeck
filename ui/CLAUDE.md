@@ -24,9 +24,7 @@ ESLint is type-aware (`recommendedTypeChecked` + `projectService`). Real async h
 
 ## Coverage Thresholds
 
-Enforced in `vitest.config.ts` (CI fails below them). Target to ratchet toward as coverage improves — never lower the enforced values:
-
-- Lines: 80%, Functions: 80%, Branches: 70%, Statements: 80%
+Enforced in `vitest.config.ts` (CI fails below them), pinned at `floor(actual) − 1`: lines 67, functions 62, branches 65, statements 66. Ratchet them up as coverage improves — never lower the enforced values. Coverage is a floor, not a goal: don't add render-only or change-detector tests to raise it.
 
 ## URL Conventions
 

@@ -26,16 +26,15 @@ export default mergeConfig(
           'src/store/**',
           'src/api/**',
         ],
-        // Regression floor pinned just below current coverage so it can be
-        // ENFORCED in CI (previously these thresholds were configured but the
-        // CI step ran `vitest run` without --coverage, so they never applied
-        // and actual coverage drifted to ~61-67%). Ratchet these upward toward
-        // the 80/80/70/80 target as coverage improves; never lower them.
+        // Regression floor pinned at floor(actual) - 1 so it is ENFORCED in CI.
+        // Re-baselined after the 2026-09 test prune (actual 68.7/63.1/66.2/67.8
+        // lines/functions/branches/statements). Ratchet upward as coverage
+        // improves; never lower them.
         thresholds: {
-          lines: 65,
-          functions: 60,
-          branches: 62,
-          statements: 65,
+          lines: 67,
+          functions: 62,
+          branches: 65,
+          statements: 66,
         },
       },
     },
