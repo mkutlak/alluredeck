@@ -19,9 +19,7 @@ import { useAdminResults } from '../hooks/useAdminResults'
 // Minimal component that exposes the hook's mutation
 function Harness() {
   const { doClean } = useAdminResults()
-  return (
-    <button onClick={() => doClean('proj-1')}>clean</button>
-  )
+  return <button onClick={() => doClean('proj-1')}>clean</button>
 }
 
 function renderHarness() {

@@ -29,6 +29,7 @@ describe('useTrackActiveTab', () => {
   it.each([
     ['a deep sub-route', '/projects/42/reports/123', '42'],
     ['a non-tab segment', '/projects/42/compare', '42'],
+    ['the tests page', '/projects/42/tests', '42'],
     ['a null projectId', '/projects/42/analytics', null],
     ['a non-project route', '/', null],
   ])('is a no-op for %s', (_, path, projectId) => {

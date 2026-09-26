@@ -142,8 +142,10 @@ describe('DashboardPage', () => {
 
     await user.click(await screen.findByText('group-one'))
 
-    // Drill-down lists the children as top-level rows; the group row and its chevron are gone.
+    // Drill-down lists only the group's children; inline expand would also
+    // reveal child-a but keep the other top-level projects.
     expect(await screen.findByText('child-a')).toBeInTheDocument()
+    expect(screen.queryByText('proj-alpha')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /expand group-one/i })).not.toBeInTheDocument()
   })
 
