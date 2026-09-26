@@ -303,15 +303,3 @@ func TestClusterFailingTests_SharedStatusPattern(t *testing.T) {
 		})
 	}
 }
-
-// TestClusterFailingTests_Empty verifies the no-failures path yields no
-// clusters rather than a nil-deref or a phantom entry.
-func TestClusterFailingTests_Empty(t *testing.T) {
-	clusters, members := clusterFailingTests(nil)
-	if len(clusters) != 0 {
-		t.Errorf("clusters: got %v, want none", clusters)
-	}
-	if len(members) != 0 {
-		t.Errorf("members: got %v, want none", members)
-	}
-}

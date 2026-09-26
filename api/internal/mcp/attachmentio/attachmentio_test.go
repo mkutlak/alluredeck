@@ -1,14 +1,16 @@
 package attachmentio_test
 
 import (
-	"bytes"
 	"context"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/mcp/attachmentio"
+	"github.com/mkutlak/alluredeck/api/internal/mcp/signed"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
@@ -31,216 +33,113 @@ func TestValidateSource(t *testing.T) {
 		{"dotdot only", "..", true},
 		{"NUL byte", "shot.png\x00.txt", true},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := attachmentio.ValidateSource(tc.source)
-			if tc.wantErr && err == nil {
-				t.Fatalf("ValidateSource(%q): want error, got nil", tc.source)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("ValidateSource(%q): want nil error, got %v", tc.source, err)
+			if err := attachmentio.ValidateSource(tc.source); (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateSource(%q) err = %v, wantErr %v", tc.source, err, tc.wantErr)
 			}
 		})
 	}
 }
 
-func TestIsTextMIME(t *testing.T) {
+func TestMIMEClassification(t *testing.T) {
 	tests := []struct {
-		mime string
-		want bool
+		mime        string
+		text, image bool
 	}{
-		{"text/plain", true},
-		{"TEXT/PLAIN", true},
-		{"application/json", true},
-		{"application/xml", true},
-		{"application/javascript", true},
-		{"image/png", false},
-		{"application/zip", false},
-		{"video/mp4", false},
-	}
-	for _, tc := range tests {
-		if got := attachmentio.IsTextMIME(tc.mime); got != tc.want {
-			t.Errorf("IsTextMIME(%q) = %v, want %v", tc.mime, got, tc.want)
-		}
-	}
-}
-
-func TestIsImageMIME(t *testing.T) {
-	tests := []struct {
-		mime string
-		want bool
-	}{
-		{"image/png", true},
-		{"IMAGE/JPEG", true},
-		{"text/plain", false},
-		{"application/zip", false},
+		{"text/plain", true, false},
+		{"TEXT/PLAIN", true, false},
+		{"application/json", true, false},
+		{"application/xml", true, false},
+		{"application/javascript", true, false},
+		{"image/png", false, true},
+		{"IMAGE/JPEG", false, true},
+		{"application/zip", false, false},
+		{"video/mp4", false, false},
 		// SVG is a scriptable XML document whose MIME type an ingested report
 		// controls, so it must never be handed back as an inline image block.
-		{"image/svg+xml", false},
-		{"IMAGE/SVG+XML", false},
-		{"image/svg+xml; charset=utf-8", false},
+		{"image/svg+xml", false, false},
+		{"IMAGE/SVG+XML", false, false},
+		{"image/svg+xml; charset=utf-8", false, false},
 	}
 	for _, tc := range tests {
-		if got := attachmentio.IsImageMIME(tc.mime); got != tc.want {
-			t.Errorf("IsImageMIME(%q) = %v, want %v", tc.mime, got, tc.want)
+		if got := attachmentio.IsTextMIME(tc.mime); got != tc.text {
+			t.Errorf("IsTextMIME(%q) = %v, want %v", tc.mime, got, tc.text)
+		}
+		if got := attachmentio.IsImageMIME(tc.mime); got != tc.image {
+			t.Errorf("IsImageMIME(%q) = %v, want %v", tc.mime, got, tc.image)
 		}
 	}
 }
 
-// mockStore is a minimal storage.Store double for exercising ReadBlobWindow.
-func mockStoreServing(content string) *storage.MockStore {
-	return &storage.MockStore{
-		OpenReportFileFn: func(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
-			return io.NopCloser(strings.NewReader(content)), "text/plain", nil
-		},
-	}
-}
-
-func TestReadBlobWindow_FullRead(t *testing.T) {
+func TestReadBlobWindow(t *testing.T) {
 	const content = "0123456789"
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: int64(len(content))}
-
-	got, err := attachmentio.ReadBlobWindow(context.Background(), mockStoreServing(content), loc, 0, 100)
-	if err != nil {
-		t.Fatalf("ReadBlobWindow: %v", err)
-	}
-	if string(got) != content {
-		t.Errorf("want %q, got %q", content, got)
-	}
-}
-
-func TestReadBlobWindow_OffsetWindow(t *testing.T) {
-	const content = "0123456789"
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: int64(len(content))}
-
-	got, err := attachmentio.ReadBlobWindow(context.Background(), mockStoreServing(content), loc, 3, 4)
-	if err != nil {
-		t.Fatalf("ReadBlobWindow: %v", err)
-	}
-	if string(got) != "3456" {
-		t.Errorf("want %q, got %q", "3456", got)
-	}
-}
-
-func TestReadBlobWindow_MaxBytesClampsShortOfEnd(t *testing.T) {
-	const content = "hello world"
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: int64(len(content))}
-
-	got, err := attachmentio.ReadBlobWindow(context.Background(), mockStoreServing(content), loc, 0, 5)
-	if err != nil {
-		t.Fatalf("ReadBlobWindow: %v", err)
-	}
-	if string(got) != "hello" {
-		t.Errorf("want %q, got %q", "hello", got)
-	}
-}
-
-func TestReadBlobWindow_OffsetBeyondEnd(t *testing.T) {
-	const content = "short"
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: int64(len(content))}
-
-	got, err := attachmentio.ReadBlobWindow(context.Background(), mockStoreServing(content), loc, 100, 10)
-	if err != nil {
-		t.Fatalf("ReadBlobWindow: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("want empty slice, got %q", got)
-	}
-}
-
-func TestReadBlobWindow_OffsetAtOrBeyondSizeSkipsStorage(t *testing.T) {
 	tests := []struct {
-		name   string
-		offset int
+		name          string
+		source        string
+		size          int64
+		offset, max   int
+		want          string
+		wantErr       bool
+		wantNoStorage bool
 	}{
-		{"offset exactly at end", 5},
-		{"offset past end", 4096},
+		{name: "full read", source: "f.txt", size: 10, offset: 0, max: 100, want: content},
+		{name: "offset window capped by max bytes", source: "f.txt", size: 10, offset: 3, max: 4, want: "3456"},
+		// A window at or past the recorded end holds nothing; reading to find
+		// that out would stream the whole object first.
+		{name: "offset exactly at end skips storage", source: "f.txt", size: 10, offset: 10, max: 10, wantNoStorage: true},
+		{name: "offset past end skips storage", source: "f.txt", size: 10, offset: 4096, max: 10, wantNoStorage: true},
+		// SizeBytes==0 means "not recorded", not "empty".
+		{name: "unknown size still reads", source: "f.txt", size: 0, offset: 2, max: 4, want: "2345"},
+		{name: "negative offset", source: "f.txt", size: 10, offset: -1, max: 10, wantErr: true, wantNoStorage: true},
+		{name: "negative max bytes", source: "f.txt", size: 10, offset: 0, max: -1, wantErr: true, wantNoStorage: true},
+		{name: "path-traversal source", source: "../evil", size: 10, offset: 0, max: 10, wantErr: true, wantNoStorage: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var openCalled bool
-			ds := &storage.MockStore{
-				OpenReportFileFn: func(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
-					openCalled = true
-					return io.NopCloser(strings.NewReader("short")), "text/plain", nil
-				},
-			}
-			loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: 5}
+			var opened string
+			ds := &storage.MockStore{OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
+				opened = projectID + "|" + reportID + "|" + filePath
+				return io.NopCloser(strings.NewReader(content)), "text/plain", nil
+			}}
+			loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 3, Source: tc.source, MimeType: "text/plain", SizeBytes: tc.size}
 
-			got, err := attachmentio.ReadBlobWindow(context.Background(), ds, loc, tc.offset, 10)
-			if err != nil {
-				t.Fatalf("ReadBlobWindow: %v", err)
+			got, err := attachmentio.ReadBlobWindow(context.Background(), ds, loc, tc.offset, tc.max)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}
-			if len(got) != 0 {
-				t.Errorf("want empty slice, got %q", got)
+			if string(got) != tc.want {
+				t.Errorf("window = %q, want %q", got, tc.want)
 			}
-			if openCalled {
-				t.Error("storage was read for an offset at or beyond size_bytes; want short-circuit")
+			if tc.wantNoStorage && opened != "" {
+				t.Errorf("storage was read (%s), want no access", opened)
+			}
+			if !tc.wantNoStorage && opened != "k|3|data/attachments/f.txt" {
+				t.Errorf("storage read %q, want k|3|data/attachments/f.txt", opened)
 			}
 		})
 	}
 }
 
-func TestReadBlobWindow_UnknownSizeStillReads(t *testing.T) {
-	// SizeBytes==0 means "not recorded", not "empty": the read must still run.
-	const content = "0123456789"
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: 0}
-
-	got, err := attachmentio.ReadBlobWindow(context.Background(), mockStoreServing(content), loc, 2, 4)
-	if err != nil {
-		t.Fatalf("ReadBlobWindow: %v", err)
-	}
-	if string(got) != "2345" {
-		t.Errorf("want %q, got %q", "2345", got)
-	}
-}
-
-func TestReadBlobWindow_NegativeOffsetOrMaxBytesRejected(t *testing.T) {
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "f.txt", MimeType: "text/plain", SizeBytes: 5}
-	ds := mockStoreServing("hello")
-
-	if _, err := attachmentio.ReadBlobWindow(context.Background(), ds, loc, -1, 10); err == nil {
-		t.Error("want error for negative offset, got nil")
-	}
-	if _, err := attachmentio.ReadBlobWindow(context.Background(), ds, loc, 0, -1); err == nil {
-		t.Error("want error for negative maxBytes, got nil")
-	}
-}
-
-func TestReadBlobWindow_InvalidSourceRejectedBeforeStorageAccess(t *testing.T) {
-	var openCalled bool
-	ds := &storage.MockStore{
-		OpenReportFileFn: func(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
-			openCalled = true
-			return io.NopCloser(bytes.NewReader(nil)), "", nil
-		},
-	}
-	loc := &store.AttachmentLocation{StorageKey: "k", BuildNumber: 1, Source: "../evil", MimeType: "text/plain", SizeBytes: 5}
-
-	if _, err := attachmentio.ReadBlobWindow(context.Background(), ds, loc, 0, 10); err == nil {
-		t.Fatal("want error for path-traversal source, got nil")
-	}
-	if openCalled {
-		t.Error("storage was accessed for a path-traversal source; want no access")
-	}
-}
-
+// TestSignURL checks the download link against the canonical payload
+// "attachment:{id}" so a change in the signed format breaks here, not in the
+// field.
 func TestSignURL(t *testing.T) {
-	signingKey := []byte("test-signing-key-32-bytes-padded!")
-	url := attachmentio.SignURL("http://localhost:8080", 42, signingKey)
+	key := []byte("test-signing-key-32-bytes-padded!")
+	raw := attachmentio.SignURL("http://localhost:8080/", 42, key)
 
-	want := "http://localhost:8080/attachments/42?exp="
-	if !strings.HasPrefix(url, want) {
-		t.Errorf("want prefix %q, got %q", want, url)
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", raw, err)
 	}
-	if !strings.Contains(url, "&sig=") {
-		t.Errorf("want &sig= in URL, got %q", url)
+	if u.Scheme+"://"+u.Host+u.Path != "http://localhost:8080/attachments/42" {
+		t.Errorf("URL = %q, want http://localhost:8080/attachments/42?...", raw)
 	}
-}
-
-func TestSigPayload(t *testing.T) {
-	if got, want := attachmentio.SigPayload(7), "attachment:"+strconv.Itoa(7); got != want {
-		t.Errorf("SigPayload(7) = %q, want %q", got, want)
+	exp, _ := strconv.ParseInt(u.Query().Get("exp"), 10, 64)
+	if expT := time.Unix(exp, 0); expT.Before(time.Now()) || expT.After(time.Now().Add(attachmentio.URLTTL+time.Second)) {
+		t.Errorf("exp = %v, want within URLTTL from now", expT)
+	}
+	if err := signed.Verify(key, "attachment:42", exp, u.Query().Get("sig"), time.Now()); err != nil {
+		t.Errorf("signature does not verify for attachment:42: %v", err)
 	}
 }

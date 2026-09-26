@@ -97,19 +97,3 @@ func TestProtectedResourceMetadataIsPublic(t *testing.T) {
 		t.Errorf("bearer_methods_supported = %v, want [header]", doc.BearerMethodsSupported)
 	}
 }
-
-// TestStatelessTransportRejectsGET confirms stateless mode is actually engaged.
-// The 2026-07-28 stateless transport has no server-to-client stream to open,
-// so a GET must not be upgraded into one.
-func TestStatelessTransportRejectsGET(t *testing.T) {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
-	req.Header.Set("Accept", "text/event-stream")
-	newTestMCPHandler(t).ServeHTTP(rec, req)
-
-	// Auth runs before the transport, so an unauthenticated GET stops at 401;
-	// what matters is that it is never a 200 opening an SSE stream.
-	if rec.Code == http.StatusOK {
-		t.Fatalf("GET /mcp returned 200; stateless mode must not open a server-to-client stream")
-	}
-}

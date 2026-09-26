@@ -20,6 +20,11 @@ import (
 // carry their own message holds distinct results, not duplicates, and is left
 // alone with a warning.
 func TestDedupeByFullName(t *testing.T) {
+	row := func(fullName, historyID, msg string) store.TestResult {
+		return store.TestResult{FullName: fullName, HistoryID: historyID, StatusMessage: msg}
+	}
+	distinct := func(name string) string { return `2 tests share full_name "` + name + `" with distinct results` }
+
 	tests := []struct {
 		name      string
 		in        []store.TestResult
@@ -27,128 +32,41 @@ func TestDedupeByFullName(t *testing.T) {
 		wantMerge map[string][]string
 		wantWarn  []string // substrings expected in the warnings, in order
 	}{
-		{
-			name:      "empty input",
-			in:        nil,
-			wantKept:  nil,
-			wantMerge: map[string][]string{},
-		},
-		{
-			name: "no duplicates passes through unchanged",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a:a", StatusMessage: "boom"},
-				{FullName: "b", HistoryID: "b:b"},
-			},
-			wantKept:  []string{"a:a", "b:b"},
-			wantMerge: map[string][]string{},
-		},
-		{
-			name: "enriched row wins over empty shell",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a.a"},
-				{FullName: "a", HistoryID: "a:a", StatusMessage: "boom"},
-			},
-			wantKept:  []string{"a:a"},
-			wantMerge: map[string][]string{"a:a": {"a.a"}},
-		},
-		{
-			name: "enriched row wins even when it arrives first",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a:a", StatusMessage: "boom"},
-				{FullName: "a", HistoryID: "a.a"},
-			},
-			wantKept:  []string{"a:a"},
-			wantMerge: map[string][]string{"a:a": {"a.a"}},
-		},
-		{
-			name: "tie on empty message falls back to the colon scheme",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a.a"},
-				{FullName: "a", HistoryID: "a:a"},
-			},
-			wantKept:  []string{"a:a"},
-			wantMerge: map[string][]string{"a:a": {"a.a"}},
-		},
-		{
-			// Two rows that BOTH carry a message are two results, not a twin
-			// pair — even when the messages happen to read the same. Dropping
-			// one would report a failure that was never merged away.
-			name: "two messages under one full_name are kept and warned about",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a:1", StatusMessage: "boom"},
-				{FullName: "a", HistoryID: "a:2", StatusMessage: "boom"},
-			},
-			wantKept:  []string{"a:1", "a:2"},
-			wantMerge: map[string][]string{},
-			wantWarn:  []string{`2 tests share full_name "a" with distinct results`},
-		},
-		{
-			// The parameterized case the merge must survive: same full_name,
-			// genuinely different failures.
-			name: "parameterized pair with distinct messages both survive",
-			in: []store.TestResult{
-				{FullName: "p", HistoryID: "p:1", StatusMessage: "expected 1, got 2"},
-				{FullName: "p", HistoryID: "p:2", StatusMessage: "expected 7, got 9"},
-			},
-			wantKept:  []string{"p:1", "p:2"},
-			wantMerge: map[string][]string{},
-			wantWarn:  []string{`2 tests share full_name "p" with distinct results`},
-		},
-		{
-			// Shells alongside two real results are not attributable to either
-			// one, so the whole group is left intact rather than half-merged.
-			name: "distinct results plus shells are all kept",
-			in: []store.TestResult{
-				{FullName: "p", HistoryID: "p.1"},
-				{FullName: "p", HistoryID: "p:1", StatusMessage: "first"},
-				{FullName: "p", HistoryID: "p:2", StatusMessage: "second"},
-			},
-			wantKept:  []string{"p.1", "p:1", "p:2"},
-			wantMerge: map[string][]string{},
-			wantWarn:  []string{`2 tests share full_name "p" with distinct results`},
-		},
-		{
-			name: "a non-empty message beats the colon scheme",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a:a"},
-				{FullName: "a", HistoryID: "a.a", StatusMessage: "boom"},
-			},
-			wantKept:  []string{"a.a"},
-			wantMerge: map[string][]string{"a.a": {"a:a"}},
-		},
-		{
-			name: "kept rows preserve first-seen order across groups",
-			in: []store.TestResult{
-				{FullName: "b", HistoryID: "b.b"},
-				{FullName: "a", HistoryID: "a.a"},
-				{FullName: "b", HistoryID: "b:b", StatusMessage: "boom"},
-				{FullName: "a", HistoryID: "a:a", StatusMessage: "bang"},
-			},
-			wantKept:  []string{"b:b", "a:a"},
-			wantMerge: map[string][]string{"b:b": {"b.b"}, "a:a": {"a.a"}},
-		},
-		{
-			name: "three twins collapse to one with both dropped ids recorded",
-			in: []store.TestResult{
-				{FullName: "a", HistoryID: "a.1"},
-				{FullName: "a", HistoryID: "a:2", StatusMessage: "boom"},
-				{FullName: "a", HistoryID: "a.3"},
-			},
-			wantKept:  []string{"a:2"},
-			wantMerge: map[string][]string{"a:2": {"a.1", "a.3"}},
-		},
+		{"no duplicates passes through unchanged", []store.TestResult{row("a", "a:a", "boom"), row("b", "b:b", "")},
+			[]string{"a:a", "b:b"}, map[string][]string{}, nil},
+		{"enriched row wins over empty shell", []store.TestResult{row("a", "a.a", ""), row("a", "a:a", "boom")},
+			[]string{"a:a"}, map[string][]string{"a:a": {"a.a"}}, nil},
+		{"enriched row wins even when it arrives first", []store.TestResult{row("a", "a:a", "boom"), row("a", "a.a", "")},
+			[]string{"a:a"}, map[string][]string{"a:a": {"a.a"}}, nil},
+		{"tie on empty message falls back to the colon scheme", []store.TestResult{row("a", "a.a", ""), row("a", "a:a", "")},
+			[]string{"a:a"}, map[string][]string{"a:a": {"a.a"}}, nil},
+		{"a non-empty message beats the colon scheme", []store.TestResult{row("a", "a:a", ""), row("a", "a.a", "boom")},
+			[]string{"a.a"}, map[string][]string{"a.a": {"a:a"}}, nil},
+		// Two rows that BOTH carry a message are two results — a parameterized
+		// test whose parameters never reached full_name — even when the
+		// messages read the same. Dropping one would hide a real failure.
+		{"two messages under one full_name are kept and warned about", []store.TestResult{row("a", "a:1", "boom"), row("a", "a:2", "boom")},
+			[]string{"a:1", "a:2"}, map[string][]string{}, []string{distinct("a")}},
+		// Shells alongside two real results are not attributable to either
+		// one, so the whole group is left intact rather than half-merged.
+		{"distinct results plus shells are all kept", []store.TestResult{row("p", "p.1", ""), row("p", "p:1", "first"), row("p", "p:2", "second")},
+			[]string{"p.1", "p:1", "p:2"}, map[string][]string{}, []string{distinct("p")}},
+		{"kept rows preserve first-seen order across groups",
+			[]store.TestResult{row("b", "b.b", ""), row("a", "a.a", ""), row("b", "b:b", "boom"), row("a", "a:a", "bang")},
+			[]string{"b:b", "a:a"}, map[string][]string{"b:b": {"b.b"}, "a:a": {"a.a"}}, nil},
+		{"three twins collapse to one with both dropped ids recorded", []store.TestResult{row("a", "a.1", ""), row("a", "a:2", "boom"), row("a", "a.3", "")},
+			[]string{"a:2"}, map[string][]string{"a:2": {"a.1", "a.3"}}, nil},
+		// An empty name is not an identity; grouping on it would merge
+		// unrelated tests.
+		{"empty full_name never groups", []store.TestResult{row("", "x", ""), row("", "y", "")},
+			[]string{"x", "y"}, map[string][]string{}, nil},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			kept, merged, warnings := dedupeByFullName(tc.in)
-
-			gotKept := make([]string, 0, len(kept))
+			var gotKept []string
 			for _, r := range kept {
 				gotKept = append(gotKept, r.HistoryID)
-			}
-			if len(gotKept) == 0 {
-				gotKept = nil
 			}
 			if !reflect.DeepEqual(gotKept, tc.wantKept) {
 				t.Errorf("kept history_ids: got %v, want %v", gotKept, tc.wantKept)
@@ -165,25 +83,5 @@ func TestDedupeByFullName(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestDedupeByFullName_EmptyFullNameNotCollapsed guards against collapsing
-// unrelated tests: rows with an empty full_name are not the Playwright twin
-// case and must each survive, exactly as an empty history_id is never a valid
-// lookup key elsewhere in the codebase.
-func TestDedupeByFullName_EmptyFullNameNotCollapsed(t *testing.T) {
-	kept, merged, warnings := dedupeByFullName([]store.TestResult{
-		{FullName: "", HistoryID: "x"},
-		{FullName: "", HistoryID: "y"},
-	})
-	if len(kept) != 2 {
-		t.Errorf("kept: got %d rows, want 2 (empty full_name must not group)", len(kept))
-	}
-	if len(merged) != 0 {
-		t.Errorf("mergedIDs: got %v, want empty", merged)
-	}
-	if len(warnings) != 0 {
-		t.Errorf("warnings: got %v, want none (empty full_name is not a shared identity)", warnings)
 	}
 }

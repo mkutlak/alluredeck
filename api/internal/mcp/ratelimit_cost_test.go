@@ -8,116 +8,67 @@ import (
 	internalmcp "github.com/mkutlak/alluredeck/api/internal/mcp"
 )
 
-// callsUntilLimited drives the rate-limit middleware with the given Mcp-Name
-// until it returns 429, and reports how many calls got through.
-//
-// No TokenInfo is injected, so every request resolves to the same "unknown"
-// identity and therefore the same token bucket — which is what these tests
-// need. Identity keying is not under test here; cost accounting is.
-func callsUntilLimited(t *testing.T, rl *internalmcp.RateLimiter, toolName string, cap int) int {
-	t.Helper()
-	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	for i := range cap {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-		if toolName != "" {
-			req.Header.Set("Mcp-Name", toolName)
-		}
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		if rec.Code == http.StatusTooManyRequests {
-			return i
-		}
+// TestRateLimit_ToolCost drives the middleware with one Mcp-Name until it
+// answers 429. No TokenInfo is injected, so every request shares the
+// "unknown" identity's bucket; cost accounting is what is under test. The
+// rate is 0/min so the bucket never refills and only the burst matters.
+func TestRateLimit_ToolCost(t *testing.T) {
+	tests := []struct {
+		name  string
+		tool  string
+		burst int
+		want  int
+	}{
+		{"cheap tool costs 1", "list_projects", 10, 10},
+		// Per-tool pricing: a caller sweeping diagnose_failure (cost 5) must
+		// not get as many calls as one doing cheap lookups.
+		{"expensive tool drains the bucket faster", "diagnose_failure", 10, 2},
+		{"non-tool request costs 1", "", 4, 4},
+		{"unpriced tool costs 1", "some_unpriced_tool", 4, 4},
+		// rate.Limiter.AllowN fails unconditionally when n exceeds the burst,
+		// so an unclamped cost would make the tool unreachable.
+		{"cost is clamped to the burst", "diagnose_failure", 2, 1},
 	}
-	return cap
-}
-
-// TestRateLimit_ExpensiveToolDrainsBucketFaster is the point of per-tool
-// pricing: one caller sweeping diagnose_failure must not get the same number
-// of calls as a caller doing cheap lookups.
-func TestRateLimit_ExpensiveToolDrainsBucketFaster(t *testing.T) {
-	const burst = 10
-
-	// Rate 0/min so the bucket never refills mid-test and only burst matters.
-	cheap := callsUntilLimited(t, internalmcp.NewRateLimiter(0, burst), "list_projects", burst+5)
-	costly := callsUntilLimited(t, internalmcp.NewRateLimiter(0, burst), "diagnose_failure", burst+5)
-
-	if cheap != burst {
-		t.Errorf("cheap tool allowed %d calls, want %d (cost 1 each)", cheap, burst)
-	}
-	// diagnose_failure costs 5, so a burst of 10 permits exactly two calls.
-	if costly != 2 {
-		t.Errorf("diagnose_failure allowed %d calls, want 2 (cost 5 against burst %d)", costly, burst)
-	}
-	if costly >= cheap {
-		t.Errorf("expensive tool (%d calls) was not limited sooner than cheap tool (%d calls)", costly, cheap)
-	}
-}
-
-// TestRateLimit_UnpricedRequestsCostOne covers requests with no Mcp-Name (a
-// non-tool call such as tools/list) and tools absent from the cost map.
-func TestRateLimit_UnpricedRequestsCostOne(t *testing.T) {
-	const burst = 4
-	for _, name := range []string{"", "some_unpriced_tool"} {
-		t.Run("name="+name, func(t *testing.T) {
-			got := callsUntilLimited(t, internalmcp.NewRateLimiter(0, burst), name, burst+3)
-			if got != burst {
-				t.Errorf("allowed %d calls, want %d (unpriced requests cost 1)", got, burst)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := internalmcp.NewRateLimiter(0, tc.burst).Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			allowed := 0
+			for range tc.burst + 5 {
+				req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+				if tc.tool != "" {
+					req.Header.Set("Mcp-Name", tc.tool)
+				}
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+				if rec.Code == http.StatusTooManyRequests {
+					break
+				}
+				allowed++
+			}
+			if allowed != tc.want {
+				t.Errorf("allowed %d calls, want %d", allowed, tc.want)
 			}
 		})
 	}
 }
 
-// TestRateLimit_CostClampedToBurst guards a trap in rate.Limiter: AllowN fails
-// unconditionally when n exceeds the burst, so an unclamped cost above burst
-// would make the tool permanently unreachable rather than merely expensive.
-func TestRateLimit_CostClampedToBurst(t *testing.T) {
-	// diagnose_failure costs 5 by default; a burst of 2 is smaller than that.
-	got := callsUntilLimited(t, internalmcp.NewRateLimiter(0, 2), "diagnose_failure", 5)
-	if got == 0 {
-		t.Fatal("diagnose_failure was rejected outright under a burst smaller than its cost; the cost must be clamped")
-	}
-}
-
+// TestParseToolCosts: an MCP_TOOL_COSTS override retunes and adds tools on top
+// of the built-in defaults, and a typo in a tuning knob is skipped rather than
+// taking the server down.
 func TestParseToolCosts(t *testing.T) {
 	t.Parallel()
+	costs := internalmcp.ParseToolCosts("diagnose_failure=9, list_projects=4,no_equals_sign,bad=notanumber,zero=0,negative=-3")
 
-	t.Run("overrides a default and adds a new tool", func(t *testing.T) {
-		t.Parallel()
-		costs := internalmcp.ParseToolCosts("diagnose_failure=9, list_projects=4")
-		if got := costs["diagnose_failure"]; got != 9 {
-			t.Errorf("diagnose_failure cost = %d, want 9 (override)", got)
+	for tool, want := range map[string]int{"diagnose_failure": 9, "list_projects": 4, "compare_builds": 3} {
+		if got := costs[tool]; got != want {
+			t.Errorf("cost[%s] = %d, want %d", tool, got, want)
 		}
-		if got := costs["list_projects"]; got != 4 {
-			t.Errorf("list_projects cost = %d, want 4 (added)", got)
+	}
+	for _, bad := range []string{"no_equals_sign", "bad", "zero", "negative"} {
+		if _, ok := costs[bad]; ok {
+			t.Errorf("malformed entry %q was accepted", bad)
 		}
-		// Defaults not mentioned in the override must survive.
-		if got := costs["compare_builds"]; got != 3 {
-			t.Errorf("compare_builds cost = %d, want the built-in default 3", got)
-		}
-	})
-
-	t.Run("empty input keeps the defaults", func(t *testing.T) {
-		t.Parallel()
-		costs := internalmcp.ParseToolCosts("")
-		if got := costs["diagnose_failure"]; got != 5 {
-			t.Errorf("diagnose_failure cost = %d, want the built-in default 5", got)
-		}
-	})
-
-	t.Run("malformed entries are skipped, not fatal", func(t *testing.T) {
-		t.Parallel()
-		// A typo in a tuning knob must not take the server down.
-		costs := internalmcp.ParseToolCosts("no_equals_sign,bad=notanumber,zero=0,negative=-3,good=7")
-		if got := costs["good"]; got != 7 {
-			t.Errorf("good cost = %d, want 7; valid entries must survive alongside bad ones", got)
-		}
-		for _, bad := range []string{"no_equals_sign", "bad", "zero", "negative"} {
-			if _, ok := costs[bad]; ok {
-				t.Errorf("malformed entry %q was accepted", bad)
-			}
-		}
-	})
+	}
 }

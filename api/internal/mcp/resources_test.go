@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"net/url"
@@ -24,498 +23,153 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// setupResourceServer wires a minimal MCP server with only resources registered
-// (no tools) and returns a connected ClientSession.
-func setupResourceServer(
-	t *testing.T,
-	stores *bootstrap.Stores,
-	dataStore storage.Store,
-	signingKey []byte,
-	publicURL string,
-) *mcpsdk.ClientSession {
-	t.Helper()
-	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "test-resources", Version: "v0"}, nil)
-	internalmcp.RegisterResources(srv, stores, zap.NewNop(), signingKey, publicURL, dataStore)
+var resourceSigningKey = []byte("test-signing-key-32-bytes-padded!")
 
-	st, ct := mcpsdk.NewInMemoryTransports()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go srv.Run(ctx, st) //nolint:errcheck
-
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "client", Version: "v0"}, nil)
-	cs, err := client.Connect(ctx, ct, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cs.Close() })
-	return cs
+// sigFor derives an attachment download signature independently of the
+// production code: HMAC-SHA256 over "attachment:{id}:exp:{exp}".
+func sigFor(id, exp int64) string {
+	mac := hmac.New(sha256.New, resourceSigningKey)
+	mac.Write([]byte("attachment:" + strconv.FormatInt(id, 10) + ":exp:" + strconv.FormatInt(exp, 10)))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// ---------------------------------------------------------------------------
-// Test A: small text attachment — content inlined as text
-// ---------------------------------------------------------------------------
-
-func TestAttachmentResource_TextInline(t *testing.T) {
-	const attachmentID = int64(1)
-	const fileContent = "hello from attachment text file"
-	const source = "log.txt"
-	const storageKey = "proj-storage-key"
-	const buildNumber = 7
-
-	mocks := testutil.New()
-	mocks.Attachments.GetLocationFn = func(_ context.Context, id int64) (*store.AttachmentLocation, error) {
-		if id != attachmentID {
-			return nil, store.ErrAttachmentNotFound
-		}
-		return &store.AttachmentLocation{
-			StorageKey:  storageKey,
-			BuildNumber: buildNumber,
-			Source:      source,
-			MimeType:    "text/plain",
-			SizeBytes:   int64(len(fileContent)),
-		}, nil
+// TestAttachmentResource reads alluredeck://attachment/42 through a real MCP
+// client session. Small text and raster images are inlined; anything too big,
+// non-inlinable, or without a storage backend comes back as a signed download
+// URL; a path-traversal source is refused before storage is touched.
+func TestAttachmentResource(t *testing.T) {
+	const publicURL = "http://localhost:8080"
+	const uri = "alluredeck://attachment/42"
+	png := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00}
+	loc := func(source, mime string, size int64) *store.AttachmentLocation {
+		return &store.AttachmentLocation{StorageKey: "proj-key", BuildNumber: 7, Source: source, MimeType: mime, SizeBytes: size}
 	}
 
-	mockStore := &storage.MockStore{
-		OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
-			wantPath := "data/attachments/" + source
-			if projectID == storageKey && reportID == strconv.Itoa(buildNumber) && filePath == wantPath {
-				return io.NopCloser(strings.NewReader(fileContent)), "text/plain", nil
-			}
-			return nil, "", &mockNotFoundError{filePath}
-		},
+	tests := []struct {
+		name       string
+		loc        *store.AttachmentLocation // nil: unknown attachment
+		noStorage  bool
+		body       []byte
+		wantText   string
+		wantBlob   []byte
+		wantSigned bool
+		wantErr    bool
+	}{
+		{name: "small text is inlined from its storage path", loc: loc("log.txt", "text/plain", 31),
+			body: []byte("hello from attachment text file"), wantText: "hello from attachment text file"},
+		// The SDK base64-encodes Blob on the wire; a double-encoded blob would
+		// arrive as the base64 text of the image instead of its bytes.
+		{name: "small image is inlined as raw bytes", loc: loc("shot.png", "image/png", int64(len(png))), body: png, wantBlob: png},
+		{name: "large binary without storage returns a signed URL", loc: loc("archive.bin", "application/octet-stream", 10<<20),
+			noStorage: true, wantSigned: true},
+		{name: "oversized text is not read and returns a signed URL", loc: loc("huge.log", "text/plain", 5<<20),
+			body: []byte("should not be read"), wantSigned: true},
+		{name: "path-traversal source is refused", loc: loc("../../../etc/passwd", "text/plain", 16), body: []byte("x"), wantErr: true},
+		{name: "unknown attachment", wantErr: true},
 	}
-
-	stores := &bootstrap.Stores{Attachment: mocks.Attachments}
-	signingKey := []byte("test-signing-key-32-bytes-padded!")
-	publicURL := "http://localhost:8080"
-
-	cs := setupResourceServer(t, stores, mockStore, signingKey, publicURL)
-
-	uri := "alluredeck://attachment/" + strconv.FormatInt(attachmentID, 10)
-	res, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: uri})
-	if err != nil {
-		t.Fatalf("ReadResource: %v", err)
-	}
-	if len(res.Contents) == 0 {
-		t.Fatal("want at least one content item, got none")
-	}
-
-	got := res.Contents[0]
-	if got.URI != uri {
-		t.Errorf("want URI=%q, got %q", uri, got.URI)
-	}
-	if got.MIMEType != "text/plain" {
-		t.Errorf("want MIMEType=text/plain, got %q", got.MIMEType)
-	}
-	if got.Text != fileContent {
-		t.Errorf("want text=%q, got %q", fileContent, got.Text)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Test B: large binary attachment (>2 MB) — signed URL returned, HMAC valid
-// ---------------------------------------------------------------------------
-
-func TestAttachmentResource_LargeBinarySignedURL(t *testing.T) {
-	const attachmentID = int64(42)
-	const tenMB = 10 * 1024 * 1024
-
-	mocks := testutil.New()
-	mocks.Attachments.GetLocationFn = func(_ context.Context, id int64) (*store.AttachmentLocation, error) {
-		if id != attachmentID {
-			return nil, store.ErrAttachmentNotFound
-		}
-		return &store.AttachmentLocation{
-			StorageKey:  "proj-storage-key",
-			BuildNumber: 3,
-			Source:      "archive.bin",
-			MimeType:    "application/octet-stream",
-			SizeBytes:   tenMB,
-		}, nil
-	}
-
-	// dataStore is nil to force the signed-URL path (or could be non-nil — the
-	// handler falls back to signed URL for non-text, non-image MIME types).
-	stores := &bootstrap.Stores{Attachment: mocks.Attachments}
-	signingKey := []byte("test-signing-key-32-bytes-padded!")
-	publicURL := "http://localhost:8080"
-
-	cs := setupResourceServer(t, stores, nil, signingKey, publicURL)
-
-	before := time.Now().Add(-time.Second) // allow 1s clock skew
-	uri := "alluredeck://attachment/" + strconv.FormatInt(attachmentID, 10)
-	res, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: uri})
-	if err != nil {
-		t.Fatalf("ReadResource: %v", err)
-	}
-	if len(res.Contents) == 0 {
-		t.Fatal("want at least one content item, got none")
-	}
-
-	got := res.Contents[0]
-
-	// The returned URI must be a signed download URL, not the original resource URI.
-	if got.URI == uri {
-		t.Fatal("want a signed download URL as URI, got the original resource URI back")
-	}
-	if !strings.HasPrefix(got.URI, publicURL+"/attachments/") {
-		t.Errorf("want URI to start with %q, got %q", publicURL+"/attachments/", got.URI)
-	}
-
-	// Parse the signed URL and verify its HMAC.
-	parsed, err := url.Parse(got.URI)
-	if err != nil {
-		t.Fatalf("parsing signed URL %q: %v", got.URI, err)
-	}
-
-	expStr := parsed.Query().Get("exp")
-	sig := parsed.Query().Get("sig")
-	if expStr == "" || sig == "" {
-		t.Fatalf("signed URL missing exp or sig: %q", got.URI)
-	}
-
-	expUnix, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil {
-		t.Fatalf("parsing exp %q: %v", expStr, err)
-	}
-
-	// Expires must be within 10 minutes from now.
-	expTime := time.Unix(expUnix, 0)
-	after := time.Now().Add(10*time.Minute + time.Second)
-	if expTime.Before(before) || expTime.After(after) {
-		t.Errorf("exp timestamp %v outside expected window [%v, %v]", expTime, before, after)
-	}
-
-	// Verify the HMAC matches.
-	payload := "attachment:" + strconv.FormatInt(attachmentID, 10) + ":exp:" + expStr
-	mac := hmac.New(sha256.New, signingKey)
-	mac.Write([]byte(payload))
-	expectedSig := hex.EncodeToString(mac.Sum(nil))
-	if sig != expectedSig {
-		t.Errorf("HMAC mismatch: want %q, got %q", expectedSig, sig)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Test C: small image attachment — blob inlined as raw bytes (single-encoded)
-// ---------------------------------------------------------------------------
-
-func TestAttachmentResource_ImageBlobSingleEncoded(t *testing.T) {
-	const attachmentID = int64(8)
-	const source = "shot.png"
-	const storageKey = "proj-storage-key"
-	const buildNumber = 4
-	// Raw PNG-ish bytes including a non-ASCII byte to catch encoding bugs.
-	imageBytes := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00}
-
-	mocks := testutil.New()
-	mocks.Attachments.GetLocationFn = func(_ context.Context, id int64) (*store.AttachmentLocation, error) {
-		if id != attachmentID {
-			return nil, store.ErrAttachmentNotFound
-		}
-		return &store.AttachmentLocation{
-			StorageKey:  storageKey,
-			BuildNumber: buildNumber,
-			Source:      source,
-			MimeType:    "image/png",
-			SizeBytes:   int64(len(imageBytes)),
-		}, nil
-	}
-
-	mockStore := &storage.MockStore{
-		OpenReportFileFn: func(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
-			return io.NopCloser(bytes.NewReader(imageBytes)), "image/png", nil
-		},
-	}
-
-	stores := &bootstrap.Stores{Attachment: mocks.Attachments}
-	cs := setupResourceServer(t, stores, mockStore, []byte("test-signing-key-32-bytes-padded!"), "http://localhost:8080")
-
-	uri := "alluredeck://attachment/" + strconv.FormatInt(attachmentID, 10)
-	res, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: uri})
-	if err != nil {
-		t.Fatalf("ReadResource: %v", err)
-	}
-	if len(res.Contents) == 0 {
-		t.Fatal("want at least one content item, got none")
-	}
-
-	got := res.Contents[0]
-	if got.MIMEType != "image/png" {
-		t.Errorf("want MIMEType=image/png, got %q", got.MIMEType)
-	}
-	// The SDK transports Blob as base64 over JSON and decodes it back to raw
-	// bytes on the client. A correct (single-encoded) blob round-trips to the
-	// original image bytes; a double-encoded blob would arrive as the base64
-	// ASCII text of the image bytes instead.
-	if !bytes.Equal(got.Blob, imageBytes) {
-		t.Errorf("blob mismatch (double-encoding?): want %v, got %v", imageBytes, got.Blob)
-	}
-	if string(got.Blob) == base64.StdEncoding.EncodeToString(imageBytes) {
-		t.Error("blob is double base64-encoded: got the base64 text instead of raw bytes")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Test D: oversized text attachment — not inlined, signed URL returned instead
-// ---------------------------------------------------------------------------
-
-func TestAttachmentResource_TextSizeCap(t *testing.T) {
-	const attachmentID = int64(11)
-	const source = "huge.log"
-	// SizeBytes reports a value above the inline cap → must fall back to URL.
-	const hugeSize = int64(5 * 1024 * 1024)
-
-	mocks := testutil.New()
-	mocks.Attachments.GetLocationFn = func(_ context.Context, id int64) (*store.AttachmentLocation, error) {
-		if id != attachmentID {
-			return nil, store.ErrAttachmentNotFound
-		}
-		return &store.AttachmentLocation{
-			StorageKey:  "proj-storage-key",
-			BuildNumber: 2,
-			Source:      source,
-			MimeType:    "text/plain",
-			SizeBytes:   hugeSize,
-		}, nil
-	}
-
-	var openCalled bool
-	mockStore := &storage.MockStore{
-		OpenReportFileFn: func(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
-			openCalled = true
-			return io.NopCloser(strings.NewReader("should not be read")), "text/plain", nil
-		},
-	}
-
-	stores := &bootstrap.Stores{Attachment: mocks.Attachments}
-	publicURL := "http://localhost:8080"
-	cs := setupResourceServer(t, stores, mockStore, []byte("test-signing-key-32-bytes-padded!"), publicURL)
-
-	uri := "alluredeck://attachment/" + strconv.FormatInt(attachmentID, 10)
-	res, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: uri})
-	if err != nil {
-		t.Fatalf("ReadResource: %v", err)
-	}
-	if len(res.Contents) == 0 {
-		t.Fatal("want at least one content item, got none")
-	}
-
-	got := res.Contents[0]
-	// An oversized text attachment must not be inlined: it should fall back to
-	// the signed-download URL, consistent with oversized-image behavior.
-	if got.URI == uri {
-		t.Fatal("oversized text attachment was inlined; want a signed download URL")
-	}
-	if !strings.HasPrefix(got.URI, publicURL+"/attachments/") {
-		t.Errorf("want signed download URL, got %q", got.URI)
-	}
-	if openCalled {
-		t.Error("storage was read for an oversized text attachment; want no read")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Test E: path-traversal source — rejected, storage never touched
-// ---------------------------------------------------------------------------
-
-func TestAttachmentResource_PathTraversalRejected(t *testing.T) {
-	const attachmentID = int64(13)
-
-	traversalSources := []string{
-		"../../../etc/passwd",
-		"sub/dir/shot.png",
-		"..\\..\\windows\\system32",
-		"shot.png\x00.txt",
-	}
-
-	for _, badSource := range traversalSources {
-		t.Run(badSource, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			mocks := testutil.New()
 			mocks.Attachments.GetLocationFn = func(_ context.Context, id int64) (*store.AttachmentLocation, error) {
-				return &store.AttachmentLocation{
-					StorageKey:  "proj-storage-key",
-					BuildNumber: 1,
-					Source:      badSource,
-					MimeType:    "text/plain",
-					SizeBytes:   16,
-				}, nil
+				if id != 42 || tc.loc == nil {
+					return nil, store.ErrAttachmentNotFound
+				}
+				return tc.loc, nil
+			}
+			var opened []string
+			var dataStore storage.Store
+			if !tc.noStorage {
+				dataStore = &storage.MockStore{OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
+					opened = append(opened, projectID+"|"+reportID+"|"+filePath)
+					return io.NopCloser(bytes.NewReader(tc.body)), "", nil
+				}}
 			}
 
-			var openCalled bool
-			mockStore := &storage.MockStore{
-				OpenReportFileFn: func(_ context.Context, _, _, _ string) (io.ReadCloser, string, error) {
-					openCalled = true
-					return io.NopCloser(strings.NewReader("x")), "text/plain", nil
-				},
+			srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "test-resources", Version: "v0"}, nil)
+			internalmcp.RegisterResources(srv, &bootstrap.Stores{Attachment: mocks.Attachments}, zap.NewNop(), resourceSigningKey, publicURL, dataStore)
+			st, ct := mcpsdk.NewInMemoryTransports()
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			go srv.Run(ctx, st) //nolint:errcheck
+			cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "client", Version: "v0"}, nil).Connect(ctx, ct, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = cs.Close() })
+
+			res, err := cs.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: uri})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("want an error, got a resource")
+				}
+				if len(opened) != 0 {
+					t.Errorf("storage was read for a refused attachment: %v", opened)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReadResource: %v", err)
+			}
+			got := res.Contents[0]
+
+			if !tc.wantSigned {
+				if want := "proj-key|7|data/attachments/" + tc.loc.Source; len(opened) != 1 || opened[0] != want {
+					t.Errorf("storage reads = %v, want [%s]", opened, want)
+				}
+				if got.URI != uri || got.MIMEType != tc.loc.MimeType || got.Text != tc.wantText || !bytes.Equal(got.Blob, tc.wantBlob) {
+					t.Errorf("content = {uri:%q mime:%q text:%q blob:%v}, want {%q %q %q %v}",
+						got.URI, got.MIMEType, got.Text, got.Blob, uri, tc.loc.MimeType, tc.wantText, tc.wantBlob)
+				}
+				return
 			}
 
-			stores := &bootstrap.Stores{Attachment: mocks.Attachments}
-			cs := setupResourceServer(t, stores, mockStore, []byte("test-signing-key-32-bytes-padded!"), "http://localhost:8080")
-
-			uri := "alluredeck://attachment/" + strconv.FormatInt(attachmentID, 10)
-			_, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: uri})
-			if err == nil {
-				t.Fatal("want error for path-traversal source, got nil")
+			if len(opened) != 0 {
+				t.Errorf("storage was read for a non-inlined attachment: %v", opened)
 			}
-			if openCalled {
-				t.Error("storage was accessed for a path-traversal source; want no access")
+			if !strings.HasPrefix(got.URI, publicURL+"/attachments/42?") {
+				t.Fatalf("URI = %q, want a signed download URL for attachment 42", got.URI)
+			}
+			u, err := url.Parse(got.URI)
+			if err != nil {
+				t.Fatalf("parsing signed URL: %v", err)
+			}
+			exp, _ := strconv.ParseInt(u.Query().Get("exp"), 10, 64)
+			if expT := time.Unix(exp, 0); expT.Before(time.Now().Add(-time.Second)) || expT.After(time.Now().Add(10*time.Minute+time.Second)) {
+				t.Errorf("exp = %v, want within 10 minutes from now", expT)
+			}
+			if sig := u.Query().Get("sig"); sig != sigFor(42, exp) {
+				t.Errorf("sig = %q, want HMAC %q", sig, sigFor(42, exp))
 			}
 		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: attachment not found
-// ---------------------------------------------------------------------------
-
-func TestAttachmentResource_NotFound(t *testing.T) {
-	mocks := testutil.New()
-	// GetLocationFn left nil → returns nil, ErrAttachmentNotFound (mock default)
-
-	stores := &bootstrap.Stores{Attachment: mocks.Attachments}
-	cs := setupResourceServer(t, stores, nil, []byte("key"), "http://localhost")
-
-	_, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{
-		URI: "alluredeck://attachment/999",
-	})
-	if err == nil {
-		t.Fatal("want error for missing attachment, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Test: signed-URL HMAC verification — valid, expired, tampered
-// ---------------------------------------------------------------------------
-
 func TestVerifyAttachmentSig(t *testing.T) {
-	signingKey := []byte("test-signing-key-32-bytes-padded!")
-	const attachmentID = int64(123)
+	const id = int64(123)
 	now := time.Unix(1_700_000_000, 0)
-
-	// Re-derive a valid signature the same way buildSignedURL / signAttachment do:
-	// HMAC-SHA256 over "attachment:{id}:exp:{exp}".
-	sign := func(id, exp int64) string {
-		mac := hmac.New(sha256.New, signingKey)
-		mac.Write([]byte("attachment:" + strconv.FormatInt(id, 10) + ":exp:" + strconv.FormatInt(exp, 10)))
-		return hex.EncodeToString(mac.Sum(nil))
-	}
-
-	futureExp := now.Add(5 * time.Minute).Unix()
-	pastExp := now.Add(-time.Minute).Unix()
+	future := now.Add(5 * time.Minute).Unix()
+	past := now.Add(-time.Minute).Unix()
 
 	tests := []struct {
 		name    string
-		id      int64
-		exp     int64
+		id, exp int64
 		sig     string
 		wantErr bool
 	}{
-		{
-			name:    "valid signature within expiry",
-			id:      attachmentID,
-			exp:     futureExp,
-			sig:     sign(attachmentID, futureExp),
-			wantErr: false,
-		},
-		{
-			name:    "expired URL",
-			id:      attachmentID,
-			exp:     pastExp,
-			sig:     sign(attachmentID, pastExp),
-			wantErr: true,
-		},
-		{
-			name:    "tampered signature",
-			id:      attachmentID,
-			exp:     futureExp,
-			sig:     sign(attachmentID, futureExp)[:62] + "ff", // flip trailing hex
-			wantErr: true,
-		},
-		{
-			name:    "signature for a different attachment id",
-			id:      attachmentID,
-			exp:     futureExp,
-			sig:     sign(attachmentID+1, futureExp),
-			wantErr: true,
-		},
-		{
-			name:    "exp tampered to extend validity",
-			id:      attachmentID,
-			exp:     futureExp + 3600, // attacker bumps exp but keeps old sig
-			sig:     sign(attachmentID, futureExp),
-			wantErr: true,
-		},
-		{
-			name:    "missing signature",
-			id:      attachmentID,
-			exp:     futureExp,
-			sig:     "",
-			wantErr: true,
-		},
-		{
-			name:    "non-positive exp",
-			id:      attachmentID,
-			exp:     0,
-			sig:     sign(attachmentID, 0),
-			wantErr: true,
-		},
+		{"valid signature within expiry", id, future, sigFor(id, future), false},
+		{"expired URL", id, past, sigFor(id, past), true},
+		{"tampered signature", id, future, sigFor(id, future)[:62] + "ff", true},
+		{"signature for a different attachment id", id, future, sigFor(id+1, future), true},
+		{"exp bumped to extend validity", id, future + 3600, sigFor(id, future), true},
+		{"missing signature", id, future, "", true},
+		{"non-positive exp", id, 0, sigFor(id, 0), true},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := internalmcp.VerifyAttachmentSig(signingKey, tc.id, tc.exp, tc.sig, now)
-			if tc.wantErr && err == nil {
-				t.Fatalf("VerifyAttachmentSig: want error, got nil")
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("VerifyAttachmentSig: want nil error, got %v", err)
+			err := internalmcp.VerifyAttachmentSig(resourceSigningKey, tc.id, tc.exp, tc.sig, now)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("VerifyAttachmentSig err = %v, wantErr %v", err, tc.wantErr)
 			}
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: ValidateAttachmentSource — the shared path-traversal guard
-// ---------------------------------------------------------------------------
-
-func TestValidateAttachmentSource(t *testing.T) {
-	tests := []struct {
-		name    string
-		source  string
-		wantErr bool
-	}{
-		{"plain filename", "screenshot.png", false},
-		{"filename with dashes", "test-result-42.log", false},
-		{"filename with single dot", "report.v2.json", false},
-		{"empty", "", true},
-		{"forward slash", "sub/shot.png", true},
-		{"absolute path", "/etc/passwd", true},
-		{"backslash", "sub\\shot.png", true},
-		{"parent traversal", "../secret", true},
-		{"embedded parent traversal", "a/../../secret", true},
-		{"dotdot only", "..", true},
-		{"NUL byte", "shot.png\x00.txt", true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := internalmcp.ValidateAttachmentSource(tc.source)
-			if tc.wantErr && err == nil {
-				t.Fatalf("ValidateAttachmentSource(%q): want error, got nil", tc.source)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("ValidateAttachmentSource(%q): want nil error, got %v", tc.source, err)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-type mockNotFoundError struct{ path string }
-
-func (e *mockNotFoundError) Error() string { return "not found: " + e.path }

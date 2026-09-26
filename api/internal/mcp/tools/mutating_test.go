@@ -3,10 +3,13 @@ package tools_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
@@ -15,415 +18,269 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
+const publicBase = "https://app.example.com"
 
-// editorInfo returns a *mcpauth.TokenInfo with editor role and allow_mcp_writes=true.
-func editorInfo() *mcpauth.TokenInfo {
-	return &mcpauth.TokenInfo{
-		UserID: "user-42",
-		Scopes: []string{"editor"},
-		Extra: map[string]any{
-			"role":             "editor",
-			"api_key_id":       int64(7),
-			"allow_mcp_writes": "true",
-			"username":         "editor-user",
-			"user_id":          "42",
-			"user_db_id":       int64(42),
-		},
+// proposeFn runs one propose_* tool core with an explicit TokenInfo; the
+// in-memory transport bypasses the auth middleware that sets it in production.
+type proposeFn func(req *mcpsdk.CallToolRequest, info *mcpauth.TokenInfo, stores *bootstrap.Stores, key []byte) (*mcpsdk.CallToolResult, error)
+
+func classify(in tools.ProposeClassifyDefectInput) proposeFn {
+	return func(req *mcpsdk.CallToolRequest, info *mcpauth.TokenInfo, stores *bootstrap.Stores, key []byte) (*mcpsdk.CallToolResult, error) {
+		res, _, err := tools.ExecProposeClassifyDefectForTest(context.Background(), req, in, info, stores, zap.NewNop(), publicBase, key)
+		return res, err
 	}
 }
 
-// viewerInfo returns a *mcpauth.TokenInfo with viewer role.
-func viewerInfo() *mcpauth.TokenInfo {
-	return &mcpauth.TokenInfo{
-		UserID: "user-1",
-		Scopes: []string{"viewer"},
-		Extra: map[string]any{
-			"role":             "viewer",
-			"api_key_id":       int64(1),
-			"allow_mcp_writes": "false",
-			"username":         "viewer-user",
-			"user_id":          "1",
-			"user_db_id":       int64(1),
-		},
+func knownIssue(in tools.ProposeKnownIssueInput) proposeFn {
+	return func(req *mcpsdk.CallToolRequest, info *mcpauth.TokenInfo, stores *bootstrap.Stores, key []byte) (*mcpsdk.CallToolResult, error) {
+		res, _, err := tools.ExecProposeKnownIssueForTest(context.Background(), req, in, info, stores, zap.NewNop(), publicBase, key)
+		return res, err
 	}
 }
 
-// editorNoWriteInfo returns a *mcpauth.TokenInfo with editor role but allow_mcp_writes=false.
-func editorNoWriteInfo() *mcpauth.TokenInfo {
-	return &mcpauth.TokenInfo{
-		UserID: "user-2",
-		Scopes: []string{"editor"},
-		Extra: map[string]any{
-			"role":             "editor",
-			"api_key_id":       int64(2),
-			"allow_mcp_writes": "false",
-			"username":         "editor-nowrite",
-			"user_id":          "2",
-			"user_db_id":       int64(2),
-		},
+func markFlaky(in tools.ProposeMarkFlakyInput) proposeFn {
+	return func(req *mcpsdk.CallToolRequest, info *mcpauth.TokenInfo, stores *bootstrap.Stores, key []byte) (*mcpsdk.CallToolResult, error) {
+		res, _, err := tools.ExecProposeMarkFlakyForTest(context.Background(), req, in, info, stores, zap.NewNop(), publicBase, key)
+		return res, err
 	}
 }
 
-// buildMutatingStores assembles a *bootstrap.Stores with the given mock fields.
-func buildMutatingStores(
-	defectProposals *testutil.MockDefectProposalStore,
-	kiProposals *testutil.MockKnownIssueProposalStore,
-	flakyProposals *testutil.MockFlakyProposalStore,
-	testResults *testutil.MockTestResultStore,
-	audit *testutil.MockAuditLogger,
-) *bootstrap.Stores {
-	return &bootstrap.Stores{
-		DefectProposals:     defectProposals,
-		KnownIssueProposals: kiProposals,
-		FlakyProposals:      flakyProposals,
-		TestResult:          testResults,
-		Audit:               audit,
+// TestPropose_Refusals: every refused write explains itself, prompts for
+// nothing and writes nothing.
+func TestPropose_Refusals(t *testing.T) {
+	defectIn := tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"}
+	// An API key owned by a configuration-file user has no users row, and
+	// proposals.proposer_user_id is NOT NULL with a FK to users(id) (e655699).
+	envUser := tokenInfo("editor", "true", "admin", 0)
+
+	tests := []struct {
+		name    string
+		propose proposeFn
+		info    *mcpauth.TokenInfo
+		req     *mcpsdk.CallToolRequest
+		key     []byte
+		dupErr  bool
+		wantErr []string
+	}{
+		// Even a viewer key that carries allow_mcp_writes is refused on role.
+		{"viewer is forbidden", classify(defectIn), tokenInfo("viewer", "true", "1", 1), nil, nil, false, []string{"forbidden"}},
+		{"editor without allow_mcp_writes is forbidden", classify(defectIn), tokenInfo("editor", "false", "2", 2), nil, nil, false, []string{"forbidden"}},
+		// "23503" tells an agent nothing; the message must name the cause.
+		{"caller without a users row is refused by name", markFlaky(markFlakyInput()), envUser, requestWithoutElicitation(), nil, false,
+			[]string{"admin", "registered user"}},
+		// Asking a user to approve a write that can never be recorded wastes their decision.
+		{"caller without a users row is refused before confirming", markFlaky(markFlakyInput()), envUser, requestWithElicitation(),
+			confirmSigningKey, false, []string{"registered user"}},
+		// The more specific error first: a mistyped regex, not attribution.
+		{"invalid regex is reported before attribution", knownIssue(tools.ProposeKnownIssueInput{ProjectID: 7, RegexPattern: "[unclosed"}),
+			envUser, requestWithoutElicitation(), nil, false, []string{"regex"}},
+		{"empty history_id", markFlaky(tools.ProposeMarkFlakyInput{ProjectID: 1, TestFullName: "pkg.TestFoo"}), editorInfo(), nil, nil, false,
+			[]string{"history_id"}},
+		// A failing duplicate check must not be read as "no duplicate".
+		{"duplicate check failure is surfaced", markFlaky(markFlakyInput()), editorInfo(), nil, nil, true, []string{"duplicate"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stores, counter := countingStores(t, nil)
+			if tc.dupErr {
+				stores.FlakyProposals.(*testutil.MockFlakyProposalStore).FindPendingDuplicateFn = func(context.Context, int, string) (*store.FlakyProposal, error) {
+					return nil, context.DeadlineExceeded
+				}
+			}
+			res, err := tc.propose(tc.req, tc.info, stores, tc.key)
+			if err == nil {
+				t.Fatal("want a refusal, got success")
+			}
+			for _, want := range tc.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not mention %q", err, want)
+				}
+			}
+			if res != nil && len(res.InputRequests) > 0 {
+				t.Error("prompted for confirmation of a refused write")
+			}
+			if counter.creates() != 0 {
+				t.Errorf("wrote %d proposals", counter.creates())
+			}
+		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// propose_classify_defect tests
-// ---------------------------------------------------------------------------
-
-// TestProposeClassifyDefect_RBAC_DeniesViewer verifies that a viewer role
-// is rejected with a forbidden error.
-func TestProposeClassifyDefect_RBAC_DeniesViewer(t *testing.T) {
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		&testutil.MockTestResultStore{},
-		testutil.NewMockAuditLogger(),
-	)
-
-	_, _, err := tools.ExecProposeClassifyDefectForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"},
-		viewerInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err == nil {
-		t.Fatal("want error for viewer role, got nil")
+func TestProposeClassifyDefect_Writes(t *testing.T) {
+	stores, counter := countingStores(t, nil)
+	var got *store.DefectProposal
+	stores.DefectProposals.(*testutil.MockDefectProposalStore).CreateFn = func(_ context.Context, p *store.DefectProposal) (int64, error) {
+		got = p
+		return 99, nil
 	}
-	if !strings.Contains(err.Error(), "forbidden") {
-		t.Errorf("want error containing 'forbidden', got: %q", err.Error())
-	}
-}
+	in := tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "deadbeef", ProposedCategory: "test_bug", Rationale: "test says so"}
 
-// TestProposeClassifyDefect_RBAC_DeniesEditorWithoutFlag verifies that an
-// editor without allow_mcp_writes is rejected.
-func TestProposeClassifyDefect_RBAC_DeniesEditorWithoutFlag(t *testing.T) {
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		&testutil.MockTestResultStore{},
-		testutil.NewMockAuditLogger(),
-	)
-
-	_, _, err := tools.ExecProposeClassifyDefectForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"},
-		editorNoWriteInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err == nil {
-		t.Fatal("want error for editor without allow_mcp_writes, got nil")
-	}
-	if !strings.Contains(err.Error(), "forbidden") {
-		t.Errorf("want error containing 'forbidden', got: %q", err.Error())
-	}
-}
-
-// TestProposeClassifyDefect_HappyPath_EditorWithFlag verifies that an editor
-// with allow_mcp_writes=true successfully creates a proposal and records an
-// audit event.
-func TestProposeClassifyDefect_HappyPath_EditorWithFlag(t *testing.T) {
-	var insertedProposal *store.DefectProposal
-
-	defectStore := &testutil.MockDefectProposalStore{
-		CreateFn: func(_ context.Context, p *store.DefectProposal) (int64, error) {
-			cp := *p
-			insertedProposal = &cp
-			return 99, nil
-		},
-	}
-	audit := testutil.NewMockAuditLogger()
-	stores := buildMutatingStores(
-		defectStore,
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		&testutil.MockTestResultStore{},
-		audit,
-	)
-
-	_, out, err := tools.ExecProposeClassifyDefectForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeClassifyDefectInput{
-			ProjectID:        1,
-			FingerprintHash:  "deadbeef",
-			ProposedCategory: "test_bug",
-			Rationale:        "test says so",
-		},
-		editorInfo(),
-		stores,
-		zap.NewNop(),
-		"https://app.example.com",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
+	// nil request and signing key: no MCP client, so no confirmation gate.
+	_, out, err := tools.ExecProposeClassifyDefectForTest(context.Background(), nil, in, editorInfo(), stores, zap.NewNop(), publicBase, nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("propose: %v", err)
 	}
-	if out.ProposalID != 99 {
-		t.Errorf("want proposal_id=99, got %d", out.ProposalID)
+	want := store.DefectProposal{ProjectID: 1, FingerprintHash: "deadbeef", ProposedCategory: "test_bug", Rationale: "test says so",
+		ProposerUserID: 42, ProposerAPIKeyID: 7, Status: store.ProposalStatusPending}
+	if got == nil || !reflect.DeepEqual(*got, want) {
+		t.Errorf("stored proposal = %+v, want %+v", got, want)
 	}
-	if !strings.Contains(out.ReviewURL, "/admin/proposals/defect/99") {
-		t.Errorf("unexpected review_url: %q", out.ReviewURL)
+	if out != (tools.ProposeClassifyDefectOutput{ProposalID: 99, ReviewURL: publicBase + "/admin/proposals/defect/99"}) {
+		t.Errorf("output = %+v, want proposal 99 with its review URL and no duplicate_of", out)
 	}
-	if insertedProposal == nil {
-		t.Fatal("want proposal inserted, mock CreateFn not called")
+	if ev := counter.audit.EventsByAction(store.AuditActionMCPProposeDefectClassify); len(ev) != 1 || ev[0].TargetType != "proposal" || ev[0].TargetID != "99" {
+		t.Errorf("audit events = %+v, want one proposal/99 event", ev)
 	}
-	if insertedProposal.FingerprintHash != "deadbeef" {
-		t.Errorf("want hash=deadbeef, got %q", insertedProposal.FingerprintHash)
-	}
-	// Verify audit log.
-	events := audit.EventsByAction(store.AuditActionMCPProposeDefectClassify)
-	if len(events) != 1 {
-		t.Fatalf("want 1 audit event, got %d", len(events))
-	}
-	if events[0].TargetType != "proposal" {
-		t.Errorf("want target_type=proposal, got %q", events[0].TargetType)
-	}
-	if events[0].TargetID != "99" {
-		t.Errorf("want target_id=99, got %q", events[0].TargetID)
+
+	// The proposal is already stored when the audit write fails; the caller
+	// must still hear about it.
+	counter.audit.RecordErr = errors.New("audit db down")
+	if _, _, err := tools.ExecProposeClassifyDefectForTest(context.Background(), nil, in, editorInfo(), stores, zap.NewNop(), publicBase, nil); err == nil || !strings.Contains(err.Error(), "audit") {
+		t.Errorf("err = %v, want the audit failure reported", err)
 	}
 }
 
-// TestProposeClassifyDefect_AuditFailure_ReturnsError verifies that when the
-// audit log fails the handler returns an error.
-func TestProposeClassifyDefect_AuditFailure_ReturnsError(t *testing.T) {
-	auditErr := errors.New("audit db down")
-	audit := testutil.NewMockAuditLogger()
-	audit.RecordErr = auditErr
-
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		&testutil.MockTestResultStore{},
-		audit,
-	)
-
-	_, _, err := tools.ExecProposeClassifyDefectForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "abc", ProposedCategory: "product_bug"},
-		editorInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err == nil {
-		t.Fatal("want error when audit fails, got nil")
+// TestProposeMarkFlaky_APIKeyCallerWritesResolvedUserID pins e655699: the
+// API-key path used to parse the username — an email — as the proposer id,
+// so every API-key proposal wrote 0 and failed the users(id) FK with 23503.
+// The numeric id resolved at authentication must reach the store unchanged.
+func TestProposeMarkFlaky_APIKeyCallerWritesResolvedUserID(t *testing.T) {
+	stores, _ := countingStores(t, nil)
+	var got *store.FlakyProposal
+	stores.FlakyProposals = &testutil.MockFlakyProposalStore{CreateFn: func(_ context.Context, p *store.FlakyProposal) (int64, error) {
+		got = p
+		return 1, nil
+	}}
+	_, _, err := tools.ExecProposeMarkFlakyForTest(context.Background(), requestWithoutElicitation(), markFlakyInput(),
+		tokenInfo("editor", "true", "engineer@example.com", 4242), stores, zap.NewNop(), publicBase, nil)
+	if err != nil {
+		t.Fatalf("propose_mark_flaky: %v", err)
 	}
-	if !strings.Contains(err.Error(), "audit") {
-		t.Errorf("want error mentioning audit, got: %q", err.Error())
+	if got == nil || got.ProposerUserID != 4242 || got.ProposerAPIKeyID != 7 {
+		t.Fatalf("stored proposal = %+v, want proposer_user_id 4242 and api key 7", got)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// propose_known_issue tests
-// ---------------------------------------------------------------------------
-
-// TestProposeKnownIssue_InvalidRegex verifies that a malformed regex is rejected.
-func TestProposeKnownIssue_InvalidRegex(t *testing.T) {
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		&testutil.MockTestResultStore{},
-		testutil.NewMockAuditLogger(),
-	)
-
-	_, _, err := tools.ExecProposeKnownIssueForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeKnownIssueInput{
-			ProjectID:    1,
-			RegexPattern: "[invalid-regex",
-		},
-		editorInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err == nil {
-		t.Fatal("want error for invalid regex, got nil")
-	}
-	if !strings.Contains(err.Error(), "regex") {
-		t.Errorf("want error mentioning regex, got: %q", err.Error())
-	}
-}
-
-// TestProposeKnownIssue_DryRunCount verifies that 3 of 10 messages match the
-// regex and DryRunMatchCount=3 is returned.
 func TestProposeKnownIssue_DryRunCount(t *testing.T) {
-	messages := []string{
-		"NullPointerException in foo",
-		"timeout connecting to db",
-		"NullPointerException in bar",
-		"assertion failed: expected 1 got 2",
-		"NullPointerException in baz",
-		"connection refused",
-		"index out of range",
-		"unexpected EOF",
-		"no such file or directory",
-		"deadline exceeded",
+	tenMixed := []string{
+		"NullPointerException in foo", "timeout connecting to db", "NullPointerException in bar",
+		"assertion failed: expected 1 got 2", "NullPointerException in baz", "connection refused",
+		"index out of range", "unexpected EOF", "no such file or directory", "deadline exceeded",
 	}
-
-	trStore := &testutil.MockTestResultStore{
-		ListRecentMessagesFn: func(_ context.Context, _ int64, _ int) ([]string, error) {
-			return messages, nil
-		},
+	fiveThousand := make([]string, 5000)
+	for i := range fiveThousand {
+		fiveThousand[i] = "fatal error: out of memory"
 	}
-	kiStore := &testutil.MockKnownIssueProposalStore{}
-	audit := testutil.NewMockAuditLogger()
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		kiStore,
-		&testutil.MockFlakyProposalStore{},
-		trStore,
-		audit,
-	)
-
-	_, out, err := tools.ExecProposeKnownIssueForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeKnownIssueInput{
-			ProjectID:    1,
-			RegexPattern: "NullPointerException",
-		},
-		editorInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	tests := []struct {
+		name     string
+		messages []string
+		pattern  string
+		want     int
+	}{
+		{"counts matching recent messages", tenMixed, "NullPointerException", 3},
+		{"stops counting at the cap", fiveThousand, "fatal error", 1000},
 	}
-	if out.DryRunMatchCount != 3 {
-		t.Errorf("want DryRunMatchCount=3, got %d", out.DryRunMatchCount)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stores, _ := countingStores(t, tc.messages)
+			_, out, err := tools.ExecProposeKnownIssueForTest(context.Background(), nil,
+				tools.ProposeKnownIssueInput{ProjectID: 1, RegexPattern: tc.pattern}, editorInfo(), stores, zap.NewNop(), "", nil)
+			if err != nil {
+				t.Fatalf("propose: %v", err)
+			}
+			if out.DryRunMatchCount != tc.want {
+				t.Errorf("dry_run_match_count = %d, want %d", out.DryRunMatchCount, tc.want)
+			}
+		})
 	}
 }
 
-// TestProposeKnownIssue_DryRunCap verifies that 5000 matching messages are
-// capped at 1000 in DryRunMatchCount.
-func TestProposeKnownIssue_DryRunCap(t *testing.T) {
-	// Return 5000 matching messages.
-	messages := make([]string, 5000)
-	for i := range messages {
-		messages[i] = "fatal error: out of memory"
+// TestPropose_DuplicatePending: an identical pending proposal means the call
+// is a re-run, not a new finding. It is echoed via duplicate_of and nothing is
+// written, audited, or (for known issues) dry-run scanned.
+func TestPropose_DuplicatePending(t *testing.T) {
+	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	type result struct {
+		id  int64
+		url string
+		dup *tools.DuplicateProposal
 	}
-
-	trStore := &testutil.MockTestResultStore{
-		ListRecentMessagesFn: func(_ context.Context, _ int64, _ int) ([]string, error) {
-			return messages, nil
+	tests := []struct {
+		name    string
+		arm     func(t *testing.T, s *bootstrap.Stores)
+		propose func(s *bootstrap.Stores) (result, error)
+		want    result
+	}{
+		{
+			name: "classify defect",
+			arm: func(t *testing.T, s *bootstrap.Stores) {
+				s.DefectProposals.(*testutil.MockDefectProposalStore).FindPendingDuplicateFn = func(_ context.Context, projectID int, hash, category string) (*store.DefectProposal, error) {
+					if projectID != 1 || hash != "deadbeef" || category != "test_bug" {
+						t.Errorf("FindPendingDuplicate(%d, %q, %q), want (1, deadbeef, test_bug)", projectID, hash, category)
+					}
+					return &store.DefectProposal{ID: 77, CreatedAt: created}, nil
+				}
+			},
+			propose: func(s *bootstrap.Stores) (result, error) {
+				_, out, err := tools.ExecProposeClassifyDefectForTest(context.Background(), nil,
+					tools.ProposeClassifyDefectInput{ProjectID: 1, FingerprintHash: "deadbeef", ProposedCategory: "test_bug"},
+					editorInfo(), s, zap.NewNop(), publicBase, nil)
+				return result{out.ProposalID, out.ReviewURL, out.DuplicateOf}, err
+			},
+			want: result{77, publicBase + "/admin/proposals/defect/77", nil},
+		},
+		{
+			name: "known issue",
+			arm: func(t *testing.T, s *bootstrap.Stores) {
+				s.KnownIssueProposals.(*testutil.MockKnownIssueProposalStore).FindPendingDuplicateFn = func(_ context.Context, projectID int, pattern string) (*store.KnownIssueProposal, error) {
+					if projectID != 1 || pattern != "NullPointerException" {
+						t.Errorf("FindPendingDuplicate(%d, %q), want (1, NullPointerException)", projectID, pattern)
+					}
+					return &store.KnownIssueProposal{ID: 42, CreatedAt: created}, nil
+				}
+			},
+			propose: func(s *bootstrap.Stores) (result, error) {
+				_, out, err := tools.ExecProposeKnownIssueForTest(context.Background(), nil,
+					tools.ProposeKnownIssueInput{ProjectID: 1, RegexPattern: "NullPointerException"},
+					editorInfo(), s, zap.NewNop(), publicBase, nil)
+				return result{out.ProposalID, out.ReviewURL, out.DuplicateOf}, err
+			},
+			want: result{42, publicBase + "/admin/proposals/known_issue/42", nil},
+		},
+		{
+			name: "mark flaky",
+			arm: func(t *testing.T, s *bootstrap.Stores) {
+				s.FlakyProposals.(*testutil.MockFlakyProposalStore).FindPendingDuplicateFn = func(_ context.Context, projectID int, historyID string) (*store.FlakyProposal, error) {
+					if projectID != 7 || historyID != "h-login" {
+						t.Errorf("FindPendingDuplicate(%d, %q), want (7, h-login)", projectID, historyID)
+					}
+					return &store.FlakyProposal{ID: 88, CreatedAt: created}, nil
+				}
+			},
+			propose: func(s *bootstrap.Stores) (result, error) {
+				_, out, err := tools.ExecProposeMarkFlakyForTest(context.Background(), nil, markFlakyInput(),
+					editorInfo(), s, zap.NewNop(), publicBase, nil)
+				return result{out.ProposalID, out.ReviewURL, out.DuplicateOf}, err
+			},
+			want: result{88, publicBase + "/admin/proposals/flaky/88", nil},
 		},
 	}
-	audit := testutil.NewMockAuditLogger()
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		trStore,
-		audit,
-	)
-
-	_, out, err := tools.ExecProposeKnownIssueForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeKnownIssueInput{
-			ProjectID:    1,
-			RegexPattern: "fatal error",
-		},
-		editorInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.DryRunMatchCount != 1000 {
-		t.Errorf("want DryRunMatchCount=1000 (capped), got %d", out.DryRunMatchCount)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// propose_mark_flaky tests
-// ---------------------------------------------------------------------------
-
-// TestProposeMarkFlaky_EmptyHistoryID verifies that an empty history_id returns
-// an error mentioning history_id.
-func TestProposeMarkFlaky_EmptyHistoryID(t *testing.T) {
-	stores := buildMutatingStores(
-		&testutil.MockDefectProposalStore{},
-		&testutil.MockKnownIssueProposalStore{},
-		&testutil.MockFlakyProposalStore{},
-		&testutil.MockTestResultStore{},
-		testutil.NewMockAuditLogger(),
-	)
-
-	_, _, err := tools.ExecProposeMarkFlakyForTest(
-		context.Background(),
-		// nil request: no MCP client, so the confirmation gate is skipped.
-		nil,
-		tools.ProposeMarkFlakyInput{
-			ProjectID:    1,
-			TestFullName: "pkg.TestFoo",
-			HistoryID:    "",
-		},
-		editorInfo(),
-		stores,
-		zap.NewNop(),
-		"",
-		// nil signing key: confirmation disabled, write goes straight through.
-		nil,
-	)
-	if err == nil {
-		t.Fatal("want error for empty history_id, got nil")
-	}
-	if !strings.Contains(err.Error(), "history_id") {
-		t.Errorf("want error mentioning history_id, got: %q", err.Error())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stores, counter := countingStores(t, nil)
+			tc.arm(t, stores)
+			got, err := tc.propose(stores)
+			if err != nil {
+				t.Fatalf("propose: %v", err)
+			}
+			wantDup := tools.DuplicateProposal{ProposalID: tc.want.id, ReviewURL: tc.want.url, CreatedAt: created}
+			if got.id != tc.want.id || got.url != tc.want.url || got.dup == nil || !reflect.DeepEqual(*got.dup, wantDup) {
+				t.Errorf("output = (%d, %q, %+v), want (%d, %q, %+v)", got.id, got.url, got.dup, tc.want.id, tc.want.url, wantDup)
+			}
+			if counter.creates() != 0 || len(counter.audit.Events()) != 0 || counter.scans != 0 {
+				t.Errorf("duplicate call wrote %d proposals, %d audit events, ran %d dry-run scans; want none",
+					counter.creates(), len(counter.audit.Events()), counter.scans)
+			}
+		})
 	}
 }
