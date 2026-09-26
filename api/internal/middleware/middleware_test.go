@@ -31,9 +31,10 @@ func okHandler(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.Stat
 // TestAuthMiddleware sends one request per row through AuthMiddleware: JWTs
 // from the Authorization header or the jwt cookie, ald_ API keys looked up by
 // their hash, and the F-3 is_active recheck, which dispatches on the API key's
-// username shape (env literal, numeric user ID, email) and fails open when the
-// user row is missing (fix 927ef9e). Rejections never leak token details
-// (REVIEW #7).
+// username shape (env literal, numeric user ID, email), rejects a deactivated
+// user's JWT or API key with 401 "Account inactive" (fix 9ccee8e relies on it),
+// and fails open when the user row is missing (fix 927ef9e). Rejections never
+// leak token details (REVIEW #7).
 func TestAuthMiddleware(t *testing.T) {
 	cfg := testAuthConfig()
 	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
@@ -48,14 +49,22 @@ func TestAuthMiddleware(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Users 1 (admin@example.com) and 2 (x@y.z) are active.
+	// Users 1 (admin@example.com) and 2 (x@y.z) are active; user 3
+	// (gone@example.com) is deactivated.
 	users := testutil.NewMemUserStore()
-	for _, email := range []string{"admin@example.com", "x@y.z"} {
+	for _, email := range []string{"admin@example.com", "x@y.z", "gone@example.com"} {
 		if _, err := users.UpsertByOIDC(context.Background(), "local", "sub-"+email, email, email, "viewer"); err != nil {
 			t.Fatal(err)
 		}
 	}
+	if err := users.Deactivate(context.Background(), 3); err != nil {
+		t.Fatal(err)
+	}
 	cache := NewUserActiveCache(users, time.Second, 10)
+	inactive, _, err := jwtMgr.GenerateTokens("3", "viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	const apiKey = "ald_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
 	future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
@@ -87,6 +96,8 @@ func TestAuthMiddleware(t *testing.T) {
 		{name: "API key of an active numeric username", header: "Bearer " + apiKey, key: keyOf("1", &future), cache: cache, wantCode: http.StatusOK, wantSub: "1"},
 		{name: "API key of an active email username", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: cache, wantCode: http.StatusOK, wantSub: "x@y.z"},
 		{name: "API key of an unknown email fails open", header: "Bearer " + apiKey, key: keyOf("nope@nowhere", &future), cache: cache, wantCode: http.StatusOK, wantSub: "nope@nowhere"},
+		{name: "JWT of an inactive user", header: "Bearer " + inactive, cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
+		{name: "API key of an inactive user", header: "Bearer " + apiKey, key: keyOf("3", &future), cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
