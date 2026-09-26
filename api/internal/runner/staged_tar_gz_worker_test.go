@@ -140,7 +140,8 @@ func (c *captureWriter) upsertJobProgress(_ context.Context, _ int64, phase JobP
 	c.mu.Unlock()
 }
 
-// fakeReportGenerator is a minimal ReportGenerator stub.
+// fakeReportGenerator is a minimal ReportGenerator stub that records whether it
+// ran (also the no-op generator of the leakprofile test).
 type fakeReportGenerator struct{ called bool }
 
 func (f *fakeReportGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {

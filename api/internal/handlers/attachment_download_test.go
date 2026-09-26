@@ -1,18 +1,22 @@
 package handlers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // signAttachmentURL builds the exp+sig query string for a signed attachment
@@ -59,11 +63,17 @@ func TestServeSignedAttachment(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			as := &mockAttachmentStore{}
+			as := &testutil.MockAttachmentStore{}
 			if tc.source != "" {
-				as.location = &store.AttachmentLocation{StorageKey: "proj-storage-key", BuildNumber: 9, Source: tc.source, MimeType: "image/png", SizeBytes: int64(len(blob))}
+				as.GetLocationFn = func(context.Context, int64) (*store.AttachmentLocation, error) {
+					return &store.AttachmentLocation{StorageKey: "proj-storage-key", BuildNumber: 9, Source: tc.source, MimeType: "image/png", SizeBytes: int64(len(blob))}, nil
+				}
 			}
-			ds := &mockDataStore{content: blob, mimeType: "image/png"}
+			opens := 0
+			ds := &testutil.MockStorage{OpenReportFileFn: func(context.Context, string, string, string) (io.ReadCloser, string, error) {
+				opens++
+				return io.NopCloser(strings.NewReader(blob)), "image/png", nil
+			}}
 			h := NewAttachmentDownloadHandler(as, ds, signingKey, zap.NewNop())
 			req := httptest.NewRequest(http.MethodGet, "/attachments/55?"+tc.query, nil)
 			req.SetPathValue("id", "55")
@@ -74,8 +84,8 @@ func TestServeSignedAttachment(t *testing.T) {
 				t.Fatalf("status = %d, want %d (body %q)", rec.Code, tc.want, rec.Body.String())
 			}
 			if tc.want != http.StatusOK {
-				if tc.source != "" && ds.openCalls != 0 {
-					t.Errorf("storage opened %d time(s) for a rejected request, want 0", ds.openCalls)
+				if tc.source != "" && opens != 0 {
+					t.Errorf("storage opened %d time(s) for a rejected request, want 0", opens)
 				}
 				return
 			}

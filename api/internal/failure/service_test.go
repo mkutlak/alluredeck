@@ -3,7 +3,6 @@ package failure
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -13,58 +12,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
-
-// fakeLLM is a Summarizer double that counts calls and returns a canned result.
-type fakeLLM struct {
-	mu     sync.Mutex
-	calls  int
-	result llm.Summary
-	err    error
-}
-
-func (f *fakeLLM) Summarize(_ context.Context, _ llm.Prompt) (llm.Summary, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls++
-	return f.result, f.err
-}
-
-func (f *fakeLLM) callCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.calls
-}
-
-// memSummaryStore is a stateful in-memory store.FailureSummaryStorer for the
-// cache-behavior tests. It lets the test exercise the real hash comparison
-// without knowing the hash the service computes.
-type memSummaryStore struct {
-	mu   sync.Mutex
-	rows map[string]store.FailureSummary
-}
-
-var _ store.FailureSummaryStorer = (*memSummaryStore)(nil)
-
-func newMemSummaryStore() *memSummaryStore {
-	return &memSummaryStore{rows: map[string]store.FailureSummary{}}
-}
-
-func (m *memSummaryStore) Get(_ context.Context, _ int64, historyID string) (*store.FailureSummary, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	r, ok := m.rows[historyID] // buildID is constant per test
-	if !ok {
-		return nil, nil
-	}
-	return &r, nil
-}
-
-func (m *memSummaryStore) Upsert(_ context.Context, s store.FailureSummary) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.rows[s.HistoryID] = s
-	return nil
-}
 
 // serviceFixture wires a Service against testutil doubles plus the given llm and
 // summary store. By default the failed step path and error message are fixed
@@ -111,30 +58,30 @@ func TestSummaryFor(t *testing.T) {
 	tests := []struct {
 		name        string
 		cfg         config.LLMConfig
-		llm         *fakeLLM
+		llm         *testutil.StubSummarizer
 		tweak       func(*testutil.MockStores)
 		wantEnabled bool
 		wantHyp     string // "" = no summary
 		wantSoftErr bool
 		wantCalls   int
 	}{
-		{name: "disabled never calls the llm", cfg: config.LLMConfig{Enabled: false}, llm: &fakeLLM{}},
+		{name: "disabled never calls the llm", cfg: config.LLMConfig{Enabled: false}, llm: &testutil.StubSummarizer{}},
 		{
 			// A nil Evidence list is normalized to [] so the JSON shape matches a cache hit.
 			name: "cache miss generates and persists", cfg: enabledCfg(),
-			llm:         &fakeLLM{result: llm.Summary{Hypothesis: "prod bug", Category: "product_bug", Confidence: "medium"}},
+			llm:         &testutil.StubSummarizer{Result: llm.Summary{Hypothesis: "prod bug", Category: "product_bug", Confidence: "medium"}},
 			wantEnabled: true, wantHyp: "prod bug", wantCalls: 1,
 		},
-		{name: "llm error is soft", cfg: enabledCfg(), llm: &fakeLLM{err: errors.New("boom")}, wantEnabled: true, wantSoftErr: true, wantCalls: 1},
-		{name: "no failure evidence: no llm call, no row", cfg: enabledCfg(), llm: &fakeLLM{}, tweak: noEvidence, wantEnabled: true, wantSoftErr: true},
+		{name: "llm error is soft", cfg: enabledCfg(), llm: &testutil.StubSummarizer{Err: errors.New("boom")}, wantEnabled: true, wantSoftErr: true, wantCalls: 1},
+		{name: "no failure evidence: no llm call, no row", cfg: enabledCfg(), llm: &testutil.StubSummarizer{}, tweak: noEvidence, wantEnabled: true, wantSoftErr: true},
 		{
-			name: "blank hypothesis is a soft error", cfg: enabledCfg(), llm: &fakeLLM{result: llm.Summary{Hypothesis: "   \n\t  ", Category: "flake"}},
+			name: "blank hypothesis is a soft error", cfg: enabledCfg(), llm: &testutil.StubSummarizer{Result: llm.Summary{Hypothesis: "   \n\t  ", Category: "flake"}},
 			wantEnabled: true, wantSoftErr: true, wantCalls: 1,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			summaries := newMemSummaryStore()
+			summaries := testutil.NewMemFailureSummaryStore()
 			svc := serviceFixture(t, tc.cfg, tc.llm, summaries, tc.tweak)
 
 			res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
@@ -145,7 +92,7 @@ func TestSummaryFor(t *testing.T) {
 				t.Errorf("result = {Enabled: %v, Cached: %v, Err: %v}, want {Enabled: %v, Cached: false, soft error: %v}",
 					res.Enabled, res.Cached, res.Err, tc.wantEnabled, tc.wantSoftErr)
 			}
-			if n := tc.llm.callCount(); n != tc.wantCalls {
+			if n := tc.llm.Calls(); n != tc.wantCalls {
 				t.Errorf("llm calls: got %d, want %d", n, tc.wantCalls)
 			}
 			cached, _ := summaries.Get(context.Background(), 100, "h1")
@@ -170,8 +117,8 @@ func TestSummaryFor(t *testing.T) {
 // whole-build last-good diff (it only enriches the prompt and is not part of
 // input_hash) — while a stale input_hash regenerates.
 func TestSummaryFor_CacheLifecycle(t *testing.T) {
-	fake := &fakeLLM{result: llm.Summary{Hypothesis: "h", Category: "flake"}}
-	summaries := newMemSummaryStore()
+	fake := &testutil.StubSummarizer{Result: llm.Summary{Hypothesis: "h", Category: "flake"}}
+	summaries := testutil.NewMemFailureSummaryStore()
 	compareCalls := 0
 	svc := serviceFixture(t, enabledCfg(), fake, summaries, func(m *testutil.MockStores) {
 		m.TestResults.GetLastPassingBuildFn = func(context.Context, int64, string, *int64, int) (*store.TestHistoryEntry, error) {
@@ -194,19 +141,19 @@ func TestSummaryFor_CacheLifecycle(t *testing.T) {
 	}
 	for _, s := range steps {
 		if s.staleHash {
-			summaries.mu.Lock()
-			row := summaries.rows["h1"]
+			row, _ := summaries.Get(context.Background(), 100, "h1")
 			row.InputHash = "stale-hash-does-not-match"
-			summaries.rows["h1"] = row
-			summaries.mu.Unlock()
+			if err := summaries.Upsert(context.Background(), *row); err != nil {
+				t.Fatal(err)
+			}
 		}
 		res, err := svc.SummaryFor(context.Background(), 1, 100, "h1")
 		if err != nil {
 			t.Fatalf("%s: SummaryFor: %v", s.name, err)
 		}
-		if res.Cached != s.wantCached || fake.callCount() != s.wantLLM || compareCalls != s.wantCompare {
+		if res.Cached != s.wantCached || fake.Calls() != s.wantLLM || compareCalls != s.wantCompare {
 			t.Errorf("%s: cached=%v llm=%d diff=%d, want cached=%v llm=%d diff=%d",
-				s.name, res.Cached, fake.callCount(), compareCalls, s.wantCached, s.wantLLM, s.wantCompare)
+				s.name, res.Cached, fake.Calls(), compareCalls, s.wantCached, s.wantLLM, s.wantCompare)
 		}
 	}
 }

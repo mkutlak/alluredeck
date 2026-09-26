@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -15,23 +16,13 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// stubSummarizer is a failure.Summarizer double for handler tests.
-type stubSummarizer struct {
-	result llm.Summary
-	err    error
-}
-
-func (s stubSummarizer) Summarize(_ context.Context, _ llm.Prompt) (llm.Summary, error) {
-	return s.result, s.err
-}
-
 func TestFailureSummary(t *testing.T) {
 	enabled := config.LLMConfig{Enabled: true, Provider: "openai", Model: "llama3.1", BaseURL: "http://x/v1"}
 	summary := llm.Summary{Hypothesis: "The product returned 500.", Category: "product_bug", Confidence: "medium", Evidence: []string{"status 500 from /users"}}
 	tests := []struct {
 		name      string
 		cfg       config.LLMConfig
-		client    stubSummarizer
+		client    *testutil.StubSummarizer // nil = a stub returning a zero summary
 		buildID   string
 		historyID string
 		want      int
@@ -41,12 +32,12 @@ func TestFailureSummary(t *testing.T) {
 			"data.enabled": false, "data.summary": nil, "metadata.message": "LLM summaries are disabled",
 		}},
 		// The test never passed before, so last_good is omitted.
-		{name: "generated", cfg: enabled, client: stubSummarizer{result: summary}, buildID: "100", historyID: "h1", want: http.StatusOK, wantJSON: map[string]any{
+		{name: "generated", cfg: enabled, client: &testutil.StubSummarizer{Result: summary}, buildID: "100", historyID: "h1", want: http.StatusOK, wantJSON: map[string]any{
 			"data.enabled": true, "data.build_id": 100, "data.history_id": "h1", "data.model": "llama3.1", "data.disclaimer": aiDisclaimer,
 			"data.summary.category": "product_bug", "data.summary.hypothesis": summary.Hypothesis, "data.summary.evidence#": 1, "data.last_good": nil,
 		}},
 		// A generation failure is soft: never a 5xx, summary null, error set.
-		{name: "llm error", cfg: enabled, client: stubSummarizer{err: errors.New("upstream down")}, buildID: "100", historyID: "h1", want: http.StatusOK, wantJSON: map[string]any{
+		{name: "llm error", cfg: enabled, client: &testutil.StubSummarizer{Err: errors.New("upstream down")}, buildID: "100", historyID: "h1", want: http.StatusOK, wantJSON: map[string]any{
 			"data.enabled": true, "data.summary": nil, "data.error": "generation failed",
 		}},
 		{name: "bad build id", cfg: enabled, buildID: "not-a-number", historyID: "h1", want: http.StatusBadRequest},
@@ -69,7 +60,7 @@ func TestFailureSummary(t *testing.T) {
 			}
 			svc := failure.NewService(failure.ServiceDeps{
 				TestResults: mocks.TestResults, Attachments: mocks.Attachments, Builds: mocks.Builds,
-				Summaries: mocks.FailureSummaries, LLM: tc.client, Config: tc.cfg, Logger: zap.NewNop(),
+				Summaries: mocks.FailureSummaries, LLM: cmp.Or(tc.client, &testutil.StubSummarizer{}), Config: tc.cfg, Logger: zap.NewNop(),
 			})
 			h := NewFailureSummaryHandler(svc, mocks.Projects, zap.NewNop())
 			code, body := serveJSON(t, h.GetFailureSummary, http.MethodGet, "/api/v1/projects/1/builds/x/tests/x/failure-summary", "",

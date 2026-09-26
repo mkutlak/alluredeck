@@ -137,21 +137,6 @@ func TestListProposals_LimitDefaultAndClamp(t *testing.T) {
 	}
 }
 
-// countingUserStore counts GetByID calls: the memoization under test is
-// invisible in the output, so only the call count can show one lookup per
-// distinct proposer rather than one per row.
-type countingUserStore struct {
-	store.UserStorer
-	calls map[int64]int
-}
-
-var _ store.UserStorer = (*countingUserStore)(nil)
-
-func (c *countingUserStore) GetByID(ctx context.Context, id int64) (*store.User, error) {
-	c.calls[id]++
-	return c.UserStorer.GetByID(ctx, id)
-}
-
 // TestListProposals_ResolvesEachProposerOnce: proposals cluster on a handful of
 // proposers, so a page must not issue one identical user lookup per row. An
 // unknown proposer falls back to "user:<id>" instead of failing the call.
@@ -162,7 +147,14 @@ func TestListProposals_ResolvesEachProposerOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	counting := &countingUserStore{UserStorer: users, calls: map[int64]int{}}
+	// The memoization under test is invisible in the output, so only the
+	// GetByID call count can show one lookup per distinct proposer rather
+	// than one per row.
+	calls := map[int64]int{}
+	counting := &testutil.MockUserStore{GetByIDFn: func(ctx context.Context, id int64) (*store.User, error) {
+		calls[id]++
+		return users.GetByID(ctx, id)
+	}}
 	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	p := &proposalStores{users: counting}
 	for i := range 5 {
@@ -176,7 +168,7 @@ func TestListProposals_ResolvesEachProposerOnce(t *testing.T) {
 	if len(out.Items) != 7 {
 		t.Fatalf("items = %d, want 7", len(out.Items))
 	}
-	if got := counting.calls[reviewer.ID]; got != 1 {
+	if got := calls[reviewer.ID]; got != 1 {
 		t.Errorf("GetByID(%d) called %d time(s) for 6 proposals, want 1", reviewer.ID, got)
 	}
 	for _, item := range out.Items {

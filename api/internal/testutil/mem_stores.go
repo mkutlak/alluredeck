@@ -1242,3 +1242,43 @@ func (m *MemUserStore) ClearLastLogin(ctx context.Context, id int64) error {
 	}
 	return store.ErrUserNotFound
 }
+
+// ---------------------------------------------------------------------------
+// MemFailureSummaryStore
+// ---------------------------------------------------------------------------
+
+// MemFailureSummaryStore is a thread-safe in-memory FailureSummaryStorer for
+// tests. Like the pg store it keeps one row per (build_id, history_id): Upsert
+// replaces it and Get answers (nil, nil) when it is absent.
+type MemFailureSummaryStore struct {
+	mu   sync.Mutex
+	rows map[string]store.FailureSummary // keyed by "buildID\x00historyID"
+}
+
+var _ store.FailureSummaryStorer = (*MemFailureSummaryStore)(nil)
+
+// NewMemFailureSummaryStore returns an initialised MemFailureSummaryStore.
+func NewMemFailureSummaryStore() *MemFailureSummaryStore {
+	return &MemFailureSummaryStore{rows: map[string]store.FailureSummary{}}
+}
+
+func failureSummaryKey(buildID int64, historyID string) string {
+	return strconv.FormatInt(buildID, 10) + "\x00" + historyID
+}
+
+func (m *MemFailureSummaryStore) Get(_ context.Context, buildID int64, historyID string) (*store.FailureSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.rows[failureSummaryKey(buildID, historyID)]
+	if !ok {
+		return nil, nil
+	}
+	return &r, nil
+}
+
+func (m *MemFailureSummaryStore) Upsert(_ context.Context, s store.FailureSummary) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rows[failureSummaryKey(s.BuildID, s.HistoryID)] = s
+	return nil
+}

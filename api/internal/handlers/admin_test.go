@@ -21,31 +21,34 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// adminJobQueue answers the admin job endpoints from a fixed job list and
-// error and records the job ID it was asked about. The embedded nil interface
-// makes every other JobQueuer method an intentional panic.
-type adminJobQueue struct {
+// stubJobQueue answers the admin job endpoints from a fixed job list and
+// error, records the job ID it was asked about, and answers readiness probes
+// with healthErr. The embedded nil interface makes every other JobQueuer
+// method an intentional panic.
+type stubJobQueue struct {
 	runner.JobQueuer
-	jobs  []*runner.Job
-	err   error
-	gotID string
+	jobs      []*runner.Job
+	err       error
+	healthErr error
+	gotID     string
 }
 
-var _ runner.JobQueuer = (*adminJobQueue)(nil)
+var _ runner.JobQueuer = (*stubJobQueue)(nil)
 
-func (q *adminJobQueue) ListJobs(context.Context) []*runner.Job { return q.jobs }
-func (q *adminJobQueue) Cancel(_ context.Context, id string) error {
+func (q *stubJobQueue) ListJobs(context.Context) []*runner.Job { return q.jobs }
+func (q *stubJobQueue) Cancel(_ context.Context, id string) error {
 	q.gotID = id
 	return q.err
 }
-func (q *adminJobQueue) Retry(_ context.Context, id string) error {
+func (q *stubJobQueue) Retry(_ context.Context, id string) error {
 	q.gotID = id
 	return q.err
 }
-func (q *adminJobQueue) Delete(_ context.Context, id string) error {
+func (q *stubJobQueue) Delete(_ context.Context, id string) error {
 	q.gotID = id
 	return q.err
 }
+func (q *stubJobQueue) Healthy(context.Context) error { return q.healthErr }
 
 func TestAdminHandler_ListJobs(t *testing.T) {
 	t.Parallel()
@@ -72,7 +75,7 @@ func TestAdminHandler_ListJobs(t *testing.T) {
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := NewAdminHandler(&adminJobQueue{jobs: jobs[:tc.queued]}, &testutil.MockStorage{}, zap.NewNop())
+			h := NewAdminHandler(&stubJobQueue{jobs: jobs[:tc.queued]}, &testutil.MockStorage{}, zap.NewNop())
 			rr := httptest.NewRecorder()
 			h.ListJobs(rr, httptest.NewRequest(http.MethodGet, "/api/v1/admin/jobs?"+tc.query, nil))
 			if rr.Code != http.StatusOK {
@@ -128,7 +131,7 @@ func TestAdminHandler_JobActions(t *testing.T) {
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			q := &adminJobQueue{err: tc.err}
+			q := &stubJobQueue{err: tc.err}
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/jobs/"+tc.jobID, nil)
 			req.SetPathValue("job_id", tc.jobID)
 			rr := httptest.NewRecorder()
@@ -181,7 +184,7 @@ func TestAdminHandler_ListPendingResults(t *testing.T) {
 					return []storage.DirEntry{{Name: "r1.json", Size: 1024, ModTime: mod}, {Name: "r2.json", Size: 2048, ModTime: mod}}, nil
 				},
 			}
-			h := NewAdminHandlerWithProjects(&adminJobQueue{}, ms, tc.projects, zap.NewNop())
+			h := NewAdminHandlerWithProjects(&stubJobQueue{}, ms, tc.projects, zap.NewNop())
 			rr := httptest.NewRecorder()
 			h.ListPendingResults(rr, httptest.NewRequest(http.MethodGet, "/api/v1/admin/results", nil))
 			if rr.Code != http.StatusOK {
@@ -231,7 +234,7 @@ func TestAdminHandler_CleanProjectResults(t *testing.T) {
 			req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/results/"+tc.projectID, nil)
 			req.SetPathValue("project_id", tc.projectID)
 			rr := httptest.NewRecorder()
-			NewAdminHandlerWithProjects(&adminJobQueue{}, ms, projects, zap.NewNop()).CleanProjectResults(rr, req)
+			NewAdminHandlerWithProjects(&stubJobQueue{}, ms, projects, zap.NewNop()).CleanProjectResults(rr, req)
 			if rr.Code != tc.want {
 				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
 			}

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,26 +13,12 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// fakeDefectTestResultsStore decorates MemDefectStore to return seeded test
-// results from GetTestResults, since MemDefectStore.GetTestResults always
-// returns an empty slice. This is needed to exercise the flaky/retries field
-// mapping in defectTestResp.
-type fakeDefectTestResultsStore struct {
-	*testutil.MemDefectStore
-	results []store.TestResult
-}
-
-var _ store.DefectStorer = (*fakeDefectTestResultsStore)(nil)
-
-func (f *fakeDefectTestResultsStore) GetTestResults(_ context.Context, _ string, _ *int64, _, _ int) ([]store.TestResult, int, error) {
-	return f.results, len(f.results), nil
-}
-
 func TestDefectHandler(t *testing.T) {
 	t.Parallel()
-	ds := &fakeDefectTestResultsStore{MemDefectStore: testutil.NewMemDefectStore(), results: []store.TestResult{
+	ds := testutil.NewMemDefectStore()
+	ds.SeedTestResults("fp-1", []store.TestResult{
 		{BuildID: 5, TestName: "t1", FullName: "suite.t1", Status: "failed", Flaky: true, Retries: 2},
-	}}
+	})
 	h := NewDefectHandler(ds, testutil.NewMemProjectStore(), zap.NewNop())
 	rows := []struct {
 		name     string

@@ -13,7 +13,6 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 	"github.com/mkutlak/alluredeck/api/internal/version"
@@ -39,28 +38,6 @@ func TestSystemHandler_ConfigEndpoint(t *testing.T) {
 	}
 }
 
-// stubQueue is a minimal runner.JobQueuer for readiness tests; only Healthy is
-// meaningful, the rest are no-op stubs.
-type stubQueue struct{ healthErr error }
-
-var _ runner.JobQueuer = (*stubQueue)(nil)
-
-func (s *stubQueue) Submit(context.Context, int64, string, runner.JobParams) *runner.Job { return nil }
-func (s *stubQueue) SubmitPlaywright(context.Context, int64, string, string, string, string, string, string, string, string) *runner.Job {
-	return nil
-}
-func (s *stubQueue) SubmitStagedTarGz(context.Context, int64, string, runner.StagedTarGzParams) *runner.Job {
-	return nil
-}
-func (s *stubQueue) ListJobs(context.Context) []*runner.Job  { return nil }
-func (s *stubQueue) Cancel(context.Context, string) error    { return nil }
-func (s *stubQueue) Delete(context.Context, string) error    { return nil }
-func (s *stubQueue) Retry(context.Context, string) error     { return nil }
-func (s *stubQueue) Get(context.Context, string) *runner.Job { return nil }
-func (s *stubQueue) Start(context.Context)                   {}
-func (s *stubQueue) Shutdown()                               {}
-func (s *stubQueue) Healthy(context.Context) error           { return s.healthErr }
-
 // TestSystemHandler_Ready probes each wired dependency; an unwired (nil) one is
 // skipped and never fails readiness.
 func TestSystemHandler_Ready(t *testing.T) {
@@ -75,17 +52,17 @@ func TestSystemHandler_Ready(t *testing.T) {
 		name     string
 		db       *sql.DB
 		store    storage.Store
-		queue    *stubQueue
+		queue    *stubJobQueue
 		want     int
 		wantJSON map[string]any
 	}{
-		{name: "healthy without a db", store: &testutil.MockStorage{}, queue: &stubQueue{}, want: http.StatusOK,
+		{name: "healthy without a db", store: &testutil.MockStorage{}, queue: &stubJobQueue{}, want: http.StatusOK,
 			wantJSON: map[string]any{"status": "ok", "db": "skipped", "storage": "ok", "queue": "ok"}},
-		{name: "db down", db: closedDB, store: &testutil.MockStorage{}, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
+		{name: "db down", db: closedDB, store: &testutil.MockStorage{}, queue: &stubJobQueue{}, want: http.StatusServiceUnavailable,
 			wantJSON: map[string]any{"status": "unavailable", "db": "error"}},
-		{name: "storage down", store: storageDown, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
+		{name: "storage down", store: storageDown, queue: &stubJobQueue{}, want: http.StatusServiceUnavailable,
 			wantJSON: map[string]any{"storage": "error", "queue": "ok"}},
-		{name: "queue down", store: &testutil.MockStorage{}, queue: &stubQueue{healthErr: errors.New("queue not running")}, want: http.StatusServiceUnavailable,
+		{name: "queue down", store: &testutil.MockStorage{}, queue: &stubJobQueue{healthErr: errors.New("queue not running")}, want: http.StatusServiceUnavailable,
 			wantJSON: map[string]any{"queue": "error"}},
 	}
 	for _, tc := range tests {

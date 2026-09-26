@@ -22,6 +22,7 @@ type MemDefectStore struct {
 	byHash              map[string]string                   // "projectID\x00hash" -> ID
 	regressionsForBuild map[string][]store.DefectRegression // "projectID\x00buildID" -> regressions
 	regressionsSince    []store.ProjectRegressions
+	testResults         map[string][]store.TestResult // defect ID -> linked test results
 }
 
 // NewMemDefectStore returns an initialised MemDefectStore.
@@ -30,6 +31,7 @@ func NewMemDefectStore() *MemDefectStore {
 		fingerprints:        make(map[string]*store.DefectFingerprint),
 		byHash:              make(map[string]string),
 		regressionsForBuild: make(map[string][]store.DefectRegression),
+		testResults:         make(map[string][]store.TestResult),
 	}
 }
 
@@ -59,6 +61,15 @@ func (m *MemDefectStore) SeedRegressionsSince(regs []store.ProjectRegressions) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.regressionsSince = regs
+}
+
+// SeedTestResults makes GetTestResults return results, and their count as the
+// total, for defectID whatever the build filter and page. It is a test-only
+// helper not part of the store.DefectStorer interface.
+func (m *MemDefectStore) SeedTestResults(defectID string, results []store.TestResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.testResults[defectID] = results
 }
 
 func (m *MemDefectStore) UpsertFingerprints(_ context.Context, _ int64, _ int64, _ []store.DefectFingerprint) error {
@@ -135,7 +146,12 @@ func (m *MemDefectStore) GetByID(_ context.Context, defectID string) (*store.Def
 	return &cp, nil
 }
 
-func (m *MemDefectStore) GetTestResults(_ context.Context, _ string, _ *int64, _, _ int) ([]store.TestResult, int, error) {
+func (m *MemDefectStore) GetTestResults(_ context.Context, defectID string, _ *int64, _, _ int) ([]store.TestResult, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if results, ok := m.testResults[defectID]; ok {
+		return results, len(results), nil
+	}
 	return []store.TestResult{}, 0, nil
 }
 

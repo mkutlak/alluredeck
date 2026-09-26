@@ -11,13 +11,6 @@ import (
 	"time"
 )
 
-// stubGenerator is a no-op ReportGenerator for leak-detection tests.
-type stubGenerator struct{}
-
-func (stubGenerator) GenerateReport(_ context.Context, _ int64, _, _, _, _, _, _ string, _ bool, _, _, _, _ string) (string, error) {
-	return "stub-report", nil
-}
-
 // TestNoGoroutineLeaks_MemJobManager exercises MemJobManager through
 // submit -> work -> shutdown and asserts the goroutine leak profile is empty.
 // Requires GOEXPERIMENT=goroutineleakprofile at build time.
@@ -25,7 +18,7 @@ func TestNoGoroutineLeaks_MemJobManager(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mgr := NewMemJobManager(stubGenerator{}, 2, nil)
+	mgr := NewMemJobManager(&fakeReportGenerator{}, 2, nil)
 	mgr.Start(ctx)
 
 	// Submit a no-op job and wait for it to reach a terminal state.
