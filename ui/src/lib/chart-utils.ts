@@ -105,38 +105,6 @@ export function toCategoryBreakdownData(entries: CategoryEntry[]): CategoryBreak
     }))
 }
 
-export interface AllTrendData {
-  status: StatusTrendPoint[]
-  passRate: PassRateTrendPoint[]
-  duration: DurationTrendPoint[]
-}
-
-export function toAllTrendData(entries: ReportHistoryEntry[]): AllTrendData {
-  const reversed = [...entries].reverse()
-  const status: StatusTrendPoint[] = []
-  const passRate: PassRateTrendPoint[] = []
-  const duration: DurationTrendPoint[] = []
-
-  for (const e of reversed) {
-    const name = `#${e.report_id}`
-    if (e.statistic !== null) {
-      status.push({
-        name,
-        passed: e.statistic.passed,
-        failed: e.statistic.failed,
-        broken: e.statistic.broken,
-        skipped: e.statistic.skipped,
-      })
-      passRate.push({ name, passRate: calcPassRate(e.statistic.passed, e.statistic.total, e.statistic.skipped) ?? 0 })
-    }
-    if (e.duration_ms !== null) {
-      duration.push({ name, durationSec: Math.round(e.duration_ms / 1000) })
-    }
-  }
-
-  return { status, passRate, duration }
-}
-
 // ---------------------------------------------------------------------------
 // KPI Summary utilities
 // ---------------------------------------------------------------------------

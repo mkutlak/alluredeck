@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   toStatusPieData,
   toCategoryBreakdownData,
-  toAllTrendData,
   STATUS_COLORS,
   CATEGORY_COLORS,
 } from './chart-utils'
@@ -116,22 +115,5 @@ describe('toStatusPieData', () => {
     const result = toStatusPieData(entries)
     expect(result.every((d) => d.value > 0)).toBe(true)
     expect(result.length).toBe(2)
-  })
-})
-
-describe('toAllTrendData', () => {
-  it('returns empty arrays for empty input', () => {
-    const result = toAllTrendData([])
-    expect(result.status).toEqual([])
-    expect(result.passRate).toEqual([])
-    expect(result.duration).toEqual([])
-  })
-
-  it('filters nulls independently (stat null but duration present)', () => {
-    const entries = [makeEntry('1', { statistic: null, duration_ms: 5000 })]
-    const result = toAllTrendData(entries)
-    expect(result.status).toHaveLength(0)
-    expect(result.passRate).toHaveLength(0)
-    expect(result.duration).toHaveLength(1)
   })
 })
