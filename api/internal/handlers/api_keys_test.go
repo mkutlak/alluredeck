@@ -156,6 +156,16 @@ func TestAPIKeyHandler_Create(t *testing.T) {
 					}
 				}
 			}},
+		// The limit counts the keys stored under the DB user's email, not
+		// the numeric sub (which owns no keys).
+		{name: "five key limit numeric sub", as: "{db}", body: `{"name":"key-6"}`, want: http.StatusConflict,
+			setup: func(t *testing.T, f *apiKeyFixture) {
+				for _, name := range []string{"db-b", "db-c", "db-d", "db-e"} {
+					if _, err := f.mocks.APIKeys.Create(context.Background(), &store.APIKey{Name: name, KeyHash: name, Username: apiKeyDBEmail}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}},
 		{name: "missing name", as: "alice", body: `{}`, want: http.StatusBadRequest},
 		{name: "past expires_at", as: "alice", body: `{"name":"expired-key","expires_at":"` + past + `"}`, want: http.StatusBadRequest},
 	})

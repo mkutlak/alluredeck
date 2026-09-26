@@ -142,7 +142,18 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	username, _ := claims["sub"].(string)
 	role, _ := claims["role"].(string)
 
-	count, err := h.store.CountByUsername(ctx, username)
+	// Resolve the username stored on the key. For DB-backed users the JWT sub
+	// is a numeric user ID string; store the user's email instead so F-3 can
+	// look it up via IsActiveByEmail. For env users (non-numeric sub) keep the
+	// literal as-is — IsActiveByAPIKeyUsername handles those at runtime. The
+	// per-user limit counts under the same resolved name.
+	keyUsername, err := h.resolveKeyUsername(ctx, username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error resolving user")
+		return
+	}
+
+	count, err := h.store.CountByUsername(ctx, keyUsername)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "error checking API key count")
 		return
@@ -193,16 +204,6 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		expiresAt = &t
-	}
-
-	// Resolve the username stored on the key. For DB-backed users the JWT sub
-	// is a numeric user ID string; store the user's email instead so F-3 can
-	// look it up via IsActiveByEmail. For env users (non-numeric sub) keep the
-	// literal as-is — IsActiveByAPIKeyUsername handles those at runtime.
-	keyUsername, err := h.resolveKeyUsername(ctx, username)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "error resolving user")
-		return
 	}
 
 	fullKey, err := security.GenerateAPIKey()
