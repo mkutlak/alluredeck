@@ -1,6 +1,5 @@
 import type { CategoryEntry, ReportHistoryEntry } from '@/types/api'
 import type { ChartConfig } from '@/components/ui/chart'
-import { calcPassRate } from './utils'
 
 // ---------------------------------------------------------------------------
 // KPI Summary types
@@ -103,41 +102,4 @@ export function toCategoryBreakdownData(entries: CategoryEntry[]): CategoryBreak
       total: e.matchedStatistic!.total,
       color: CATEGORY_COLORS[e.name] ?? CATEGORY_DEFAULT_COLOR,
     }))
-}
-
-// ---------------------------------------------------------------------------
-// KPI Summary utilities
-// ---------------------------------------------------------------------------
-
-export function toKpiData(entries: ReportHistoryEntry[]): KpiData | null {
-  const latest = entries[0]
-  if (!latest?.statistic) return null
-
-  // Take last 10 reports, reverse to chronological for sparklines
-  const sparklineEntries = entries.slice(0, 10).reverse()
-
-  const passRateTrend = sparklineEntries
-    .filter((e) => e.statistic)
-    .map((e) => calcPassRate(e.statistic!.passed, e.statistic!.total, e.statistic!.skipped) ?? 0)
-
-  const totalTestsTrend = sparklineEntries.filter((e) => e.statistic).map((e) => e.statistic!.total)
-
-  const durationTrend = sparklineEntries
-    .filter((e) => e.duration_ms != null)
-    .map((e) => e.duration_ms!)
-
-  const failedTrend = sparklineEntries
-    .filter((e) => e.statistic)
-    .map((e) => e.statistic!.failed + e.statistic!.broken)
-
-  return {
-    passRate: calcPassRate(latest.statistic.passed, latest.statistic.total, latest.statistic.skipped) ?? 0,
-    passRateTrend,
-    totalTests: latest.statistic.total,
-    totalTestsTrend,
-    avgDuration: latest.duration_ms ?? 0,
-    durationTrend,
-    failedCount: latest.statistic.failed + latest.statistic.broken,
-    failedTrend,
-  }
 }
