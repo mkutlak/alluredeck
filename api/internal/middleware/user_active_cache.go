@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 // Lookups by ID (numeric JWT sub) and by email (API-key path) are both
 // supported — they resolve to the same in-memory entry keyed by the
 // stringified user_id, so a deactivation invalidates both paths together.
+// OIDC access tokens, whose sub is an email, are cached under a separate
+// oidcKey entry that InvalidateOIDC purges.
 //
 // Concurrency model: RWMutex for the map; an inline singleflight per key for
 // the load (we roll our own ~25 LOC because the project rule forbids new
@@ -36,7 +39,7 @@ type UserActiveCache struct {
 	nowFn      func() time.Time
 
 	mu      sync.RWMutex
-	entries map[string]userActiveEntry // keyed by stringified user.ID
+	entries map[string]userActiveEntry // keyed by stringified user.ID or oidcKey(email)
 
 	sfMu    sync.Mutex
 	flights map[string]*sfCall
@@ -93,6 +96,22 @@ func (c *UserActiveCache) IsActive(ctx context.Context, sub string) (bool, error
 	}
 	return c.isActiveByID(ctx, id, sub)
 }
+
+// IsActiveForToken reports whether the user an access token names is active.
+// OIDC tokens name the user by email, so a provider "oidc" sub is looked up by
+// email and cached under its own key, which InvalidateOIDC purges; an unknown
+// email counts as inactive, as an unknown ID does. Every other sub goes
+// through IsActive, which leaves env users always active.
+func (c *UserActiveCache) IsActiveForToken(ctx context.Context, sub, provider string) (bool, error) {
+	if provider != "oidc" {
+		return c.IsActive(ctx, sub)
+	}
+	return c.lookup(oidcKey(sub), func() (*store.User, error) { return c.store.GetByEmail(ctx, sub) })
+}
+
+// oidcKey is the cache key of an OIDC access token's email sub. The prefix
+// keeps it apart from the numeric-ID keys.
+func oidcKey(email string) string { return "oidc:" + strings.ToLower(email) }
 
 // IsActiveByEmail mirrors IsActive but resolves the lookup via GetByEmail.
 // Used by the API-key auth path where the JWT-sub indirection is absent.
@@ -187,8 +206,19 @@ func (c *UserActiveCache) Invalidate(sub string) {
 	c.mu.Unlock()
 }
 
+// InvalidateOIDC purges the entry IsActiveForToken caches for an OIDC access
+// token whose sub is email. Safe to call for an email that is not cached.
+func (c *UserActiveCache) InvalidateOIDC(email string) {
+	c.Invalidate(oidcKey(email))
+}
+
 // isActiveByID is the core load path keyed by numeric ID.
 func (c *UserActiveCache) isActiveByID(ctx context.Context, id int64, key string) (bool, error) {
+	return c.lookup(key, func() (*store.User, error) { return c.store.GetByID(ctx, id) })
+}
+
+// lookup returns the flag cached under key, loading it through get on a miss.
+func (c *UserActiveCache) lookup(key string, get func() (*store.User, error)) (bool, error) {
 	now := c.nowFn()
 
 	// Fast path: read-locked cache hit.
@@ -212,7 +242,7 @@ func (c *UserActiveCache) isActiveByID(ctx context.Context, id int64, key string
 	c.sfMu.Unlock()
 
 	// Perform the load exactly once.
-	call.val, call.err = c.load(ctx, id, key)
+	call.val, call.err = c.load(key, get)
 	call.wg.Done()
 
 	c.sfMu.Lock()
@@ -222,20 +252,20 @@ func (c *UserActiveCache) isActiveByID(ctx context.Context, id int64, key string
 	return call.val, call.err
 }
 
-// load fetches the user from the store and populates the cache.
+// load fetches the user through get and populates the cache under key.
 // Behaviour:
 //   - ErrUserNotFound → cache (false, nil) so we don't spam the DB for
-//     deleted/never-existed IDs.
+//     deleted/never-existed users.
 //   - any other error → propagate, do NOT cache (caller decides; auth
 //     middleware fails open on transient DB error).
-func (c *UserActiveCache) load(ctx context.Context, id int64, key string) (bool, error) {
-	u, err := c.store.GetByID(ctx, id)
+func (c *UserActiveCache) load(key string, get func() (*store.User, error)) (bool, error) {
+	u, err := get()
 	if err != nil {
 		if errors.Is(err, store.ErrUserNotFound) {
 			c.storeEntry(key, false)
 			return false, nil
 		}
-		return false, fmt.Errorf("user_active_cache: get by id %d: %w", id, err)
+		return false, fmt.Errorf("user_active_cache: load %s: %w", key, err)
 	}
 	c.storeEntry(key, u.IsActive)
 	return u.IsActive, nil

@@ -75,10 +75,12 @@ type userFixture struct {
 
 	aliceFamilies []store.RefreshTokenFamily // two active sessions
 	bobFamilies   []store.RefreshTokenFamily // two active sessions; bob also owns two API keys
+	oidcFamilies  []store.RefreshTokenFamily // two active sessions, keyed by email as the OIDC callback keys them
 	otherFamily   store.RefreshTokenFamily   // an unrelated user's session; carol owns an unrelated API key
 
 	aliceToken, aliceJTI string // a real signed access token for alice
 	bobToken, bobKey     string // a real signed access token and a raw API key for bob
+	oidcToken            string // a real signed OIDC access token, whose sub is the email
 }
 
 func newUserFixture(t *testing.T) *userFixture {
@@ -117,6 +119,7 @@ func newUserFixture(t *testing.T) *userFixture {
 
 	f.aliceFamilies = []store.RefreshTokenFamily{seedActiveFamily(t, f.families, idOf(f.alice)), seedActiveFamily(t, f.families, idOf(f.alice))}
 	f.bobFamilies = []store.RefreshTokenFamily{seedActiveFamily(t, f.families, idOf(f.bob)), seedActiveFamily(t, f.families, idOf(f.bob))}
+	f.oidcFamilies = []store.RefreshTokenFamily{seedActiveFamily(t, f.families, f.oidc.Email), seedActiveFamily(t, f.families, f.oidc.Email)}
 	f.otherFamily = seedActiveFamily(t, f.families, "999")
 	f.bobKey = seedAPIKey(t, f.keys, f.bob.Email, "ci-1")
 	seedAPIKey(t, f.keys, f.bob.Email, "ci-2")
@@ -127,6 +130,10 @@ func newUserFixture(t *testing.T) *userFixture {
 		t.Fatalf("GenerateTokensForFamily: %v", err)
 	}
 	f.bobToken, _, err = f.jwt.GenerateTokens(idOf(f.bob), "viewer", "local")
+	if err != nil {
+		t.Fatalf("GenerateTokens: %v", err)
+	}
+	f.oidcToken, _, err = f.jwt.GenerateTokens(f.oidc.Email, "viewer", "oidc")
 	if err != nil {
 		t.Fatalf("GenerateTokens: %v", err)
 	}
@@ -356,6 +363,37 @@ func (f *userFixture) wantBobAuth(t *testing.T, want int) {
 	}
 }
 
+// wantOIDCAuth is wantBobAuth for the OIDC user's access token, which names
+// the user by email rather than by numeric ID.
+func (f *userFixture) wantOIDCAuth(t *testing.T, want int) {
+	t.Helper()
+	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	req.Header.Set("Authorization", "Bearer "+f.oidcToken)
+	rr := httptest.NewRecorder()
+	middleware.AuthMiddleware(&config.Config{SecurityEnabled: true}, f.jwt, false, f.keys, f.activeCache)(ok)(rr, req)
+	if rr.Code != want {
+		t.Errorf("OIDC access token: status = %d, want %d: %s", rr.Code, want, rr.Body.String())
+	}
+}
+
+// wantOIDCAccessEnded asserts every email-keyed session of the OIDC user is
+// revoked, the unrelated user's session is untouched, and the OIDC access
+// token is refused on the next request.
+func (f *userFixture) wantOIDCAccessEnded(t *testing.T) {
+	t.Helper()
+	for i := range f.oidcFamilies {
+		id := f.oidcFamilies[i].FamilyID
+		if got, err := f.families.GetByID(context.Background(), id); err != nil || got == nil || got.Status != store.RefreshTokenFamilyStatusRevoked {
+			t.Errorf("OIDC family %s = %v (err %v), want revoked", id, got, err)
+		}
+	}
+	if got, _ := f.families.GetByID(context.Background(), f.otherFamily.FamilyID); got == nil || got.Status != store.RefreshTokenFamilyStatusActive {
+		t.Errorf("unrelated family = %v, want active", got)
+	}
+	f.wantOIDCAuth(t, http.StatusUnauthorized)
+}
+
 // wantUsers checks a List response holds n users and reports total n.
 func wantUsers(n int) func(*testing.T, *userFixture, *httptest.ResponseRecorder) {
 	return func(t *testing.T, _ *userFixture, rr *httptest.ResponseRecorder) {
@@ -528,6 +566,12 @@ func TestUserHandler_Update(t *testing.T) {
 				f.wantBobAuth(t, http.StatusOK)
 				f.wantAudit(t, store.AuditActionSessionRevokeAll, 0)
 			}},
+		// An OIDC user's sessions and access token name them by email, not
+		// ID; deactivation ends those just the same.
+		{name: "deactivate revokes OIDC access", as: "{admin}", id: "{oidc}", body: `{"active":false}`,
+			setup: func(t *testing.T, f *userFixture) { f.wantOIDCAuth(t, http.StatusOK) },
+			want:  http.StatusOK,
+			check: func(t *testing.T, f *userFixture, _ *httptest.ResponseRecorder) { f.wantOIDCAccessEnded(t) }},
 		{name: "self-deactivate", as: "{admin}", id: "{admin}", body: `{"active":false}`, want: http.StatusUnprocessableEntity},
 		{name: "not found", as: "{admin}", id: "9999", body: `{"role":"editor"}`, want: http.StatusNotFound},
 		{name: "empty body", as: "{admin}", id: "{bob}", body: `{}`, want: http.StatusBadRequest},
@@ -559,6 +603,10 @@ func TestUserHandler_Delete(t *testing.T) {
 				f.wantKeysDeleted(t, f.bob.Email)
 				f.wantBobAuth(t, http.StatusUnauthorized)
 			}},
+		{name: "revokes OIDC access", as: "{admin}", id: "{oidc}",
+			setup: func(t *testing.T, f *userFixture) { f.wantOIDCAuth(t, http.StatusOK) },
+			want:  http.StatusNoContent,
+			check: func(t *testing.T, f *userFixture, _ *httptest.ResponseRecorder) { f.wantOIDCAccessEnded(t) }},
 		{name: "self", as: "{admin}", id: "{admin}", want: http.StatusUnprocessableEntity},
 		{name: "not found", as: "{admin}", id: "9999", want: http.StatusNotFound},
 	})

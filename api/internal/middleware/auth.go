@@ -27,10 +27,11 @@ const ClaimsKey contextKey = "jwt_claims"
 // is used instead of JWT validation.
 //
 // userActiveCache, when non-nil, enforces a per-request re-check of
-// users.is_active for DB-backed users (numeric JWT sub) and for API-key
-// authenticated requests. This is the F-3 defence-in-depth control: even if a
-// future code path forgets to revoke explicit sessions on deactivation, the
-// next request after the cache TTL (30s by default) will be rejected.
+// users.is_active for DB-backed users (numeric JWT sub, or an OIDC JWT's
+// email sub) and for API-key authenticated requests. This is the F-3
+// defence-in-depth control: even if a future code path forgets to revoke
+// explicit sessions on deactivation, the next request after the cache TTL
+// (30s by default) will be rejected.
 // Pass nil to disable the recheck (preserves old test wiring).
 func AuthMiddleware(
 	cfg *config.Config,
@@ -121,12 +122,13 @@ func AuthMiddleware(
 				return
 			}
 
-			// F-3: re-check users.is_active for DB-backed users (numeric sub).
-			// IsActive returns (true, nil) for non-numeric sub values (env
-			// users), so this call is safe to invoke unconditionally.
+			// F-3: re-check users.is_active for DB-backed users: a numeric sub,
+			// or an OIDC token's email sub. IsActiveForToken returns (true, nil)
+			// for env users, so this call is safe to invoke unconditionally.
 			if userActiveCache != nil {
 				sub, _ := claims["sub"].(string)
-				active, recheckErr := userActiveCache.IsActive(r.Context(), sub)
+				provider, _ := claims["provider"].(string)
+				active, recheckErr := userActiveCache.IsActiveForToken(r.Context(), sub, provider)
 				if recheckErr != nil {
 					logging.FromContext(r.Context()).Warn("auth: user active recheck failed",
 						zap.String("sub", sub), zap.Error(recheckErr))

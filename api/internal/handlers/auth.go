@@ -494,7 +494,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	// created concurrently escapes it, so re-check is_active before minting. A
 	// deactivated user's family is revoked and refused with the revoked-session
 	// answer, which reveals no more than Login does.
-	inactive, err := h.familyUserInactive(r.Context(), family.UserID)
+	inactive, err := h.familyUserInactive(r.Context(), family)
 	if err != nil {
 		logging.FromContext(r.Context()).Error("auth: refresh user lookup failed",
 			zap.String("user", family.UserID), zap.Error(err))
@@ -567,15 +567,23 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // familyUserInactive reports whether a refresh-token family's user (its sub) is
-// a DB user who is deactivated or no longer exists. Only DB users — a numeric
-// sub — carry is_active; env users have no users row and always report false,
-// as does every sub when no user store is wired.
-func (h *AuthHandler) familyUserInactive(ctx context.Context, sub string) (bool, error) {
-	id, parseErr := strconv.ParseInt(sub, 10, 64)
-	if parseErr != nil || h.userStore == nil {
+// a DB user who is deactivated or no longer exists. Only DB users carry
+// is_active: local families name them by numeric ID, OIDC families by email.
+// Env users have no users row and always report false, as does every sub when
+// no user store is wired.
+func (h *AuthHandler) familyUserInactive(ctx context.Context, family *store.RefreshTokenFamily) (bool, error) {
+	if h.userStore == nil {
 		return false, nil
 	}
-	u, err := h.userStore.GetByID(ctx, id)
+	var u *store.User
+	var err error
+	if id, parseErr := strconv.ParseInt(family.UserID, 10, 64); parseErr == nil {
+		u, err = h.userStore.GetByID(ctx, id)
+	} else if family.Provider == "oidc" {
+		u, err = h.userStore.GetByEmail(ctx, family.UserID)
+	} else {
+		return false, nil
+	}
 	if errors.Is(err, store.ErrUserNotFound) {
 		return true, nil
 	}

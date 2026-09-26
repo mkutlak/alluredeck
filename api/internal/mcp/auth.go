@@ -142,9 +142,11 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 	sub, _ := claims["sub"].(string)
 	role, _ := claims["role"].(string)
 
-	// F-3: re-check users.is_active for DB-backed users (numeric sub).
+	// F-3: re-check users.is_active for DB-backed users (numeric sub, or an
+	// OIDC token's email sub).
 	if v.userActiveCache != nil {
-		active, recheckErr := v.userActiveCache.IsActive(ctx, sub)
+		provider, _ := claims["provider"].(string)
+		active, recheckErr := v.userActiveCache.IsActiveForToken(ctx, sub, provider)
 		if recheckErr != nil {
 			v.logger.Warn("mcp auth: user active recheck failed",
 				zap.String("sub", sub), zap.Error(recheckErr))

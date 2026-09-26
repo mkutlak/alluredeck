@@ -508,6 +508,43 @@ func TestAuthHandler_Refresh(t *testing.T) {
 					t.Errorf("%d family still active, want the refused refresh to revoke it", n)
 				}
 			}},
+		// OIDC sessions are keyed by the user's email, not a numeric ID, and
+		// are refused and revoked the same way.
+		{name: "oidc user deactivated since login", want: http.StatusUnauthorized,
+			present: func(t *testing.T, f *authFixture) string {
+				ctx := context.Background()
+				u, err := f.users.UpsertByOIDC(ctx, "oidc", "oidc-sub", authEmail("olga"), "Olga", "viewer")
+				if err != nil {
+					t.Fatal(err)
+				}
+				famID, err := security.NewFamilyID()
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, token, _, jti, err := f.jwt.GenerateTokensForFamily(u.Email, u.Role, "oidc", famID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := f.families.Create(ctx, store.RefreshTokenFamily{
+					FamilyID: famID, UserID: u.Email, Role: u.Role, Provider: "oidc", CurrentJTI: jti,
+					Status: store.RefreshTokenFamilyStatusActive, ExpiresAt: time.Now().Add(time.Hour),
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.users.Deactivate(ctx, u.ID); err != nil {
+					t.Fatal(err)
+				}
+				return token
+			},
+			check: func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
+				if authCookie(rr, "jwt") != nil {
+					t.Error("jwt cookie set on a refused refresh")
+				}
+				f.events(t, store.AuditActionRefreshSuccess, 0)
+				if n, _ := f.families.RevokeAllForUser(context.Background(), authEmail("olga")); n != 0 {
+					t.Errorf("%d family still active, want the refused refresh to revoke it", n)
+				}
+			}},
 		{name: "missing cookie", want: http.StatusUnauthorized, present: func(*testing.T, *authFixture) string { return "" }},
 		{name: "invalid token", want: http.StatusUnauthorized, present: func(*testing.T, *authFixture) string { return "not.a.valid.jwt" }},
 		{name: "rotation disabled", want: http.StatusUnauthorized,

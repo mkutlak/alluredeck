@@ -612,6 +612,18 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Load the target first: OIDC sessions and access tokens name the
+		// user by email, which the cache invalidation and revocation need.
+		target, err := h.store.GetByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, store.ErrUserNotFound) {
+				writeError(w, http.StatusNotFound, "user not found")
+				return
+			}
+			h.logger.Error("users: update active lookup failed", zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "error loading user")
+			return
+		}
 		if err := h.store.UpdateActive(r.Context(), id, *req.Active); err != nil {
 			if errors.Is(err, store.ErrUserNotFound) {
 				writeError(w, http.StatusNotFound, "user not found")
@@ -621,7 +633,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "error updating active")
 			return
 		}
-		h.invalidateActiveCache(id)
+		h.invalidateActiveCache(target)
 		evt := auditFromRequest(r)
 		evt.Action = store.AuditActionUserUpdateActive
 		evt.Outcome = store.AuditOutcomeSuccess
@@ -644,7 +656,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		// are kept rather than deleted — refused while the account is
 		// inactive, they work again on reactivation. Best-effort.
 		if !*req.Active {
-			h.revokeAllFamilies(r.Context(), r, strconv.FormatInt(id, 10), "user_deactivate", id)
+			h.revokeUserFamilies(r.Context(), r, target, "user_deactivate")
 		}
 	}
 
@@ -659,6 +671,18 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeSuccess(w, http.StatusOK, userToResponse(u), "user updated")
+}
+
+// revokeUserFamilies revokes every active refresh family of u. Local logins
+// key a family by the numeric user ID; the OIDC callback keys it by the
+// user's email, so an OIDC user's families are revoked under both (an
+// auto-linked account may hold local ones from before the link). Best-effort,
+// as revokeAllFamilies.
+func (h *UserHandler) revokeUserFamilies(ctx context.Context, r *http.Request, u *store.User, trigger string) {
+	h.revokeAllFamilies(ctx, r, strconv.FormatInt(u.ID, 10), trigger, u.ID)
+	if u.Provider == "oidc" {
+		h.revokeAllFamilies(ctx, r, u.Email, trigger, u.ID)
+	}
 }
 
 // revokeAllFamilies is a best-effort wrapper that revokes every active refresh
@@ -738,14 +762,16 @@ func (h *UserHandler) cascadeDeleteAPIKeys(ctx context.Context, r *http.Request,
 	auditRecord(ctx, h.audit, evt)
 }
 
-// invalidateActiveCache drops the auth middleware's cached is_active flag for
-// the user so a change to it applies on their next request rather than after
-// the cache TTL. No-op when the cache is unwired.
-func (h *UserHandler) invalidateActiveCache(id int64) {
+// invalidateActiveCache drops the auth middleware's cached is_active flags for
+// the user — under their ID and, for OIDC access tokens, their email — so a
+// change to it applies on their next request rather than after the cache TTL.
+// No-op when the cache is unwired.
+func (h *UserHandler) invalidateActiveCache(u *store.User) {
 	if h.activeCache == nil {
 		return
 	}
-	h.activeCache.Invalidate(strconv.FormatInt(id, 10))
+	h.activeCache.Invalidate(strconv.FormatInt(u.ID, 10))
+	h.activeCache.InvalidateOIDC(u.Email)
 }
 
 // blacklistCurrentAccessToken extracts the access token from the current
@@ -1023,7 +1049,7 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "error deactivating user")
 		return
 	}
-	h.invalidateActiveCache(id)
+	h.invalidateActiveCache(target)
 
 	// Audit the (soft) delete. We use the deletes action even though the
 	// underlying operation is a deactivation — that is the user-facing intent
@@ -1047,8 +1073,7 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	// the response — the account is already disabled and the per-request
 	// is_active recheck (F-3), its cache invalidated above, refuses whatever
 	// access remains.
-	sub := strconv.FormatInt(id, 10)
-	h.revokeAllFamilies(r.Context(), r, sub, "user_deactivate", id)
+	h.revokeUserFamilies(r.Context(), r, target, "user_deactivate")
 	h.cascadeDeleteAPIKeys(r.Context(), r, target.Email, "user_deactivate", id)
 
 	w.WriteHeader(http.StatusNoContent)
