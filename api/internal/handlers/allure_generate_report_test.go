@@ -136,8 +136,11 @@ func TestReportHandler_GetJobStatus(t *testing.T) {
 					t.Fatal(err)
 				}
 				data = resp.Data
-				if tc.progress == nil || data["phase"] == string(tc.gen.phase) || time.Now().After(deadline) {
+				if tc.progress == nil || data["phase"] == string(tc.gen.phase) {
 					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("never observed phase=%s: %v", tc.gen.phase, data)
 				}
 			}
 			if tc.want != http.StatusOK {

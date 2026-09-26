@@ -20,8 +20,10 @@ func TestExtractProjectID(t *testing.T) {
 		wantOK     bool
 		wantID     string
 		wantStatus int
+		wantMsg    string
 	}{
 		{name: "empty defaults to default", pathValue: "", wantOK: true, wantID: "default"},
+		{name: "invalid encoding rejected", pathValue: "%zz", wantOK: false, wantStatus: http.StatusBadRequest, wantMsg: "invalid project_id encoding"},
 		{name: "normal id", pathValue: "my-project", wantOK: true, wantID: "my-project"},
 		{name: "url encoded space", pathValue: "my%20project", wantOK: true, wantID: "my project"},
 		{name: "path traversal rejected", pathValue: "../etc/passwd", wantOK: false, wantStatus: http.StatusBadRequest},
@@ -52,6 +54,17 @@ func TestExtractProjectID(t *testing.T) {
 				}
 			} else if rr.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d; body: %s", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+			if tt.wantMsg != "" {
+				var resp struct {
+					Metadata ResponseMeta `json:"metadata"`
+				}
+				if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+					t.Fatal(err)
+				}
+				if resp.Metadata.Message != tt.wantMsg {
+					t.Errorf("message = %q, want %q", resp.Metadata.Message, tt.wantMsg)
+				}
 			}
 		})
 	}
