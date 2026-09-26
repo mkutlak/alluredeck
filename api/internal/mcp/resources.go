@@ -37,14 +37,6 @@ func inlinedAttachmentCacheable() mcpsdk.Cacheable {
 	return mcpsdk.Cacheable{TTLMs: inlinedAttachmentTTLMs, CacheScope: "private"}
 }
 
-// ErrInvalidAttachmentSource indicates an attachment source filename contains
-// path-traversal characters and must not be used to build a storage path.
-//
-// It is an alias for attachmentio.ErrInvalidSource so existing callers that
-// match on this sentinel (via errors.Is) keep working unchanged now that the
-// validation itself lives in the attachmentio package.
-var ErrInvalidAttachmentSource = attachmentio.ErrInvalidSource
-
 // ValidateAttachmentSource rejects attachment source filenames that could be
 // used for path traversal. Attachment sources originate from ingested Allure
 // reports and are therefore attacker-influenced: they must be a bare filename
