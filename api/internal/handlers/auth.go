@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -489,6 +490,28 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deactivation revokes the user's families only best-effort, and a family
+	// created concurrently escapes it, so re-check is_active before minting. A
+	// deactivated user's family is revoked and refused with the revoked-session
+	// answer, which reveals no more than Login does.
+	inactive, err := h.familyUserInactive(r.Context(), family.UserID)
+	if err != nil {
+		logging.FromContext(r.Context()).Error("auth: refresh user lookup failed",
+			zap.String("user", family.UserID), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "Failed to load session")
+		return
+	}
+	if inactive {
+		if revokeErr := h.familyStore.Revoke(r.Context(), famID); revokeErr != nil {
+			logging.FromContext(r.Context()).Error("auth: failed to revoke inactive user's refresh family",
+				zap.String("family", famID), zap.Error(revokeErr))
+		}
+		logging.FromContext(r.Context()).Warn("auth: refresh refused for inactive user",
+			zap.String("user", family.UserID), zap.String("family", famID))
+		writeError(w, http.StatusUnauthorized, "Session no longer active")
+		return
+	}
+
 	// Mint a new access + refresh pair against the same family.
 	accessToken, refreshToken, _, newRefreshJTI, err := h.jwtManager.GenerateTokensForFamily(
 		family.UserID, family.Role, family.Provider, famID)
@@ -541,6 +564,25 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		},
 		"metadata": map[string]string{"message": "Session refreshed"},
 	})
+}
+
+// familyUserInactive reports whether a refresh-token family's user (its sub) is
+// a DB user who is deactivated or no longer exists. Only DB users — a numeric
+// sub — carry is_active; env users have no users row and always report false,
+// as does every sub when no user store is wired.
+func (h *AuthHandler) familyUserInactive(ctx context.Context, sub string) (bool, error) {
+	id, parseErr := strconv.ParseInt(sub, 10, 64)
+	if parseErr != nil || h.userStore == nil {
+		return false, nil
+	}
+	u, err := h.userStore.GetByID(ctx, id)
+	if errors.Is(err, store.ErrUserNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !u.IsActive, nil
 }
 
 // setAuthCookies writes the jwt, refresh_jwt, and csrf_token cookies with the

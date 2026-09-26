@@ -478,6 +478,36 @@ func TestAuthHandler_Refresh(t *testing.T) {
 				_ = f.families.MarkCompromised(context.Background(), f.famID)
 				return f.refresh
 			}},
+		// A DB user deactivated after login cannot mint tokens even when the
+		// deactivation's best-effort family revocation never happened: the
+		// refresh is refused as a dead session, without revealing the account
+		// state, and the family is revoked.
+		{name: "db user deactivated since login", want: http.StatusUnauthorized,
+			present: func(t *testing.T, f *authFixture) string {
+				c := authCookie(f.login(t, f.ed.Email, authPassword), "refresh_jwt")
+				if c == nil {
+					t.Fatal("login set no refresh_jwt cookie")
+				}
+				if err := f.users.Deactivate(context.Background(), f.ed.ID); err != nil {
+					t.Fatal(err)
+				}
+				return c.Value
+			},
+			check: func(t *testing.T, f *authFixture, rr *httptest.ResponseRecorder) {
+				for _, name := range []string{"jwt", "refresh_jwt", "csrf_token"} {
+					if authCookie(rr, name) != nil {
+						t.Errorf("%s cookie set on a refused refresh", name)
+					}
+				}
+				if strings.Contains(rr.Body.String(), "inactive") {
+					t.Errorf("response leaks the inactive state: %s", rr.Body.String())
+				}
+				f.events(t, store.AuditActionRefreshSuccess, 0)
+				// RevokeAllForUser counts the user's families still active.
+				if n, _ := f.families.RevokeAllForUser(context.Background(), strconv.FormatInt(f.ed.ID, 10)); n != 0 {
+					t.Errorf("%d family still active, want the refused refresh to revoke it", n)
+				}
+			}},
 		{name: "missing cookie", want: http.StatusUnauthorized, present: func(*testing.T, *authFixture) string { return "" }},
 		{name: "invalid token", want: http.StatusUnauthorized, present: func(*testing.T, *authFixture) string { return "not.a.valid.jwt" }},
 		{name: "rotation disabled", want: http.StatusUnauthorized,
