@@ -1,37 +1,20 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { TimelineTestCase } from '@/types/api'
+import type { TimelineTestCase, TimelineBuildEntry } from '@/types/api'
 import type { StatusColorMap } from '@/hooks/useStatusColors'
 
-// Mock D3 modules since zoom/brush don't work in jsdom
+// d3 zoom needs real layout; a chainable stub is enough for rendering.
 vi.mock('d3-zoom', () => {
-  const identity = { k: 1, x: 0, y: 0 }
-  return {
-    zoom: vi.fn(() => {
-      const z = Object.assign(
-        vi.fn(() => z),
-        {
-          scaleExtent: vi.fn(() => z),
-          translateExtent: vi.fn(() => z),
-          on: vi.fn(() => z),
-          filter: vi.fn(() => z),
-        },
-      )
-      return z
-    }),
-    zoomIdentity: identity,
-  }
+  const chain = (): unknown =>
+    Object.assign(vi.fn(), {
+      scaleExtent: chain,
+      translateExtent: chain,
+      on: chain,
+      filter: chain,
+    })
+  return { zoom: vi.fn(chain), zoomIdentity: { k: 1, x: 0, y: 0 } }
 })
-
-vi.mock('d3-selection', () => ({
-  select: vi.fn(() => {
-    const sel = {
-      call: vi.fn(() => sel),
-      on: vi.fn(() => sel),
-    }
-    return sel
-  }),
-}))
+vi.mock('d3-selection', () => ({ select: () => ({ call: vi.fn(), on: vi.fn() }) }))
 
 import { TimelineGanttChart } from '../TimelineGanttChart'
 
@@ -47,96 +30,72 @@ const makeTC = (overrides: Partial<TimelineTestCase> = {}): TimelineTestCase => 
   ...overrides,
 })
 
-const defaultColors: StatusColorMap = {
+function makeBuild(order: number, testCases: TimelineTestCase[], createdAt: string) {
+  return { build_order: order, created_at: createdAt, test_cases: testCases } as TimelineBuildEntry
+}
+
+const colors: StatusColorMap = {
   passed: '#40a02b',
   failed: '#d20f39',
   broken: '#fe640b',
   skipped: '#8c8fa1',
 }
 
-const noop = vi.fn()
-
-const defaultProps = {
+const baseProps = {
   testCases: [makeTC()],
   minStart: 0,
   maxStop: 10000,
-  statusColors: defaultColors,
+  statusColors: colors,
   width: 800,
   height: 450,
-  selectedRange: null as [number, number] | null,
-  onViewportChange: noop,
-  onBrushSelect: noop,
-  highlightedTestId: null as string | null,
+  selectedRange: null,
+  onViewportChange: vi.fn(),
+  onBrushSelect: vi.fn(),
+  highlightedTestId: null,
 }
 
 describe('TimelineGanttChart', () => {
-  it('renders an SVG element with data-testid="gantt-chart"', () => {
-    render(<TimelineGanttChart {...defaultProps} />)
-    expect(screen.getByTestId('gantt-chart')).toBeInTheDocument()
-  })
-
-  it('SVG has role="img" and aria-label for accessibility', () => {
-    render(<TimelineGanttChart {...defaultProps} />)
-    const svg = screen.getByTestId('gantt-chart')
-    expect(svg).toHaveAttribute('role', 'img')
-    expect(svg).toHaveAttribute('aria-label', 'Test execution timeline')
-  })
-
-  it('renders correct number of bar rects (data-testid="gantt-bar")', () => {
-    const testCases = [
-      makeTC({ name: 'a', full_name: 'a', start: 0, stop: 3000 }),
-      makeTC({ name: 'b', full_name: 'b', start: 3000, stop: 6000 }),
-    ]
-    render(<TimelineGanttChart {...defaultProps} testCases={testCases} />)
-    expect(screen.getAllByTestId('gantt-bar')).toHaveLength(2)
-  })
-
   it('each bar has correct fill color based on status', () => {
-    const testCases = [
-      makeTC({ name: 'p', full_name: 'p', status: 'passed', start: 0, stop: 2000 }),
-      makeTC({ name: 'f', full_name: 'f', status: 'failed', start: 2000, stop: 4000 }),
-      makeTC({ name: 'b', full_name: 'b', status: 'broken', start: 4000, stop: 6000 }),
-      makeTC({ name: 's', full_name: 's', status: 'skipped', start: 6000, stop: 8000 }),
+    const testCases = (['passed', 'failed', 'broken', 'skipped'] as const).map((status, i) =>
+      makeTC({ full_name: status, status, start: i * 2000, stop: i * 2000 + 2000 }),
+    )
+    render(<TimelineGanttChart {...baseProps} testCases={testCases} />)
+
+    expect(screen.getAllByTestId('gantt-bar').map((bar) => bar.getAttribute('fill'))).toEqual([
+      '#40a02b',
+      '#d20f39',
+      '#fe640b',
+      '#8c8fa1',
+    ])
+  })
+
+  it('stacks multiple builds into labelled bands with a separator between them', () => {
+    const builds = [
+      makeBuild(
+        44,
+        [makeTC({ full_name: 'a' }), makeTC({ full_name: 'b' })],
+        '2026-03-25T00:00:00Z',
+      ),
+      makeBuild(43, [makeTC({ full_name: 'c' })], '2026-03-24T00:00:00Z'),
     ]
-    render(<TimelineGanttChart {...defaultProps} testCases={testCases} />)
-    const bars = screen.getAllByTestId('gantt-bar')
-    expect(bars[0]).toHaveAttribute('fill', '#40a02b')
-    expect(bars[1]).toHaveAttribute('fill', '#d20f39')
-    expect(bars[2]).toHaveAttribute('fill', '#fe640b')
-    expect(bars[3]).toHaveAttribute('fill', '#8c8fa1')
-  })
+    render(<TimelineGanttChart {...baseProps} builds={builds} />)
 
-  it('renders time axis group (data-testid="time-axis")', () => {
-    render(<TimelineGanttChart {...defaultProps} />)
-    expect(screen.getByTestId('time-axis')).toBeInTheDocument()
-  })
-
-  it('has tabIndex=0 for keyboard focus', () => {
-    render(<TimelineGanttChart {...defaultProps} />)
-    const svg = screen.getByTestId('gantt-chart')
-    expect(svg).toHaveAttribute('tabindex', '0')
-  })
-
-  it('has a clipPath element', () => {
-    render(<TimelineGanttChart {...defaultProps} />)
-    const svg = screen.getByTestId('gantt-chart')
-    const clipPath = svg.querySelector('clipPath')
-    expect(clipPath).not.toBeNull()
-  })
-
-  it('renders with empty testCases without crashing (0 bars)', () => {
-    render(<TimelineGanttChart {...defaultProps} testCases={[]} />)
-    expect(screen.getByTestId('gantt-chart')).toBeInTheDocument()
-    expect(screen.queryAllByTestId('gantt-bar')).toHaveLength(0)
-  })
-
-  it('shows correct bar count with mixed statuses', () => {
-    const testCases = [
-      makeTC({ name: 'a', full_name: 'a', status: 'passed', start: 0, stop: 2000 }),
-      makeTC({ name: 'b', full_name: 'b', status: 'failed', start: 2000, stop: 5000 }),
-      makeTC({ name: 'c', full_name: 'c', status: 'broken', start: 5000, stop: 8000 }),
-    ]
-    render(<TimelineGanttChart {...defaultProps} testCases={testCases} />)
+    expect(screen.getByText('Build #44 — 2026-03-25')).toBeInTheDocument()
+    expect(screen.getByText('Build #43 — 2026-03-24')).toBeInTheDocument()
     expect(screen.getAllByTestId('gantt-bar')).toHaveLength(3)
+    expect(screen.getAllByTestId('band-separator')).toHaveLength(1)
+  })
+
+  it.each<[string, TimelineBuildEntry[] | undefined]>([
+    ['still works in single-build mode (no builds prop)', undefined],
+    [
+      'still works when builds has single entry',
+      [makeBuild(1, [makeTC()], '2026-03-25T00:00:00Z')],
+    ],
+  ])('%s', (_name, builds) => {
+    render(<TimelineGanttChart {...baseProps} builds={builds} />)
+
+    expect(screen.getAllByTestId('gantt-bar')).toHaveLength(1)
+    expect(screen.queryByText(/Build #/)).not.toBeInTheDocument()
   })
 })

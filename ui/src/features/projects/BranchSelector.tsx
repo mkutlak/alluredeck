@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-keys'
 import { fetchBranches } from '@/api/branches'
+import { resolveEffectiveBranch } from './overviewHelpers'
 import {
   Select,
   SelectContent,
@@ -32,9 +33,7 @@ export function BranchSelector({
     onBranchChange(val === ALL_BRANCHES_VALUE ? undefined : val)
   }
 
-  const storedBranchInList =
-    selectedBranch !== undefined && branches?.some((b) => b.name === selectedBranch)
-  const displayValue = storedBranchInList ? selectedBranch : ALL_BRANCHES_VALUE
+  const displayValue = resolveEffectiveBranch(selectedBranch, branches) ?? ALL_BRANCHES_VALUE
 
   // While loading, show a disabled placeholder trigger so tests can find the combobox
   if (isLoading) {

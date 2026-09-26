@@ -6,6 +6,7 @@ import { pipelineRunsOptions } from '@/lib/queries'
 import { queryKeys } from '@/lib/query-keys'
 import { fetchBranches } from '@/api/branches'
 import { useUIStore } from '@/store/ui'
+import { resolveEffectiveBranch } from '@/features/projects/overviewHelpers'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
@@ -30,10 +31,7 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
     enabled: !!projectId,
     staleTime: 60_000,
   })
-  const effectiveBranch =
-    selectedBranch && branchesData?.some((b) => b.name === selectedBranch)
-      ? selectedBranch
-      : undefined
+  const effectiveBranch = resolveEffectiveBranch(selectedBranch, branchesData)
 
   // Reset to page 1 when branch filter changes
   const [prevBranch, setPrevBranch] = useState(selectedBranch)

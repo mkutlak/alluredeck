@@ -8,8 +8,9 @@ const LATEST_ALIAS_ID = 'latest'
 const MAX_COMPARE_SELECTION = 2
 
 /**
- * The selected branch is shared across projects, so it only filters this
- * project's history when the project actually has that branch.
+ * The selected branch is shared across projects, so it only applies to this
+ * project (history, timeline, analytics, pipeline runs, the branch picker)
+ * when the project actually has that branch.
  */
 export function resolveEffectiveBranch(
   selectedBranch: string | undefined,

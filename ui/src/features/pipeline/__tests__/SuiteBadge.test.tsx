@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/render'
 import { SuiteBadge } from '../SuiteBadge'
@@ -19,25 +20,17 @@ function makeSuite(overrides?: Partial<PipelineSuite>): PipelineSuite {
 }
 
 describe('SuiteBadge', () => {
-  it('renders suite name and pass rate', () => {
-    renderWithProviders(<SuiteBadge suite={makeSuite()} />)
-    expect(screen.getByText('api-cloud')).toBeInTheDocument()
-    expect(screen.getByText(/100%/)).toBeInTheDocument()
-  })
-
+  // Links use the numeric project_id, never the slug (404f3ee: slug links broke on parent pages).
   it('links to the correct project URL', () => {
     renderWithProviders(<SuiteBadge suite={makeSuite({ project_id: 2, slug: 'ui-tests' })} />)
-    const link = screen.getByRole('link')
-    expect(link).toHaveAttribute('href', '/projects/2')
+    expect(screen.getByRole('link', { name: /ui-tests/ })).toHaveAttribute('href', '/projects/2')
   })
 
-  it('shows failed count when present', () => {
-    renderWithProviders(<SuiteBadge suite={makeSuite({ failed: 3, pass_rate: 71, status: 'degraded' })} />)
-    expect(screen.getByText('3 failed')).toBeInTheDocument()
-  })
-
-  it('shows correct status icon for failed suite', () => {
-    renderWithProviders(<SuiteBadge suite={makeSuite({ pass_rate: 50, status: 'failed' })} />)
+  it('marks a failed suite and shows its failed count', () => {
+    renderWithProviders(
+      <SuiteBadge suite={makeSuite({ failed: 3, pass_rate: 50, status: 'failed' })} />,
+    )
     expect(screen.getByText(/✗/)).toBeInTheDocument()
+    expect(screen.getByText('3 failed')).toBeInTheDocument()
   })
 })

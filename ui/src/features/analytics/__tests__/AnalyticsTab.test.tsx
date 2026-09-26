@@ -1,24 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter } from 'react-router'
 import { renderWithProviders } from '@/test/render'
 import { AnalyticsTab } from '../AnalyticsTab'
 import * as reportsApi from '@/api/reports'
 import * as analyticsApi from '@/api/analytics'
+import * as branchesApi from '@/api/branches'
+import { useUIStore } from '@/store/ui'
 
 import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/reports')
 vi.mock('@/api/analytics')
-vi.mock('@/api/branches', () => ({
-  fetchBranches: vi.fn().mockResolvedValue([]),
-}))
+vi.mock('@/api/branches')
 mockApiClient()
 
-function renderTab(projectId = 'myproject') {
+function renderTab() {
   const router = createMemoryRouter(
     [{ path: '/projects/:id/analytics', element: <AnalyticsTab /> }],
-    { initialEntries: [`/projects/${projectId}/analytics`] },
+    { initialEntries: ['/projects/myproject/analytics'] },
   )
   return renderWithProviders(<></>, { router })
 }
@@ -26,6 +26,8 @@ function renderTab(projectId = 'myproject') {
 describe('AnalyticsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useUIStore.setState({ selectedBranch: undefined })
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([])
     vi.mocked(analyticsApi.fetchTrends).mockResolvedValue({
       status: [],
       pass_rate: [],
@@ -40,12 +42,28 @@ describe('AnalyticsTab', () => {
     vi.mocked(reportsApi.fetchReportCategories).mockResolvedValue([])
   })
 
-  it('shows the empty state message with a filter row above it', async () => {
+  it('shows the empty state without trend or report data', async () => {
     renderTab()
-    await waitFor(() => {
-      expect(screen.getByText(/no report data yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no report data yet/i)).toBeInTheDocument()
+  })
+
+  // Regression (d66811e): the stored branch is shared across projects, so one
+  // this project lacks must not filter its analytics.
+  it('filters by the stored branch only when the project has it', async () => {
+    vi.mocked(branchesApi.fetchBranches).mockResolvedValue([
+      { id: 1, project_id: 1, name: 'main', is_default: true, created_at: '2024-01-01T00:00:00Z' },
+    ])
+    useUIStore.setState({ selectedBranch: 'gone' })
+    renderTab()
+    await screen.findByText(/no report data yet/i)
+
+    act(() => {
+      useUIStore.setState({ selectedBranch: 'main' })
     })
-    // PageHeader (title/heading) is now owned by the project layout, not the tab itself.
-    expect(screen.queryByRole('heading')).not.toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(analyticsApi.fetchTrends).toHaveBeenLastCalledWith('myproject', 100, 'main'),
+    )
+    expect(analyticsApi.fetchTrends).not.toHaveBeenCalledWith('myproject', 100, 'gone')
   })
 })

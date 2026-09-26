@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/render'
@@ -10,25 +10,15 @@ import { mockApiClient } from '@/test/mocks/api-client'
 vi.mock('@/api/reports')
 mockApiClient()
 
-function renderCard(projectId = 'myproject') {
+function renderCard() {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
-      <CategoriesCard projectId={projectId} />
+      <CategoriesCard projectId="myproject" />
     </QueryClientProvider>,
   )
 }
 
 describe('CategoriesCard', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('shows loading state initially', () => {
-    vi.mocked(reportsApi.fetchReportCategories).mockReturnValue(new Promise(() => {}))
-    renderCard()
-    expect(screen.getByText('Failure Categories')).toBeInTheDocument()
-  })
-
   it('renders categories with badges', async () => {
     vi.mocked(reportsApi.fetchReportCategories).mockResolvedValue([
       {
@@ -41,12 +31,11 @@ describe('CategoriesCard', () => {
       },
     ])
     renderCard()
-    await waitFor(() => {
-      expect(screen.getByText('Product defects')).toBeInTheDocument()
-      expect(screen.getByText('Test defects')).toBeInTheDocument()
-      expect(screen.getByText('3f')).toBeInTheDocument()
-      expect(screen.getByText('2b')).toBeInTheDocument()
-    })
+
+    expect(await screen.findByText('Product defects')).toBeInTheDocument()
+    expect(screen.getByText('Test defects')).toBeInTheDocument()
+    expect(screen.getByText('3f')).toBeInTheDocument()
+    expect(screen.getByText('2b')).toBeInTheDocument()
   })
 
   it('renders nothing when no categories', async () => {

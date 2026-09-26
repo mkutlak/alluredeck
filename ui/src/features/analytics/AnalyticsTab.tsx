@@ -26,6 +26,7 @@ import { KpiSummaryRow } from './KpiSummaryRow'
 import { useUIStore } from '@/store/ui'
 import { FilterBar } from '@/components/app/FilterBar'
 import { BranchSelect } from '@/components/app/BranchSelect'
+import { resolveEffectiveBranch } from '@/features/projects/overviewHelpers'
 
 export function AnalyticsTab() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -37,8 +38,7 @@ export function AnalyticsTab() {
     queryFn: () => fetchBranches(projectId ?? ''),
     enabled: !!projectId,
   })
-  const effectiveBranch =
-    branch && branchesData?.some((b) => b.name === branch) ? branch : undefined
+  const effectiveBranch = resolveEffectiveBranch(branch, branchesData)
 
   // Resolve the numeric project_id (route param may be a slug) for building
   // report links from cards such as FlakyImpactCard — see ui/CLAUDE.md numeric

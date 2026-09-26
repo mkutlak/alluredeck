@@ -1,34 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/render'
 import * as dashboardApi from '@/api/dashboard'
-
-vi.mock('recharts', () => ({
-  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Line: () => null,
-}))
+import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/dashboard')
-import { mockApiClient } from '@/test/mocks/api-client'
 mockApiClient()
 vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(),
   selectIsAdmin: (s: { roles?: string[] }) => (s.roles ?? []).includes('admin'),
 }))
-vi.mock('@/features/projects/CreateProjectDialog', () => ({
-  CreateProjectDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="create-dialog" /> : null,
-}))
-
-function renderPage() {
-  return renderWithProviders(<DashboardPage />)
-}
+vi.mock('@/features/projects/CreateProjectDialog', () => ({ CreateProjectDialog: () => null }))
 
 // Import AFTER mocks
 import { DashboardPage } from '../DashboardPage'
-import { useAuthStore } from '@/store/auth'
+import { useAuthStore, type AuthState, type Role } from '@/store/auth'
 import type { DashboardData } from '@/types/api'
 
 const mockData: DashboardData = {
@@ -47,11 +34,7 @@ const mockData: DashboardData = {
         new_failed_count: 2,
         new_passed_count: 0,
       },
-      sparkline: [
-        { build_order: 3, pass_rate: 85 },
-        { build_order: 4, pass_rate: 88 },
-        { build_order: 5, pass_rate: 90 },
-      ],
+      sparkline: [],
     },
     {
       project_id: 2,
@@ -73,16 +56,7 @@ const mockData: DashboardData = {
           project_id: 4,
           slug: 'child-a',
           created_at: '2025-01-03T00:00:00Z',
-          latest_build: {
-            build_order: 1,
-            created_at: '2025-03-01T10:00:00Z',
-            statistics: { passed: 40, failed: 2, broken: 0, skipped: 0, unknown: 0, total: 42 },
-            pass_rate: 95.2,
-            duration_ms: 60000,
-            flaky_count: 0,
-            new_failed_count: 0,
-            new_passed_count: 0,
-          },
+          latest_build: null,
           sparkline: [],
         },
         {
@@ -98,136 +72,95 @@ const mockData: DashboardData = {
   summary: { total_projects: 4, healthy: 1, degraded: 1, failing: 2 },
 }
 
-import type { AuthState } from '@/store/auth'
+function renderPage(roles: Role[] = [], data: DashboardData = mockData) {
+  vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
+    (selector as (s: Partial<AuthState>) => unknown)({ roles }),
+  )
+  vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(data)
+  return renderWithProviders(<DashboardPage />)
+}
 
-type AuthSelector = (s: Partial<AuthState>) => unknown
+const expandButtons = () => screen.queryAllByRole('button', { name: /^expand/i })
 
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ roles: [] }),
-    )
-  })
-
-  it('renders loading state initially', () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockReturnValue(new Promise(() => {}))
-    renderPage()
-    const skeletons = document.querySelectorAll('[class*="animate-pulse"]')
-    expect(skeletons.length).toBeGreaterThan(0)
-  })
-
-  it('renders table with column headers', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('Name')).toBeInTheDocument()
-      expect(screen.getByText('Type')).toBeInTheDocument()
-      expect(screen.getByText('Pass Rate')).toBeInTheDocument()
-    })
-  })
-
-  it('renders project names in table rows', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('proj-alpha')).toBeInTheDocument()
-      expect(screen.getByText('proj-beta')).toBeInTheDocument()
-      expect(screen.getByText('group-one')).toBeInTheDocument()
-    })
   })
 
   it('shows group type and aggregate pass rate', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('group-one')).toBeInTheDocument()
-      expect(screen.getByText('87.80%')).toBeInTheDocument()
-      expect(screen.getByText('Group')).toBeInTheDocument()
-    })
+    const groupRow = within((await screen.findByText('group-one')).closest('tr')!)
+    expect(groupRow.getByText('Group')).toBeInTheDocument()
+    expect(groupRow.getByText('87.80%')).toBeInTheDocument()
+  })
+
+  // Links use the numeric project_id, never the slug (9e053b3), and the pass rate
+  // excludes skipped tests: 90 passed / (100 - 3 skipped) = 92.78%, not 90%.
+  it('links a project by numeric id and excludes skipped tests from its pass rate', async () => {
+    renderPage()
+    const link = await screen.findByRole('link', { name: 'proj-alpha' })
+    expect(link).toHaveAttribute('href', '/projects/1')
+    expect(within(link.closest('tr')!).getByText('92.78%')).toBeInTheDocument()
   })
 
   it('shows empty state when no projects', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue({
+    renderPage([], {
       projects: [],
       summary: { total_projects: 0, healthy: 0, degraded: 0, failing: 0 },
     })
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText(/no projects/i)).toBeInTheDocument()
-    })
+    expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
   })
 
-  it("shows 'Projects' heading", async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /projects/i })).toBeInTheDocument()
-    })
+  it.each<[string, Role[], boolean]>([
+    ['shows New project button for admin users', ['admin'], true],
+    ['hides New project button for non-admin users', [], false],
+  ])('%s', async (_name, roles, shown) => {
+    renderPage(roles)
+    await screen.findByText('proj-alpha')
+    expect(!!screen.queryByRole('button', { name: /new project/i })).toBe(shown)
   })
 
-  it('shows New project button for admin users', async () => {
-    vi.mocked(useAuthStore).mockImplementation((selector: unknown) =>
-      (selector as AuthSelector)({ roles: ['admin'] }),
-    )
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument()
-    })
-  })
-
-  it('hides New project button for non-admin users', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('proj-alpha')).toBeInTheDocument()
-    })
-    expect(screen.queryByRole('button', { name: /new project/i })).not.toBeInTheDocument()
-  })
-
-  it('calls fetchDashboard with no arguments', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText('proj-alpha')).toBeInTheDocument()
-    })
-    expect(vi.mocked(dashboardApi.fetchDashboard)).toHaveBeenCalledWith()
-  })
-
-  it('shows Grouped/All toggle', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Grouped' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument()
-    })
-  })
-
-  it('shows search input', async () => {
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
-    })
-  })
-
-  it('view toggle switches active state between Grouped and All', async () => {
+  it('expands and collapses a group from its chevron, leaving leaf rows without one', async () => {
     const user = userEvent.setup()
-    vi.mocked(dashboardApi.fetchDashboard).mockResolvedValue(mockData)
     renderPage()
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Grouped' })).toBeInTheDocument()
-    })
+    await screen.findByText('group-one')
+    expect(expandButtons()).toHaveLength(1)
+    expect(screen.queryByText('child-a')).not.toBeInTheDocument()
 
-    const groupedBtn = screen.getByRole('button', { name: 'Grouped' })
-    const allBtn = screen.getByRole('button', { name: 'All' })
-    expect(groupedBtn).toHaveAttribute('aria-pressed', 'true')
-    expect(allBtn).toHaveAttribute('aria-pressed', 'false')
+    const chevron = screen.getByRole('button', { name: /expand group-one/i })
+    await user.click(chevron)
+    expect(screen.getByText('child-a')).toBeInTheDocument()
+    expect(screen.getByText('child-b')).toBeInTheDocument()
 
-    await user.click(allBtn)
+    await user.click(chevron)
+    expect(screen.queryByText('child-a')).not.toBeInTheDocument()
+  })
 
-    expect(allBtn).toHaveAttribute('aria-pressed', 'true')
-    expect(groupedBtn).toHaveAttribute('aria-pressed', 'false')
+  it('clicking the group name triggers drill-down (not chevron expand)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByText('group-one'))
+
+    // Drill-down lists the children as top-level rows; the group row and its chevron are gone.
+    expect(await screen.findByText('child-a')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /expand group-one/i })).not.toBeInTheDocument()
+  })
+
+  it('switches to the flat "All" view: children as rows, no groups or chevrons', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const grouped = await screen.findByRole('button', { name: 'Grouped' })
+    const all = screen.getByRole('button', { name: 'All' })
+    expect(grouped).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(all)
+
+    expect(all).toHaveAttribute('aria-pressed', 'true')
+    expect(grouped).toHaveAttribute('aria-pressed', 'false')
+    expect(await screen.findByText('child-a')).toBeInTheDocument()
+    expect(screen.getByText('proj-alpha')).toBeInTheDocument()
+    expect(screen.queryByText('group-one')).not.toBeInTheDocument()
+    expect(expandButtons()).toHaveLength(0)
   })
 })

@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { AlertBanner } from '@/components/ui/AlertBanner'
 import { FilterBar } from '@/components/app/FilterBar'
 import { BranchSelect } from '@/components/app/BranchSelect'
+import { resolveEffectiveBranch } from '@/features/projects/overviewHelpers'
 import { TimelineChart } from './TimelineChart'
 import { DateRangePicker } from './DateRangePicker'
 import { BuildCountSelector } from './BuildCountSelector'
@@ -25,8 +26,7 @@ export function TimelineTab() {
     enabled: !!projectId,
     staleTime: 60_000,
   })
-  const effectiveBranch =
-    branch && branchesData?.some((b) => b.name === branch) ? branch : undefined
+  const effectiveBranch = resolveEffectiveBranch(branch, branchesData)
 
   const [dateFrom, setDateFrom] = useState<string | undefined>(undefined)
   const [dateTo, setDateTo] = useState<string | undefined>(undefined)

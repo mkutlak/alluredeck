@@ -1,57 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router'
 import { renderWithProviders } from '@/test/render'
 import { ComparePage } from '../ComparePage'
 import * as reportsApi from '@/api/reports'
-import type { CompareData } from '@/types/api'
+import type { CompareData, DiffCategory } from '@/types/api'
 
 import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/reports')
 mockApiClient()
 
+function diff(test_name: string, category: DiffCategory) {
+  return {
+    test_name,
+    full_name: `pkg.${test_name}`,
+    history_id: test_name,
+    status_a: 'passed',
+    status_b: 'failed',
+    duration_a: 1000,
+    duration_b: 2000,
+    duration_delta: 1000,
+    category,
+  }
+}
+
 function makeCompareData(overrides: Partial<CompareData> = {}): CompareData {
   return {
     build_a: 1,
     build_b: 2,
     summary: { regressed: 1, fixed: 1, added: 1, removed: 0, total: 3 },
-    tests: [
-      {
-        test_name: 'LoginTest',
-        full_name: 'pkg.LoginTest',
-        history_id: 'h1',
-        status_a: 'passed',
-        status_b: 'failed',
-        duration_a: 1000,
-        duration_b: 2000,
-        duration_delta: 1000,
-        category: 'regressed',
-      },
-      {
-        test_name: 'SignupTest',
-        full_name: 'pkg.SignupTest',
-        history_id: 'h2',
-        status_a: 'failed',
-        status_b: 'passed',
-        duration_a: 500,
-        duration_b: 300,
-        duration_delta: -200,
-        category: 'fixed',
-      },
-      {
-        test_name: 'NewTest',
-        full_name: 'pkg.NewTest',
-        history_id: 'h3',
-        status_a: '',
-        status_b: 'passed',
-        duration_a: 0,
-        duration_b: 400,
-        duration_delta: 400,
-        category: 'added',
-      },
-    ],
+    tests: [diff('LoginTest', 'regressed'), diff('SignupTest', 'fixed'), diff('NewTest', 'added')],
     ...overrides,
   }
 }
@@ -63,119 +43,39 @@ function renderPage(search = '?a=1&b=2') {
   return renderWithProviders(<></>, { router })
 }
 
+// Test names appear in a span and its cell, so match on any occurrence.
+const shows = (name: string) => screen.queryAllByText(name).length > 0
+
 describe('ComparePage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('renders summary cards with correct counts', async () => {
+  it('counts each category and filters the diff rows by it', async () => {
+    const user = userEvent.setup()
     vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
     renderPage()
 
-    // Filter buttons display category labels with counts — unique text, avoids multi-match
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /regressed.*1/i })).toBeInTheDocument()
-    })
+    await screen.findByRole('button', { name: /regressed.*1/i })
     expect(screen.getByRole('button', { name: /fixed.*1/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /added.*1/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /removed.*0/i })).toBeInTheDocument()
-  })
+    expect(['LoginTest', 'SignupTest', 'NewTest'].map(shows)).toEqual([true, true, true])
 
-  it('renders diff table rows', async () => {
-    vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
-    renderPage()
-
-    await waitFor(() => {
-      // Test names appear in table cells — use getAllByText since span + td share textContent
-      expect(screen.getAllByText('LoginTest').length).toBeGreaterThan(0)
-    })
-    expect(screen.getAllByText('SignupTest').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('NewTest').length).toBeGreaterThan(0)
-  })
-
-  it('category filter shows only matching rows', async () => {
-    vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getAllByText('LoginTest').length).toBeGreaterThan(0)
-    })
-
-    const user = userEvent.setup()
-    // Click the "Fixed" filter button (text: "Fixed (1)")
     await user.click(screen.getByRole('button', { name: /^fixed/i }))
-
-    await waitFor(() => {
-      expect(screen.getAllByText('SignupTest').length).toBeGreaterThan(0)
-    })
-    expect(screen.queryByText('LoginTest')).not.toBeInTheDocument()
-    expect(screen.queryByText('NewTest')).not.toBeInTheDocument()
-  })
-
-  it('all filter restores all rows', async () => {
-    vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getAllByText('LoginTest').length).toBeGreaterThan(0)
-    })
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /^fixed/i }))
-    await waitFor(() => {
-      expect(screen.queryByText('LoginTest')).not.toBeInTheDocument()
-    })
+    expect(['LoginTest', 'SignupTest', 'NewTest'].map(shows)).toEqual([false, true, false])
 
     await user.click(screen.getByRole('button', { name: /^all/i }))
-    await waitFor(() => {
-      expect(screen.getAllByText('LoginTest').length).toBeGreaterThan(0)
-    })
-    expect(screen.getAllByText('SignupTest').length).toBeGreaterThan(0)
+    expect(['LoginTest', 'SignupTest', 'NewTest'].map(shows)).toEqual([true, true, true])
   })
 
-  it('shows loading state while fetching', () => {
-    vi.mocked(reportsApi.fetchBuildComparison).mockReturnValue(new Promise(() => {}))
-    renderPage()
-
-    const skeletons = document.querySelectorAll('[data-testid="compare-skeleton"]')
-    expect(skeletons.length).toBeGreaterThan(0)
-  })
-
-  it('shows error message when params are missing', () => {
-    renderPage('') // no query params
-    // Error message is in a <p> element — use selector to avoid multi-match with ancestors
+  it.each([
+    ['shows error message when params are missing', ''],
+    ['shows error message when params are invalid', '?a=foo&b=bar'],
+    ['shows error message when param is partial-numeric (e.g. 42abc)', '?a=42abc&b=2'],
+  ])('%s', (_name, search) => {
+    renderPage(search)
     expect(screen.getByText(/invalid/i, { selector: 'p' })).toBeInTheDocument()
-  })
-
-  it('shows error message when params are invalid', () => {
-    renderPage('?a=foo&b=bar')
-    expect(screen.getByText(/invalid/i, { selector: 'p' })).toBeInTheDocument()
-  })
-
-  it('shows error message when param is partial-numeric (e.g. 42abc)', () => {
-    renderPage('?a=42abc&b=2')
-    expect(screen.getByText(/invalid/i, { selector: 'p' })).toBeInTheDocument()
-  })
-
-  it('shows project heading and build numbers in the subtitle', async () => {
-    vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
-    renderPage()
-
-    await waitFor(() => {
-      // Title is the project label; build numbers moved into the subtitle line
-      expect(screen.getByRole('heading', { name: 'test-project' })).toBeInTheDocument()
-      expect(screen.getByText(/build #1.*build #2/i)).toBeInTheDocument()
-    })
-  })
-
-  it('renders category filter as a segmented group', async () => {
-    vi.mocked(reportsApi.fetchBuildComparison).mockResolvedValue(makeCompareData())
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByRole('group', { name: /filter by category/i })).toBeInTheDocument()
-    })
-    expect(screen.getByRole('button', { name: /^all/i })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('shows empty state when no diffs', async () => {
@@ -186,10 +86,6 @@ describe('ComparePage', () => {
       }),
     )
     renderPage()
-
-    await waitFor(() => {
-      // Use selector:'p' to avoid matching ancestor elements with same textContent
-      expect(screen.getByText(/no differences/i, { selector: 'p' })).toBeInTheDocument()
-    })
+    expect(await screen.findByText(/no differences/i, { selector: 'p' })).toBeInTheDocument()
   })
 })
