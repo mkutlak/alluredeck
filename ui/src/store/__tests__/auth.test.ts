@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useAuthStore, selectIsAdmin, selectIsEditor, selectIsSessionValid } from '../auth'
+import { useAuthStore, selectIsAdmin, selectIsEditor } from '../auth'
 import type { AuthState } from '../auth'
 
 function getState(): AuthState {
@@ -85,17 +85,6 @@ describe('useAuthStore', () => {
     it('returns false for viewer role', () => {
       getState().setAuth(['viewer'], 'v', 3600)
       expect(selectIsEditor(getState())).toBe(false)
-    })
-  })
-
-  describe('selectIsSessionValid', () => {
-    it('returns true when authenticated and not expired', () => {
-      getState().setAuth(['viewer'], 'v', 3600)
-      expect(selectIsSessionValid(getState())).toBe(true)
-    })
-
-    it('returns false when not authenticated', () => {
-      expect(selectIsSessionValid(getState())).toBe(false)
     })
   })
 })

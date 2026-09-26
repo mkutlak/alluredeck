@@ -54,6 +54,3 @@ export const selectIsAdmin = (s: AuthState) => s.roles.includes('admin')
 
 export const selectIsEditor = (s: AuthState) =>
   s.roles.includes('admin') || s.roles.includes('editor')
-
-export const selectIsSessionValid = (s: AuthState) =>
-  s.isAuthenticated && (s.expiresAt === null || s.expiresAt > Date.now())
