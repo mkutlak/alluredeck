@@ -1,6 +1,7 @@
 package security
 
 import (
+	"reflect"
 	"testing"
 
 	"go.uber.org/zap"
@@ -23,86 +24,28 @@ func TestPKCEChallenge(t *testing.T) {
 	}
 }
 
-func TestExtractClaimsFromMap_Basic(t *testing.T) {
+// TestExtractClaimsFromMap: only string group entries are kept, and an Azure
+// AD group overage (_claim_names.groups) drops the groups claim entirely.
+func TestExtractClaimsFromMap(t *testing.T) {
 	t.Parallel()
-
-	claims := map[string]any{
-		"email":  "alice@example.com",
-		"name":   "Alice",
-		"groups": []any{"eng", "ops"},
+	tests := []struct {
+		name   string
+		claims map[string]any
+		want   *OIDCUserInfo
+	}{
+		{"email, name and groups",
+			map[string]any{"email": "alice@example.com", "name": "Alice", "groups": []any{"eng", "ops"}},
+			&OIDCUserInfo{Subject: "sub-1", Email: "alice@example.com", Name: "Alice", Groups: []string{"eng", "ops"}}},
+		{"Azure AD group overage",
+			map[string]any{"email": "bob@example.com", "name": "Bob", "_claim_names": map[string]any{"groups": "_claim_sources"}, "groups": []any{"should-be-ignored"}},
+			&OIDCUserInfo{Subject: "sub-1", Email: "bob@example.com", Name: "Bob"}},
+		{"non-string groups are skipped",
+			map[string]any{"groups": []any{"valid-group", 42, nil, "another-group", true}},
+			&OIDCUserInfo{Subject: "sub-1", Groups: []string{"valid-group", "another-group"}}},
 	}
-
-	info := extractClaimsFromMap(claims, "sub-123", zap.NewNop())
-
-	if info.Subject != "sub-123" {
-		t.Errorf("Subject = %q, want %q", info.Subject, "sub-123")
-	}
-	if info.Email != "alice@example.com" {
-		t.Errorf("Email = %q, want %q", info.Email, "alice@example.com")
-	}
-	if info.Name != "Alice" {
-		t.Errorf("Name = %q, want %q", info.Name, "Alice")
-	}
-	if len(info.Groups) != 2 || info.Groups[0] != "eng" || info.Groups[1] != "ops" {
-		t.Errorf("Groups = %v, want [eng ops]", info.Groups)
-	}
-}
-
-func TestExtractClaimsFromMap_AzureADOverage(t *testing.T) {
-	t.Parallel()
-
-	// Azure AD group overage: _claim_names contains "groups" key.
-	claims := map[string]any{
-		"email": "bob@example.com",
-		"name":  "Bob",
-		"_claim_names": map[string]any{
-			"groups": "_claim_sources",
-		},
-		"groups": []any{"should-be-ignored"},
-	}
-
-	info := extractClaimsFromMap(claims, "sub-azure", zap.NewNop())
-
-	if info.Subject != "sub-azure" {
-		t.Errorf("Subject = %q, want %q", info.Subject, "sub-azure")
-	}
-	if len(info.Groups) != 0 {
-		t.Errorf("Groups = %v, want empty (overage detected)", info.Groups)
-	}
-}
-
-func TestExtractClaimsFromMap_NoGroups(t *testing.T) {
-	t.Parallel()
-
-	claims := map[string]any{
-		"email": "carol@example.com",
-		"name":  "Carol",
-	}
-
-	info := extractClaimsFromMap(claims, "sub-carol", zap.NewNop())
-
-	if len(info.Groups) != 0 {
-		t.Errorf("Groups = %v, want nil/empty when groups claim absent", info.Groups)
-	}
-}
-
-func TestExtractClaimsFromMap_NonStringGroups(t *testing.T) {
-	t.Parallel()
-
-	// Mixed types: only string entries should be extracted.
-	claims := map[string]any{
-		"groups": []any{"valid-group", 42, nil, "another-group", true},
-	}
-
-	info := extractClaimsFromMap(claims, "sub-mixed", zap.NewNop())
-
-	want := []string{"valid-group", "another-group"}
-	if len(info.Groups) != len(want) {
-		t.Fatalf("Groups = %v, want %v", info.Groups, want)
-	}
-	for i, g := range want {
-		if info.Groups[i] != g {
-			t.Errorf("Groups[%d] = %q, want %q", i, info.Groups[i], g)
+	for _, tc := range tests {
+		if got := extractClaimsFromMap(tc.claims, "sub-1", zap.NewNop()); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)
 		}
 	}
 }

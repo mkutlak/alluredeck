@@ -6,86 +6,27 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
 
-func TestResolveRole_AdminMatch(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{"admins"},
-		EditorGroups: []string{"editors"},
-		DefaultRole:  "viewer",
+// TestResolveRole maps OIDC groups to a role: admin beats editor, anything
+// else (or no group mapping configured at all) gets the default role.
+func TestResolveRole(t *testing.T) {
+	admins, editors := []string{"admins"}, []string{"editors"}
+	tests := []struct {
+		name                string
+		adminGrp, editorGrp []string
+		groups              []string
+		want                string
+	}{
+		{"admin group", admins, editors, []string{"admins"}, "admin"},
+		{"editor group", admins, editors, []string{"editors"}, "editor"},
+		{"no matching group", admins, editors, []string{"other-group"}, "viewer"},
+		{"admin wins over editor", admins, editors, []string{"readers", "admins", "editors"}, "admin"},
+		{"group mapped to both roles", []string{"superusers"}, []string{"superusers"}, []string{"superusers"}, "admin"},
+		{"no group mapping configured", []string{}, []string{}, []string{"admins", "editors"}, "viewer"},
 	}
-	got := ResolveRole([]string{"admins"}, cfg)
-	if got != "admin" {
-		t.Errorf("expected admin, got %q", got)
-	}
-}
-
-func TestResolveRole_EditorMatch(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{"admins"},
-		EditorGroups: []string{"editors"},
-		DefaultRole:  "viewer",
-	}
-	got := ResolveRole([]string{"editors"}, cfg)
-	if got != "editor" {
-		t.Errorf("expected editor, got %q", got)
-	}
-}
-
-func TestResolveRole_NoMatch(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{"admins"},
-		EditorGroups: []string{"editors"},
-		DefaultRole:  "viewer",
-	}
-	got := ResolveRole([]string{"other-group"}, cfg)
-	if got != "viewer" {
-		t.Errorf("expected viewer, got %q", got)
-	}
-}
-
-func TestResolveRole_AdminWinsOverEditor(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{"superusers"},
-		EditorGroups: []string{"superusers"},
-		DefaultRole:  "viewer",
-	}
-	got := ResolveRole([]string{"superusers"}, cfg)
-	if got != "admin" {
-		t.Errorf("expected admin, got %q", got)
-	}
-}
-
-func TestResolveRole_EmptyGroups(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{"admins"},
-		EditorGroups: []string{"editors"},
-		DefaultRole:  "viewer",
-	}
-	got := ResolveRole([]string{}, cfg)
-	if got != "viewer" {
-		t.Errorf("expected viewer, got %q", got)
-	}
-}
-
-func TestResolveRole_MultipleGroups(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{"admins"},
-		EditorGroups: []string{"editors"},
-		DefaultRole:  "viewer",
-	}
-	got := ResolveRole([]string{"readers", "admins", "editors"}, cfg)
-	if got != "admin" {
-		t.Errorf("expected admin, got %q", got)
-	}
-}
-
-func TestResolveRole_EmptyConfig(t *testing.T) {
-	cfg := &config.OIDCConfig{
-		AdminGroups:  []string{},
-		EditorGroups: []string{},
-		DefaultRole:  "viewer",
-	}
-	got := ResolveRole([]string{"admins", "editors"}, cfg)
-	if got != "viewer" {
-		t.Errorf("expected viewer, got %q", got)
+	for _, tc := range tests {
+		cfg := &config.OIDCConfig{AdminGroups: tc.adminGrp, EditorGroups: tc.editorGrp, DefaultRole: "viewer"}
+		if got := ResolveRole(tc.groups, cfg); got != tc.want {
+			t.Errorf("%s: ResolveRole(%v) = %q, want %q", tc.name, tc.groups, got, tc.want)
+		}
 	}
 }

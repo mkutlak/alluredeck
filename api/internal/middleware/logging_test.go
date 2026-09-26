@@ -12,143 +12,49 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 )
 
-// newObservedLogger creates a zap logger that records log entries for assertions.
-func newObservedLogger() (*zap.Logger, *observer.ObservedLogs) {
-	core, logs := observer.New(zap.DebugLevel)
-	return zap.New(core), logs
-}
-
-func TestLoggingMiddlewareLogsRequestCompletion(t *testing.T) {
+// TestLoggingMiddleware: behind RequestID, each request logs one "request
+// completed" entry with request_id, method, path, the first status written
+// (200 when the handler only writes a body) and a duration. The handler's
+// context carries the request-scoped child logger.
+func TestLoggingMiddleware(t *testing.T) {
 	t.Parallel()
-	logger, logs := newObservedLogger()
-
-	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if logs.Len() == 0 {
-		t.Fatal("expected at least one log entry, got none")
-	}
-
-	entry := logs.All()[0]
-	if entry.Message != "request completed" {
-		t.Errorf("expected message %q, got %q", "request completed", entry.Message)
-	}
-
-	fields := entry.ContextMap()
-	if fields["method"] != "GET" {
-		t.Errorf("expected method=GET, got %v", fields["method"])
-	}
-	if fields["path"] != "/api/v1/health" {
-		t.Errorf("expected path=/api/v1/health, got %v", fields["path"])
-	}
-	if _, ok := fields["status"]; !ok {
-		t.Error("expected status field in log entry")
-	}
-	if _, ok := fields["duration"]; !ok {
-		t.Error("expected duration field in log entry")
-	}
-}
-
-func TestLoggingMiddlewareIncludesRequestID(t *testing.T) {
-	t.Parallel()
-	logger, logs := newObservedLogger()
-
-	// Wrap with RequestID middleware so the ID is in context before logging
-	handler := middleware.RequestID(
-		middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	tests := []struct {
+		name       string
+		write      func(http.ResponseWriter)
+		wantStatus int64
+	}{
+		{"explicit status", func(w http.ResponseWriter) { w.WriteHeader(http.StatusNotFound) }, http.StatusNotFound},
+		{"body only defaults to 200", func(w http.ResponseWriter) { _, _ = w.Write([]byte("ok")) }, http.StatusOK},
+		{"only the first WriteHeader counts", func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusCreated)
 			w.WriteHeader(http.StatusOK)
-		})),
-	)
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-Request-ID", "test-req-123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if logs.Len() == 0 {
-		t.Fatal("expected log entry")
+		}, http.StatusCreated},
 	}
-	fields := logs.All()[0].ContextMap()
-	if fields["request_id"] != "test-req-123" {
-		t.Errorf("expected request_id=test-req-123, got %v", fields["request_id"])
-	}
-}
+	for _, tc := range tests {
+		core, logs := observer.New(zap.DebugLevel)
+		handler := middleware.RequestID(middleware.LoggingMiddleware(zap.New(core))(
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				logging.FromContext(r.Context()).Info("inside handler")
+				tc.write(w)
+			})))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/resource", nil)
+		req.Header.Set("X-Request-ID", "test-req-123")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
 
-func TestLoggingMiddlewareStoresChildLoggerInContext(t *testing.T) {
-	t.Parallel()
-	logger, _ := newObservedLogger()
-
-	var loggerInCtx *zap.Logger
-	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		loggerInCtx = logging.FromContext(r.Context())
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if loggerInCtx == nil {
-		t.Fatal("expected logger in context, got nil")
-	}
-}
-
-func TestLoggingMiddlewareStatusCode(t *testing.T) {
-	t.Parallel()
-	logger, logs := newObservedLogger()
-
-	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	fields := logs.All()[0].ContextMap()
-	if got := fields["status"]; got != int64(http.StatusNotFound) {
-		t.Errorf("expected status=%d, got %v", http.StatusNotFound, got)
-	}
-}
-
-func TestLoggingMiddlewareDefaultStatus200(t *testing.T) {
-	t.Parallel()
-	logger, logs := newObservedLogger()
-
-	// Handler writes body but never calls WriteHeader explicitly
-	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("ok"))
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	fields := logs.All()[0].ContextMap()
-	if got := fields["status"]; got != int64(http.StatusOK) {
-		t.Errorf("expected default status=200, got %v", got)
-	}
-}
-
-func TestLoggingMiddlewareOnlyFirstWriteHeaderCounts(t *testing.T) {
-	t.Parallel()
-	logger, logs := newObservedLogger()
-
-	handler := middleware.LoggingMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		w.WriteHeader(http.StatusOK) // second call must be ignored
-	}))
-
-	req := httptest.NewRequest(http.MethodPost, "/resource", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	fields := logs.All()[0].ContextMap()
-	if got := fields["status"]; got != int64(http.StatusCreated) {
-		t.Errorf("expected status=201 (first call), got %v", got)
+		entries := logs.All()
+		if len(entries) != 2 {
+			t.Fatalf("%s: expected the handler's entry and the completion entry, got %d", tc.name, len(entries))
+		}
+		if got := entries[0].ContextMap()["request_id"]; got != "test-req-123" {
+			t.Errorf("%s: context logger request_id = %v, want test-req-123", tc.name, got)
+		}
+		done, fields := entries[1], entries[1].ContextMap()
+		if done.Message != "request completed" || fields["request_id"] != "test-req-123" ||
+			fields["method"] != http.MethodPost || fields["path"] != "/api/v1/resource" || fields["status"] != tc.wantStatus {
+			t.Errorf("%s: completion entry %q %v", tc.name, done.Message, fields)
+		}
+		if _, ok := fields["duration"]; !ok {
+			t.Errorf("%s: completion entry has no duration", tc.name)
+		}
 	}
 }

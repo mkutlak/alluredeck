@@ -9,71 +9,33 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
-func TestOTel_RecordsSpan(t *testing.T) {
+// TestOTel records one span per request on the given provider, named by the
+// matched ServeMux pattern, or by method and raw path when nothing matched.
+func TestOTel(t *testing.T) {
 	t.Parallel()
-
-	rec := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
-
-	handler := OTel(tp)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	spans := rec.Ended()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	span := spans[0]
-
-	// Span name must contain the HTTP method.
-	if span.Name() == "" {
-		t.Error("expected non-empty span name")
-	}
-
-	// Verify HTTP attributes are present.
-	attrs := span.Attributes()
-	foundMethod := false
-	for _, a := range attrs {
-		if string(a.Key) == "http.request.method" || string(a.Key) == "http.method" {
-			foundMethod = true
-			break
-		}
-	}
-	if !foundMethod {
-		t.Errorf("expected http method attribute in span, got attrs: %v", attrs)
-	}
-}
-
-func TestOTel_SpanNameUsesPattern(t *testing.T) {
-	t.Parallel()
-
-	rec := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/projects/{id}", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	handler := OTel(tp)(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/42", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	spans := rec.Ended()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
+	mux.HandleFunc("GET /api/v1/projects/{id}", okHandler)
+	tests := []struct {
+		name     string
+		next     http.Handler
+		path     string
+		wantSpan string
+	}{
+		{"matched pattern", mux, "/api/v1/projects/42", "GET /api/v1/projects/{id}"},
+		{"no pattern", http.HandlerFunc(okHandler), "/health", "GET /health"},
 	}
+	for _, tc := range tests {
+		rec := tracetest.NewSpanRecorder()
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+		OTel(tp)(tc.next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tc.path, nil))
 
-	name := spans[0].Name()
-	const want = "GET /api/v1/projects/{id}"
-	if name != want {
-		t.Errorf("expected span name %q, got %q", want, name)
+		spans := rec.Ended()
+		if len(spans) != 1 || spans[0].Name() != tc.wantSpan {
+			names := make([]string, len(spans))
+			for i, s := range spans {
+				names[i] = s.Name()
+			}
+			t.Errorf("%s: spans %v, want [%s]", tc.name, names, tc.wantSpan)
+		}
 	}
 }

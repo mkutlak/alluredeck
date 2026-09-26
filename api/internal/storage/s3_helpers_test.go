@@ -3,315 +3,156 @@ package storage
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
 
-// buildListResponse constructs a single-page ListObjectsV2Output from a slice of keys.
-// The fake size is set to the key length so size-tracking tests have predictable totals.
-func buildListResponse(keys []string) *s3.ListObjectsV2Output {
-	objs := make([]s3types.Object, 0, len(keys))
-	for _, k := range keys {
-		size := int64(len(k))
-		objs = append(objs, s3types.Object{Key: aws.String(k), Size: &size})
-	}
-	return &s3.ListObjectsV2Output{
-		Contents:    objs,
-		IsTruncated: aws.Bool(false),
+// inflightHook returns a fakeS3 hook that tracks the peak number of
+// concurrent calls; with cancel set, the first call cancels the context.
+func inflightHook(peak *atomic.Int32, cancel context.CancelFunc) func(context.Context) error {
+	var inflight atomic.Int32
+	return func(ctx context.Context) error {
+		cur := inflight.Add(1)
+		defer inflight.Add(-1)
+		for {
+			if p := peak.Load(); cur <= p || peak.CompareAndSwap(p, cur) {
+				break
+			}
+		}
+		if cancel != nil {
+			cancel()
+			return ctx.Err()
+		}
+		time.Sleep(time.Millisecond) // let calls overlap so the limit is exercised
+		return nil
 	}
 }
 
-func TestDownloadPrefix_Parallel_MultipleObjects(t *testing.T) {
+// TestDownloadPrefix mirrors every object under the prefix into the local dir
+// with at most `concurrency` downloads in flight, warns once the total size
+// passes the threshold, and fails when any download fails or the context is
+// cancelled.
+func TestDownloadPrefix(t *testing.T) {
 	t.Parallel()
-	const n = 20
-	const concurrency = 5
-	prefix := "test-prefix/"
-
-	keys := make([]string, n)
-	for i := range n {
-		keys[i] = fmt.Sprintf("%sfile%02d.json", prefix, i)
+	twenty := map[string]string{"other/x.json": "outside the prefix"}
+	mirrored := map[string]string{}
+	for i := range 20 {
+		twenty[fmt.Sprintf("p/file%02d.json", i)] = fmt.Sprintf("content-%02d", i)
+		mirrored[fmt.Sprintf("file%02d.json", i)] = fmt.Sprintf("content-%02d", i)
 	}
+	big := map[string]string{"p/a.bin": strings.Repeat("x", 600), "p/b.bin": strings.Repeat("x", 600)}
+	tests := []struct {
+		name      string
+		objects   map[string]string
+		prefix    string
+		warnAt    int64
+		failOn    map[string]error
+		cancel    bool
+		wantFiles map[string]string // nil when the download must fail
+		wantWarn  bool
+	}{
+		{"mirrors the prefix", twenty, "p/", 0, nil, false, mirrored, false},
+		{"empty prefix downloads nothing", twenty, "empty/", 0, nil, false, map[string]string{}, false},
+		{"total size over the threshold warns", big, "p/", 1000, nil, false, map[string]string{"a.bin": big["p/a.bin"], "b.bin": big["p/b.bin"]}, true},
+		{"one failing object fails the download", map[string]string{"p/ok.json": "ok", "p/fail.json": "x"}, "p/", 0,
+			map[string]error{"Get p/fail.json": errBoom}, false, nil, false},
+		{"cancelled context fails the download", twenty, "p/", 0, nil, true, nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const concurrency = 5
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			f := newFakeS3(tc.objects)
+			f.failOn = tc.failOn
+			var peak atomic.Int32
+			if tc.cancel {
+				f.getHook = inflightHook(&peak, cancel)
+			} else {
+				f.getHook = inflightHook(&peak, nil)
+			}
+			core, logs := observer.New(zapcore.WarnLevel)
+			dir := t.TempDir()
 
-	var inflight atomic.Int32
-	var peak atomic.Int32
-
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return buildListResponse(keys), nil
-		},
-		GetObjectFn: func(_ context.Context, params *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			cur := inflight.Add(1)
-			for {
-				p := peak.Load()
-				if cur <= p || peak.CompareAndSwap(p, cur) {
-					break
+			err := downloadPrefix(ctx, f, testBucket, tc.prefix, dir, concurrency, tc.warnAt, zap.New(core), nil)
+			if (err != nil) != (tc.wantFiles == nil) {
+				t.Fatalf("downloadPrefix error = %v, want error: %v", err, tc.wantFiles == nil)
+			}
+			if tc.wantFiles != nil {
+				if got := readTree(t, dir); !reflect.DeepEqual(got, tc.wantFiles) {
+					t.Errorf("local files = %v, want %v", got, tc.wantFiles)
 				}
 			}
-			defer inflight.Add(-1)
-			key := aws.ToString(params.Key)
-			return &s3.GetObjectOutput{
-				Body: io.NopCloser(strings.NewReader("content-" + key)),
-			}, nil
-		},
-	}
-
-	tmpDir := t.TempDir()
-	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, concurrency, 0, zap.NewNop(), nil); err != nil {
-		t.Fatalf("downloadPrefix: %v", err)
-	}
-
-	for i := range n {
-		path := filepath.Join(tmpDir, fmt.Sprintf("file%02d.json", i))
-		if _, err := os.Stat(path); err != nil {
-			t.Errorf("missing file %s: %v", path, err)
-		}
-	}
-	if p := peak.Load(); p > int32(concurrency) {
-		t.Errorf("peak inflight %d exceeds concurrency limit %d", p, concurrency)
-	}
-}
-
-func TestDownloadPrefix_EmptyPrefix(t *testing.T) {
-	t.Parallel()
-	var getObjectCalled bool
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			getObjectCalled = true
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-	}
-
-	tmpDir := t.TempDir()
-	if err := downloadPrefix(context.Background(), mock, "bucket", "empty/", tmpDir, 10, 0, zap.NewNop(), nil); err != nil {
-		t.Fatalf("downloadPrefix: %v", err)
-	}
-	if getObjectCalled {
-		t.Error("GetObject should not be called for empty prefix")
-	}
-}
-
-func TestDownloadPrefix_SingleObject(t *testing.T) {
-	t.Parallel()
-	prefix := "results/"
-	key := prefix + "result.json"
-	content := `{"status":"passed"}`
-
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			size := int64(len(content))
-			return &s3.ListObjectsV2Output{
-				Contents:    []s3types.Object{{Key: aws.String(key), Size: &size}},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(content))}, nil
-		},
-	}
-
-	tmpDir := t.TempDir()
-	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, 0, zap.NewNop(), nil); err != nil {
-		t.Fatalf("downloadPrefix: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(tmpDir, "result.json"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != content {
-		t.Errorf("file content: want %q, got %q", content, string(data))
-	}
-}
-
-func TestDownloadPrefix_ContextCancellation(t *testing.T) {
-	t.Parallel()
-	prefix := "results/"
-	keys := []string{prefix + "a.json", prefix + "b.json", prefix + "c.json"}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	var callCount atomic.Int32
-
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return buildListResponse(keys), nil
-		},
-		GetObjectFn: func(ctx context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			if callCount.Add(1) == 1 {
-				cancel()
+			if p := peak.Load(); p > concurrency {
+				t.Errorf("peak inflight %d exceeds concurrency limit %d", p, concurrency)
 			}
-			if err := ctx.Err(); err != nil {
-				return nil, err
+			if got := logs.Len() > 0; got != tc.wantWarn {
+				t.Errorf("size warning logged = %v, want %v", got, tc.wantWarn)
 			}
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("data"))}, nil
-		},
-	}
-
-	tmpDir := t.TempDir()
-	err := downloadPrefix(ctx, mock, "bucket", prefix, tmpDir, 1, 0, zap.NewNop(), nil)
-	if err == nil {
-		t.Error("expected error after context cancellation, got nil")
+		})
 	}
 }
 
-func TestDownloadPrefix_SizeWarning(t *testing.T) {
+// TestUploadDir uploads every file under the dir, keyed by its path below the
+// prefix, with at most `concurrency` uploads in flight; an empty dir uploads
+// nothing and a cancelled context fails the upload.
+func TestUploadDir(t *testing.T) {
 	t.Parallel()
-	prefix := "results/"
-	content600 := strings.Repeat("x", 600)
-	keys := []string{prefix + "a.bin", prefix + "b.bin"}
-
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			size := int64(600)
-			return &s3.ListObjectsV2Output{
-				Contents: []s3types.Object{
-					{Key: aws.String(keys[0]), Size: &size},
-					{Key: aws.String(keys[1]), Size: &size},
-				},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(content600))}, nil
-		},
-	}
-
-	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
-
-	tmpDir := t.TempDir()
-	const sizeThreshold int64 = 1000
-	if err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, sizeThreshold, logger, nil); err != nil {
-		t.Fatalf("downloadPrefix: %v", err)
-	}
-
-	if logs.Len() == 0 {
-		t.Error("expected at least one warning log for size threshold exceeded, got none")
-	}
-}
-
-func TestDownloadPrefix_ErrorInOneObject(t *testing.T) {
-	t.Parallel()
-	prefix := "results/"
-	keys := []string{prefix + "ok.json", prefix + "fail.json"}
-	failKey := prefix + "fail.json"
-
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return buildListResponse(keys), nil
-		},
-		GetObjectFn: func(_ context.Context, params *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			if aws.ToString(params.Key) == failKey {
-				return nil, fmt.Errorf("s3 error: access denied")
-			}
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("ok"))}, nil
-		},
-	}
-
-	tmpDir := t.TempDir()
-	err := downloadPrefix(context.Background(), mock, "bucket", prefix, tmpDir, 10, 0, zap.NewNop(), nil)
-	if err == nil {
-		t.Error("expected error when one object fails, got nil")
-	}
-}
-
-func TestUploadDir_Parallel_MultipleFiles(t *testing.T) {
-	t.Parallel()
-	const n = 15
 	const concurrency = 4
-
-	tmpDir := t.TempDir()
-	for i := range n {
-		path := filepath.Join(tmpDir, fmt.Sprintf("file%02d.json", i))
-		if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-	}
-
-	var inflight atomic.Int32
-	var peak atomic.Int32
-
-	mock := &mockS3Uploader{
-		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-			cur := inflight.Add(1)
-			for {
-				p := peak.Load()
-				if cur <= p || peak.CompareAndSwap(p, cur) {
-					break
+	for _, tc := range []struct {
+		name   string
+		files  int
+		cancel bool
+	}{
+		{"uploads every file", 15, false},
+		{"empty dir uploads nothing", 0, false},
+		{"cancelled context fails the upload", 5, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			var want []string
+			for i := range tc.files {
+				name := fmt.Sprintf("sub/file%02d.json", i)
+				if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+					t.Fatal(err)
 				}
+				if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(`{}`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				want = append(want, "prefix/"+name)
 			}
-			defer inflight.Add(-1)
-			return &transfermanager.UploadObjectOutput{}, nil
-		},
-	}
-
-	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", concurrency, nil); err != nil {
-		t.Fatalf("uploadDir: %v", err)
-	}
-	if p := peak.Load(); p > int32(concurrency) {
-		t.Errorf("peak inflight %d exceeds concurrency limit %d", p, concurrency)
-	}
-}
-
-func TestUploadDir_EmptyDir(t *testing.T) {
-	t.Parallel()
-	var uploadCalled bool
-	mock := &mockS3Uploader{
-		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-			uploadCalled = true
-			return &transfermanager.UploadObjectOutput{}, nil
-		},
-	}
-
-	tmpDir := t.TempDir()
-	if err := uploadDir(context.Background(), mock, "bucket", tmpDir, "prefix/", 10, nil); err != nil {
-		t.Fatalf("uploadDir: %v", err)
-	}
-	if uploadCalled {
-		t.Error("Upload should not be called for empty directory")
-	}
-}
-
-func TestUploadDir_ContextCancellation(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	for i := range 5 {
-		path := filepath.Join(tmpDir, fmt.Sprintf("file%d.json", i))
-		if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	var callCount atomic.Int32
-
-	mock := &mockS3Uploader{
-		UploadObjectFn: func(ctx context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-			if callCount.Add(1) == 1 {
-				cancel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			f := newFakeS3(nil)
+			var peak atomic.Int32
+			if tc.cancel {
+				f.uploadHook = inflightHook(&peak, cancel)
+			} else {
+				f.uploadHook = inflightHook(&peak, nil)
 			}
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			return &transfermanager.UploadObjectOutput{}, nil
-		},
-	}
 
-	err := uploadDir(ctx, mock, "bucket", tmpDir, "prefix/", 1, nil)
-	if err == nil {
-		t.Error("expected error after context cancellation, got nil")
+			err := uploadDir(ctx, f, testBucket, dir, "prefix/", concurrency, nil)
+			if (err != nil) != tc.cancel {
+				t.Fatalf("uploadDir error = %v, want error: %v", err, tc.cancel)
+			}
+			if got := f.keys(""); !tc.cancel && !slices.Equal(got, want) {
+				t.Errorf("uploaded keys = %v, want %v", got, want)
+			}
+			if p := peak.Load(); p > concurrency {
+				t.Errorf("peak inflight %d exceeds concurrency limit %d", p, concurrency)
+			}
+		})
 	}
 }

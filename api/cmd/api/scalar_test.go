@@ -9,53 +9,27 @@ import (
 	_ "github.com/mkutlak/alluredeck/api/internal/swagger"
 )
 
-func TestScalarHandler_ServesHTML(t *testing.T) {
+// TestScalarHandler serves the API reference page and the registered swagger
+// spec, both under a CSP that admits the jsDelivr CDN the page loads from.
+func TestScalarHandler(t *testing.T) {
 	h := newScalarHandler()
-	req := httptest.NewRequest(http.MethodGet, "/swagger/", nil)
-	rec := httptest.NewRecorder()
-
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	ct := rec.Header().Get("Content-Type")
-	if !strings.HasPrefix(ct, "text/html") {
-		t.Fatalf("expected text/html content-type, got %q", ct)
-	}
-	if !strings.Contains(rec.Body.String(), "@scalar/api-reference") {
-		t.Fatal("response body missing @scalar/api-reference script")
-	}
-}
-
-func TestScalarHandler_ServesSpec(t *testing.T) {
-	h := newScalarHandler()
-	req := httptest.NewRequest(http.MethodGet, "/swagger/doc.json", nil)
-	rec := httptest.NewRecorder()
-
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	ct := rec.Header().Get("Content-Type")
-	if ct != "application/json" {
-		t.Fatalf("expected application/json content-type, got %q", ct)
-	}
-	if !strings.Contains(rec.Body.String(), `"swagger"`) {
-		t.Fatal("response body missing swagger field")
-	}
-}
-
-func TestScalarHandler_SetsCSP(t *testing.T) {
-	h := newScalarHandler()
-	req := httptest.NewRequest(http.MethodGet, "/swagger/", nil)
-	rec := httptest.NewRecorder()
-
-	h.ServeHTTP(rec, req)
-
-	csp := rec.Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "cdn.jsdelivr.net") {
-		t.Fatalf("CSP header missing cdn.jsdelivr.net, got %q", csp)
+	for _, tc := range []struct{ path, wantType, wantBody string }{
+		{"/swagger/", "text/html", "@scalar/api-reference"},
+		{"/swagger/doc.json", "application/json", `"swagger"`},
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", tc.path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, tc.wantType) {
+			t.Errorf("%s: Content-Type = %q, want %s", tc.path, ct, tc.wantType)
+		}
+		if !strings.Contains(rec.Body.String(), tc.wantBody) {
+			t.Errorf("%s: body lacks %s", tc.path, tc.wantBody)
+		}
+		if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "cdn.jsdelivr.net") {
+			t.Errorf("%s: CSP %q does not admit cdn.jsdelivr.net", tc.path, csp)
+		}
 	}
 }

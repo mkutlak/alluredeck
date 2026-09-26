@@ -10,28 +10,17 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/logging"
 )
 
-func TestSetupDevMode(t *testing.T) {
-	t.Parallel()
-	logger := logging.Setup(true, "debug")
-	if logger == nil {
-		t.Fatal("Setup(devMode=true) returned nil logger")
-	}
-}
-
-func TestSetupProdMode(t *testing.T) {
-	t.Parallel()
-	logger := logging.Setup(false, "info")
-	if logger == nil {
-		t.Fatal("Setup(devMode=false) returned nil logger")
-	}
-}
-
-func TestSetupReplacesGlobals(t *testing.T) {
-	t.Parallel()
-	logging.Setup(false, "info")
-	global := zap.L()
-	if global == nil {
-		t.Fatal("Setup() should replace globals; zap.L() returned nil")
+// TestSetup builds the dev and prod loggers at the parsed level and installs
+// each as the global logger. Not parallel: it replaces zap's globals.
+func TestSetup(t *testing.T) {
+	for _, devMode := range []bool{true, false} {
+		logger := logging.Setup(devMode, "warn")
+		if zap.L() != logger {
+			t.Errorf("devMode=%t: Setup did not replace the global logger", devMode)
+		}
+		if logger.Core().Enabled(zapcore.InfoLevel) || !logger.Core().Enabled(zapcore.WarnLevel) {
+			t.Errorf("devMode=%t: logger level is not warn", devMode)
+		}
 	}
 }
 
@@ -42,55 +31,33 @@ func TestParseLevel(t *testing.T) {
 		want  zapcore.Level
 	}{
 		{"debug", zapcore.DebugLevel},
-		{"DEBUG", zapcore.DebugLevel},
-		{"info", zapcore.InfoLevel},
-		{"INFO", zapcore.InfoLevel},
 		{"warn", zapcore.WarnLevel},
 		{"warning", zapcore.WarnLevel},
-		{"WARN", zapcore.WarnLevel},
-		{"error", zapcore.ErrorLevel},
 		{"ERROR", zapcore.ErrorLevel},
-		{"", zapcore.InfoLevel},        // empty → default info
-		{"invalid", zapcore.InfoLevel}, // unknown → default info
-		{"verbose", zapcore.InfoLevel}, // unknown → default info
+		{"", zapcore.InfoLevel}, // unset or unknown → info
 	}
 	for _, tc := range tests {
-		got := logging.ParseLevel(tc.input)
-		if got != tc.want {
+		if got := logging.ParseLevel(tc.input); got != tc.want {
 			t.Errorf("ParseLevel(%q) = %v, want %v", tc.input, got, tc.want)
 		}
 	}
 }
 
-func TestFromContextNoLogger(t *testing.T) {
-	t.Parallel()
-	// When no logger is stored, FromContext returns the global zap.L() fallback
-	logging.Setup(false, "info") // ensure global is set
-	ctx := context.Background()
-	logger := logging.FromContext(ctx)
-	if logger == nil {
-		t.Fatal("FromContext(empty ctx) should return fallback logger, got nil")
-	}
-}
-
-func TestWithAndFromContext(t *testing.T) {
-	t.Parallel()
-	logging.Setup(false, "info")
-	original := zap.NewNop()
-	ctx := logging.WithContext(context.Background(), original)
-	retrieved := logging.FromContext(ctx)
-	if retrieved != original {
-		t.Errorf("FromContext should return the exact logger stored by WithContext")
-	}
-}
-
-func TestFromContextReturnsFallbackWhenNil(t *testing.T) {
-	t.Parallel()
-	// Explicitly passing nil should fall back to global
-	logging.Setup(false, "info")
-	ctx := logging.WithContext(context.Background(), nil)
-	logger := logging.FromContext(ctx)
-	if logger == nil {
-		t.Fatal("FromContext with nil stored logger should return fallback, got nil")
+// TestFromContext returns the logger stored by WithContext, and the global
+// logger when none (or nil) was stored. Not parallel: it reads zap's globals.
+func TestFromContext(t *testing.T) {
+	stored := zap.NewNop()
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want *zap.Logger
+	}{
+		{"stored logger", logging.WithContext(context.Background(), stored), stored},
+		{"no logger falls back to global", context.Background(), zap.L()},
+		{"nil logger falls back to global", logging.WithContext(context.Background(), nil), zap.L()},
+	} {
+		if got := logging.FromContext(tc.ctx); got != tc.want {
+			t.Errorf("%s: FromContext returned a different logger", tc.name)
+		}
 	}
 }

@@ -2,852 +2,449 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
-
-	"go.uber.org/zap"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 )
 
-// mockS3Client is a test double for s3API.
-type mockS3Client struct {
-	PutObjectFn     func(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
-	GetObjectFn     func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
-	DeleteObjectFn  func(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
-	DeleteObjectsFn func(ctx context.Context, params *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
-	ListObjectsV2Fn func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
-	HeadObjectFn    func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
-	HeadBucketFn    func(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
-	CopyObjectFn    func(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
+const testBucket = "test-bucket"
+
+var errBoom = errors.New("boom")
+
+// fakeS3 is an in-memory bucket behind both s3API and s3Uploader. Every call
+// is logged as "Op key" ("List prefix" for listings, "Copy source" for copies)
+// and fails when failOn holds that entry; calls to another bucket fail too.
+// The hooks run before a GetObject/UploadObject is served, to add latency or
+// cancel the context.
+type fakeS3 struct {
+	mu                  sync.Mutex
+	objects             map[string]string
+	calls               []string
+	failOn              map[string]error
+	getHook, uploadHook func(ctx context.Context) error
 }
 
-// Ensure mockS3Client satisfies s3API at compile time.
-var _ s3API = (*mockS3Client)(nil)
+var (
+	_ s3API      = (*fakeS3)(nil)
+	_ s3Uploader = (*fakeS3)(nil)
+)
 
-func (m *mockS3Client) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
-	if m.PutObjectFn != nil {
-		return m.PutObjectFn(ctx, params, optFns...)
+func newFakeS3(objects map[string]string) *fakeS3 {
+	f := &fakeS3{objects: map[string]string{}}
+	for k, v := range objects {
+		f.objects[k] = v
 	}
-	return &s3.PutObjectOutput{}, nil
+	return f
 }
 
-func (m *mockS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-	if m.GetObjectFn != nil {
-		return m.GetObjectFn(ctx, params, optFns...)
+func (f *fakeS3) record(bucket *string, op, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, op+" "+key)
+	if b := aws.ToString(bucket); b != testBucket {
+		return fmt.Errorf("%s %s: unexpected bucket %q", op, key, b)
 	}
-	return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(""))}, nil
+	return f.failOn[op+" "+key]
 }
 
-func (m *mockS3Client) DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
-	if m.DeleteObjectFn != nil {
-		return m.DeleteObjectFn(ctx, params, optFns...)
+func (f *fakeS3) get(key string) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v, ok := f.objects[key]
+	return v, ok
+}
+
+func (f *fakeS3) put(key string, r io.Reader) error {
+	b, err := io.ReadAll(r)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.objects[key] = string(b)
+	return err
+}
+
+func (f *fakeS3) remove(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.objects, key)
+}
+
+// keys returns the stored keys under prefix, sorted.
+func (f *fakeS3) keys(prefix string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for k := range f.objects {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, k)
+		}
 	}
+	sort.Strings(out)
+	return out
+}
+
+// count returns how many calls of op were made.
+func (f *fakeS3) count(op string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, op+" ") {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeS3) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	if err := f.record(in.Bucket, "Put", aws.ToString(in.Key)); err != nil {
+		return nil, err
+	}
+	return &s3.PutObjectOutput{}, f.put(aws.ToString(in.Key), in.Body)
+}
+
+func (f *fakeS3) GetObject(ctx context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	if f.getHook != nil {
+		if err := f.getHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	key := aws.ToString(in.Key)
+	if err := f.record(in.Bucket, "Get", key); err != nil {
+		return nil, err
+	}
+	v, ok := f.get(key)
+	if !ok {
+		return nil, &s3types.NoSuchKey{}
+	}
+	return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(v))}, nil
+}
+
+func (f *fakeS3) DeleteObject(_ context.Context, in *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+	if err := f.record(in.Bucket, "Delete", aws.ToString(in.Key)); err != nil {
+		return nil, err
+	}
+	f.remove(aws.ToString(in.Key))
 	return &s3.DeleteObjectOutput{}, nil
 }
 
-func (m *mockS3Client) DeleteObjects(ctx context.Context, params *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
-	if m.DeleteObjectsFn != nil {
-		return m.DeleteObjectsFn(ctx, params, optFns...)
+func (f *fakeS3) DeleteObjects(_ context.Context, in *s3.DeleteObjectsInput, _ ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+	for _, obj := range in.Delete.Objects {
+		if err := f.record(in.Bucket, "Delete", aws.ToString(obj.Key)); err != nil {
+			return nil, err
+		}
+		f.remove(aws.ToString(obj.Key))
 	}
 	return &s3.DeleteObjectsOutput{}, nil
 }
 
-func (m *mockS3Client) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-	if m.ListObjectsV2Fn != nil {
-		return m.ListObjectsV2Fn(ctx, params, optFns...)
+// ListObjectsV2 returns every key under the prefix in one page, grouping keys
+// past the delimiter into common prefixes.
+func (f *fakeS3) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	prefix := aws.ToString(in.Prefix)
+	if err := f.record(in.Bucket, "List", prefix); err != nil {
+		return nil, err
 	}
-	return &s3.ListObjectsV2Output{}, nil
+	out := &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}
+	seen := map[string]bool{}
+	for _, k := range f.keys(prefix) {
+		v, _ := f.get(k)
+		rest := strings.TrimPrefix(k, prefix)
+		if d := aws.ToString(in.Delimiter); d != "" && strings.Contains(rest, d) {
+			cp := prefix + rest[:strings.Index(rest, d)+len(d)]
+			if !seen[cp] {
+				seen[cp] = true
+				out.CommonPrefixes = append(out.CommonPrefixes, s3types.CommonPrefix{Prefix: aws.String(cp)})
+			}
+			continue
+		}
+		out.Contents = append(out.Contents, s3types.Object{Key: aws.String(k), Size: aws.Int64(int64(len(v)))})
+	}
+	return out, nil
 }
 
-func (m *mockS3Client) HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-	if m.HeadObjectFn != nil {
-		return m.HeadObjectFn(ctx, params, optFns...)
+func (f *fakeS3) HeadObject(_ context.Context, in *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+	if err := f.record(in.Bucket, "Head", aws.ToString(in.Key)); err != nil {
+		return nil, err
+	}
+	if _, ok := f.get(aws.ToString(in.Key)); !ok {
+		return nil, &s3types.NotFound{}
 	}
 	return &s3.HeadObjectOutput{}, nil
 }
 
-func (m *mockS3Client) HeadBucket(ctx context.Context, params *s3.HeadBucketInput, optFns ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
-	if m.HeadBucketFn != nil {
-		return m.HeadBucketFn(ctx, params, optFns...)
-	}
-	return &s3.HeadBucketOutput{}, nil
+func (f *fakeS3) HeadBucket(_ context.Context, in *s3.HeadBucketInput, _ ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
+	return &s3.HeadBucketOutput{}, f.record(in.Bucket, "HeadBucket", "")
 }
 
-func (m *mockS3Client) CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
-	if m.CopyObjectFn != nil {
-		return m.CopyObjectFn(ctx, params, optFns...)
+// CopyObject copies within the bucket; CopySource must be "bucket/key".
+func (f *fakeS3) CopyObject(_ context.Context, in *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+	source := aws.ToString(in.CopySource)
+	if err := f.record(in.Bucket, "Copy", source); err != nil {
+		return nil, err
 	}
-	return &s3.CopyObjectOutput{}, nil
+	v, ok := f.get(strings.TrimPrefix(source, testBucket+"/"))
+	if !ok {
+		return nil, &s3types.NoSuchKey{}
+	}
+	return &s3.CopyObjectOutput{}, f.put(aws.ToString(in.Key), strings.NewReader(v))
 }
 
-// Ensure mockS3Client satisfies s3API.
-var _ s3API = (*mockS3Client)(nil)
-
-// mockS3Uploader is a test double for s3Uploader.
-type mockS3Uploader struct {
-	UploadObjectFn func(ctx context.Context, input *transfermanager.UploadObjectInput, opts ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error)
+func (f *fakeS3) UploadObject(ctx context.Context, in *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
+	if f.uploadHook != nil {
+		if err := f.uploadHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if err := f.record(in.Bucket, "Upload", aws.ToString(in.Key)); err != nil {
+		return nil, err
+	}
+	return &transfermanager.UploadObjectOutput{}, f.put(aws.ToString(in.Key), in.Body)
 }
 
-func (m *mockS3Uploader) UploadObject(ctx context.Context, input *transfermanager.UploadObjectInput, opts ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-	if m.UploadObjectFn != nil {
-		return m.UploadObjectFn(ctx, input, opts...)
-	}
-	return &transfermanager.UploadObjectOutput{}, nil
+func newTestS3Store(f *fakeS3, keepHistory bool) *S3Store {
+	cfg := &config.Config{KeepHistory: keepHistory, S3: config.S3Config{Bucket: testBucket, Concurrency: 10}}
+	return newS3StoreWithClient(cfg, f, f, zap.NewNop())
 }
 
-// Ensure mockS3Uploader satisfies s3Uploader.
-var _ s3Uploader = (*mockS3Uploader)(nil)
-
-func testCfg() *config.Config {
-	return &config.Config{
-		S3: config.S3Config{Bucket: "test-bucket", Concurrency: 10},
-	}
-}
-
-func TestS3Store_CreateProject_WritesKeepMarker(t *testing.T) {
-	t.Parallel()
-	var gotKey string
-	mock := &mockS3Client{
-		PutObjectFn: func(_ context.Context, params *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
-			if params.Key != nil {
-				gotKey = *params.Key
-			}
-			return &s3.PutObjectOutput{}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	if err := store.CreateProject(context.Background(), "myproject"); err != nil {
-		t.Fatalf("CreateProject returned error: %v", err)
-	}
-	wantKey := "projects/myproject/.keep"
-	if gotKey != wantKey {
-		t.Errorf("CreateProject wrote key %q, want %q", gotKey, wantKey)
-	}
-}
-
-func TestS3Store_CreateProject_PropagatesError(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		PutObjectFn: func(_ context.Context, _ *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
-			return nil, errors.New("s3 unavailable")
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	err := store.CreateProject(context.Background(), "myproject")
-	if err == nil {
-		t.Fatal("expected error when PutObject fails, got nil")
-	}
-}
-
-func TestS3Store_ResultsDirHash_Noop(t *testing.T) {
-	t.Parallel()
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, &mockS3Uploader{}, zap.NewNop())
-	hash, err := store.ResultsDirHash(context.Background(), "myproject")
-	if err != nil {
-		t.Fatalf("ResultsDirHash returned error: %v", err)
-	}
-	if hash != "" {
-		t.Errorf("expected empty hash, got %q", hash)
-	}
-}
-
-func TestS3Store_ListProjects(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{
-				CommonPrefixes: []s3types.CommonPrefix{
-					{Prefix: aws.String("projects/alpha/")},
-					{Prefix: aws.String("projects/beta/")},
-				},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	projects, err := store.ListProjects(context.Background())
-	if err != nil {
-		t.Fatalf("ListProjects returned error: %v", err)
-	}
-	if len(projects) != 2 {
-		t.Fatalf("expected 2 projects, got %d: %v", len(projects), projects)
-	}
-	if projects[0] != "alpha" || projects[1] != "beta" {
-		t.Errorf("unexpected projects: %v", projects)
-	}
-}
-
-func TestS3Store_WriteResultFile(t *testing.T) {
-	t.Parallel()
-	var capturedKey string
-	uploader := &mockS3Uploader{
-		UploadObjectFn: func(_ context.Context, params *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-			if params.Key != nil {
-				capturedKey = *params.Key
-			}
-			return &transfermanager.UploadObjectOutput{}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, uploader, zap.NewNop())
-	err := store.WriteResultFile(context.Background(), "myproject", "batch1", "result.xml", strings.NewReader("data"))
-	if err != nil {
-		t.Fatalf("WriteResultFile returned error: %v", err)
-	}
-	expected := "projects/myproject/results/batch1/result.xml"
-	if capturedKey != expected {
-		t.Errorf("expected key %q, got %q", expected, capturedKey)
-	}
-}
-
-func TestS3Store_WriteResultFile_UploaderError(t *testing.T) {
-	t.Parallel()
-	uploader := &mockS3Uploader{
-		UploadObjectFn: func(_ context.Context, _ *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-			return nil, errors.New("upload failed")
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, uploader, zap.NewNop())
-	err := store.WriteResultFile(context.Background(), "myproject", "batch1", "result.xml", strings.NewReader("data"))
-	if err == nil {
-		t.Fatal("expected error when uploader fails, got nil")
-	}
-}
-
-func TestS3Store_CleanResults(t *testing.T) {
-	t.Parallel()
-	var listedPrefix string
-	var deletedKeys []string
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			if params.Prefix != nil {
-				listedPrefix = *params.Prefix
-			}
-			return &s3.ListObjectsV2Output{
-				Contents: []s3types.Object{
-					{Key: aws.String("projects/myproject/results/a.xml")},
-					{Key: aws.String("projects/myproject/results/b.json")},
-				},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-		DeleteObjectsFn: func(_ context.Context, params *s3.DeleteObjectsInput, _ ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
-			for _, obj := range params.Delete.Objects {
-				if obj.Key != nil {
-					deletedKeys = append(deletedKeys, *obj.Key)
-				}
-			}
-			return &s3.DeleteObjectsOutput{}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	if err := store.CleanResults(context.Background(), "myproject"); err != nil {
-		t.Fatalf("CleanResults returned error: %v", err)
-	}
-	expectedPrefix := "projects/myproject/results/"
-	if listedPrefix != expectedPrefix {
-		t.Errorf("expected list prefix %q, got %q", expectedPrefix, listedPrefix)
-	}
-	if len(deletedKeys) != 2 {
-		t.Errorf("expected 2 deleted keys, got %d: %v", len(deletedKeys), deletedKeys)
-	}
-}
-
-func TestS3Store_DeleteReport_EmptyID(t *testing.T) {
-	t.Parallel()
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, &mockS3Uploader{}, zap.NewNop())
-	err := store.DeleteReport(context.Background(), "myproject", "")
-	if !errors.Is(err, ErrReportIDEmpty) {
-		t.Errorf("expected ErrReportIDEmpty, got %v", err)
-	}
-}
-
-func TestS3Store_DeleteReport_InvalidID(t *testing.T) {
-	t.Parallel()
-	store := newS3StoreWithClient(testCfg(), &mockS3Client{}, &mockS3Uploader{}, zap.NewNop())
-	err := store.DeleteReport(context.Background(), "myproject", "latest")
-	if !errors.Is(err, ErrReportIDInvalid) {
-		t.Errorf("expected ErrReportIDInvalid, got %v", err)
-	}
-}
-
-func TestS3Store_LatestReportExists_True(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{
-				Contents:    []s3types.Object{{Key: aws.String("projects/myproject/reports/latest/index.html")}},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	exists, err := store.LatestReportExists(context.Background(), "myproject")
-	if err != nil {
-		t.Fatalf("LatestReportExists returned error: %v", err)
-	}
-	if !exists {
-		t.Error("expected LatestReportExists to return true")
-	}
-}
-
-func TestS3Store_LatestReportExists_False(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{
-				Contents:    []s3types.Object{},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	exists, err := store.LatestReportExists(context.Background(), "myproject")
-	if err != nil {
-		t.Fatalf("LatestReportExists returned error: %v", err)
-	}
-	if exists {
-		t.Error("expected LatestReportExists to return false")
-	}
-}
-
-func TestS3Store_ReadBuildStats_Summary(t *testing.T) {
-	t.Parallel()
-	summaryData, _ := json.Marshal(map[string]any{
-		"statistic": map[string]int{
-			"passed":  10,
-			"failed":  2,
-			"broken":  1,
-			"skipped": 3,
-			"unknown": 0,
-			"total":   16,
-		},
-		"time": map[string]int64{
-			"duration": 5000,
-		},
+// readTree maps every regular file under dir (slash path) to its content.
+func readTree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		rel, _ := filepath.Rel(dir, path)
+		out[filepath.ToSlash(rel)] = string(data)
+		return err
 	})
-	mock := &mockS3Client{
-		GetObjectFn: func(_ context.Context, params *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			if params.Key != nil && strings.HasSuffix(*params.Key, "summary.json") {
-				return &s3.GetObjectOutput{
-					Body: io.NopCloser(strings.NewReader(string(summaryData))),
-				}, nil
-			}
-			return nil, errors.New("not found")
-		},
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("walk %s: %v", dir, err)
 	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	stats, err := store.ReadBuildStats(context.Background(), "myproject", 5)
-	if err != nil {
-		t.Fatalf("ReadBuildStats returned error: %v", err)
+	return out
+}
+
+// TestS3Store_ProjectsAndResults: projects live under projects/<id>/, where a
+// .keep marker makes an empty project visible; result files are keyed
+// projects/<id>/results/<batch>/<file>; CleanResults deletes only results/.
+// ResultsDirHash is "", which tells the watcher to stay idle in S3 mode.
+func TestS3Store_ProjectsAndResults(t *testing.T) {
+	t.Parallel()
+	f := newFakeS3(nil)
+	st := newTestS3Store(f, true)
+	ctx := context.Background()
+
+	for _, id := range []string{"alpha", "beta"} {
+		if err := st.CreateProject(ctx, id); err != nil {
+			t.Fatalf("CreateProject(%s): %v", id, err)
+		}
 	}
-	if stats.Passed != 10 {
-		t.Errorf("expected Passed=10, got %d", stats.Passed)
+	if err := st.WriteResultFile(ctx, "alpha", "batch1", "result.xml", strings.NewReader("data")); err != nil {
+		t.Fatalf("WriteResultFile: %v", err)
 	}
-	if stats.Failed != 2 {
-		t.Errorf("expected Failed=2, got %d", stats.Failed)
+	want := []string{"projects/alpha/.keep", "projects/alpha/results/batch1/result.xml", "projects/beta/.keep"}
+	if got := f.keys(""); !slices.Equal(got, want) {
+		t.Errorf("keys = %v, want %v", got, want)
 	}
-	if stats.Total != 16 {
-		t.Errorf("expected Total=16, got %d", stats.Total)
+	if projects, err := st.ListProjects(ctx); err != nil || !slices.Equal(projects, []string{"alpha", "beta"}) {
+		t.Errorf("ListProjects = %v, %v", projects, err)
 	}
-	if stats.DurationMs != 5000 {
-		t.Errorf("expected DurationMs=5000, got %d", stats.DurationMs)
+	if hash, err := st.ResultsDirHash(ctx, "alpha"); err != nil || hash != "" {
+		t.Errorf("ResultsDirHash = %q, %v; want empty", hash, err)
+	}
+	if err := st.CleanResults(ctx, "alpha"); err != nil {
+		t.Fatalf("CleanResults: %v", err)
+	}
+	if got := f.keys(""); !slices.Equal(got, []string{"projects/alpha/.keep", "projects/beta/.keep"}) {
+		t.Errorf("keys after CleanResults = %v", got)
+	}
+
+	f.failOn = map[string]error{"Put projects/p/.keep": errBoom, "Upload projects/p/results/b/r.xml": errBoom}
+	if err := st.CreateProject(ctx, "p"); !errors.Is(err, errBoom) {
+		t.Errorf("CreateProject with a failing PutObject = %v", err)
+	}
+	if err := st.WriteResultFile(ctx, "p", "b", "r.xml", strings.NewReader("x")); !errors.Is(err, errBoom) {
+		t.Errorf("WriteResultFile with a failing upload = %v", err)
 	}
 }
 
-func TestS3Store_ListReportBuilds(t *testing.T) {
+// TestS3Store_Reports reads report state under projects/<id>/reports/:
+// latest exists iff it holds objects, builds are the numeric common prefixes,
+// and stats come from the Allure 2 summary widget. Report IDs are validated.
+func TestS3Store_Reports(t *testing.T) {
 	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{
-				CommonPrefixes: []s3types.CommonPrefix{
-					{Prefix: aws.String("projects/myproject/reports/1/")},
-					{Prefix: aws.String("projects/myproject/reports/2/")},
-					{Prefix: aws.String("projects/myproject/reports/latest/")},
-				},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-	}
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	builds, err := store.ListReportBuilds(context.Background(), "myproject")
-	if err != nil {
-		t.Fatalf("ListReportBuilds returned error: %v", err)
-	}
-	if len(builds) != 2 {
-		t.Fatalf("expected 2 numeric builds, got %d: %v", len(builds), builds)
-	}
-	if builds[0] != 1 || builds[1] != 2 {
-		t.Errorf("unexpected builds: %v", builds)
-	}
-}
+	st := newTestS3Store(newFakeS3(map[string]string{
+		"projects/p/reports/latest/index.html": "<html/>",
+		"projects/p/reports/1/widgets/summary.json": `{"statistic":{"passed":10,"failed":2,"broken":1,"skipped":3,"unknown":0,"total":16},` +
+			`"time":{"duration":5000}}`,
+		"projects/p/reports/2/index.html": "<html/>",
+	}), true)
+	ctx := context.Background()
 
-func TestS3Store_KeepHistory_UsesCopyObject(t *testing.T) {
-	t.Parallel()
-	historyFiles := []string{
-		"projects/myproject/reports/latest/history/history.json",
-		"projects/myproject/reports/latest/history/retry-trend.json",
-	}
-
-	type copyCall struct {
-		bucket     string
-		copySource string
-		key        string
-	}
-	var copies []copyCall
-	var getObjectCalled bool
-
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			prefix := ""
-			if params.Prefix != nil {
-				prefix = *params.Prefix
-			}
-			// Return history files for the source listing
-			if strings.HasPrefix(prefix, "projects/myproject/reports/latest/history/") {
-				var contents []s3types.Object
-				for _, k := range historyFiles {
-					contents = append(contents, s3types.Object{Key: aws.String(k)})
-				}
-				return &s3.ListObjectsV2Output{
-					Contents:    contents,
-					IsTruncated: aws.Bool(false),
-				}, nil
-			}
-			// deletePrefix listing for clearing destination
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-		CopyObjectFn: func(_ context.Context, params *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
-			copies = append(copies, copyCall{
-				bucket:     aws.ToString(params.Bucket),
-				copySource: aws.ToString(params.CopySource),
-				key:        aws.ToString(params.Key),
-			})
-			return &s3.CopyObjectOutput{}, nil
-		},
-		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			getObjectCalled = true
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("data"))}, nil
-		},
-	}
-
-	cfg := testCfg()
-	cfg.KeepHistory = true
-	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
-
-	if err := store.KeepHistory(context.Background(), "myproject", ""); err != nil {
-		t.Fatalf("KeepHistory returned error: %v", err)
-	}
-
-	// Must NOT download+upload — should use CopyObject instead
-	if getObjectCalled {
-		t.Error("KeepHistory should use CopyObject, not GetObject+PutObject")
-	}
-
-	// Verify correct number of copy calls
-	if len(copies) != len(historyFiles) {
-		t.Fatalf("expected %d CopyObject calls, got %d", len(historyFiles), len(copies))
-	}
-
-	// Verify copy parameters
-	for i, c := range copies {
-		if c.bucket != "test-bucket" {
-			t.Errorf("copy[%d]: bucket = %q, want %q", i, c.bucket, "test-bucket")
-		}
-		wantSource := "test-bucket/" + historyFiles[i]
-		if c.copySource != wantSource {
-			t.Errorf("copy[%d]: copySource = %q, want %q", i, c.copySource, wantSource)
+	for id, want := range map[string]bool{"p": true, "q": false} {
+		if ok, err := st.LatestReportExists(ctx, id); err != nil || ok != want {
+			t.Errorf("LatestReportExists(%s) = %v, %v; want %v", id, ok, err, want)
 		}
 	}
-
-	// Verify destination keys
-	wantDstKeys := []string{
-		"projects/myproject/results/history/history.json",
-		"projects/myproject/results/history/retry-trend.json",
+	if builds, err := st.ListReportBuilds(ctx, "p"); err != nil || !slices.Equal(builds, []int{1, 2}) {
+		t.Errorf("ListReportBuilds = %v, %v", builds, err)
 	}
-	for i, c := range copies {
-		if c.key != wantDstKeys[i] {
-			t.Errorf("copy[%d]: key = %q, want %q", i, c.key, wantDstKeys[i])
+	want := BuildStats{Passed: 10, Failed: 2, Broken: 1, Skipped: 3, Total: 16, DurationMs: 5000}
+	if stats, err := st.ReadBuildStats(ctx, "p", 1); err != nil || stats != want {
+		t.Errorf("ReadBuildStats = %+v, %v; want %+v", stats, err, want)
+	}
+	for id, want := range map[string]error{"": ErrReportIDEmpty, "latest": ErrReportIDInvalid} {
+		if err := st.DeleteReport(ctx, "p", id); !errors.Is(err, want) {
+			t.Errorf("DeleteReport(%q) = %v, want %v", id, err, want)
 		}
 	}
 }
 
-func TestS3Store_KeepHistory_CopyObjectError(t *testing.T) {
+// TestS3Store_KeepHistory copies reports/latest/history to results/history
+// server-side (CopyObject, never a download); with KEEP_HISTORY off it
+// deletes results/history instead.
+func TestS3Store_KeepHistory(t *testing.T) {
 	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			prefix := ""
-			if params.Prefix != nil {
-				prefix = *params.Prefix
+	const src, dst = "projects/p/reports/latest/history/", "projects/p/results/history/"
+	history := map[string]string{src + "history.json": "h", src + "retry-trend.json": "r"}
+	withStale := map[string]string{src + "history.json": "h", dst + "stale.json": "old"}
+	tests := []struct {
+		name      string
+		keep      bool
+		objects   map[string]string
+		failOn    map[string]error
+		wantDst   map[string]string // objects under results/history afterwards
+		wantCopy  int
+		wantInErr string
+	}{
+		{"copies history", true, history, nil, map[string]string{dst + "history.json": "h", dst + "retry-trend.json": "r"}, 2, ""},
+		{"no history copies nothing", true, nil, nil, map[string]string{}, 0, ""},
+		{"disabled deletes results/history", false, withStale, nil, map[string]string{}, 0, ""},
+		{"copy failure", true, history, map[string]error{"Copy " + testBucket + "/" + src + "history.json": errBoom}, nil, 1, "copy history object"},
+	}
+	for _, tc := range tests {
+		f := newFakeS3(tc.objects)
+		f.failOn = tc.failOn
+		err := newTestS3Store(f, tc.keep).KeepHistory(context.Background(), "p", "")
+		if tc.wantInErr != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.wantInErr) {
+				t.Errorf("%s: err = %v, want one mentioning %q", tc.name, err, tc.wantInErr)
 			}
-			if strings.HasPrefix(prefix, "projects/myproject/reports/latest/history/") {
-				return &s3.ListObjectsV2Output{
-					Contents:    []s3types.Object{{Key: aws.String("projects/myproject/reports/latest/history/h.json")}},
-					IsTruncated: aws.Bool(false),
-				}, nil
-			}
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-		CopyObjectFn: func(_ context.Context, _ *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
-			return nil, errors.New("copy failed")
-		},
-	}
-
-	cfg := testCfg()
-	cfg.KeepHistory = true
-	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
-
-	err := store.KeepHistory(context.Background(), "myproject", "")
-	if err == nil {
-		t.Fatal("expected error when CopyObject fails, got nil")
-	}
-	if !strings.Contains(err.Error(), "copy history object") {
-		t.Errorf("error message should mention copy: %v", err)
-	}
-}
-
-func TestS3Store_KeepHistory_NoHistory(t *testing.T) {
-	t.Parallel()
-	var copyObjectCalled bool
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-		CopyObjectFn: func(_ context.Context, _ *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
-			copyObjectCalled = true
-			return &s3.CopyObjectOutput{}, nil
-		},
-	}
-
-	cfg := testCfg()
-	cfg.KeepHistory = true
-	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
-
-	if err := store.KeepHistory(context.Background(), "myproject", ""); err != nil {
-		t.Fatalf("KeepHistory returned error: %v", err)
-	}
-	if copyObjectCalled {
-		t.Error("CopyObject should not be called when no history exists")
-	}
-}
-
-func TestS3Store_KeepHistory_Disabled(t *testing.T) {
-	t.Parallel()
-	var deletedPrefix string
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			if params.Prefix != nil {
-				deletedPrefix = *params.Prefix
-			}
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-	}
-
-	cfg := testCfg()
-	cfg.KeepHistory = false
-	store := newS3StoreWithClient(cfg, mock, &mockS3Uploader{}, zap.NewNop())
-
-	if err := store.KeepHistory(context.Background(), "myproject", ""); err != nil {
-		t.Fatalf("KeepHistory returned error: %v", err)
-	}
-	wantPrefix := "projects/myproject/results/history/"
-	if deletedPrefix != wantPrefix {
-		t.Errorf("expected delete prefix %q, got %q", wantPrefix, deletedPrefix)
-	}
-}
-
-func TestPrepareLocal_ParallelDownloads(t *testing.T) {
-	t.Parallel()
-	resultsKey := "projects/myproject/results/result.json"
-	historyKey := "projects/myproject/reports/latest/history/history.json"
-
-	var mu sync.Mutex
-	var listedPrefixes []string
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			prefix := ""
-			if params.Prefix != nil {
-				prefix = *params.Prefix
-			}
-			mu.Lock()
-			listedPrefixes = append(listedPrefixes, prefix)
-			mu.Unlock()
-
-			switch {
-			case strings.HasSuffix(prefix, "/results/"):
-				return &s3.ListObjectsV2Output{
-					Contents:    []s3types.Object{{Key: aws.String(resultsKey)}},
-					IsTruncated: aws.Bool(false),
-				}, nil
-			case strings.HasSuffix(prefix, "/history/"):
-				return &s3.ListObjectsV2Output{
-					Contents:    []s3types.Object{{Key: aws.String(historyKey)}},
-					IsTruncated: aws.Bool(false),
-				}, nil
-			default:
-				return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-			}
-		},
-		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("data"))}, nil
-		},
-	}
-
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	tmpDir, err := store.PrepareLocal(context.Background(), "myproject", nil)
-	if err != nil {
-		t.Fatalf("PrepareLocal: %v", err)
-	}
-	t.Cleanup(func() { _ = store.CleanupLocal(tmpDir) })
-
-	// Both results and history prefixes must have been listed.
-	var sawResults, sawHistory bool
-	for _, p := range listedPrefixes {
-		if strings.HasSuffix(p, "/results/") {
-			sawResults = true
+		} else if err != nil {
+			t.Fatalf("%s: KeepHistory: %v", tc.name, err)
 		}
-		if strings.HasSuffix(p, "/history/") {
-			sawHistory = true
+		if tc.wantDst != nil {
+			got := map[string]string{}
+			for _, k := range f.keys(dst) {
+				got[k], _ = f.get(k)
+			}
+			if !reflect.DeepEqual(got, tc.wantDst) {
+				t.Errorf("%s: results/history = %v, want %v", tc.name, got, tc.wantDst)
+			}
+		}
+		if f.count("Copy") != tc.wantCopy || f.count("Get") != 0 {
+			t.Errorf("%s: calls %v, want %d copies and no downloads", tc.name, f.calls, tc.wantCopy)
 		}
 	}
-	if !sawResults {
-		t.Error("PrepareLocal did not download results prefix")
+}
+
+// TestS3Store_PrepareLocal downloads results and the latest history into a
+// temp project dir; a failing history download is not fatal.
+func TestS3Store_PrepareLocal(t *testing.T) {
+	t.Parallel()
+	objects := map[string]string{
+		"projects/p/results/result.json":                 "result-data",
+		"projects/p/reports/latest/history/history.json": "history-data",
 	}
-	if !sawHistory {
-		t.Error("PrepareLocal did not download history prefix")
+	for _, tc := range []struct {
+		name   string
+		failOn map[string]error
+		want   map[string]string
+	}{
+		{"results and history", nil, map[string]string{"results/result.json": "result-data", "results/history/history.json": "history-data"}},
+		{"history failure is not fatal", map[string]error{"List projects/p/reports/latest/history/": errBoom}, map[string]string{"results/result.json": "result-data"}},
+	} {
+		f := newFakeS3(objects)
+		f.failOn = tc.failOn
+		st := newTestS3Store(f, true)
+		dir, err := st.PrepareLocal(context.Background(), "p", nil)
+		if err != nil {
+			t.Fatalf("%s: PrepareLocal: %v", tc.name, err)
+		}
+		if got := readTree(t, dir); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: local files = %v, want %v", tc.name, got, tc.want)
+		}
+		if err := st.CleanupLocal(dir); err != nil {
+			t.Errorf("%s: CleanupLocal: %v", tc.name, err)
+		}
 	}
 }
 
-func TestPrepareLocal_HistoryFailureNonFatal(t *testing.T) {
+// TestS3Store_Playwright keys Playwright reports under
+// projects/<id>/playwright-reports/: upload to latest, snapshot latest into a
+// numbered build server-side, read it back, and clean latest.
+func TestS3Store_Playwright(t *testing.T) {
 	t.Parallel()
-	resultsKey := "projects/myproject/results/result.json"
+	f := newFakeS3(nil)
+	st := newTestS3Store(f, true)
+	ctx := context.Background()
+	const prefix = "projects/proj1/playwright-reports/"
 
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			prefix := ""
-			if params.Prefix != nil {
-				prefix = *params.Prefix
-			}
-			if strings.HasSuffix(prefix, "/results/") {
-				return &s3.ListObjectsV2Output{
-					Contents:    []s3types.Object{{Key: aws.String(resultsKey)}},
-					IsTruncated: aws.Bool(false),
-				}, nil
-			}
-			// Simulate history listing failure.
-			return nil, errors.New("history unavailable")
-		},
-		GetObjectFn: func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("result-data"))}, nil
-		},
+	if err := st.CopyPlaywrightLatestToBuild(ctx, "proj1", 5); err != nil {
+		t.Errorf("CopyPlaywrightLatestToBuild without latest: %v", err)
 	}
-
-	store := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-	tmpDir, err := store.PrepareLocal(context.Background(), "myproject", nil)
-	if err != nil {
-		t.Fatalf("PrepareLocal should succeed even when history fails, got: %v", err)
+	if ok, err := st.PlaywrightReportExists(ctx, "proj1", 7); err != nil || ok {
+		t.Errorf("PlaywrightReportExists without a report = %v, %v", ok, err)
 	}
-	t.Cleanup(func() { _ = store.CleanupLocal(tmpDir) })
-}
-
-// --- Playwright storage methods ---
-
-func TestS3Store_WritePlaywrightFile(t *testing.T) {
-	t.Parallel()
-	var capturedKey string
-	mock := &mockS3Client{}
-	uploader := &mockS3Uploader{
-		UploadObjectFn: func(_ context.Context, input *transfermanager.UploadObjectInput, _ ...func(*transfermanager.Options)) (*transfermanager.UploadObjectOutput, error) {
-			if input.Key != nil {
-				capturedKey = *input.Key
-			}
-			return &transfermanager.UploadObjectOutput{}, nil
-		},
+	for _, sub := range []string{"latest/index.html", "latest/data/a.json", "latest/data/b.json"} {
+		if err := st.WritePlaywrightFile(ctx, "proj1", sub, strings.NewReader(sub)); err != nil {
+			t.Fatalf("WritePlaywrightFile(%s): %v", sub, err)
+		}
 	}
-	st := newS3StoreWithClient(testCfg(), mock, uploader, zap.NewNop())
-
-	err := st.WritePlaywrightFile(context.Background(), "proj1", "latest/index.html", strings.NewReader("content"))
-	if err != nil {
-		t.Fatalf("WritePlaywrightFile: %v", err)
-	}
-	wantKey := "projects/proj1/playwright-reports/latest/index.html"
-	if capturedKey != wantKey {
-		t.Errorf("key = %q, want %q", capturedKey, wantKey)
-	}
-}
-
-func TestS3Store_PlaywrightReportExists_Found(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		HeadObjectFn: func(_ context.Context, params *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-			return &s3.HeadObjectOutput{}, nil
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	exists, err := st.PlaywrightReportExists(context.Background(), "proj1", 3)
-	if err != nil {
-		t.Fatalf("PlaywrightReportExists: %v", err)
-	}
-	if !exists {
-		t.Error("expected true when HeadObject succeeds")
-	}
-}
-
-func TestS3Store_PlaywrightReportExists_NotFound(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		HeadObjectFn: func(_ context.Context, _ *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-			return nil, errors.New("not found")
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	exists, err := st.PlaywrightReportExists(context.Background(), "proj1", 3)
-	if err != nil {
-		t.Fatalf("PlaywrightReportExists: %v", err)
-	}
-	if exists {
-		t.Error("expected false when HeadObject errors")
-	}
-}
-
-func TestS3Store_CopyPlaywrightLatestToBuild_Empty(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	if err := st.CopyPlaywrightLatestToBuild(context.Background(), "proj1", 5); err != nil {
-		t.Fatalf("CopyPlaywrightLatestToBuild empty: %v", err)
-	}
-}
-
-func TestS3Store_CopyPlaywrightLatestToBuild_CopiesObjects(t *testing.T) {
-	t.Parallel()
-	var copiedSrc, copiedDst string
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			key := "projects/proj1/playwright-reports/latest/index.html"
-			return &s3.ListObjectsV2Output{
-				Contents:    []s3types.Object{{Key: aws.String(key)}},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-		CopyObjectFn: func(_ context.Context, params *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
-			if params.CopySource != nil {
-				copiedSrc = *params.CopySource
-			}
-			if params.Key != nil {
-				copiedDst = *params.Key
-			}
-			return &s3.CopyObjectOutput{}, nil
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	if err := st.CopyPlaywrightLatestToBuild(context.Background(), "proj1", 7); err != nil {
+	if err := st.CopyPlaywrightLatestToBuild(ctx, "proj1", 7); err != nil {
 		t.Fatalf("CopyPlaywrightLatestToBuild: %v", err)
 	}
-	wantDst := "projects/proj1/playwright-reports/7/index.html"
-	if copiedDst != wantDst {
-		t.Errorf("dst key = %q, want %q", copiedDst, wantDst)
+	if ok, err := st.PlaywrightReportExists(ctx, "proj1", 7); err != nil || !ok {
+		t.Errorf("PlaywrightReportExists after the copy = %v, %v", ok, err)
 	}
-	if copiedSrc == "" {
-		t.Error("expected non-empty copy source")
+	files, err := st.ListPlaywrightDataFiles(ctx, "proj1", 7)
+	sort.Strings(files)
+	if err != nil || !slices.Equal(files, []string{"a.json", "b.json"}) {
+		t.Errorf("ListPlaywrightDataFiles = %v, %v", files, err)
 	}
-}
-
-func TestS3Store_CleanPlaywrightLatest(t *testing.T) {
-	t.Parallel()
-	var deletedPrefix string
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			if params.Prefix != nil {
-				deletedPrefix = *params.Prefix
-			}
-			return &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}, nil
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	if err := st.CleanPlaywrightLatest(context.Background(), "proj1"); err != nil {
-		t.Fatalf("CleanPlaywrightLatest: %v", err)
-	}
-	wantPrefix := "projects/proj1/playwright-reports/latest/"
-	if deletedPrefix != wantPrefix {
-		t.Errorf("prefix = %q, want %q", deletedPrefix, wantPrefix)
-	}
-}
-
-func TestS3Store_ListPlaywrightDataFiles(t *testing.T) {
-	t.Parallel()
-	mock := &mockS3Client{
-		ListObjectsV2Fn: func(_ context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-			prefix := ""
-			if params.Prefix != nil {
-				prefix = *params.Prefix
-			}
-			return &s3.ListObjectsV2Output{
-				Contents: []s3types.Object{
-					{Key: aws.String(prefix + "a.json")},
-					{Key: aws.String(prefix + "b.json")},
-				},
-				IsTruncated: aws.Bool(false),
-			}, nil
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	files, err := st.ListPlaywrightDataFiles(context.Background(), "proj1", 2)
-	if err != nil {
-		t.Fatalf("ListPlaywrightDataFiles: %v", err)
-	}
-	if len(files) != 2 {
-		t.Errorf("expected 2 files, got %v", files)
-	}
-}
-
-func TestS3Store_ReadPlaywrightFile(t *testing.T) {
-	t.Parallel()
-	var capturedKey string
-	mock := &mockS3Client{
-		GetObjectFn: func(_ context.Context, params *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			if params.Key != nil {
-				capturedKey = *params.Key
-			}
-			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("pw-content"))}, nil
-		},
-	}
-	st := newS3StoreWithClient(testCfg(), mock, &mockS3Uploader{}, zap.NewNop())
-
-	rc, ct, err := st.ReadPlaywrightFile(context.Background(), "proj1", "1/index.html")
+	rc, contentType, err := st.ReadPlaywrightFile(ctx, "proj1", "7/index.html")
 	if err != nil {
 		t.Fatalf("ReadPlaywrightFile: %v", err)
 	}
-	defer func() { _ = rc.Close() }()
-
 	data, _ := io.ReadAll(rc)
-	if string(data) != "pw-content" {
-		t.Errorf("content = %q, want %q", string(data), "pw-content")
+	_ = rc.Close()
+	if string(data) != "latest/index.html" || !strings.HasPrefix(contentType, "text/html") {
+		t.Errorf("ReadPlaywrightFile = %q (%s)", data, contentType)
 	}
-	if ct == "" {
-		t.Error("expected non-empty content type")
+
+	if err := st.CleanPlaywrightLatest(ctx, "proj1"); err != nil {
+		t.Fatalf("CleanPlaywrightLatest: %v", err)
 	}
-	wantKey := "projects/proj1/playwright-reports/1/index.html"
-	if capturedKey != wantKey {
-		t.Errorf("key = %q, want %q", capturedKey, wantKey)
+	want := []string{prefix + "7/data/a.json", prefix + "7/data/b.json", prefix + "7/index.html"}
+	if got := f.keys(""); !slices.Equal(got, want) {
+		t.Errorf("keys after cleaning latest = %v, want %v", got, want)
 	}
 }

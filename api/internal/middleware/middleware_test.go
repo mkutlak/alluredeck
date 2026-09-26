@@ -16,650 +16,190 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func TestAuthMiddleware(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
+func testAuthConfig() *config.Config {
+	return &config.Config{
 		SecurityEnabled:    true,
 		JWTSecret:          "test-secret",
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
 	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	handler := AuthMiddleware(cfg, jwtManager, false, nil, nil)(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	t.Run("SecurityDisabled", func(t *testing.T) {
-		t.Parallel()
-		disabledCfg := &config.Config{SecurityEnabled: false}
-		h := AuthMiddleware(disabledCfg, jwtManager, false, nil, nil)(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("Expected 200, got %d", rr.Code)
-		}
-	})
-
-	t.Run("MissingToken", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusUnauthorized {
-			t.Errorf("Expected 401, got %d", rr.Code)
-		}
-	})
-
-	t.Run("ValidTokenHeader", func(t *testing.T) {
-		t.Parallel()
-		accessToken, _, _ := jwtManager.GenerateTokens("testuser", "admin")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+accessToken)
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("Expected 200, got %d", rr.Code)
-		}
-	})
-
-	t.Run("ValidTokenCookie", func(t *testing.T) {
-		t.Parallel()
-		accessToken, _, _ := jwtManager.GenerateTokens("testuser", "admin")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.AddCookie(&http.Cookie{Name: "jwt", Value: accessToken})
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("Expected 200, got %d", rr.Code)
-		}
-	})
-
-	t.Run("InvalidToken", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer invalid-token")
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusUnauthorized {
-			t.Errorf("Expected 401, got %d", rr.Code)
-		}
-
-		// Must not leak internal error details (REVIEW #7)
-		var resp map[string]any
-		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("Failed to decode response body: %v", err)
-		}
-		meta, ok := resp["metadata"].(map[string]any)
-		if !ok {
-			t.Fatal("expected metadata in response")
-		}
-		msg, _ := meta["message"].(string)
-		if msg != "Invalid token" {
-			t.Errorf("Expected exact message \"Invalid token\", got %q", msg)
-		}
-	})
-
-	t.Run("ExpiredToken_NoDetailsLeaked", func(t *testing.T) {
-		t.Parallel()
-		// Create a config with a very short expiry and generate an already-expired token
-		shortCfg := &config.Config{
-			SecurityEnabled:    true,
-			JWTSecret:          "test-secret",
-			AccessTokenExpiry:  config.DurationSeconds(1 * time.Millisecond),
-			RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-		}
-		shortMgr := security.NewJWTManager(shortCfg, testutil.NewMemBlacklist(), zap.NewNop())
-		expiredToken, _, _ := shortMgr.GenerateTokens("testuser", "admin")
-
-		// Wait for the token to expire
-		time.Sleep(5 * time.Millisecond)
-
-		expiredHandler := AuthMiddleware(cfg, jwtManager, false, nil, nil)(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+expiredToken)
-		rr := httptest.NewRecorder()
-		expiredHandler.ServeHTTP(rr, req)
-
-		if rr.Code != http.StatusUnauthorized {
-			t.Errorf("Expected 401 for expired token, got %d", rr.Code)
-		}
-
-		var resp map[string]any
-		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("Failed to decode response body: %v", err)
-		}
-		meta, ok := resp["metadata"].(map[string]any)
-		if !ok {
-			t.Fatal("expected metadata in response")
-		}
-		msg, _ := meta["message"].(string)
-		if msg != "Invalid token" {
-			t.Errorf("Expected exact message \"Invalid token\" (no expiry details), got %q", msg)
-		}
-	})
 }
 
+// okHandler answers 200 and is the protected endpoint in these tests.
+func okHandler(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+
+// TestAuthMiddleware sends one request per row through AuthMiddleware: JWTs
+// from the Authorization header or the jwt cookie, ald_ API keys looked up by
+// their hash, and the F-3 is_active recheck, which dispatches on the API key's
+// username shape (env literal, numeric user ID, email) and fails open when the
+// user row is missing (fix 927ef9e). Rejections never leak token details
+// (REVIEW #7).
+func TestAuthMiddleware(t *testing.T) {
+	cfg := testAuthConfig()
+	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
+	valid, _, err := jwtMgr.GenerateTokens("testuser", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredCfg := *cfg
+	expiredCfg.AccessTokenExpiry = config.DurationSeconds(-time.Minute)
+	expired, _, err := security.NewJWTManager(&expiredCfg, testutil.NewMemBlacklist(), zap.NewNop()).GenerateTokens("testuser", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Users 1 (admin@example.com) and 2 (x@y.z) are active.
+	users := testutil.NewMemUserStore()
+	for _, email := range []string{"admin@example.com", "x@y.z"} {
+		if _, err := users.UpsertByOIDC(context.Background(), "local", "sub-"+email, email, email, "viewer"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cache := NewUserActiveCache(users, time.Second, 10)
+
+	const apiKey = "ald_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
+	keyOf := func(username string, expires *time.Time) *store.APIKey {
+		return &store.APIKey{ID: 1, Username: username, Role: "viewer", ExpiresAt: expires}
+	}
+
+	tests := []struct {
+		name     string
+		cfg      *config.Config // nil = security enabled
+		header   string         // Authorization header
+		cookie   string         // jwt cookie
+		key      *store.APIKey  // stored under apiKey's hash; nil = none
+		cache    *UserActiveCache
+		wantCode int
+		wantMsg  string // metadata.message of a rejection
+		wantSub  string // sub claim reaching the handler
+	}{
+		{name: "security disabled", cfg: &config.Config{}, wantCode: http.StatusOK},
+		{name: "missing token", wantCode: http.StatusUnauthorized, wantMsg: "Missing authorization token"},
+		{name: "JWT in the header", header: "Bearer " + valid, wantCode: http.StatusOK, wantSub: "testuser"},
+		{name: "JWT in the jwt cookie", cookie: valid, wantCode: http.StatusOK, wantSub: "testuser"},
+		{name: "invalid JWT", header: "Bearer invalid-token", wantCode: http.StatusUnauthorized, wantMsg: "Invalid token"},
+		{name: "expired JWT leaks no expiry details", header: "Bearer " + expired, wantCode: http.StatusUnauthorized, wantMsg: "Invalid token"},
+		{name: "API key", header: "Bearer " + apiKey, key: keyOf("apiuser", &future), wantCode: http.StatusOK, wantSub: "apiuser"},
+		{name: "expired API key", header: "Bearer " + apiKey, key: keyOf("apiuser", &past), wantCode: http.StatusUnauthorized, wantMsg: "API key has expired"},
+		{name: "unknown API key", header: "Bearer " + apiKey, wantCode: http.StatusUnauthorized, wantMsg: "Invalid API key"},
+		{name: "API key of a legacy env username", header: "Bearer " + apiKey, key: keyOf("admin", &future), cache: cache, wantCode: http.StatusOK, wantSub: "admin"},
+		{name: "API key of an active numeric username", header: "Bearer " + apiKey, key: keyOf("1", &future), cache: cache, wantCode: http.StatusOK, wantSub: "1"},
+		{name: "API key of an active email username", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: cache, wantCode: http.StatusOK, wantSub: "x@y.z"},
+		{name: "API key of an unknown email fails open", header: "Bearer " + apiKey, key: keyOf("nope@nowhere", &future), cache: cache, wantCode: http.StatusOK, wantSub: "nope@nowhere"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			keys := &testutil.MockAPIKeyStore{
+				GetByHashFn: func(_ context.Context, hash string) (*store.APIKey, error) {
+					if tc.key == nil || hash != security.HashAPIKey(apiKey) {
+						return nil, store.ErrAPIKeyNotFound
+					}
+					return tc.key, nil
+				},
+			}
+			c := cfg
+			if tc.cfg != nil {
+				c = tc.cfg
+			}
+			var gotSub string
+			h := AuthMiddleware(c, jwtMgr, false, keys, tc.cache)(func(w http.ResponseWriter, r *http.Request) {
+				claims, _ := ClaimsFromContext(r.Context())
+				gotSub, _ = claims["sub"].(string)
+				w.WriteHeader(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			if tc.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: "jwt", Value: tc.cookie})
+			}
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantCode || gotSub != tc.wantSub {
+				t.Fatalf("got %d sub %q, want %d sub %q", rr.Code, gotSub, tc.wantCode, tc.wantSub)
+			}
+			if tc.wantMsg != "" {
+				var resp struct {
+					Metadata struct{ Message string } `json:"metadata"`
+				}
+				if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil || resp.Metadata.Message != tc.wantMsg {
+					t.Errorf("body %s: want exact message %q", rr.Body, tc.wantMsg)
+				}
+			}
+		})
+	}
+}
+
+// TestRequireRole checks each role against each required level through the
+// real auth chain; admin > editor > viewer.
 func TestRequireRole(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
+	cfg := testAuthConfig()
 	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	// Helper: build a handler chain with auth + role requirement
-	makeHandler := func(requiredRole string) http.HandlerFunc {
-		inner := func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
+	for _, tc := range []struct {
+		role, required string
+		want           int
+	}{
+		{"viewer", "viewer", http.StatusOK}, {"viewer", "editor", http.StatusForbidden}, {"viewer", "admin", http.StatusForbidden},
+		{"editor", "viewer", http.StatusOK}, {"editor", "editor", http.StatusOK}, {"editor", "admin", http.StatusForbidden},
+		{"admin", "viewer", http.StatusOK}, {"admin", "editor", http.StatusOK}, {"admin", "admin", http.StatusOK},
+	} {
+		token, _, err := jwtMgr.GenerateTokens(tc.role+"-user", tc.role)
+		if err != nil {
+			t.Fatal(err)
 		}
-		return AuthMiddleware(cfg, jwtMgr, false, nil, nil)(RequireRole(requiredRole)(inner))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		AuthMiddleware(cfg, jwtMgr, false, nil, nil)(RequireRole(tc.required)(okHandler)).ServeHTTP(rr, req)
+		if rr.Code != tc.want {
+			t.Errorf("%s on a %s endpoint: got %d, want %d", tc.role, tc.required, rr.Code, tc.want)
+		}
 	}
 
-	t.Run("AdminAllowedOnAdminEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("admin-user", "admin")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("admin").ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 for admin on admin endpoint, got %d", rr.Code)
-		}
-	})
-
-	t.Run("ViewerDeniedOnAdminEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("viewer-user", "viewer")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("admin").ServeHTTP(rr, req)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for viewer on admin endpoint, got %d", rr.Code)
-		}
-	})
-
-	t.Run("ViewerAllowedOnViewerEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("viewer-user", "viewer")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("viewer").ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 for viewer on viewer endpoint, got %d", rr.Code)
-		}
-	})
-
-	t.Run("AdminAllowedOnViewerEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("admin-user", "admin")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("viewer").ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 for admin on viewer endpoint (hierarchy), got %d", rr.Code)
-		}
-	})
-
-	t.Run("MissingClaimsReturns403", func(t *testing.T) {
-		t.Parallel()
-		// Call RequireRole directly without AuthMiddleware setting claims
-		handler := RequireRole("admin")(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 when claims are missing, got %d", rr.Code)
-		}
-	})
-
-	t.Run("EditorAllowedOnEditorEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("editor-user", "editor")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("editor").ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 for editor on editor endpoint, got %d", rr.Code)
-		}
-	})
-
-	t.Run("ViewerDeniedOnEditorEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("viewer-user", "viewer")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("editor").ServeHTTP(rr, req)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for viewer on editor endpoint, got %d", rr.Code)
-		}
-	})
-
-	t.Run("AdminAllowedOnEditorEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("admin-user", "admin")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("editor").ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 for admin on editor endpoint (hierarchy), got %d", rr.Code)
-		}
-	})
-
-	t.Run("EditorDeniedOnAdminEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("editor-user", "editor")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("admin").ServeHTTP(rr, req)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for editor on admin endpoint, got %d", rr.Code)
-		}
-	})
-
-	t.Run("EditorAllowedOnViewerEndpoint", func(t *testing.T) {
-		t.Parallel()
-		token, _, _ := jwtMgr.GenerateTokens("editor-user", "editor")
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rr := httptest.NewRecorder()
-		makeHandler("viewer").ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 for editor on viewer endpoint (hierarchy), got %d", rr.Code)
-		}
-	})
-}
-
-func TestAuthMiddleware_APIKeyValid(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	now := time.Now().Add(time.Hour)
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return &store.APIKey{
-				ID:        1,
-				Username:  "apiuser",
-				Role:      "admin",
-				ExpiresAt: &now,
-			}, nil
-		},
-		UpdateLastUsedFn: func(_ context.Context, _ int64) error {
-			return nil
-		},
-	}
-
-	// Use a valid ald_ token — hash lookup is mocked so value doesn't matter
-	token := "ald_" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
-
-	var capturedClaims any
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, r *http.Request) {
-		capturedClaims, _ = ClaimsFromContext(r.Context())
-		w.WriteHeader(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	// Without AuthMiddleware in front there are no claims to check.
 	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for valid API key, got %d", rr.Code)
-	}
-	if capturedClaims == nil {
-		t.Error("expected claims to be injected in context")
+	RequireRole("admin")(okHandler).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("missing claims: got %d, want 403", rr.Code)
 	}
 }
 
-func TestAuthMiddleware_APIKeyExpired(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	past := time.Now().Add(-time.Hour)
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return &store.APIKey{
-				ID:        2,
-				Username:  "apiuser",
-				Role:      "viewer",
-				ExpiresAt: &past,
-			}, nil
-		},
-	}
-
-	token := "ald_" + "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"
-
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for expired API key, got %d", rr.Code)
-	}
-}
-
-func TestAuthMiddleware_APIKeyInvalid(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return nil, store.ErrAPIKeyNotFound
-		},
-	}
-
-	token := "ald_" + "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
-
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for invalid API key, got %d", rr.Code)
-	}
-}
-
-func TestAuthMiddleware_NonAldBearerUsesJWT(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtManager := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	// Provide an apiKeyStore that should NOT be called for a non-ald_ token
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			panic("apiKeyStore.GetByHash should not be called for non-ald_ token")
-		},
-	}
-
-	accessToken, _, _ := jwtManager.GenerateTokens("jwtuser", "viewer")
-
-	handler := AuthMiddleware(cfg, jwtManager, false, apiKeyStore, nil)(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for valid JWT token (non-ald_), got %d", rr.Code)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// F-3 API key active recheck — username shape dispatch (Phase 1)
-// ---------------------------------------------------------------------------
-
-func makeAPIKeyAuthHandler(cfg *config.Config, jwtMgr *security.JWTManager, apiKeyStore store.APIKeyStorer, userActiveCache *UserActiveCache) http.HandlerFunc {
-	return AuthMiddleware(cfg, jwtMgr, false, apiKeyStore, userActiveCache)(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-}
-
-func TestAuthMiddleware_APIKey_LegacyEnvUsername_AllowedActive(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	now := time.Now().Add(time.Hour)
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return &store.APIKey{ID: 1, Username: "admin", Role: "admin", ExpiresAt: &now}, nil
-		},
-		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
-	}
-
-	// UserActiveCache with a user store that should NOT be called for env user "admin".
-	mem := testutil.NewMemUserStore()
-	cache := NewUserActiveCache(mem, time.Second, 10)
-
-	token := "ald_" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("legacy env username 'admin': want 200, got %d", rr.Code)
-	}
-}
-
-func TestAuthMiddleware_APIKey_NumericUsername_AllowedActive(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	now := time.Now().Add(time.Hour)
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return &store.APIKey{ID: 2, Username: "1", Role: "admin", ExpiresAt: &now}, nil
-		},
-		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
-	}
-
-	// Seed a user with ID=1 (active).
-	mem := testutil.NewMemUserStore()
-	if _, err := mem.UpsertByOIDC(context.Background(), "local", "sub-1", "admin@example.com", "Admin", "admin"); err != nil {
-		t.Fatal(err)
-	}
-	cache := NewUserActiveCache(mem, time.Second, 10)
-
-	token := "ald_" + "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("numeric username '1': want 200 for active user, got %d", rr.Code)
-	}
-}
-
-func TestAuthMiddleware_APIKey_EmailUsername_AllowedActive(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	now := time.Now().Add(time.Hour)
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return &store.APIKey{ID: 3, Username: "x@y.z", Role: "viewer", ExpiresAt: &now}, nil
-		},
-		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
-	}
-
-	mem := testutil.NewMemUserStore()
-	if _, err := mem.UpsertByOIDC(context.Background(), "local", "sub-2", "x@y.z", "X Y", "viewer"); err != nil {
-		t.Fatal(err)
-	}
-	cache := NewUserActiveCache(mem, time.Second, 10)
-
-	token := "ald_" + "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("email username 'x@y.z': want 200 for active user, got %d", rr.Code)
-	}
-}
-
-func TestAuthMiddleware_APIKey_MissingEmailUsername_FailOpen(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		SecurityEnabled:    true,
-		JWTSecret:          "test-secret",
-		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
-		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
-
-	now := time.Now().Add(time.Hour)
-	apiKeyStore := &testutil.MockAPIKeyStore{
-		GetByHashFn: func(_ context.Context, _ string) (*store.APIKey, error) {
-			return &store.APIKey{ID: 4, Username: "nope@nowhere", Role: "viewer", ExpiresAt: &now}, nil
-		},
-		UpdateLastUsedFn: func(_ context.Context, _ int64) error { return nil },
-	}
-
-	// Empty user store — GetByEmail returns ErrUserNotFound.
-	mem := testutil.NewMemUserStore()
-	cache := NewUserActiveCache(mem, time.Second, 10)
-
-	token := "ald_" + "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rr := httptest.NewRecorder()
-	makeAPIKeyAuthHandler(cfg, jwtMgr, apiKeyStore, cache).ServeHTTP(rr, req)
-
-	// ErrUserNotFound is a data-inconsistency signal; fail open (200), not 401.
-	if rr.Code != http.StatusOK {
-		t.Errorf("unknown email 'nope@nowhere': want 200 (fail open), got %d", rr.Code)
-	}
-}
-
+// TestCORSMiddleware: a wildcard allows any origin without credentials, an
+// allowlist echoes only listed origins with credentials, preflights get the
+// allowed methods, and Vary: Origin is always set so caches key by Origin.
 func TestCORSMiddleware(t *testing.T) {
 	t.Parallel()
-	t.Run("AllowAll", func(t *testing.T) {
-		t.Parallel()
-		cfg := &config.Config{CORSAllowedOrigins: []string{"*"}}
-		next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
-		h := CORSMiddleware(cfg, next)
-
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Origin", "http://example.com")
+	tests := []struct {
+		name        string
+		origins     []string
+		method      string
+		origin      string
+		wantOrigin  string
+		wantCreds   string
+		wantMethods bool
+	}{
+		{"wildcard", []string{"*"}, http.MethodGet, "http://example.com", "*", "", false},
+		{"allowlisted origin", []string{"http://example.com"}, http.MethodGet, "http://example.com", "http://example.com", "true", false},
+		{"origin not in the allowlist", []string{"http://example.com"}, http.MethodGet, "http://malicious.com", "", "", false},
+		{"preflight", []string{"*"}, http.MethodOptions, "http://example.com", "*", "", true},
+	}
+	for _, tc := range tests {
+		h := CORSMiddleware(&config.Config{CORSAllowedOrigins: tc.origins}, http.HandlerFunc(okHandler))
+		req := httptest.NewRequest(tc.method, "/", nil)
+		req.Header.Set("Origin", tc.origin)
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, req)
 
-		if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
-			t.Errorf("Expected Access-Control-Allow-Origin: *")
+		hdr := rr.Header()
+		if rr.Code != http.StatusOK || hdr.Get("Access-Control-Allow-Origin") != tc.wantOrigin ||
+			hdr.Get("Access-Control-Allow-Credentials") != tc.wantCreds ||
+			(hdr.Get("Access-Control-Allow-Methods") != "") != tc.wantMethods || hdr.Get("Vary") != "Origin" {
+			t.Errorf("%s: got %d %v", tc.name, rr.Code, hdr)
 		}
-		if rr.Header().Get("Vary") != "Origin" {
-			t.Errorf("Expected Vary: Origin, got %q", rr.Header().Get("Vary"))
-		}
-	})
-
-	t.Run("AllowSpecific", func(t *testing.T) {
-		t.Parallel()
-		cfg := &config.Config{CORSAllowedOrigins: []string{"http://example.com"}}
-		next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
-		h := CORSMiddleware(cfg, next)
-
-		// Allowed origin
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Origin", "http://example.com")
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
-		if rr.Header().Get("Access-Control-Allow-Origin") != "http://example.com" {
-			t.Errorf("Expected Access-Control-Allow-Origin: http://example.com")
-		}
-		if rr.Header().Get("Access-Control-Allow-Credentials") != "true" {
-			t.Errorf("Expected Access-Control-Allow-Credentials: true")
-		}
-		if rr.Header().Get("Vary") != "Origin" {
-			t.Errorf("Expected Vary: Origin for allowed origin, got %q", rr.Header().Get("Vary"))
-		}
-
-		// Disallowed origin
-		req = httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Origin", "http://malicious.com")
-		rr = httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
-		if rr.Header().Get("Access-Control-Allow-Origin") != "" {
-			t.Errorf("Expected no Access-Control-Allow-Origin header")
-		}
-		// Vary: Origin must still be set even for disallowed origins (cache keying)
-		if rr.Header().Get("Vary") != "Origin" {
-			t.Errorf("Expected Vary: Origin for disallowed origin, got %q", rr.Header().Get("Vary"))
-		}
-	})
-
-	t.Run("Preflight", func(t *testing.T) {
-		t.Parallel()
-		cfg := &config.Config{CORSAllowedOrigins: []string{"*"}}
-		next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
-		h := CORSMiddleware(cfg, next)
-
-		req := httptest.NewRequest(http.MethodOptions, "/", nil)
-		req.Header.Set("Origin", "http://example.com")
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
-
-		if rr.Code != http.StatusOK {
-			t.Errorf("Expected 200 OK for preflight")
-		}
-		if rr.Header().Get("Access-Control-Allow-Methods") == "" {
-			t.Errorf("Expected Access-Control-Allow-Methods header")
-		}
-		if rr.Header().Get("Vary") != "Origin" {
-			t.Errorf("Expected Vary: Origin on preflight, got %q", rr.Header().Get("Vary"))
-		}
-	})
+	}
 }

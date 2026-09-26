@@ -1,6 +1,7 @@
 package security
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -10,130 +11,40 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-func testJWTConfig() *config.Config {
-	return &config.Config{
+// TestJWTManager: access tokens carry sub, role and a jti; each token
+// validates only as its own type; blacklisting the jti revokes the token.
+func TestJWTManager(t *testing.T) {
+	t.Parallel()
+	manager := NewJWTManager(&config.Config{
 		JWTSecret:          "test-secret",
 		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
 		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
-	}
-}
-
-func TestJWTManager_GenerateAndValidate(t *testing.T) {
-	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
+	}, testutil.NewMemBlacklist(), zap.NewNop())
 
 	access, refresh, err := manager.GenerateTokens("testuser", "admin")
 	if err != nil {
-		t.Fatalf("Failed to generate tokens: %v", err)
+		t.Fatalf("GenerateTokens: %v", err)
 	}
-
-	if access == "" || refresh == "" {
-		t.Fatalf("Tokens should not be empty")
-	}
-
-	// Validate access token
 	_, claims, err := manager.ValidateToken(access, "access")
 	if err != nil {
-		t.Fatalf("Failed to validate access token: %v", err)
+		t.Fatalf("ValidateToken(access): %v", err)
+	}
+	jti, _ := claims["jti"].(string)
+	if claims["sub"] != "testuser" || claims["role"] != "admin" || jti == "" {
+		t.Errorf("access claims = %v, want sub testuser, role admin and a jti", claims)
+	}
+	if _, _, err := manager.ValidateToken(refresh, "refresh"); err != nil {
+		t.Errorf("ValidateToken(refresh): %v", err)
+	}
+	if _, _, err := manager.ValidateToken(access, "refresh"); !errors.Is(err, ErrInvalidTokenType) {
+		t.Errorf("access token as refresh: got %v, want ErrInvalidTokenType", err)
 	}
 
-	if sub, ok := claims["sub"].(string); !ok || sub != "testuser" {
-		t.Errorf("Expected sub 'testuser', got %v", claims["sub"])
-	}
-
-	// JTI must be present
-	if jti, ok := claims["jti"].(string); !ok || jti == "" {
-		t.Errorf("Expected non-empty jti claim")
-	}
-
-	// Validate refresh token
-	_, _, err = manager.ValidateToken(refresh, "refresh")
-	if err != nil {
-		t.Fatalf("Failed to validate refresh token: %v", err)
-	}
-
-	// Wrong type must be rejected
-	_, _, err = manager.ValidateToken(access, "refresh")
-	if err == nil {
-		t.Fatalf("Expected error when validating access token as refresh token")
-	}
-}
-
-func TestGenerateTokensWithRole(t *testing.T) {
-	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
-
-	t.Run("AdminRole", func(t *testing.T) {
-		t.Parallel()
-		access, _, err := manager.GenerateTokens("admin-user", "admin")
-		if err != nil {
-			t.Fatalf("GenerateTokens failed: %v", err)
-		}
-		_, claims, err := manager.ValidateToken(access, "access")
-		if err != nil {
-			t.Fatalf("ValidateToken failed: %v", err)
-		}
-		role, ok := claims["role"].(string)
-		if !ok || role != "admin" {
-			t.Errorf("expected role 'admin', got %v", claims["role"])
-		}
-	})
-
-	t.Run("ViewerRole", func(t *testing.T) {
-		t.Parallel()
-		access, _, err := manager.GenerateTokens("viewer-user", "viewer")
-		if err != nil {
-			t.Fatalf("GenerateTokens failed: %v", err)
-		}
-		_, claims, err := manager.ValidateToken(access, "access")
-		if err != nil {
-			t.Fatalf("ValidateToken failed: %v", err)
-		}
-		role, ok := claims["role"].(string)
-		if !ok || role != "viewer" {
-			t.Errorf("expected role 'viewer', got %v", claims["role"])
-		}
-	})
-}
-
-func TestJWTManager_Blacklist(t *testing.T) {
-	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
-	jti := "test-jti-123"
-
-	if manager.IsBlacklisted(jti) {
-		t.Errorf("Expected jti not to be blacklisted initially")
-	}
-
-	manager.AddToBlacklist(jti, time.Now().Add(time.Minute))
-
-	if !manager.IsBlacklisted(jti) {
-		t.Errorf("Expected jti to be blacklisted")
-	}
-}
-
-func TestJWTManager_BlacklistedTokenRejected(t *testing.T) {
-	t.Parallel()
-	manager := NewJWTManager(testJWTConfig(), testutil.NewMemBlacklist(), zap.NewNop())
-
-	access, _, err := manager.GenerateTokens("testuser", "admin")
-	if err != nil {
-		t.Fatalf("Failed to generate tokens: %v", err)
-	}
-
-	_, claims, err := manager.ValidateToken(access, "access")
-	if err != nil {
-		t.Fatalf("Expected valid token before blacklisting: %v", err)
-	}
-
-	jti, ok := claims["jti"].(string)
-	if !ok {
-		t.Fatal("expected claims[\"jti\"] to be string")
-	}
 	manager.AddToBlacklist(jti, time.Now().Add(15*time.Minute))
-
-	_, _, err = manager.ValidateToken(access, "access")
-	if err == nil {
-		t.Fatalf("Expected error after blacklisting token JTI")
+	if !manager.IsBlacklisted(jti) {
+		t.Error("jti not blacklisted after AddToBlacklist")
+	}
+	if _, _, err := manager.ValidateToken(access, "access"); !errors.Is(err, ErrTokenRevoked) {
+		t.Errorf("blacklisted token: got %v, want ErrTokenRevoked", err)
 	}
 }
