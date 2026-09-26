@@ -200,14 +200,14 @@ export function AnalyticsTab() {
 
       {/* Quality Section */}
       <AnalyticsSection title="Quality">
-        <LowPerformingCard projectId={projectId} branch={branch} />
+        <LowPerformingCard projectId={projectId} branch={effectiveBranch} />
         <FlakyImpactCard
           projectId={projectId}
           numericProjectId={numericProjectId}
-          branch={branch}
+          branch={effectiveBranch}
         />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ErrorClusterCard projectId={projectId} branch={branch} />
+          <ErrorClusterCard projectId={projectId} branch={effectiveBranch} />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Failure Categories</CardTitle>
@@ -234,8 +234,8 @@ export function AnalyticsTab() {
               <StatusPieChart data={pieData} total={total} />
             </CardContent>
           </Card>
-          <SuitePassRateChart projectId={projectId} branch={branch} />
-          <LabelBreakdownCard projectId={projectId} branch={branch} />
+          <SuitePassRateChart projectId={projectId} branch={effectiveBranch} />
+          <LabelBreakdownCard projectId={projectId} branch={effectiveBranch} />
         </div>
       </AnalyticsSection>
     </div>
