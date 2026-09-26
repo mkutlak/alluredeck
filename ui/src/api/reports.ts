@@ -2,7 +2,6 @@ import { apiClient } from './client'
 import type {
   ApiResponse,
   PaginatedResponse,
-  AllureSummary,
   CategoryEntry,
   CompareData,
   EnvironmentEntry,
@@ -124,20 +123,6 @@ export async function fetchReportHistory(
 }
 
 /** Attempt to load Allure summary JSON from the static report files. */
-export async function fetchReportSummary(
-  projectId: string,
-  reportId: string,
-): Promise<AllureSummary | null> {
-  try {
-    const res = await apiClient.get<AllureSummary>(
-      `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/widgets/summary.json`,
-    )
-    return res.data
-  } catch {
-    return null
-  }
-}
-
 export async function fetchReportCategories(
   projectId: string,
   reportId = 'latest',
