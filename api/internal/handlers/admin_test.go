@@ -72,7 +72,7 @@ func TestAdminHandler_ListJobs(t *testing.T) {
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := NewAdminHandler(&adminJobQueue{jobs: jobs[:tc.queued]}, &storage.MockStore{}, zap.NewNop())
+			h := NewAdminHandler(&adminJobQueue{jobs: jobs[:tc.queued]}, &testutil.MockStorage{}, zap.NewNop())
 			rr := httptest.NewRecorder()
 			h.ListJobs(rr, httptest.NewRequest(http.MethodGet, "/api/v1/admin/jobs?"+tc.query, nil))
 			if rr.Code != http.StatusOK {
@@ -132,7 +132,7 @@ func TestAdminHandler_JobActions(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/jobs/"+tc.jobID, nil)
 			req.SetPathValue("job_id", tc.jobID)
 			rr := httptest.NewRecorder()
-			tc.action(NewAdminHandler(q, &storage.MockStore{}, zap.NewNop()), rr, req)
+			tc.action(NewAdminHandler(q, &testutil.MockStorage{}, zap.NewNop()), rr, req)
 			if rr.Code != tc.want {
 				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body.String())
 			}
@@ -171,7 +171,7 @@ func TestAdminHandler_ListPendingResults(t *testing.T) {
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ms := &storage.MockStore{
+			ms := &testutil.MockStorage{
 				ListProjectsFn: func(context.Context) ([]string, error) { return tc.dirs, nil },
 				ReadDirFn: func(_ context.Context, dir, _ string) ([]storage.DirEntry, error) {
 					if dir == "empty" {
@@ -224,7 +224,7 @@ func TestAdminHandler_CleanProjectResults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var cleaned string
-			ms := &storage.MockStore{CleanResultsFn: func(_ context.Context, key string) error {
+			ms := &testutil.MockStorage{CleanResultsFn: func(_ context.Context, key string) error {
 				cleaned = key
 				return nil
 			}}

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -89,7 +88,7 @@ func TestOverlayHandler(t *testing.T) {
 func TestStorageReportHandlers(t *testing.T) {
 	ps, key := childProjectStore(t)
 	var reads []string
-	st := &storage.MockStore{
+	st := &testutil.MockStorage{
 		ReadPlaywrightFileFn: func(_ context.Context, projectID, subPath string) (io.ReadCloser, string, error) {
 			reads = append(reads, projectID+":"+subPath)
 			return io.NopCloser(strings.NewReader("playwright")), "text/html", nil

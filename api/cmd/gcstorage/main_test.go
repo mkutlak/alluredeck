@@ -10,7 +10,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -53,7 +52,7 @@ func TestSweepStorageOrphans(t *testing.T) {
 					return []store.Build{{ProjectID: 7, BuildNumber: 2}}, nil
 				},
 			}
-			dataStore := &storage.MockStore{
+			dataStore := &testutil.MockStorage{
 				ListProjectsFn: func(context.Context) ([]string, error) {
 					return []string{"42", "43", "loose"}, nil
 				},

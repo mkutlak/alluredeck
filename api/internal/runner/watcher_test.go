@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -34,7 +33,7 @@ func TestWatcher_DoesNotDuplicateChildProjects(t *testing.T) {
 		onCreateProject: func() { createCalled = true },
 	}
 
-	st := &storage.MockStore{
+	st := &testutil.MockStorage{
 		ListProjectsFn: func(ctx context.Context) ([]string, error) {
 			return []string{childSlug}, nil
 		},

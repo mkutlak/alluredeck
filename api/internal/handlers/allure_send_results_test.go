@@ -23,7 +23,6 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
@@ -241,7 +240,7 @@ func TestSendTarGzResults(t *testing.T) {
 // both nil, so the caller never schedules a parsing job for a partial batch.
 func TestSendTarGzResults_StorageWriteFailure(t *testing.T) {
 	cfg := &config.Config{ProjectsPath: t.TempDir(), MaxUploadSizeMB: 100, UploadWriteConcurrency: 8}
-	mockStore := &storage.MockStore{
+	mockStore := &testutil.MockStorage{
 		WriteResultFileFn: func(_ context.Context, _, _, filename string, r io.Reader) error {
 			_, _ = io.Copy(io.Discard, r)
 			if filename == "boom.json" {

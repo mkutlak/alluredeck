@@ -15,6 +15,7 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 	"github.com/mkutlak/alluredeck/api/internal/version"
 )
 
@@ -69,7 +70,7 @@ func TestSystemHandler_Ready(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = closedDB.Close()
-	storageDown := &storage.MockStore{HealthCheckFn: func(context.Context) error { return errors.New("bucket unreachable") }}
+	storageDown := &testutil.MockStorage{HealthCheckFn: func(context.Context) error { return errors.New("bucket unreachable") }}
 	tests := []struct {
 		name     string
 		db       *sql.DB
@@ -78,13 +79,13 @@ func TestSystemHandler_Ready(t *testing.T) {
 		want     int
 		wantJSON map[string]any
 	}{
-		{name: "healthy without a db", store: &storage.MockStore{}, queue: &stubQueue{}, want: http.StatusOK,
+		{name: "healthy without a db", store: &testutil.MockStorage{}, queue: &stubQueue{}, want: http.StatusOK,
 			wantJSON: map[string]any{"status": "ok", "db": "skipped", "storage": "ok", "queue": "ok"}},
-		{name: "db down", db: closedDB, store: &storage.MockStore{}, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
+		{name: "db down", db: closedDB, store: &testutil.MockStorage{}, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
 			wantJSON: map[string]any{"status": "unavailable", "db": "error"}},
 		{name: "storage down", store: storageDown, queue: &stubQueue{}, want: http.StatusServiceUnavailable,
 			wantJSON: map[string]any{"storage": "error", "queue": "ok"}},
-		{name: "queue down", store: &storage.MockStore{}, queue: &stubQueue{healthErr: errors.New("queue not running")}, want: http.StatusServiceUnavailable,
+		{name: "queue down", store: &testutil.MockStorage{}, queue: &stubQueue{healthErr: errors.New("queue not running")}, want: http.StatusServiceUnavailable,
 			wantJSON: map[string]any{"queue": "error"}},
 	}
 	for _, tc := range tests {

@@ -11,8 +11,8 @@ import (
 
 	"github.com/mkutlak/alluredeck/api/internal/mcp/attachmentio"
 	"github.com/mkutlak/alluredeck/api/internal/mcp/signed"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 func TestValidateSource(t *testing.T) {
@@ -98,7 +98,7 @@ func TestReadBlobWindow(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var opened string
-			ds := &storage.MockStore{OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
+			ds := &testutil.MockStorage{OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
 				opened = projectID + "|" + reportID + "|" + filePath
 				return io.NopCloser(strings.NewReader(content)), "text/plain", nil
 			}}

@@ -79,7 +79,7 @@ func TestAttachmentResource(t *testing.T) {
 			var opened []string
 			var dataStore storage.Store
 			if !tc.noStorage {
-				dataStore = &storage.MockStore{OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
+				dataStore = &testutil.MockStorage{OpenReportFileFn: func(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
 					opened = append(opened, projectID+"|"+reportID+"|"+filePath)
 					return io.NopCloser(bytes.NewReader(tc.body)), "", nil
 				}}

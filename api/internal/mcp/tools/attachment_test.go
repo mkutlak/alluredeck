@@ -156,7 +156,7 @@ func TestGetAttachment(t *testing.T) {
 			reads := 0
 			var ds storage.Store
 			if !tc.noStorage {
-				ds = &storage.MockStore{OpenReportFileFn: func(context.Context, string, string, string) (io.ReadCloser, string, error) {
+				ds = &testutil.MockStorage{OpenReportFileFn: func(context.Context, string, string, string) (io.ReadCloser, string, error) {
 					reads++
 					return io.NopCloser(strings.NewReader(tc.body)), "", nil
 				}}

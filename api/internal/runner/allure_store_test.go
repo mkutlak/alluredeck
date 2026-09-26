@@ -53,7 +53,7 @@ func TestStoreAndPruneBuild_PublishReportErrorPropagates(t *testing.T) {
 	slug := "err-proj"
 
 	cfg := &config.Config{ProjectsPath: dir}
-	st := &storage.MockStore{
+	st := &testutil.MockStorage{
 		PublishReportFn: func(_ context.Context, _ string, _ int, _ string, _ storage.ProgressFn) error {
 			return errors.New("boom") // any non-nil error
 		},

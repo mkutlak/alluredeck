@@ -16,14 +16,14 @@ import (
 	"github.com/riverqueue/river/rivertype"
 	"go.uber.org/zap"
 
-	"github.com/mkutlak/alluredeck/api/internal/storage"
+	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
 // fakeStagedStore is a minimal storage.Store double for ParseStagedTarGzWorker
 // and ExtractTarGzToStorage tests. It tracks WriteResultFile / DeleteBlob
 // invocations and serves blob from OpenBlob (or fails with openErr).
 type fakeStagedStore struct {
-	storage.MockStore
+	testutil.MockStorage
 
 	mu      sync.Mutex
 	written map[string][]byte // {projectID/batchID/filename: bytes}

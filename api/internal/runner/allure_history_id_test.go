@@ -18,9 +18,9 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
-// stabilityStore is a storage.MockStore that serves one generated-report
+// stabilityStore is a testutil.MockStorage that serves one generated-report
 // stability file per entry from reports/latest/data/test-results/.
-func stabilityStore(t *testing.T, entries []map[string]any) *storage.MockStore {
+func stabilityStore(t *testing.T, entries []map[string]any) *testutil.MockStorage {
 	t.Helper()
 	files := make(map[string][]byte, len(entries))
 	dir := make([]storage.DirEntry, 0, len(entries))
@@ -33,7 +33,7 @@ func stabilityStore(t *testing.T, entries []map[string]any) *storage.MockStore {
 		files["reports/latest/data/test-results/"+name] = data
 		dir = append(dir, storage.DirEntry{Name: name})
 	}
-	return &storage.MockStore{
+	return &testutil.MockStorage{
 		ReadBuildStatsFn: func(_ context.Context, _ string, _ int) (storage.BuildStats, error) {
 			return storage.BuildStats{Total: len(entries), Passed: len(entries)}, nil
 		},

@@ -18,7 +18,6 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/handlers"
 	"github.com/mkutlak/alluredeck/api/internal/middleware"
 	"github.com/mkutlak/alluredeck/api/internal/security"
-	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
 
@@ -337,7 +336,7 @@ func TestRunRetentionSweep_UsesStorageKey(t *testing.T) {
 
 	var prunedKeys []string
 	var prunedOrders [][]int
-	dataStore := &storage.MockStore{
+	dataStore := &testutil.MockStorage{
 		PruneReportDirsFn: func(_ context.Context, projectID string, buildNumbers []int) error {
 			prunedKeys = append(prunedKeys, projectID)
 			prunedOrders = append(prunedOrders, buildNumbers)

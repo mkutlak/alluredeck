@@ -47,14 +47,14 @@ func TestInternalErrorsDoNotLeak(t *testing.T) {
 		{"create project", func(t *testing.T, rr *httptest.ResponseRecorder) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", strings.NewReader(`{"id":"newproject"}`))
 			req.Header.Set("Content-Type", "application/json")
-			projectHandler(t, testutil.NewMemProjectStore(), &storage.MockStore{CreateProjectFn: failing}).CreateProject(rr, req)
+			projectHandler(t, testutil.NewMemProjectStore(), &testutil.MockStorage{CreateProjectFn: failing}).CreateProject(rr, req)
 		}},
 		{"delete project", func(t *testing.T, rr *httptest.ResponseRecorder) {
 			ps := testutil.NewMemProjectStore()
 			p, _ := ps.CreateProject(context.Background(), "proj1")
 			req := httptest.NewRequest(http.MethodDelete, "/api/v1/projects/1", nil)
 			req.SetPathValue("project_id", strconv.FormatInt(p.ID, 10))
-			projectHandler(t, ps, &storage.MockStore{DeleteProjectFn: failing}).DeleteProject(rr, req)
+			projectHandler(t, ps, &testutil.MockStorage{DeleteProjectFn: failing}).DeleteProject(rr, req)
 		}},
 		{"report history", func(t *testing.T, rr *httptest.ResponseRecorder) {
 			mocks := testutil.New()
@@ -68,7 +68,7 @@ func TestInternalErrorsDoNotLeak(t *testing.T) {
 		}},
 		// force_project_creation makes the upload create the project in storage.
 		{"send results", func(t *testing.T, rr *httptest.ResponseRecorder) {
-			st := &storage.MockStore{CreateProjectFn: failing}
+			st := &testutil.MockStorage{CreateProjectFn: failing}
 			r, cfg := allure(t, st)
 			h := NewResultUploadHandler(st, testutil.NewMemProjectStore(), runner.NewMemJobManager(nil, 0, nil), r, cfg, zap.NewNop())
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/proj1/results?force_project_creation=true", strings.NewReader(`{"results":[]}`))

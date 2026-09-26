@@ -151,7 +151,7 @@ func TestPlaywrightHandler_ExtractArchive(t *testing.T) {
 			t.Parallel()
 			var mu sync.Mutex
 			got := map[string][]byte{}
-			mock := &storage.MockStore{WritePlaywrightFileFn: func(ctx context.Context, _, subPath string, r io.Reader) error {
+			mock := &testutil.MockStorage{WritePlaywrightFileFn: func(ctx context.Context, _, subPath string, r io.Reader) error {
 				if tc.failOn != "" && strings.HasSuffix(subPath, tc.failOn) {
 					return injected
 				}
