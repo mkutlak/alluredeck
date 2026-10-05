@@ -32,7 +32,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tailwindcss/postcss": "^4.3.3",
     "@tailwindcss/vite": "^4.3.3",
-    "@tanstack/react-query": "^5.103.2",
+    "@tanstack/react-query": "^5.104.0",
     "@tanstack/react-query-devtools": "^5.103.2",
     "@types/dompurify": "^3.2.0",
     "class-variance-authority": "^0.7.1",
