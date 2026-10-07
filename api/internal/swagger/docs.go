@@ -713,7 +713,7 @@ const docTemplate = `{
         },
         "/pipeline-runs": {
             "get": {
-                "description": "Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group.",
+                "description": "Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group. While a run's newest upload is under 30 minutes old, ` + "`" + `aggregate.awaiting_suites` + "`" + ` counts the suites of its previous run that have not uploaded yet.",
                 "produces": [
                     "application/json"
                 ],
@@ -1826,7 +1826,7 @@ const docTemplate = `{
         },
         "/projects/{project_id}/pipeline-runs": {
             "get": {
-                "description": "Returns child-suite builds grouped by commit SHA for a parent project.",
+                "description": "Returns child-suite builds grouped by commit SHA for a parent project. While a run's newest upload is under 30 minutes old, ` + "`" + `aggregate.awaiting_suites` + "`" + ` counts the suites of its previous run that have not uploaded yet.",
                 "produces": [
                     "application/json"
                 ],
@@ -1890,7 +1890,7 @@ const docTemplate = `{
         },
         "/projects/{project_id}/pipeline-runs/{run_key}": {
             "get": {
-                "description": "Returns one pipeline run of a parent (group) project with per-suite and aggregate statistics, as listed by the pipeline runs endpoints. The run key is a CI pipeline ID, or a commit SHA when the pipeline ID is absent.",
+                "description": "Returns one pipeline run of a parent (group) project with per-suite and aggregate statistics, as listed by the pipeline runs endpoints. The run key is a CI pipeline ID, or a commit SHA when the pipeline ID is absent. While the run's newest upload is under 30 minutes old, ` + "`" + `aggregate.awaiting_suites` + "`" + ` counts the suites of its previous run that have not uploaded yet.",
                 "produces": [
                     "application/json"
                 ],

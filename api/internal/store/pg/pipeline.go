@@ -478,6 +478,113 @@ func (s *PipelineStore) GetPipelineRun(ctx context.Context, groupProjectID int64
 	return result, nil
 }
 
+// expectedSuitesQuery finds the run's previous run and lists its suites; see
+// ExpectedSuites for the rules. this_run is the run named by ($1 group, $2
+// key). candidates are the group's other builds that predate it. previous ranks
+// the runs among them: tier 1 counts only builds on the run's branch (skipped
+// when it has none), tier 2 only builds on a default branch of their suite, and
+// the best tier wins, then the latest build, then the key for a stable pick. The
+// answer is read from every build of the chosen run, not from candidates.
+//
+// An unknown run has a NULL start, so no candidate predates it. A build with
+// neither a pipeline id nor a commit SHA belongs to no run (the feed's own
+// filter drops it too), so it is no candidate: its NULL key would otherwise
+// form a run of its own, win a tier when it is the newest, and match nothing in
+// the final join, leaving the run with no expectation.
+//
+// candidates is read by both tiers, so Postgres materializes it and plans its
+// scan once. Do not mark it NOT MATERIALIZED: at
+// some table sizes that is faster (14 -> 11 ms for a group of 20k builds), but at
+// others the planner then scans the whole builds table for tier 2 (14 -> 41 ms
+// for the same group in a table of 540k builds).
+const expectedSuitesQuery = `
+WITH this_run AS (
+    SELECT MIN(b.created_at) AS started,
+           COALESCE((ARRAY_AGG(COALESCE(b.ci_branch, '') ORDER BY b.created_at DESC, b.id DESC))[1], '') AS branch
+    FROM builds b
+    JOIN projects p ON p.id = b.project_id
+    WHERE p.parent_id = $1
+      AND ` + runKeyMatches + `
+),
+candidates AS (
+    SELECT COALESCE(b.ci_pipeline_id, b.ci_commit_sha) AS run_key,
+           COALESCE(b.ci_branch, '') AS branch,
+           b.branch_id,
+           b.created_at
+    FROM builds b
+    JOIN projects p ON p.id = b.project_id
+    CROSS JOIN this_run r
+    WHERE p.parent_id = $1
+      AND (b.ci_pipeline_id IS NOT NULL OR b.ci_commit_sha IS NOT NULL)
+      AND b.created_at < r.started
+),
+previous AS (
+    SELECT run_key
+    FROM (
+        SELECT 1 AS tier, c.run_key, MAX(c.created_at) AS last_at
+        FROM candidates c
+        CROSS JOIN this_run r
+        WHERE r.branch <> '' AND c.branch = r.branch
+        GROUP BY c.run_key
+        UNION ALL
+        SELECT 2, c.run_key, MAX(c.created_at)
+        FROM candidates c
+        JOIN branches br ON br.id = c.branch_id AND br.is_default
+        GROUP BY c.run_key
+    ) ranked
+    ORDER BY tier, last_at DESC, run_key
+    LIMIT 1
+)
+SELECT DISTINCT b.project_id
+FROM previous pv
+JOIN builds b ON b.ci_pipeline_id = pv.run_key
+              OR (b.ci_pipeline_id IS NULL AND b.ci_commit_sha = pv.run_key)
+JOIN projects p ON p.id = b.project_id
+WHERE p.parent_id = $1
+ORDER BY b.project_id`
+
+// ExpectedSuites returns the project IDs of the suites the run is expected to
+// contain: those of the previous run of the same group, on the run's branch
+// when it has an earlier run there, else on a default branch. See
+// store.PipelineStorer for the exact rule.
+//
+// Known ceilings. Two pipelines of one branch that overlap in time can make the
+// "previous run" a partial one: it is judged by the builds uploaded before this
+// run started, so a pipeline still uploading counts as it stands, though the
+// answer includes its later uploads. A run that intentionally runs fewer suites
+// than its predecessor reads as awaiting until the caller's window ends.
+//
+// Cost. One call reads the group's whole build history before the run's start,
+// so it grows with the group's build count (about 15 ms for a group of 20k
+// builds, 100 ms for 100k) and, when the planner scans the builds table instead
+// of walking the group's children, with the size of the whole table (13 ms to
+// 42 ms for the same 20k group as the table grew from 20k to 540k builds, the
+// plan depending on the table's statistics). The handler makes one call per run
+// inside its window, one after another: N calls per page. The upgrade path is
+// one batched query per request (unnest of the recent run keys plus a LATERAL on
+// this one).
+func (s *PipelineStore) ExpectedSuites(ctx context.Context, groupProjectID int64, runKey string) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, expectedSuitesQuery, groupProjectID, runKey)
+	if err != nil {
+		return nil, fmt.Errorf("expected suites query: %w", err)
+	}
+	defer rows.Close()
+
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan expected suite: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("expected suites iteration: %w", err)
+	}
+
+	return ids, nil
+}
+
 // ListAllPipelineRuns returns builds across every parent/child project group,
 // paginated by distinct (parent, commit-SHA-or-pipeline-ID) group. Returns
 // flat rows that the caller groups. groupIDs must be non-nil (an empty slice

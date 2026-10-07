@@ -1192,6 +1192,7 @@ type MockPipelineStore struct {
 	ListPipelineRunsFn         func(ctx context.Context, parentID int64, branch string, page, perPage int) ([]store.PipelineRunRow, int, error)
 	ListAllPipelineRunsFn      func(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]store.PipelineRunRow, int, error)
 	GetPipelineRunFn           func(ctx context.Context, groupProjectID int64, runKey string) ([]store.PipelineRunRow, error)
+	ExpectedSuitesFn           func(ctx context.Context, groupProjectID int64, runKey string) ([]int64, error)
 	ListRunFailuresFn          func(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error)
 	ListFailuresByPipelineIDFn func(ctx context.Context, projectID int64, pipelineID string, limit int) ([]store.RunFailureRow, error)
 	ListBuildsByPipelineIDFn   func(ctx context.Context, projectID int64, pipelineID string, limit int) ([]store.Build, error)
@@ -1214,6 +1215,13 @@ func (m *MockPipelineStore) ListAllPipelineRuns(ctx context.Context, branch stri
 func (m *MockPipelineStore) GetPipelineRun(ctx context.Context, groupProjectID int64, runKey string) ([]store.PipelineRunRow, error) {
 	if m.GetPipelineRunFn != nil {
 		return m.GetPipelineRunFn(ctx, groupProjectID, runKey)
+	}
+	return nil, nil
+}
+
+func (m *MockPipelineStore) ExpectedSuites(ctx context.Context, groupProjectID int64, runKey string) ([]int64, error) {
+	if m.ExpectedSuitesFn != nil {
+		return m.ExpectedSuitesFn(ctx, groupProjectID, runKey)
 	}
 	return nil, nil
 }

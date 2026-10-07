@@ -427,6 +427,22 @@ type PipelineStorer interface {
 	// so grouping them yields the same run the feed shows. The branch is not
 	// part of the key. An unknown run is an empty slice, not an error.
 	GetPipelineRun(ctx context.Context, groupProjectID int64, runKey string) ([]PipelineRunRow, error)
+	// ExpectedSuites returns the project IDs of the suites the run named by
+	// groupProjectID and runKey (a ci_pipeline_id or, when the pipeline ID is
+	// absent, a ci_commit_sha, as for GetPipelineRun) is expected to contain,
+	// ordered by project ID. They are the suites of the run's previous run:
+	//   - the run starts at the earliest created_at of its builds and sits on
+	//     the ci_branch of its newest build;
+	//   - the previous run is the latest run of the same group (other than this
+	//     one) that has a build older than that start, counting only builds on
+	//     that branch; when the branch has no such run, or the run has no
+	//     branch, it is the latest such run counting only builds on a default
+	//     branch of their suite;
+	//   - the answer is every suite that run uploaded to, whole run included, a
+	//     sharded suite once.
+	// An unknown run, or one with no previous run, is an empty slice, not an
+	// error.
+	ExpectedSuites(ctx context.Context, groupProjectID int64, runKey string) ([]int64, error)
 	// ListRunFailures returns the failed and broken tests of every build that
 	// the children of groupProjectID uploaded under runKey, which is a
 	// ci_pipeline_id or, when the pipeline ID is absent, a ci_commit_sha. One

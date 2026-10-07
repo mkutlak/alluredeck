@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -22,6 +23,7 @@ type PipelineHandler struct {
 	knownIssueStore store.KnownIssueStorer
 	projectsDir     string
 	logger          *zap.Logger
+	now             func() time.Time
 }
 
 // NewPipelineHandler creates a PipelineHandler.
@@ -32,6 +34,7 @@ func NewPipelineHandler(ps store.PipelineStorer, projStore store.ProjectHierarch
 		knownIssueStore: kis,
 		projectsDir:     projectsDir,
 		logger:          logger,
+		now:             time.Now,
 	}
 }
 
@@ -41,11 +44,55 @@ const (
 	maxRunFailuresLimit     = 2000
 )
 
+// awaitingSuitesWindow is how long after its newest upload a run is still
+// treated as possibly waiting for suites that have not uploaded yet; past it
+// the verdict stands.
+// ponytail: fixed window; make it configurable if CI pipelines routinely take longer
+const awaitingSuitesWindow = 30 * time.Minute
+
+// markAwaitingSuites sets Aggregate.AwaitingSuites on every run whose newest
+// upload is under awaitingSuitesWindow old: the number of suites the store
+// expects the run to hold (see store.PipelineStorer.ExpectedSuites) that have
+// not uploaded. Older runs cost no store call. A store error is logged and
+// leaves the run as it is: the feed must not fail over a hint. groupID is the
+// group for runs whose rows carry none (the per-parent list).
+func (h *PipelineHandler) markAwaitingSuites(ctx context.Context, runs []pipelineRunResp, groupID int64) {
+	now := h.now()
+	// ponytail: one sequential ExpectedSuites call per run inside the window (N per page, each proportional to the group's build history); upgrade to one batched query per request (unnest of the recent run keys plus LATERAL)
+	for i := range runs {
+		// An aborted request would fail every remaining call and log a warning each.
+		if ctx.Err() != nil {
+			return
+		}
+		run := &runs[i]
+		newest, err := time.Parse(time.RFC3339, run.Timestamp)
+		if err != nil || now.Sub(newest) >= awaitingSuitesWindow {
+			continue
+		}
+		group := cmp.Or(run.GroupProjectID, groupID)
+		runKey := cmp.Or(run.PipelineID, run.CommitSHA)
+		expected, err := h.pipelineStore.ExpectedSuites(ctx, group, runKey)
+		if err != nil {
+			h.logger.Warn("expected suites", zap.Int64("group_project_id", group), zap.String("run_key", runKey), zap.Error(err))
+			continue
+		}
+		uploaded := make(map[int64]bool, len(run.Suites))
+		for j := range run.Suites {
+			uploaded[run.Suites[j].ProjectID] = true
+		}
+		for _, id := range expected {
+			if !uploaded[id] {
+				run.Aggregate.AwaitingSuites++
+			}
+		}
+	}
+}
+
 // GetPipelineRuns returns paginated pipeline runs for a parent project,
 // grouped by commit SHA with per-suite and aggregate statistics.
 //
 //	@Summary      List pipeline runs
-//	@Description  Returns child-suite builds grouped by commit SHA for a parent project.
+//	@Description  Returns child-suite builds grouped by commit SHA for a parent project. While a run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet.
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        project_id  path   string  true   "Parent project ID"
@@ -92,6 +139,7 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 	if runs == nil {
 		runs = []pipelineRunResp{}
 	}
+	h.markAwaitingSuites(ctx, runs, projectID)
 
 	writePagedSuccess(w, runs, "pipeline runs retrieved", newPaginationMeta(pp.Page, pp.PerPage, total))
 }
@@ -102,7 +150,7 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 // not scoped to a single parent project.
 //
 //	@Summary      List all pipeline runs
-//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group.
+//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group. While a run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet.
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        page        query  int     false  "Page number"                            default(1)
@@ -146,6 +194,7 @@ func (h *PipelineHandler) GetAllPipelineRuns(w http.ResponseWriter, r *http.Requ
 	if runs == nil {
 		runs = []pipelineRunResp{}
 	}
+	h.markAwaitingSuites(ctx, runs, 0)
 
 	writePagedSuccess(w, runs, "pipeline runs retrieved", newPaginationMeta(pp.Page, pp.PerPage, total))
 }
@@ -202,7 +251,7 @@ func runFailureClusterKey(row *store.RunFailureRow) string {
 // built from the same rows, for a link that lands on that run.
 //
 //	@Summary      Get a pipeline run
-//	@Description  Returns one pipeline run of a parent (group) project with per-suite and aggregate statistics, as listed by the pipeline runs endpoints. The run key is a CI pipeline ID, or a commit SHA when the pipeline ID is absent.
+//	@Description  Returns one pipeline run of a parent (group) project with per-suite and aggregate statistics, as listed by the pipeline runs endpoints. The run key is a CI pipeline ID, or a commit SHA when the pipeline ID is absent. While the run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet.
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        project_id  path   string  true   "Parent (group) project ID"
@@ -224,7 +273,8 @@ func (h *PipelineHandler) GetPipelineRun(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	rows, err := h.pipelineStore.GetPipelineRun(r.Context(), projectID, runKey)
+	ctx := r.Context()
+	rows, err := h.pipelineStore.GetPipelineRun(ctx, projectID, runKey)
 	if err != nil {
 		h.logger.Error("get pipeline run", zap.Int64("project_id", projectID), zap.String("run_key", runKey), zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "error getting pipeline run")
@@ -236,6 +286,7 @@ func (h *PipelineHandler) GetPipelineRun(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "pipeline run not found")
 		return
 	}
+	h.markAwaitingSuites(ctx, runs[:1], projectID)
 
 	writeSuccess(w, http.StatusOK, runs[0], "pipeline run retrieved")
 }
@@ -408,6 +459,7 @@ type pipelineAggResp struct {
 	TestsSkipped    int     `json:"tests_skipped"`
 	PassRate        float64 `json:"pass_rate"`
 	TotalDurationMs int64   `json:"total_duration_ms"`
+	AwaitingSuites  int     `json:"awaiting_suites,omitempty"`
 }
 
 // suiteAccum merges every build a single child project contributed to one run.
