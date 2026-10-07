@@ -1888,9 +1888,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/{project_id}/pipeline-runs/{run_key}": {
+            "get": {
+                "description": "Returns one pipeline run of a parent (group) project with per-suite and aggregate statistics, as listed by the pipeline runs endpoints. The run key is a CI pipeline ID, or a commit SHA when the pipeline ID is absent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pipeline"
+                ],
+                "summary": "Get a pipeline run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent (group) project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "CI pipeline ID, or commit SHA when the pipeline ID is absent",
+                        "name": "run_key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}/pipeline-runs/{run_key}/failures": {
             "get": {
-                "description": "Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed.",
+                "description": "Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed. Each test also carries ` + "`" + `origin` + "`" + ` (` + "`" + `inherited` + "`" + ` when it failed or broke in the suite's baseline, ` + "`" + `new` + "`" + ` when it passed there, ` + "`" + `unknown` + "`" + ` when the baseline cannot say: the baseline is the latest older build on the suite's own default branch outside this run, with all the shards of its pipeline when it had one) and ` + "`" + `environment` + "`" + ` (its defect fingerprint is categorised infrastructure).",
                 "produces": [
                     "application/json"
                 ],

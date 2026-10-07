@@ -150,6 +150,14 @@ func (h *PipelineHandler) GetAllPipelineRuns(w http.ResponseWriter, r *http.Requ
 
 // runFailureResp is one failing test of a run, carrying the suite and build it
 // came from so the client does not have to correlate it back.
+//
+// new_failed is Allure's own comparison with the suite's previous build, kept
+// for compatibility. origin is the comparison to read: "inherited" when the
+// test failed or broke in the suite's baseline, "new" when it passed there,
+// "unknown" when the baseline cannot say. The baseline is the latest older build
+// on the suite's own default branch outside this run, with all the shards of its
+// pipeline when it had one (see store.RunFailureRow). environment is true when
+// the test's defect fingerprint is categorised infrastructure.
 type runFailureResp struct {
 	ProjectID    int64  `json:"project_id"`
 	Slug         string `json:"slug"`
@@ -164,8 +172,52 @@ type runFailureResp struct {
 	Flaky        bool   `json:"flaky"`
 	Retries      int    `json:"retries"`
 	NewFailed    bool   `json:"new_failed"`
+	Origin       string `json:"origin"`
+	Environment  bool   `json:"environment"`
 	Known        bool   `json:"known"`
 	ErrorMessage string `json:"error_message"`
+}
+
+// GetPipelineRun returns one pipeline run: the same object the runs feed lists,
+// built from the same rows, for a link that lands on that run.
+//
+//	@Summary      Get a pipeline run
+//	@Description  Returns one pipeline run of a parent (group) project with per-suite and aggregate statistics, as listed by the pipeline runs endpoints. The run key is a CI pipeline ID, or a commit SHA when the pipeline ID is absent.
+//	@Tags         pipeline
+//	@Produce      json
+//	@Param        project_id  path   string  true   "Parent (group) project ID"
+//	@Param        run_key     path   string  true   "CI pipeline ID, or commit SHA when the pipeline ID is absent"
+//	@Success      200  {object}  map[string]any
+//	@Failure      400  {object}  map[string]any
+//	@Failure      404  {object}  map[string]any
+//	@Failure      500  {object}  map[string]any
+//	@Router       /projects/{project_id}/pipeline-runs/{run_key} [get]
+func (h *PipelineHandler) GetPipelineRun(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := resolveProjectIntID(w, r, h.projectStore)
+	if !ok {
+		return
+	}
+
+	runKey := r.PathValue("run_key")
+	if runKey == "" {
+		writeError(w, http.StatusBadRequest, "invalid run_key")
+		return
+	}
+
+	rows, err := h.pipelineStore.GetPipelineRun(r.Context(), projectID, runKey)
+	if err != nil {
+		h.logger.Error("get pipeline run", zap.Int64("project_id", projectID), zap.String("run_key", runKey), zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "error getting pipeline run")
+		return
+	}
+
+	runs := groupPipelineRuns(rows)
+	if len(runs) == 0 {
+		writeError(w, http.StatusNotFound, "pipeline run not found")
+		return
+	}
+
+	writeSuccess(w, http.StatusOK, runs[0], "pipeline run retrieved")
 }
 
 // GetRunFailures returns every failing test in a single pipeline run.
@@ -175,7 +227,7 @@ type runFailureResp struct {
 // replaces what would otherwise be a per-build request fan-out from the client.
 //
 //	@Summary      List run failures
-//	@Description  Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed.
+//	@Description  Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed. Each test also carries `origin` (`inherited` when it failed or broke in the suite's baseline, `new` when it passed there, `unknown` when the baseline cannot say: the baseline is the latest older build on the suite's own default branch outside this run, with all the shards of its pipeline when it had one) and `environment` (its defect fingerprint is categorised infrastructure).
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        project_id  path   string  true   "Parent (group) project ID"
@@ -266,6 +318,8 @@ func (h *PipelineHandler) GetRunFailures(w http.ResponseWriter, r *http.Request)
 			Flaky:        row.Flaky,
 			Retries:      row.Retries,
 			NewFailed:    row.NewFailed,
+			Origin:       row.Origin,
+			Environment:  row.Environment,
 			Known:        knownByProject[row.ProjectID][row.TestName],
 			ErrorMessage: firstErrorLine(row.StatusMessage),
 		})

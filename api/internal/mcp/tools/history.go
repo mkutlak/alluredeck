@@ -175,7 +175,7 @@ type CompareBuildsOutput struct {
 
 // RegisterHistoryTools registers get_test_failure, get_test_history, and
 // compare_builds on s.
-func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
+func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "get_test_failure",
 		Title:       "Get AllureDeck test failure",
@@ -195,7 +195,7 @@ func RegisterHistoryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *za
 		Title:       "Compare AllureDeck builds",
 		Annotations: readOnlyAnnotations(),
 		Description: "Compare two builds for a project. Returns tests that regressed, became fixed, appeared new, or were removed between the base and target builds. Supports format=full|compact|summary. When the two builds are from different branches, a branch_mismatch warning is included in the output — the diff is still returned but regressions may reflect branch differences rather than true regressions. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
-	}, compareBuildsHandler(stores, logger))
+	}, compareBuildsHandler(stores, logger, publicURL))
 }
 
 func getTestFailureHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in GetTestFailureInput) (*mcpsdk.CallToolResult, GetTestFailureOutput, error) {
@@ -386,7 +386,7 @@ func getTestHistoryHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 	}
 }
 
-func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in CompareBuildsInput) (*mcpsdk.CallToolResult, CompareBuildsOutput, error) {
+func compareBuildsHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in CompareBuildsInput) (*mcpsdk.CallToolResult, CompareBuildsOutput, error) {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in CompareBuildsInput) (*mcpsdk.CallToolResult, CompareBuildsOutput, error) {
 		if in.ProjectID <= 0 {
 			return nil, CompareBuildsOutput{}, fmt.Errorf("project_id must be positive")
@@ -450,6 +450,7 @@ func compareBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx cont
 		if targetBuild.CIPipelineURL != nil {
 			targetRef.CIPipelineURL = *targetBuild.CIPipelineURL
 		}
+		targetRef.RunURL = buildRunURL(ctx, stores, logger, publicURL, int64(in.ProjectID), &targetBuild)
 
 		// Warn only when BOTH branches are known and differ. A NULL branch_id
 		// (builds predating branch tracking, or CI that supplied no branch) is

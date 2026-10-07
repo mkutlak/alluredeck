@@ -66,6 +66,9 @@ type BuildRef struct {
 	CIPipelineID string `json:"ci_pipeline_id,omitempty"`
 	// CIPipelineURL is the CI system's link to the pipeline run.
 	CIPipelineURL string `json:"ci_pipeline_url,omitempty"`
+	// RunURL is the UI page of the whole pipeline run this build belongs to;
+	// see ResolveURLOutput.RunURL.
+	RunURL string `json:"run_url,omitempty"`
 }
 
 // ListFailingTestsOutput is the structured output for the list_failing_tests tool.
@@ -81,17 +84,17 @@ type ListFailingTestsOutput struct {
 }
 
 // RegisterFailureTools registers the failure-related MCP tools on s.
-func RegisterFailureTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
+func RegisterFailureTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_failing_tests",
 		Title:       "List AllureDeck failing tests",
 		Annotations: readOnlyAnnotations(),
 		Description: "List tests that failed in a build. Use this first when debugging a CI failure; combine with get_test_failure for details on a specific test. URL build_number is NOT build_id — call resolve_url first or use list_recent_builds.",
-	}, listFailingTestsHandler(stores, logger))
+	}, listFailingTestsHandler(stores, logger, publicURL))
 }
 
 // listFailingTestsHandler returns the handler function for the list_failing_tests tool.
-func listFailingTestsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListFailingTestsInput) (*mcpsdk.CallToolResult, ListFailingTestsOutput, error) {
+func listFailingTestsHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListFailingTestsInput) (*mcpsdk.CallToolResult, ListFailingTestsOutput, error) {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListFailingTestsInput) (*mcpsdk.CallToolResult, ListFailingTestsOutput, error) {
 		if in.ProjectID <= 0 {
 			return nil, ListFailingTestsOutput{}, fmt.Errorf("project_id must be positive")
@@ -168,6 +171,7 @@ func listFailingTestsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 				br.CIPipelineURL = *resolvedBuild.CIPipelineURL
 			}
 			if br.BuildNumber > 0 {
+				br.RunURL = buildRunURL(ctx, stores, logger, publicURL, int64(in.ProjectID), &resolvedBuild)
 				out.Build = br
 			}
 		}

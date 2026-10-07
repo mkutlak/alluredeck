@@ -99,7 +99,7 @@ func TestListFailingTests(t *testing.T) {
 				return tc.rows[:min(limit, len(tc.rows))], tc.listErr
 			}
 			mocks.TestResults.CountFailedByBuildFn = func(context.Context, int64, int64) (int, error) { return tc.distinct, nil }
-			cs := setupTestServer(t, &bootstrap.Stores{Build: mocks.Builds, TestResult: mocks.TestResults})
+			cs := setupTestServer(t, &bootstrap.Stores{Project: mocks.Projects, Build: mocks.Builds, TestResult: mocks.TestResults})
 
 			if tc.wantErr != "" {
 				if msg := callErr(t, cs, "list_failing_tests", tc.args); !strings.Contains(msg, tc.wantErr) {

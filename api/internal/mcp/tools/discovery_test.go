@@ -120,7 +120,7 @@ func TestListRecentBuilds(t *testing.T) {
 				gotBranch, gotPerPage = branchID, perPage
 				return []store.Build{built}, 1, nil
 			}
-			cs := setupTestServer(t, &bootstrap.Stores{Build: mocks.Builds, Branch: mocks.Branches})
+			cs := setupTestServer(t, &bootstrap.Stores{Project: mocks.Projects, Build: mocks.Builds, Branch: mocks.Branches})
 
 			if tc.wantErr != "" {
 				if msg := callErr(t, cs, "list_recent_builds", tc.args); !strings.Contains(msg, tc.wantErr) {

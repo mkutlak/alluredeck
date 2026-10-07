@@ -74,19 +74,22 @@ type DiagnoseFailureInput struct {
 
 // DiagnoseBuildSummary is the build-level header of a diagnose_failure result.
 type DiagnoseBuildSummary struct {
-	ProjectID   int64             `json:"project_id"`
-	ProjectSlug string            `json:"project_slug"`
-	DisplayName string            `json:"display_name"`
-	BuildID     int64             `json:"build_id"`
-	BuildNumber int               `json:"build_number"`
-	Branch      string            `json:"branch,omitempty"`
-	CommitSHA   string            `json:"commit_sha,omitempty"`
-	CreatedAt   string            `json:"created_at"`
-	TotalTests  int               `json:"total_tests"`
-	PassedTests int               `json:"passed_tests"`
-	FailedTests int               `json:"failed_tests"`
-	BrokenTests int               `json:"broken_tests"`
-	ReportURL   string            `json:"report_url"`
+	ProjectID   int64  `json:"project_id"`
+	ProjectSlug string `json:"project_slug"`
+	DisplayName string `json:"display_name"`
+	BuildID     int64  `json:"build_id"`
+	BuildNumber int    `json:"build_number"`
+	Branch      string `json:"branch,omitempty"`
+	CommitSHA   string `json:"commit_sha,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	TotalTests  int    `json:"total_tests"`
+	PassedTests int    `json:"passed_tests"`
+	FailedTests int    `json:"failed_tests"`
+	BrokenTests int    `json:"broken_tests"`
+	ReportURL   string `json:"report_url"`
+	// RunURL is the UI page of the whole pipeline run this build belongs to;
+	// see ResolveURLOutput.RunURL.
+	RunURL      string            `json:"run_url,omitempty"`
 	Environment map[string]string `json:"environment,omitempty"`
 	// CIPipelineID identifies the CI pipeline run this build belongs to.
 	// Playwright CI shards upload one build each under a shared pipeline ID, so
@@ -221,16 +224,16 @@ type DiagnoseFailureOutput struct {
 }
 
 // RegisterDiagnoseTools registers the diagnose_failure tool on s.
-func RegisterDiagnoseTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
+func RegisterDiagnoseTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "diagnose_failure",
 		Title:       "Diagnose AllureDeck failure",
 		Annotations: readOnlyAnnotations(),
 		Description: "Diagnose a failing CI build in ONE call. Use this FIRST when given a failing build or a report URL — it resolves the build, groups every failing test by root cause, and judges the build. Read it top-down: `build_verdict` first, then `clusters`, then the per-test detail. `build_verdict` is deterministic: {verdict: product_regression|test_bug|infra_env|known_issue|flaky|insufficient_evidence, confidence, evidence[], evidence_gaps[], recommended_action: file_bug|fix_test|rerun|link_known_issue|human_needed, affected_test_count}. It is rolled up from the largest cluster; confidence is never high when the diagnosis was truncated or when the clusters disagreed, and `evidence_gaps` names what could not be checked — trust it accordingly. `clusters` groups failing tests that share a normalized error message, failure phase, and deepest failed step, largest cluster first: each carries member_count, member_full_names, a representative, shared_error, failure_phase, shared_status_pattern (only when every member agrees), and `known_issue_regex_matches` (active known-issue rules whose pattern matches the shared error — a regex hit that NO human has confirmed, unlike the per-test `known_issue` which is the human-linked defect FK). TOKEN NOTE: only a cluster's representative keeps `error_message` and `failed_step_path`; other members carry `cluster_id` and are otherwise complete — read the cluster's `shared_error` for their text. Per failing test you also get the defect fingerprint, known issue, attachments, and objective triage signals (fast-fail, failure phase, retry consistency, builds-since-pass, last-status, repeated status pattern, category hint). `retry_consistency` classifies a retried test as consistent (every attempt failed the same way — deterministic, so a rerun will not help) or varying (the attempts diverged — flaky or environmental); it is \"single\" for a test that ran once or whose report carried no per-attempt detail, so read it together with `retries` rather than treating \"single\" as evidence of a clean run. The attempts behind that verdict are returned as `retry_attempts` [{attempt_index, status, error_message}], oldest first, with status verbatim from the runner (a Playwright attempt reports \"timedOut\" or \"interrupted\") and error_message truncated; they are omitted for a test that was not retried. Triage signals are scoped to the build's branch when available, so comparisons reflect only the same line of development. `category_hint` is normally a passthrough of the ingestion-time defect category at low confidence; when the signals in this same call are strong enough (a fast abort in before_hooks against a 5xx endpoint) it is replaced with source=\"signals\" at medium confidence. Each failing test also carries a `last_good` pointer to the build where it last passed (build_number, commit_sha, builds_since) and, whenever last_good exists, `last_good_diff_counts` {regressed, fixed, added} for that span; both are omitted when the test never passed before. Also returns the test environment metadata (Allure environment.properties: base URLs, versions, and any debug links the CI recorded). Accepts a UI URL, (project_ref, build_number), or (project_id, build_id). Set summary_only=true for a compact overview; max_tests caps detailed analysis (default 20). Set include_last_good_diff=true to expand the counts into the full per-test diff (`last_good_diff`: this test's passed→failed transition plus co-regressions in that span); the lists are off by default because they are large, not because they are expensive. Duplicate rows for the same test (Playwright records each test twice, under two history_id schemes) are collapsed by full_name: the dropped identifiers appear on the surviving test as `merged_history_ids`, and a top-level `warnings` entry reports how many rows were merged, so `examined_tests` counts real failures rather than rows. The collapse is conservative — rows sharing a full_name are merged ONLY when at most one of them carries an error message (the enriched-row/empty-shell twin signature). When several rows under one full_name each carry their OWN error message they are genuinely different results (a parameterized test whose parameters never reached full_name), so they are all kept and a `warnings` entry names the full_name; a repeated full_name in `failing_tests` therefore means real distinct failures, not a dedup miss. When a test has no passing run on the build's own branch, `last_good_absent_reason` says so and `cross_branch_last_good` points at the most recent pass on any branch.",
-	}, diagnoseFailureHandler(stores, logger))
+	}, diagnoseFailureHandler(stores, logger, publicURL))
 }
 
-func diagnoseFailureHandler(stores *bootstrap.Stores, logger *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in DiagnoseFailureInput) (*mcpsdk.CallToolResult, DiagnoseFailureOutput, error) {
+func diagnoseFailureHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in DiagnoseFailureInput) (*mcpsdk.CallToolResult, DiagnoseFailureOutput, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -251,7 +254,7 @@ func diagnoseFailureHandler(stores *bootstrap.Stores, logger *zap.Logger) func(c
 		}
 
 		out := DiagnoseFailureOutput{
-			Build:        diagnoseBuildSummary(proj, build),
+			Build:        diagnoseBuildSummary(proj, build, publicURL),
 			FailingTests: []DiagnoseTest{},
 		}
 
@@ -582,7 +585,7 @@ func diagnoseRefAndNumber(in DiagnoseFailureInput) (string, int, error) {
 }
 
 // diagnoseBuildSummary builds the build-level header of the output.
-func diagnoseBuildSummary(proj *store.Project, build *store.Build) DiagnoseBuildSummary {
+func diagnoseBuildSummary(proj *store.Project, build *store.Build, publicURL string) DiagnoseBuildSummary {
 	s := DiagnoseBuildSummary{
 		ProjectID:   proj.ID,
 		ProjectSlug: proj.Slug,
@@ -591,6 +594,7 @@ func diagnoseBuildSummary(proj *store.Project, build *store.Build) DiagnoseBuild
 		BuildNumber: build.BuildNumber,
 		CreatedAt:   build.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		ReportURL:   fmt.Sprintf("/projects/%d/reports/%d", proj.ID, build.BuildNumber),
+		RunURL:      runURL(publicURL, proj.ParentID, runKeyOf(build)),
 	}
 	if build.CIBranch != nil {
 		s.Branch = *build.CIBranch

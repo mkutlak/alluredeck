@@ -420,12 +420,32 @@ type PipelineStorer interface {
 	// groups, not individual rows. Pass an empty (non-nil) groupIDs slice to
 	// disable the group filter.
 	ListAllPipelineRuns(ctx context.Context, branch string, groupIDs []int64, page, perPage int) ([]PipelineRunRow, int, error)
+	// GetPipelineRun returns every build the children of groupProjectID uploaded
+	// under runKey, which is a ci_pipeline_id or, when the pipeline ID is
+	// absent, a ci_commit_sha: the key ListAllPipelineRuns groups by. Rows have
+	// the shape ListAllPipelineRuns returns (suite, stats, group and CI links),
+	// so grouping them yields the same run the feed shows. The branch is not
+	// part of the key. An unknown run is an empty slice, not an error.
+	GetPipelineRun(ctx context.Context, groupProjectID int64, runKey string) ([]PipelineRunRow, error)
 	// ListRunFailures returns the failed and broken tests of every build that
 	// the children of groupProjectID uploaded under runKey, which is a
 	// ci_pipeline_id or, when the pipeline ID is absent, a ci_commit_sha. One
 	// call covers a whole run including sharded suites, which contribute
-	// several builds each. Rows carry the suite and build they came from.
+	// several builds each. Rows carry the suite and build they came from, and
+	// are tagged with where the failure comes from: Origin, judged per row
+	// against the baseline of the row's own build (so a sharded suite is judged
+	// shard by shard): the latest older default-branch build of the suite that is
+	// not part of this run, widened to every shard of its pipeline when it has
+	// one; and Environment, from the test's defect fingerprint. Ordered by
+	// suite, build_order, then slowest first; limit caps the rows.
 	ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]RunFailureRow, error)
+	// ListFailuresByPipelineID is ListRunFailures for the builds one project
+	// uploaded under pipelineID: the same rows and the same Origin and
+	// Environment tags (one query body serves both), scoped to a single project
+	// instead of a parent group, so it also serves a standalone project that
+	// has no group. The MCP diagnose_pipeline tool reads its tags from here, so
+	// what it reports for a suite is what the group run's failures show.
+	ListFailuresByPipelineID(ctx context.Context, projectID int64, pipelineID string, limit int) ([]RunFailureRow, error)
 	// ListBuildsByPipelineID returns the builds within a single project that
 	// share the given ci_pipeline_id, ordered by build_order ascending. This
 	// is the single-project shard case: Playwright CI shards upload one build

@@ -164,12 +164,26 @@ type PipelineRunRow struct {
 // child projects uploaded under one pipeline ID, including the several builds a
 // sharded suite produces, so these rows are gathered in a single query rather
 // than one request per build.
+//
+// Origin says whether the failure is the build's own doing, judged against the
+// same test (by history_id) in the suite's baseline: the latest build older than
+// this one on the suite's own default branch, not counting builds of this run;
+// when that build belongs to a CI pipeline, all the builds (shards) of that
+// pipeline on the default branch. FailureOriginInherited: it failed or broke in
+// any of them. FailureOriginNew: otherwise, it passed in any. FailureOriginUnknown:
+// the baseline cannot say (no default branch, no older build on it, the test is
+// absent from the baseline builds, or it was skipped or of unknown status
+// wherever it appears there).
+// Environment is true when the test's defect fingerprint is categorised
+// infrastructure; a test with no fingerprint is false. TestResultID is the
+// test_results row, to join these tags back to rows read elsewhere.
 type RunFailureRow struct {
 	ProjectID     int64
 	Slug          string
 	DisplayName   string
 	BuildID       int64
 	BuildNumber   int
+	TestResultID  int64
 	TestName      string
 	FullName      string
 	Status        string
@@ -178,8 +192,17 @@ type RunFailureRow struct {
 	Flaky         bool
 	Retries       int
 	NewFailed     bool
+	Origin        string
+	Environment   bool
 	StatusMessage string
 }
+
+// Origins of a failing test; see RunFailureRow.Origin.
+const (
+	FailureOriginNew       = "new"
+	FailureOriginInherited = "inherited"
+	FailureOriginUnknown   = "unknown"
+)
 
 // TestResult represents a single test execution result stored in the database.
 type TestResult struct {

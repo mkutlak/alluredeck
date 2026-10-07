@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
+	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/triage"
 )
 
@@ -59,6 +60,11 @@ const diagnosePipelineMaxBuilds = 50
 // re-applied here to keep both sources to one budget.
 const diagnosePipelineMessageMax = 500
 
+// diagnosePipelineOriginsMaxRows caps how many failing tests the origin counts
+// cover: the run failures endpoint's own maximum, so for any pipeline that
+// endpoint can fully list the two report the same figures.
+const diagnosePipelineOriginsMaxRows = 2000
+
 // DiagnosePipelineInput holds parameters for the diagnose_pipeline tool.
 type DiagnosePipelineInput struct {
 	ProjectID  int    `json:"project_id" jsonschema:"Internal numeric project id. Call list_projects if you only have a project name."`
@@ -90,6 +96,18 @@ type PipelineFailingTest struct {
 	// ClusterID names the cross-shard cluster (see
 	// DiagnosePipelineOutput.Clusters) this test belongs to.
 	ClusterID string `json:"cluster_id,omitempty"`
+	// Origin is "new" (the test passed in the suite's baseline build),
+	// "inherited" (it failed or broke there too) or "unknown" (the baseline
+	// cannot say). The baseline is the older default-branch build of the suite
+	// (all shards of its pipeline, when it was sharded); see
+	// store.RunFailureRow. Empty only when the tags could not be read or this
+	// test lies beyond the cap on tagged failures (both say so in
+	// DiagnosePipelineOutput.Warnings). Same value the run failures endpoint
+	// reports.
+	Origin string `json:"origin,omitempty"`
+	// Environment is true when the test's defect fingerprint is categorised
+	// infrastructure. Same value the run failures endpoint reports.
+	Environment bool `json:"environment,omitempty"`
 }
 
 // PipelineBuildBlock is one shard build's compact diagnosis.
@@ -113,12 +131,40 @@ type PipelineTotals struct {
 	FailedTests  int `json:"failed_tests"`
 }
 
+// FailureOrigins counts every failing test of this project's builds in the
+// pipeline by where it comes from, not just the ones listed under builds[]:
+// the same rows, tagged the same way, as the run failures endpoint returns for
+// this suite. New, Inherited and Unknown partition Total; Environment counts the
+// infrastructure-fingerprinted tests among them whatever their origin, so it
+// overlaps the other three. Total can differ from Totals.FailedTests: it counts
+// rows as stored, so a legacy build with twin rows for one test counts twice
+// while Totals.FailedTests counts distinct tests, and it covers every build of
+// the pipeline while Totals only covers the first 50 (TruncatedBuilds).
+type FailureOrigins struct {
+	Total       int `json:"total"`
+	New         int `json:"new"`
+	Inherited   int `json:"inherited"`
+	Unknown     int `json:"unknown"`
+	Environment int `json:"environment"`
+	// Truncated is true when the pipeline holds more failing tests than the
+	// cap on this count, so the counts are lower bounds.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
 // DiagnosePipelineOutput is the structured output for diagnose_pipeline.
 type DiagnosePipelineOutput struct {
-	PipelineID  string               `json:"pipeline_id"`
-	PipelineURL string               `json:"pipeline_url,omitempty"`
-	Builds      []PipelineBuildBlock `json:"builds"`
-	Totals      PipelineTotals       `json:"totals"`
+	PipelineID  string `json:"pipeline_id"`
+	PipelineURL string `json:"pipeline_url,omitempty"`
+	// RunURL is the UI page of the whole pipeline run (every suite of the
+	// parent project, not just this project's shards), failures expanded.
+	// Empty for a standalone project.
+	RunURL string               `json:"run_url,omitempty"`
+	Builds []PipelineBuildBlock `json:"builds"`
+	Totals PipelineTotals       `json:"totals"`
+	// FailureOrigins counts all of this project's failing tests in the
+	// pipeline by origin and environment, matching the run failures endpoint.
+	// Absent when the tags could not be read (see Warnings).
+	FailureOrigins *FailureOrigins `json:"failure_origins,omitempty"`
 	// TruncatedBuilds is true when the pipeline holds more shard builds than
 	// the per-call cap examined here.
 	TruncatedBuilds bool `json:"truncated_builds,omitempty"`
@@ -134,16 +180,16 @@ type DiagnosePipelineOutput struct {
 }
 
 // RegisterPipelineTools registers the diagnose_pipeline tool on s.
-func RegisterPipelineTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
+func RegisterPipelineTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "diagnose_pipeline",
 		Title:       "Diagnose AllureDeck CI pipeline",
 		Annotations: readOnlyAnnotations(),
-		Description: "Diagnose every shard build of a CI pipeline run in ONE call. Playwright CI shards a suite across parallel jobs and each shard uploads its OWN build under a shared ci_pipeline_id (builds.ci_pipeline_id) within the same project — diagnose_failure only ever sees one of those builds, so an agent that diagnoses a single shard's report never learns that sibling shards also failed, or that they all failed for the SAME reason. Prefer diagnose_pipeline over diagnose_failure whenever a build's ci_pipeline_id is non-empty (list_recent_builds, resolve_url, diagnose_failure, list_failing_tests, and compare_builds all now surface it) and you want the whole run's picture rather than one shard's. Returns `builds[]`, one compact block per shard {build_id, build_number, branch, created_at, stats, failing_tests, truncated}, `totals` {builds, failed_builds, total_tests, failed_tests} summed across every shard, and `clusters` — the UNION of every shard's failing tests grouped by root cause (same clustering diagnose_failure uses), so one environment outage spanning four shards reads as ONE cluster instead of four separate failure lists. Per-test detail is intentionally thin here: full_name, status, and a 500-char-capped error_message, with per-test triage, last-good pointers, retry attempts, and build history left OFF — those require several queries per test and would multiply across every shard's failures. Once diagnose_pipeline points at the shard and test that matter, call diagnose_failure on that specific build for the full per-test diagnosis. max_tests_per_build caps detailed examination per shard (default 10, clamped to 50); a shard with more failures than that is reported with truncated=true. An unknown pipeline_id returns a clear error — check list_recent_builds for the project's actual ci_pipeline_id values.",
-	}, diagnosePipelineHandler(stores, logger))
+		Description: "Diagnose every shard build of a CI pipeline run in ONE call. Playwright CI shards a suite across parallel jobs and each shard uploads its OWN build under a shared ci_pipeline_id (builds.ci_pipeline_id) within the same project — diagnose_failure only ever sees one of those builds, so an agent that diagnoses a single shard's report never learns that sibling shards also failed, or that they all failed for the SAME reason. Prefer diagnose_pipeline over diagnose_failure whenever a build's ci_pipeline_id is non-empty (list_recent_builds, resolve_url, diagnose_failure, list_failing_tests, and compare_builds all now surface it) and you want the whole run's picture rather than one shard's. Returns `builds[]`, one compact block per shard {build_id, build_number, branch, created_at, stats, failing_tests, truncated}, `totals` {builds, failed_builds, total_tests, failed_tests} summed across every shard, and `clusters` — the UNION of every shard's failing tests grouped by root cause (same clustering diagnose_failure uses), so one environment outage spanning four shards reads as ONE cluster instead of four separate failure lists. Per-test detail is intentionally thin here: full_name, status, and a 500-char-capped error_message, with per-test triage, last-good pointers, retry attempts, and build history left OFF — those require several queries per test and would multiply across every shard's failures. Once diagnose_pipeline points at the shard and test that matter, call diagnose_failure on that specific build for the full per-test diagnosis. max_tests_per_build caps detailed examination per shard (default 10, clamped to 50); a shard with more failures than that is reported with truncated=true. Each failing test carries `origin` (new: it passed in the suite's default-branch baseline, the latest older run there, all its shards; inherited: it failed there too; unknown: no baseline to compare with) and `environment` (its defect fingerprint is infrastructure), and `failure_origins` counts them over ALL this project's failing tests in the pipeline, the same figures the run failures endpoint and the UI show. run_url is the UI page of the whole pipeline run (every suite, not just this project's shards); give it to a person who needs the pipeline's picture. An unknown pipeline_id returns a clear error — check list_recent_builds for the project's actual ci_pipeline_id values.",
+	}, diagnosePipelineHandler(stores, logger, publicURL))
 }
 
-func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in DiagnosePipelineInput) (*mcpsdk.CallToolResult, DiagnosePipelineOutput, error) {
+func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in DiagnosePipelineInput) (*mcpsdk.CallToolResult, DiagnosePipelineOutput, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -185,6 +231,7 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger) func(
 
 		out := DiagnosePipelineOutput{
 			PipelineID: in.PipelineID,
+			RunURL:     runURL(publicURL, proj.ParentID, in.PipelineID),
 		}
 		if len(builds) > diagnosePipelineMaxBuilds {
 			builds = builds[:diagnosePipelineMaxBuilds]
@@ -195,6 +242,43 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger) func(
 		}
 		out.Builds = make([]PipelineBuildBlock, len(builds))
 
+		// Origin and environment come from the store's run-failures query, the
+		// same SQL the run failures endpoint (and so the UI) reads, so the two
+		// cannot drift. They are enrichment: if the lookup fails the diagnosis
+		// still stands, without tags.
+		tagsByResult := map[int64]store.RunFailureRow{}
+		tagRows, err := stores.Pipeline.ListFailuresByPipelineID(ctx, proj.ID, in.PipelineID, diagnosePipelineOriginsMaxRows+1)
+		if err != nil {
+			logger.Warn("diagnose_pipeline: failure origins unavailable",
+				zap.Int64("project_id", proj.ID), zap.String("pipeline_id", in.PipelineID), zap.Error(err))
+			out.Warnings = append(out.Warnings, "failure origins unavailable: origin and environment are omitted")
+		} else {
+			fo := FailureOrigins{Truncated: len(tagRows) > diagnosePipelineOriginsMaxRows}
+			if fo.Truncated {
+				tagRows = tagRows[:diagnosePipelineOriginsMaxRows]
+				out.Warnings = append(out.Warnings, fmt.Sprintf(
+					"more than %d failing tests; failure_origins counts only the first %d, and failing_tests beyond them carry no origin or environment",
+					diagnosePipelineOriginsMaxRows, diagnosePipelineOriginsMaxRows))
+			}
+			for i := range tagRows {
+				r := &tagRows[i]
+				tagsByResult[r.TestResultID] = *r
+				fo.Total++
+				switch r.Origin {
+				case store.FailureOriginNew:
+					fo.New++
+				case store.FailureOriginInherited:
+					fo.Inherited++
+				default:
+					fo.Unknown++
+				}
+				if r.Environment {
+					fo.Environment++
+				}
+			}
+			out.FailureOrigins = &fo
+		}
+
 		// allTests collects every examined failing test across every shard build
 		// so clusterFailingTests groups root causes across the WHOLE pipeline
 		// rather than per shard. buildRanges maps each build's slice of allTests
@@ -203,6 +287,9 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger) func(
 		// never changes its length, so indices recorded before clustering stay
 		// valid after.
 		var allTests []DiagnoseTest
+		// allResultIDs[i] is the test_results.id of allTests[i], to look its
+		// origin tags up.
+		var allResultIDs []int64
 		buildRanges := make([][2]int, len(builds)) // [start, end) into allTests, per build
 
 		for i := range builds {
@@ -302,6 +389,7 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger) func(
 					FailedStepPath: stepPath,
 					Signals:        signals,
 				})
+				allResultIDs = append(allResultIDs, failing[j].ID)
 			}
 			buildRanges[i] = [2]int{start, len(allTests)}
 			out.Builds[i] = block
@@ -329,6 +417,8 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger) func(
 					Status:       allTests[j].Status,
 					ErrorMessage: allTests[j].ErrorMessage,
 					ClusterID:    allTests[j].ClusterID,
+					Origin:       tagsByResult[allResultIDs[j]].Origin,
+					Environment:  tagsByResult[allResultIDs[j]].Environment,
 				})
 			}
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -68,6 +69,9 @@ type RecentBuildItem struct {
 	CIPipelineID string `json:"ci_pipeline_id,omitempty"`
 	// CIPipelineURL is the CI system's link to the pipeline run.
 	CIPipelineURL string `json:"ci_pipeline_url,omitempty"`
+	// RunURL is the UI page of the whole pipeline run this build belongs to;
+	// see ResolveURLOutput.RunURL.
+	RunURL string `json:"run_url,omitempty"`
 }
 
 // ListRecentBuildsOutput is the structured output for list_recent_builds.
@@ -136,6 +140,11 @@ type ResolveURLOutput struct {
 	Status      string `json:"status_summary,omitempty"`
 	HasFailures bool   `json:"has_failures"`
 	ReportURL   string `json:"report_url"` // canonical UI link
+	// RunURL is the UI page of the whole pipeline run this build belongs to
+	// (every suite and shard, failures expanded): the link to give a human.
+	// Empty for a standalone project or a build with no CI pipeline id or
+	// commit SHA.
+	RunURL string `json:"run_url,omitempty"`
 	// CIPipelineID identifies the CI pipeline run this build belongs to.
 	// Playwright CI shards upload one build each under a shared pipeline ID —
 	// a non-empty value here means sibling shard builds may exist; pass it to
@@ -154,7 +163,7 @@ var numericRe = regexp.MustCompile(`^\d+$`)
 
 // RegisterDiscoveryTools registers list_projects, list_recent_builds,
 // find_test_by_name, and resolve_url on s.
-func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger) {
+func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *zap.Logger, publicURL string) {
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "list_projects",
 		Title:       "List AllureDeck projects",
@@ -167,7 +176,7 @@ func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *
 		Title:       "List AllureDeck recent builds",
 		Annotations: readOnlyAnnotations(),
 		Description: "List recent builds for a project, optionally filtered by branch. Returns build IDs needed for other tools.",
-	}, listRecentBuildsHandler(stores, logger))
+	}, listRecentBuildsHandler(stores, logger, publicURL))
 
 	mcpsdk.AddTool(s, &mcpsdk.Tool{
 		Name:        "find_test_by_name",
@@ -180,8 +189,8 @@ func RegisterDiscoveryTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *
 		Name:        "resolve_url",
 		Title:       "Resolve AllureDeck URL",
 		Annotations: readOnlyAnnotations(),
-		Description: "Resolve a UI URL or (project_ref, build_number) pair to the build_id and project context needed by other tools. Call this first when given a URL — the build_number in the URL is NOT the build_id that other tools require.",
-	}, resolveURLHandler(stores, logger))
+		Description: "Resolve a UI URL or (project_ref, build_number) pair to the build_id and project context needed by other tools. Call this first when given a URL — the build_number in the URL is NOT the build_id that other tools require. Also returns run_url, the UI page of the whole pipeline run the build belongs to (all suites and shards); give that link, not report_url, when pointing a person at the pipeline.",
+	}, resolveURLHandler(stores, logger, publicURL))
 }
 
 func listProjectsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListProjectsInput) (*mcpsdk.CallToolResult, ListProjectsOutput, error) {
@@ -239,7 +248,7 @@ func projectToItem(p store.Project) ProjectItem {
 	return item
 }
 
-func listRecentBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListRecentBuildsInput) (*mcpsdk.CallToolResult, ListRecentBuildsOutput, error) {
+func listRecentBuildsHandler(stores *bootstrap.Stores, logger *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ListRecentBuildsInput) (*mcpsdk.CallToolResult, ListRecentBuildsOutput, error) {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ListRecentBuildsInput) (*mcpsdk.CallToolResult, ListRecentBuildsOutput, error) {
 		if in.ProjectID <= 0 {
 			return nil, ListRecentBuildsOutput{}, fmt.Errorf("project_id must be positive")
@@ -282,9 +291,17 @@ func listRecentBuildsHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx c
 			return nil, ListRecentBuildsOutput{}, fmt.Errorf("listing builds: %w", err)
 		}
 
+		// One project lookup serves the whole page, and none is made when no
+		// build names a run.
+		var groupID *int64
+		if slices.ContainsFunc(builds, func(b store.Build) bool { return runKeyOf(&b) != "" }) {
+			groupID = groupIDOf(ctx, stores, logger, int64(in.ProjectID))
+		}
+
 		items := make([]RecentBuildItem, len(builds))
 		for i := range builds {
 			items[i] = recentBuildItem(builds[i])
+			items[i].RunURL = runURL(publicURL, groupID, runKeyOf(&builds[i]))
 		}
 
 		var nextCursor string
@@ -367,7 +384,7 @@ func findTestByNameHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx con
 	}
 }
 
-func resolveURLHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ResolveURLInput) (*mcpsdk.CallToolResult, ResolveURLOutput, error) {
+func resolveURLHandler(stores *bootstrap.Stores, _ *zap.Logger, publicURL string) func(ctx context.Context, req *mcpsdk.CallToolRequest, in ResolveURLInput) (*mcpsdk.CallToolResult, ResolveURLOutput, error) {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, in ResolveURLInput) (*mcpsdk.CallToolResult, ResolveURLOutput, error) {
 		var projectRef string
 		var buildNumber int
@@ -433,6 +450,7 @@ func resolveURLHandler(stores *bootstrap.Stores, _ *zap.Logger) func(ctx context
 			BuildNumber: b.BuildNumber,
 			CreatedAt:   b.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			ReportURL:   fmt.Sprintf("/projects/%d/reports/%d", proj.ID, b.BuildNumber),
+			RunURL:      runURL(publicURL, proj.ParentID, runKeyOf(&b)),
 		}
 		if b.CIBranch != nil {
 			out.Branch = *b.CIBranch
