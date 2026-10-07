@@ -12,11 +12,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const SIDEBAR_COOKIE_NAME = 'sidebar_state'
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 const SIDEBAR_WIDTH = '18rem'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
+
+// The state the provider last wrote to its cookie; open when it was never written.
+function readSidebarOpen() {
+  return !document.cookie.split('; ').includes(`${SIDEBAR_COOKIE_NAME}=false`)
+}
 
 type SidebarContextValue = {
   state: 'expanded' | 'collapsed'
@@ -682,6 +687,8 @@ export {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  // eslint-disable-next-line react-refresh/only-export-components -- shadcn pattern: helpers co-located with sidebar components
+  readSidebarOpen,
   // eslint-disable-next-line react-refresh/only-export-components -- shadcn pattern: hook co-located with sidebar components
   useSidebar,
 }

@@ -1,6 +1,6 @@
 import { Outlet } from 'react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import { SidebarInset, SidebarProvider, readSidebarOpen } from '@/components/ui/sidebar'
 import { SearchCommand } from '@/features/search'
 import { usePreferencesSync } from '@/hooks/usePreferencesSync'
 import { AppSidebar } from './AppSidebar'
@@ -13,7 +13,10 @@ export function Layout() {
   return (
     <TooltipProvider>
       <SearchCommand>
-        <SidebarProvider className="h-svh min-h-0 flex-col overflow-hidden">
+        <SidebarProvider
+          defaultOpen={readSidebarOpen()}
+          className="h-svh min-h-0 flex-col overflow-hidden"
+        >
           <TopBar />
           <BreadcrumbBar />
           <div className="flex min-h-0 flex-1">

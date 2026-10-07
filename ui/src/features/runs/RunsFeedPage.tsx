@@ -56,7 +56,7 @@ export function RunsFeedPage() {
   const totalPages = Math.max(1, pagination?.total_pages ?? 1)
 
   return (
-    <div className="space-y-6 p-6" data-testid="runs-feed">
+    <div className="space-y-6" data-testid="runs-feed">
       <PageHeader
         title="Runs"
         titleVariant="sans"
@@ -97,7 +97,7 @@ export function RunsFeedPage() {
         // One bordered list with divided rows rather than a card per run: the
         // feed is meant to be scanned top to bottom, and per-card padding was
         // most of what made it tall.
-        <div className="divide-y rounded-lg border">
+        <div className="@container divide-y rounded-lg border">
           {runs.map((run) => (
             <RunRow
               key={`${run.group_project_id ?? run.group_slug}:${run.pipeline_id ?? run.commit_sha}:${run.timestamp}`}
