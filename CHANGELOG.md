@@ -1,3 +1,13 @@
+## [0.48.0](https://github.com/mkutlak/alluredeck/compare/v0.47.3...v0.48.0) (2026-10-07)
+
+### Features
+
+* **ui:** make the runs feed readable and its pass rates honest ([5d56e6b](https://github.com/mkutlak/alluredeck/commit/5d56e6b3fe2bf0c27cfd07b5f71b6f0422133d17))
+
+### Bug Fixes
+
+* **api:** floor pipeline pass rates and report skipped suites ([5986d69](https://github.com/mkutlak/alluredeck/commit/5986d69e62bf4dee408f1d5c14b1b960f2fdb712))
+
 ## [0.47.3](https://github.com/mkutlak/alluredeck/compare/v0.47.2...v0.47.3) (2026-10-07)
 
 ### Bug Fixes
