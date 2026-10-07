@@ -7,8 +7,8 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
       attribute="class"
       defaultTheme="system"
       enableSystem
-      // This SPA never server-renders, so React never runs the provider's no-flash <script> and
-      // warns about it in dev. A non-JS type makes it an inert data block, which React accepts.
+      // This SPA never server-renders, so React never runs the provider's <script> (index.html sets
+      // the theme before first paint) and warns in dev. A non-JS type makes it an inert data block.
       scriptProps={{ type: 'application/json' }}
       {...props}
     >

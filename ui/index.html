@@ -2,6 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Apply the saved theme before first paint; ThemeProvider keeps it in sync afterwards.
+      try {
+        let t = localStorage.getItem('theme') || 'system'
+        if (t === 'system')
+          t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.classList.add(t)
+        document.documentElement.style.colorScheme = t
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AllureDeck</title>
