@@ -13,12 +13,11 @@ import {
 import { ApiError, extractErrorMessage } from '@/api/client'
 import { env } from '@/lib/env'
 import { pipelineRunOptions, runFailuresOptions } from '@/lib/queries'
-import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { cn, formatDuration, formatPassRate } from '@/lib/utils'
 import { useUIStore, type FailureGrouping } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { RelativeTime, RunGroupLink, RunSummary } from './RunFacts'
+import { RelativeTime, RunGlyph, RunGroupLink, RunSummary } from './RunFacts'
 import { RunFailures } from './RunFailures'
 import { countOrigins, originParts } from './failureOrigin'
 import { mergeRunFailures } from './mergeRunFailures'
@@ -104,7 +103,7 @@ export function RunPage() {
 
 function RunView({ run }: { run: PipelineRun }) {
   const location = useLocation()
-  const { verdict, glyph, suitesFailing } = summarizeRun(run)
+  const { suitesFailing } = summarizeRun(run)
   const isFailing = suitesFailing > 0
   const ciUrl = run.pipeline_url ?? run.ci_build_url
   const { aggregate } = run
@@ -194,9 +193,7 @@ function RunView({ run }: { run: PipelineRun }) {
     <div className="space-y-6" data-testid="run-page">
       <header className="space-y-1.5">
         <h1 className="flex items-baseline gap-2 text-2xl font-semibold">
-          <span aria-hidden="true" className={STATUS_TEXT_CLASSES[verdict]}>
-            {glyph}
-          </span>
+          <RunGlyph run={run} />
           {/* Machine-Text Rule: the ID is what a developer pastes into a terminal. */}
           <span className="min-w-0 font-mono wrap-anywhere">{runIdOf(run)}</span>
         </h1>

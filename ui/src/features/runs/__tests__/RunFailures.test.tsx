@@ -211,8 +211,8 @@ describe('RunFailures', () => {
       expect(screen.getByText('c')).toBeInTheDocument()
     })
 
-    // 18+ failures per run routinely share one message differing only in a
-    // timeout value; by-error states that once.
+    // 18+ failures per run routinely share one failure shape (the server gives
+    // them one cluster key); by-error states that once.
     it("clusters failures by the server's cluster key and persists the choice", async () => {
       const user = userEvent.setup()
       renderRun([

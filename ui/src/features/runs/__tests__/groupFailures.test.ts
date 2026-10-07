@@ -52,7 +52,7 @@ describe('groupByError', () => {
     expect(refused?.rows).toHaveLength(1)
   })
 
-  it('carries the first real message verbatim, not the signature', () => {
+  it('carries the first real message verbatim, not the cluster key', () => {
     const [timeouts, refused] = groupByError(rows)
     expect(timeouts?.message).toBe('Timed out 5000ms waiting for x')
     expect(refused?.message).toBe('Connection refused')

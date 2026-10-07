@@ -3,11 +3,10 @@ import { Link } from 'react-router'
 import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react'
 
 import { formatDuration, formatPassRate } from '@/lib/utils'
-import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { cn } from '@/lib/utils'
 import { RunSuiteChips } from './RunSuiteChips'
 import { RunFailures } from './RunFailures'
-import { RelativeTime, RunGroupLink, RunSummary } from './RunFacts'
+import { RelativeTime, RunGlyph, RunGroupLink, RunSummary } from './RunFacts'
 import { splitBranch, summarizeRun } from './rowFormat'
 import { runIdOf, runPath } from './runKey'
 import type { PipelineRun } from '@/types/api'
@@ -28,7 +27,7 @@ export function RunRow({ run }: RunRowProps) {
   const [branchHead, branchTail] = splitBranch(run.branch ?? '')
   // A suite whose report could not be read fails the run with no test listed as
   // failed, so "failing" and "has failures to expand" are different questions.
-  const { verdict, glyph, failedCount } = summarizeRun(run)
+  const { failedCount } = summarizeRun(run)
   const hasFailures = failedCount > 0
   const passRate = formatPassRate(
     aggregate.tests_passed,
@@ -85,9 +84,7 @@ export function RunRow({ run }: RunRowProps) {
           <span aria-hidden="true" />
         )}
 
-        <span aria-hidden="true" className={cn('text-center', STATUS_TEXT_CLASSES[verdict])}>
-          {glyph}
-        </span>
+        <RunGlyph run={run} className="text-center" />
 
         <code className="text-fact text-xs font-semibold">
           {(run.pipeline_url ?? run.ci_build_url) ? (

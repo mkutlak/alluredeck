@@ -8,22 +8,29 @@ export function isFailingSuite(suite: PipelineSuite): boolean {
   return suite.failed > 0 || suite.status === 'failed'
 }
 
-export type RunVerdict = 'failed' | 'skipped' | 'passed'
+export type RunVerdict = 'failed' | 'skipped' | 'passed' | 'awaiting'
 
-const GLYPHS = { failed: '✗', skipped: '○', passed: '✓' } as const
+const GLYPHS = { failed: '✗', skipped: '○', passed: '✓', awaiting: '○' } as const
 
 /**
  * The run's verdict and headline counts, shared by the feed row and the run page.
  * Every suite skipped means nothing ran: a neutral ○, never the green ✓. That is
  * decided from suite status, not from zero counts, which also describe a build
  * whose stats were unreadable.
+ *
+ * A run the API says is still uploading (`awaiting_suites`) has no verdict yet: its
+ * counts cover only the suites that arrived, so "2/2 passed" may be 2 of 9. It takes the
+ * same neutral ○, even with failures, which stay in `failedCount` and `suitesFailing`
+ * as facts about what has arrived.
  */
 export function summarizeRun(run: PipelineRun) {
   const failedCount = run.suites.reduce((sum, s) => sum + s.failed, 0)
   const suitesFailing = run.suites.filter(isFailingSuite).length
   const allSkipped = run.suites.length > 0 && run.suites.every((s) => s.status === 'skipped')
-  const verdict: RunVerdict = suitesFailing > 0 ? 'failed' : allSkipped ? 'skipped' : 'passed'
-  return { verdict, glyph: GLYPHS[verdict], failedCount, suitesFailing }
+  const awaiting = Math.max(0, run.aggregate.awaiting_suites ?? 0)
+  const verdict: RunVerdict =
+    awaiting > 0 ? 'awaiting' : suitesFailing > 0 ? 'failed' : allSkipped ? 'skipped' : 'passed'
+  return { verdict, glyph: GLYPHS[verdict], failedCount, suitesFailing, awaiting }
 }
 
 const TAIL_LENGTH = 8

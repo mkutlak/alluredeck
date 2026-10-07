@@ -205,7 +205,8 @@ export function RunFailures({
             onShowAllRows={() => setExpandedGroups((prev) => ({ ...prev, [group.key]: true }))}
             llmEnabled={llmEnabled}
             asSection={asPage && bySuite}
-            // ✗, or ⚠ "flaky or known" (suiteVerdict); the run's own verdict stays ✗.
+            // ✗, or ⚠ "flaky or known" (suiteVerdict); the run's own glyph is ✗,
+            // or ○ while suites are awaited.
             sectionVerdict={asPage && bySuite ? suiteVerdict(group, truncated) : undefined}
             historyBranch={asPage ? run.branch : undefined}
             emptyNote={

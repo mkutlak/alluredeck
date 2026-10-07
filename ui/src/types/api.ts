@@ -848,6 +848,12 @@ export interface PipelineAggregate {
   tests_skipped?: number
   pass_rate: number
   total_duration_ms: number
+  /**
+   * Suites the previous run had that this one has not uploaded yet, sent only while the
+   * run's newest upload is under 30 minutes old: the run is still arriving, so its
+   * counts are not a verdict. Absent otherwise. Optional so fixtures keep type-checking.
+   */
+  awaiting_suites?: number
 }
 
 export interface PipelineRun {
