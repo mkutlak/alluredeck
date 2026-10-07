@@ -1,3 +1,17 @@
+## [0.47.3](https://github.com/mkutlak/alluredeck/compare/v0.47.2...v0.47.3) (2026-10-07)
+
+### Bug Fixes
+
+* **api:** count the API-key limit under the stored username ([4d2f3e9](https://github.com/mkutlak/alluredeck/commit/4d2f3e9d9834cc36f3aeb9dfa007aab5ce45140e))
+* **api:** end a deactivated user's access on the next request ([8d268b7](https://github.com/mkutlak/alluredeck/commit/8d268b717d53ae5c4f217ab6f281b3e1804072d2))
+* **api:** end OIDC sessions on deactivation ([0fe51ce](https://github.com/mkutlak/alluredeck/commit/0fe51ce60d812048d3370bb5e82757ae6ac93e00))
+* **api:** refuse token refresh for deactivated users ([eddaa39](https://github.com/mkutlak/alluredeck/commit/eddaa39b6fd30afa402a033a532368596036882d))
+* **storage:** report S3 Allure 3 build duration as wall clock ([8b776f7](https://github.com/mkutlak/alluredeck/commit/8b776f7deed347a2c933ffb513708a912c8cc441))
+* **ui:** build compare and report links from the numeric project_id ([2f1ee3c](https://github.com/mkutlak/alluredeck/commit/2f1ee3caeaa960f984b7a83071deaca54157d952))
+* **ui:** invalidate project caches by clean key prefixes ([80da082](https://github.com/mkutlak/alluredeck/commit/80da0825d955b1d53348a2adb23f66e08fbe5f63))
+* **ui:** pass the effective branch to the analytics cards ([076d7f3](https://github.com/mkutlak/alluredeck/commit/076d7f3401e9f1f2106bdefa218f5f334715f1d6))
+* **ui:** refresh the known-issues list after changes ([faf8b81](https://github.com/mkutlak/alluredeck/commit/faf8b812d3cda59b8afca0dbef3f9be0ddba7276))
+
 ## [0.47.2](https://github.com/mkutlak/alluredeck/compare/v0.47.1...v0.47.2) (2026-08-25)
 
 ### Bug Fixes
