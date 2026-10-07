@@ -1,6 +1,12 @@
 import { queryOptions } from '@tanstack/react-query'
 
-import { fetchPipelineRuns, fetchRunFailures, fetchRunsFeed } from '@/api/pipeline'
+import { ApiError } from '@/api/client'
+import {
+  fetchPipelineRun,
+  fetchPipelineRuns,
+  fetchRunFailures,
+  fetchRunsFeed,
+} from '@/api/pipeline'
 import { fetchBuildFailedTests } from '@/api/builds'
 import { queryKeys } from '@/lib/query-keys'
 
@@ -17,6 +23,17 @@ export function runsFeedOptions(page: number, branch?: string, groupIds?: number
     queryKey: queryKeys.runsFeed(page, branch, groupIds),
     queryFn: () => fetchRunsFeed(page, undefined, branch, groupIds),
     staleTime: 15_000,
+  })
+}
+
+/** One run of a group, for its page. A 404 settles at once: the run does not exist. */
+export function pipelineRunOptions(groupId: string, runKey: string) {
+  return queryOptions({
+    queryKey: queryKeys.pipelineRun(groupId, runKey),
+    queryFn: () => fetchPipelineRun(groupId, runKey),
+    staleTime: 15_000,
+    retry: (failures, error) =>
+      !(error instanceof ApiError && error.response?.status === 404) && failures < 1,
   })
 }
 

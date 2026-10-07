@@ -1,36 +1,19 @@
-import { useEffect, useReducer, useState } from 'react'
-import { NavLink } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Link } from 'react-router'
 import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react'
 
-import { formatDate, formatDuration, formatPassRate } from '@/lib/utils'
+import { formatDuration, formatPassRate } from '@/lib/utils'
 import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
-import { formatProjectLabel } from '@/lib/projectLabel'
-import { projectIndexOptions } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { RunSuiteChips } from './RunSuiteChips'
 import { RunFailures } from './RunFailures'
-import { formatRelativeTime, splitBranch } from './rowFormat'
+import { RelativeTime, RunGroupLink, RunSummary } from './RunFacts'
+import { splitBranch, summarizeRun } from './rowFormat'
+import { runIdOf, runPath } from './runKey'
 import type { PipelineRun } from '@/types/api'
 
 export interface RunRowProps {
   run: PipelineRun
-}
-
-// The label is a function of the clock and React Query will not re-render an unchanged
-// feed, so a page left open ticks on its own. ponytail: one timer per row, lift into
-// the feed page if pages ever hold hundreds of rows.
-function RelativeTime({ timestamp, className }: { timestamp: string; className: string }) {
-  const [, tick] = useReducer((n: number) => n + 1, 0)
-  useEffect(() => {
-    const id = setInterval(tick, 60_000)
-    return () => clearInterval(id)
-  }, [])
-  return (
-    <time dateTime={timestamp} title={formatDate(timestamp)} className={className}>
-      {formatRelativeTime(timestamp)}
-    </time>
-  )
 }
 
 export function RunRow({ run }: RunRowProps) {
@@ -40,34 +23,42 @@ export function RunRow({ run }: RunRowProps) {
   // before the user had asked for any.
   const [expanded, setExpanded] = useState(false)
 
-  const shortSHA = run.commit_sha?.slice(0, 7)
+  const runId = runIdOf(run)
+  const href = runPath(run)
   const [branchHead, branchTail] = splitBranch(run.branch ?? '')
-  const failedCount = run.suites.reduce((sum, s) => sum + s.failed, 0)
+  // A suite whose report could not be read fails the run with no test listed as
+  // failed, so "failing" and "has failures to expand" are different questions.
+  const { verdict, glyph, failedCount } = summarizeRun(run)
   const hasFailures = failedCount > 0
-  // A suite whose report could not be read has no counts but status "failed":
-  // it fails the run although no test is listed as failed.
-  const suitesFailing = run.suites.filter((s) => s.failed > 0 || s.status === 'failed').length
-  const isFailing = suitesFailing > 0
-
-  const { data: projectsResp } = useQuery(projectIndexOptions())
-  const projects = projectsResp?.data
-  const groupProject =
-    run.group_project_id != null
-      ? projects?.find((p) => p.project_id === run.group_project_id)
-      : undefined
-  const groupLabel = groupProject ? formatProjectLabel(groupProject, projects) : run.group_slug
-  const groupHref = run.group_project_id != null ? `/projects/${run.group_project_id}` : undefined
-
-  // Every suite skipped: nothing ran, so there is no verdict and no rate. Neutral
-  // glyph, "—", never the green ✓ or a red 0%. Decided from suite status, not
-  // from zero counts, which also describe a build whose stats were unreadable.
-  const allSkipped = run.suites.length > 0 && run.suites.every((s) => s.status === 'skipped')
-  const verdict = isFailing ? 'failed' : allSkipped ? 'skipped' : 'passed'
-  const glyph = { failed: '✗', skipped: '○', passed: '✓' }[verdict]
   const passRate = formatPassRate(
     aggregate.tests_passed,
     aggregate.tests_total,
     aggregate.tests_skipped,
+  )
+
+  // The branch is how a developer finds their run (full ink, 14px, weight 500), and it
+  // opens the run's page. The cell stays when a run has no branch so the columns hold.
+  const branchClass = 'text-foreground flex min-w-0 flex-1 items-center font-medium'
+  const branchContent = run.branch ? (
+    <>
+      <GitBranch size={11} className="mr-1 shrink-0" />
+      {/* Inline boxes, not flex items: a copied branch stays one line, and a screen
+          reader reads it once. flex-1 gives the percentage a definite width; 9ch
+          leaves room for the 8-character tail. */}
+      <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
+        <span
+          className={cn(
+            'inline-block truncate align-bottom',
+            branchTail ? 'max-w-[calc(100%-9ch)]' : 'max-w-full',
+          )}
+        >
+          {branchHead}
+        </span>
+        {branchTail}
+      </span>
+    </>
+  ) : (
+    href && <span className="text-fact font-normal">no branch</span>
   )
 
   return (
@@ -83,7 +74,7 @@ export function RunRow({ run }: RunRowProps) {
             className="text-fact hover:text-foreground self-center"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
-            aria-label={`Toggle failures for ${run.pipeline_id ?? shortSHA}`}
+            aria-label={`Toggle failures for ${runId}`}
             data-testid="run-row-toggle"
           >
             {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -106,75 +97,40 @@ export function RunRow({ run }: RunRowProps) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 hover:underline"
             >
-              {run.pipeline_id ?? shortSHA}
+              {runId}
               <ExternalLink size={11} />
             </a>
           ) : (
-            (run.pipeline_id ?? shortSHA)
+            runId
           )}
         </code>
 
         <div className="col-start-3 col-end-5 row-start-2 flex min-w-0 items-baseline gap-2 @4xl:contents">
-          {/* The branch is how a developer finds their run: full ink, 14px, weight 500.
-              The cell stays when a run has no branch so the columns do not shift. */}
-          <span
-            title={run.branch}
-            className="text-foreground flex min-w-0 flex-1 items-center font-medium"
-          >
-            {run.branch && (
-              <>
-                <GitBranch size={11} className="mr-1 shrink-0" />
-                {/* Inline boxes, not flex items: a copied branch stays one line, and a
-                    screen reader reads it once. flex-1 gives the percentage a definite
-                    width; 9ch leaves room for the 8-character tail. */}
-                <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-                  <span
-                    className={cn(
-                      'inline-block truncate align-bottom',
-                      branchTail ? 'max-w-[calc(100%-9ch)]' : 'max-w-full',
-                    )}
-                  >
-                    {branchHead}
-                  </span>
-                  {branchTail}
-                </span>
-              </>
-            )}
-          </span>
+          {href ? (
+            <Link
+              to={href}
+              title={run.branch || undefined}
+              // Every row has a "main" link; the run ID says which run this one opens.
+              aria-label={`${run.branch || 'no branch'}, run ${runId}`}
+              className={cn(branchClass, 'hover:underline')}
+            >
+              {branchContent}
+            </Link>
+          ) : (
+            <span title={run.branch || undefined} className={branchClass}>
+              {branchContent}
+            </span>
+          )}
 
           <span className="text-fact max-w-[40%] min-w-0 shrink-0 text-xs @4xl:max-w-none">
-            {groupLabel &&
-              (groupHref ? (
-                // truncate on the link, not a wrapper: a wrapper would clip the focus ring.
-                <NavLink to={groupHref} className="block truncate hover:underline">
-                  {groupLabel}
-                </NavLink>
-              ) : (
-                <span className="block truncate">{groupLabel}</span>
-              ))}
+            {/* truncate on the link, not a wrapper: a wrapper would clip the focus ring. */}
+            <RunGroupLink run={run} className="block truncate" />
           </span>
         </div>
 
         <div className="text-fact col-start-3 col-end-5 row-start-3 flex min-w-0 items-baseline justify-between gap-3 text-xs @4xl:contents">
           <span data-testid="run-row-summary" className="min-w-0 @4xl:truncate">
-            {/* Spell out "failing" — a bare "7/8 suites" reads as 7 passing. */}
-            {isFailing ? (
-              <>
-                {`${suitesFailing}/${aggregate.suites_total} suites failing`}
-                {hasFailures && (
-                  <>
-                    {' · '}
-                    <span className={cn('font-medium', STATUS_TEXT_CLASSES.failed)}>
-                      {`${failedCount} ${failedCount === 1 ? 'failed test' : 'failed tests'}`}
-                    </span>
-                  </>
-                )}
-              </>
-            ) : allSkipped ? (
-              'all tests skipped'
-            ) : (
-              `${aggregate.suites_total}/${aggregate.suites_total} suites passed`
-            )}
+            <RunSummary run={run} />
           </span>
           {/* A plain fact, not a verdict: coloured by threshold, a failing run at
               95.9% read green. The glyph and the failed-test count carry status. */}
@@ -193,7 +149,7 @@ export function RunRow({ run }: RunRowProps) {
       {/* Line 2 — only when something failed, so a green run stays one line. */}
       {hasFailures && (
         <div className="mt-1.5 pl-6">
-          <RunSuiteChips suites={run.suites} />
+          <RunSuiteChips suites={run.suites} runPath={href} />
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router'
 import { FileText, Folder } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import { useProjectFromParam } from '@/lib/resolveProject'
 import { buildBreadcrumbs, LOADING_CRUMB, type BreadcrumbParams } from './breadcrumbs'
 
@@ -12,7 +13,7 @@ const CRUMB_ICONS = {
 export function BreadcrumbBar() {
   const location = useLocation()
   const params = useParams<keyof BreadcrumbParams>()
-  const resolved = useProjectFromParam(params.id)
+  const resolved = useProjectFromParam(params.id ?? params.groupId)
   const crumbs = buildBreadcrumbs(location.pathname, params, resolved)
 
   if (!crumbs) return null
@@ -31,22 +32,37 @@ export function BreadcrumbBar() {
           <Skeleton className="h-4 w-24" data-testid="breadcrumb-skeleton" />
         </>
       ) : (
-        <ol className="flex items-center gap-1.5">
+        // Crumbs truncate rather than wrap: a long group name used to spill three lines
+        // out of the 40px bar on a phone. The short root and the current page do not shrink.
+        <ol className="flex min-w-0 items-center gap-1.5">
           {crumbs.map((crumb, i) => {
             const isLast = i === crumbs.length - 1
             return (
-              <li key={i} className="flex items-center gap-1.5">
-                {i > 0 && <span className="text-muted-foreground select-none">/</span>}
-                {crumb.icon && <span className="flex items-center">{CRUMB_ICONS[crumb.icon]}</span>}
+              <li
+                key={i}
+                className={cn(
+                  'flex min-w-0 items-center gap-1.5',
+                  (i === 0 || isLast) && 'shrink-0',
+                  isLast && 'max-w-[70%]',
+                )}
+              >
+                {i > 0 && <span className="text-muted-foreground shrink-0 select-none">/</span>}
+                {crumb.icon && (
+                  <span className="flex shrink-0 items-center">{CRUMB_ICONS[crumb.icon]}</span>
+                )}
                 {crumb.href && !isLast ? (
                   <Link
                     to={crumb.href}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    title={crumb.label}
+                    className="text-fact hover:text-foreground min-w-0 truncate transition-colors"
                   >
                     {crumb.label}
                   </Link>
                 ) : (
-                  <span className={isLast ? 'font-medium' : 'text-muted-foreground'}>
+                  <span
+                    title={crumb.label}
+                    className={cn('min-w-0 truncate', isLast ? 'font-medium' : 'text-fact')}
+                  >
                     {crumb.label}
                   </span>
                 )}

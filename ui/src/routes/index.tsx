@@ -13,6 +13,7 @@ const DashboardPage = lazy(() =>
 const RunsFeedPage = lazy(() =>
   import('@/features/runs').then((m) => ({ default: m.RunsFeedPage })),
 )
+const RunPage = lazy(() => import('@/features/runs').then((m) => ({ default: m.RunPage })))
 const OverviewTab = lazy(() =>
   import('@/features/projects/OverviewTab').then((m) => ({ default: m.OverviewTab })),
 )
@@ -101,6 +102,14 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <RunsFeedPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="runs/:groupId/:runKey"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <RunPage />
               </Suspense>
             }
           />

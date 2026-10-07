@@ -1,28 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { projectIndexOptions } from '@/lib/queries'
-import { useUIStore } from '@/store/ui'
 import { useFeedBranches } from './useFeedBranches'
+import { useFeedParams } from './useFeedParams'
 import { Combobox } from '@/components/ui/combobox'
 
 export function FeedBranchSelect() {
-  const runsFeedGroupIds = useUIStore((s) => s.runsFeedGroupIds)
-  const selectedBranch = useUIStore((s) => s.selectedBranch)
-  const setSelectedBranch = useUIStore((s) => s.setSelectedBranch)
+  const { branch, setBranch, groupIds } = useFeedParams()
 
   const { data: projectsResp } = useQuery(projectIndexOptions())
   const allParentIds = (projectsResp?.data ?? [])
     .filter((p) => (p.children?.length ?? 0) > 0)
     .map((p) => p.project_id)
 
-  const parentIds = runsFeedGroupIds.length > 0 ? runsFeedGroupIds : allParentIds
+  const parentIds = groupIds.length > 0 ? groupIds : allParentIds
 
   const { branchNames, isLoading } = useFeedBranches(parentIds)
 
-  if (!isLoading && branchNames.length === 0) return null
-
-  // The stored branch is shared across pages; one this feed lacks reads as "All branches".
-  const storedBranchInList = selectedBranch !== undefined && branchNames.includes(selectedBranch)
+  // Kept while a branch is set, or a URL branch no group has could not be cleared.
+  if (!isLoading && branchNames.length === 0 && !branch) return null
 
   return (
     <div className="flex items-center gap-1.5">
@@ -30,8 +26,8 @@ export function FeedBranchSelect() {
       <Combobox
         aria-label="Filter by branch"
         options={branchNames.map((name) => ({ value: name, label: name }))}
-        value={storedBranchInList ? selectedBranch : null}
-        onChange={(branch) => setSelectedBranch(branch ?? undefined)}
+        value={branch ?? null}
+        onChange={(next) => setBranch(next ?? undefined)}
         placeholder="All branches"
         searchPlaceholder="Search branches…"
         emptyText="No matching branches."

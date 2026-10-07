@@ -5,6 +5,8 @@ import type { PipelineSuite } from '@/types/api'
 
 export interface RunSuiteChipsProps {
   suites: PipelineSuite[]
+  /** The run's page, so each chip opens its suite's section there. */
+  runPath?: string
 }
 
 /** Chips shown before the "+N failing" expander kicks in. */
@@ -17,7 +19,7 @@ const VISIBLE_LIMIT = 4
  * news and cost three wrapped lines of chips per run, so they collapse to a
  * count and the failing ones lead.
  */
-export function RunSuiteChips({ suites }: RunSuiteChipsProps) {
+export function RunSuiteChips({ suites, runPath }: RunSuiteChipsProps) {
   const [showAll, setShowAll] = useState(false)
 
   const failing = suites
@@ -33,7 +35,7 @@ export function RunSuiteChips({ suites }: RunSuiteChipsProps) {
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="run-suite-chips">
       {visible.map((suite) => (
-        <RunSuiteChip key={suite.project_id} suite={suite} />
+        <RunSuiteChip key={suite.project_id} suite={suite} runPath={runPath} />
       ))}
 
       {hiddenCount > 0 && (
@@ -47,9 +49,7 @@ export function RunSuiteChips({ suites }: RunSuiteChipsProps) {
         </button>
       )}
 
-      {passedCount > 0 && (
-        <span className="text-fact text-xs">{`· ${passedCount} passed`}</span>
-      )}
+      {passedCount > 0 && <span className="text-fact text-xs">{`· ${passedCount} passed`}</span>}
     </div>
   )
 }

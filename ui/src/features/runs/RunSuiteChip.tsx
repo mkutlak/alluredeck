@@ -4,10 +4,13 @@ import { Split } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
+import { suiteReportHref } from './runKey'
 import type { PipelineSuite } from '@/types/api'
 
 export interface RunSuiteChipProps {
   suite: PipelineSuite
+  /** The run's page; the chip opens this suite's section there. Without it, the report. */
+  runPath?: string
 }
 
 const STATUS_ICON = {
@@ -26,7 +29,7 @@ const STATUS_CLASS = {
   skipped: STATUS_TEXT_CLASSES.skipped,
 } as const
 
-export function RunSuiteChip({ suite }: RunSuiteChipProps) {
+export function RunSuiteChip({ suite, runPath }: RunSuiteChipProps) {
   const label = suite.display_name || suite.slug
   const shardCount = suite.builds?.length ?? 1
   const isSharded = shardCount > 1
@@ -34,11 +37,7 @@ export function RunSuiteChip({ suite }: RunSuiteChipProps) {
   // amber warning although tests in it failed. Any failure reads as ✗.
   const status = suite.failed > 0 ? 'failed' : suite.status
 
-  // A sharded suite has no single report to open — several builds contributed
-  // to it — so send those to the project, where every build is listed.
-  const href = isSharded
-    ? `/projects/${suite.project_id}`
-    : `/projects/${suite.project_id}/reports/${suite.build_number}`
+  const href = runPath ? `${runPath}#suite-${suite.project_id}` : suiteReportHref(suite)
 
   const chip = (
     <NavLink

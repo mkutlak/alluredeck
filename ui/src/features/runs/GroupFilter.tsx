@@ -4,32 +4,27 @@ import { useQuery } from '@tanstack/react-query'
 
 import { projectIndexOptions } from '@/lib/queries'
 import { formatProjectLabel } from '@/lib/projectLabel'
-import { useUIStore } from '@/store/ui'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { useFeedParams } from './useFeedParams'
 
 export function GroupFilter() {
   const [open, setOpen] = useState(false)
-  const runsFeedGroupIds = useUIStore((s) => s.runsFeedGroupIds)
-  const setRunsFeedGroupIds = useUIStore((s) => s.setRunsFeedGroupIds)
+  const { groupIds, setGroupIds } = useFeedParams()
 
   const { data } = useQuery(projectIndexOptions())
   const projects = data?.data ?? []
   const groups = projects.filter((p) => (p.children?.length ?? 0) > 0)
 
   const toggle = (id: number) => {
-    setRunsFeedGroupIds(
-      runsFeedGroupIds.includes(id)
-        ? runsFeedGroupIds.filter((g) => g !== id)
-        : [...runsFeedGroupIds, id],
-    )
+    setGroupIds(groupIds.includes(id) ? groupIds.filter((g) => g !== id) : [...groupIds, id])
   }
 
   const label =
-    runsFeedGroupIds.length === 0
+    groupIds.length === 0
       ? 'All groups'
-      : `${runsFeedGroupIds.length} group${runsFeedGroupIds.length === 1 ? '' : 's'} selected`
+      : `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} selected`
 
   if (groups.length === 0) return null
 
@@ -44,12 +39,12 @@ export function GroupFilter() {
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-2">
         <div className="space-y-1">
-          {runsFeedGroupIds.length > 0 && (
+          {groupIds.length > 0 && (
             // A reset inside the filter, so there is no extra control on the page.
             <button
               type="button"
               onClick={() => {
-                setRunsFeedGroupIds([])
+                setGroupIds([])
                 // The row removes itself; close so focus returns to the trigger.
                 setOpen(false)
               }}
@@ -68,7 +63,7 @@ export function GroupFilter() {
               >
                 <Checkbox
                   id={checkboxId}
-                  checked={runsFeedGroupIds.includes(g.project_id)}
+                  checked={groupIds.includes(g.project_id)}
                   onCheckedChange={() => toggle(g.project_id)}
                 />
                 {formatProjectLabel(g, projects)}

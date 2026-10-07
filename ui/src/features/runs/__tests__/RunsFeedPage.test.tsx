@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
@@ -119,20 +119,33 @@ describe('RunsFeedPage', () => {
   })
 
   it.each([
-    { name: 'no filters', branch: undefined, groups: [], want: [undefined, undefined] },
-    { name: 'a known stored branch', branch: 'main', groups: [], want: ['main', undefined] },
-    // The stored branch is shared across pages; one no group has must not filter the feed.
+    { name: 'no filters', route: '/', stored: undefined, groups: [], want: [undefined, undefined] },
     {
-      name: 'an unknown stored branch',
-      branch: 'nonexistent',
+      name: 'a branch in the URL',
+      route: '/?branch=main',
+      stored: undefined,
+      groups: [],
+      want: ['main', undefined],
+    },
+    // The global branch belongs to the project pages; it must not filter the feed.
+    {
+      name: 'a branch stored by a project page',
+      route: '/',
+      stored: 'main',
       groups: [],
       want: [undefined, undefined],
     },
-    { name: 'selected groups', branch: undefined, groups: [10], want: [undefined, [10]] },
-  ])('requests the feed for $name', async ({ branch, groups, want }) => {
-    useUIStore.setState({ selectedBranch: branch, runsFeedGroupIds: groups })
+    {
+      name: 'selected groups',
+      route: '/',
+      stored: undefined,
+      groups: [10],
+      want: [undefined, [10]],
+    },
+  ])('requests the feed for $name', async ({ route, stored, groups, want }) => {
+    useUIStore.setState({ selectedBranch: stored, runsFeedGroupIds: groups })
     vi.mocked(fetchRunsFeed).mockResolvedValue(makeResponse([]))
-    renderWithProviders(<RunsFeedPage />)
+    renderWithProviders(<RunsFeedPage />, { route })
 
     await waitForBranches()
     await waitFor(() => {
@@ -140,15 +153,15 @@ describe('RunsFeedPage', () => {
     })
   })
 
+  // The branch case moved to URL params: RunsFeedPageUrlState.test.tsx.
   it.each([
     {
-      name: 'branch',
-      change: () => useUIStore.setState({ selectedBranch: 'develop' }),
-      want: ['develop', undefined],
-    },
-    {
       name: 'group',
-      change: () => useUIStore.getState().setRunsFeedGroupIds([10]),
+      // Through the group filter: the URL, not the store, drives the feed.
+      change: async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getByRole('button', { name: /filter by group/i }))
+        await user.click(await screen.findByRole('checkbox', { name: 'acme' }))
+      },
       want: [undefined, [10]],
     },
   ])('resets to page 1 when the $name filter changes', async ({ change, want }) => {
@@ -164,9 +177,7 @@ describe('RunsFeedPage', () => {
       expect(fetchRunsFeed).toHaveBeenLastCalledWith(2, undefined, undefined, undefined)
     })
 
-    act(() => {
-      change()
-    })
+    await change(user)
 
     await waitFor(() => {
       expect(fetchRunsFeed).toHaveBeenLastCalledWith(1, undefined, ...want)

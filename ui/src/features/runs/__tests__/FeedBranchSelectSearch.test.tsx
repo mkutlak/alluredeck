@@ -1,5 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createMemoryRouter } from 'react-router'
 import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
 import { FeedBranchSelect } from '../FeedBranchSelect'
@@ -27,13 +28,17 @@ const branch = (name: string) => ({
   created_at: '2024-01-01T00:00:00Z',
 })
 
-async function openBranches() {
+// The feed's branch lives in the URL; the router is returned so a test can read it.
+async function openBranches(url = '/') {
   const user = userEvent.setup()
-  renderWithProviders(<FeedBranchSelect />)
+  const router = createMemoryRouter([{ path: '/', element: <FeedBranchSelect /> }], {
+    initialEntries: [url],
+  })
+  renderWithProviders(<></>, { router })
   const trigger = await screen.findByRole('combobox', { name: /filter by branch/i })
   await waitFor(() => expect(trigger).toBeEnabled())
   await user.click(trigger)
-  return user
+  return { user, router }
 }
 
 describe('FeedBranchSelect search and clear', () => {
@@ -49,7 +54,7 @@ describe('FeedBranchSelect search and clear', () => {
   })
 
   it('filters the branch list as you type', async () => {
-    const user = await openBranches()
+    const { user } = await openBranches()
     expect(await screen.findAllByRole('option')).toHaveLength(4)
 
     await user.type(screen.getByPlaceholderText(/search branches/i), 'feature')
@@ -61,21 +66,20 @@ describe('FeedBranchSelect search and clear', () => {
   })
 
   it('selects the typed-for branch', async () => {
-    const user = await openBranches()
+    const { user, router } = await openBranches()
     await user.type(await screen.findByPlaceholderText(/search branches/i), 'login')
     await user.click(screen.getByRole('option', { name: 'feature/login' }))
 
-    expect(useUIStore.getState().selectedBranch).toBe('feature/login')
+    expect(new URLSearchParams(router.state.location.search).get('branch')).toBe('feature/login')
   })
 
   // The old Select let you pick "All branches"; a clear inside the same filter
   // replaces it without adding a control.
   it('clears the selected branch from inside the filter', async () => {
-    useUIStore.setState({ selectedBranch: 'main' })
-    const user = await openBranches()
+    const { user, router } = await openBranches('/?branch=main')
     await user.click(await screen.findByText(/clear/i))
 
-    expect(useUIStore.getState().selectedBranch).toBeUndefined()
+    expect(new URLSearchParams(router.state.location.search).has('branch')).toBe(false)
   })
 
   it('offers no clear while no branch is selected', async () => {

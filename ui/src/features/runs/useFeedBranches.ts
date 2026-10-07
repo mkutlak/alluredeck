@@ -9,9 +9,8 @@ export interface FeedBranches {
 }
 
 /**
- * Fetches and unions branch names across the given parent project ids.
- * Shared by FeedBranchSelect (dropdown options) and RunsFeedPage (query
- * filtering) so both always agree on which branches are currently available.
+ * Fetches and unions branch names across the given parent project ids, for the
+ * options of FeedBranchSelect. The feed itself filters by the URL's branch.
  */
 export function useFeedBranches(parentIds: number[]): FeedBranches {
   const branchQueries = useQueries({

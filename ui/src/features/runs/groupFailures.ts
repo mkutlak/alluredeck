@@ -1,4 +1,5 @@
 import { errorSignature } from '@/lib/errorSignature'
+import { isFailingSuite } from './rowFormat'
 import type { MergedFailure } from './mergeRunFailures'
 import type { PipelineSuite } from '@/types/api'
 
@@ -40,22 +41,46 @@ export function groupBySuite(
   }
 
   return order
-    .map((projectId) => {
-      const rows = byProject.get(projectId) ?? []
-      const suite = suiteById.get(projectId)
-      const first = rows[0]
-      const shardCount = suite?.builds?.length ?? 1
-
-      const group: FailureGroup = {
-        key: `suite-${projectId}`,
-        title: suite?.display_name || suite?.slug || first?.slug || String(projectId),
-        rows,
-      }
-      if (suite) group.suite = suite
-      if (shardCount > 1) group.subtitle = `${shardCount} shards`
-      return group
-    })
+    .map((projectId) =>
+      suiteGroup(projectId, byProject.get(projectId) ?? [], suiteById.get(projectId)),
+    )
     .sort((a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title))
+}
+
+function suiteGroup(
+  projectId: number,
+  rows: MergedFailure[],
+  suite: PipelineSuite | undefined,
+): FailureGroup {
+  const group: FailureGroup = {
+    key: `suite-${projectId}`,
+    title: suite?.display_name || suite?.slug || rows[0]?.slug || String(projectId),
+    rows,
+  }
+  if (suite) group.suite = suite
+  const shardCount = suite?.builds?.length ?? 1
+  if (shardCount > 1) group.subtitle = `${shardCount} shards`
+  return group
+}
+
+/**
+ * The run page's suite sections: every failing suite, including one whose rows the
+ * API's failure cap left out, so a chip's `#suite-<id>` always lands. Worst first by
+ * the suite's real failed count, as the chips are, not by how many rows arrived.
+ */
+export function suiteSections(
+  failures: readonly MergedFailure[],
+  suites: readonly PipelineSuite[],
+): FailureGroup[] {
+  const groups = groupBySuite(failures, suites)
+  const listed = new Set(groups.map((g) => g.key))
+  for (const suite of suites) {
+    if (isFailingSuite(suite) && !listed.has(`suite-${suite.project_id}`)) {
+      groups.push(suiteGroup(suite.project_id, [], suite))
+    }
+  }
+  const failed = (g: FailureGroup) => g.suite?.failed ?? g.rows.length
+  return groups.sort((a, b) => failed(b) - failed(a) || a.title.localeCompare(b.title))
 }
 
 /** First non-empty line, verbatim: a stack trace must not become a title. */

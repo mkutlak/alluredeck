@@ -1,5 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createMemoryRouter } from 'react-router'
 import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
 import { FeedBranchSelect } from '../FeedBranchSelect'
@@ -65,23 +66,28 @@ describe('FeedBranchSelect', () => {
     }
   })
 
-  // The stored branch is shared across pages; one the feed lacks falls back to
-  // "All branches". Assert after loading: the disabled loading state always reads "All branches".
+  // The URL carries the feed's branch; the global one belongs to the project pages.
+  // Assert after loading: the disabled loading state always reads "All branches".
   it.each([
-    { stored: 'nonexistent', shown: 'All branches' },
-    { stored: 'main', shown: 'main' },
-  ])('shows $shown for the stored branch $stored', async ({ stored, shown }) => {
+    { route: '/?branch=main', stored: undefined, shown: 'main' },
+    { route: '/', stored: 'main', shown: 'All branches' },
+  ])('shows $shown at $route with stored branch $stored', async ({ route, stored, shown }) => {
     useUIStore.setState({ selectedBranch: stored })
-    renderWithProviders(<FeedBranchSelect />)
+    renderWithProviders(<FeedBranchSelect />, { route })
 
     await waitFor(() => expect(screen.getByRole('combobox')).toBeEnabled())
     expect(screen.getByRole('combobox')).toHaveTextContent(shown)
   })
 
-  it('calls setSelectedBranch when a branch is chosen', async () => {
-    const user = await openOptions()
+  it('writes the chosen branch to the URL, not to the global store', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter([{ path: '/', element: <FeedBranchSelect /> }])
+    renderWithProviders(<></>, { router })
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeEnabled())
+    await user.click(screen.getByRole('combobox'))
     await user.click(await screen.findByRole('option', { name: 'develop' }))
 
-    expect(useUIStore.getState().selectedBranch).toBe('develop')
+    expect(router.state.location.search).toBe('?branch=develop')
+    expect(useUIStore.getState().selectedBranch).toBeUndefined()
   })
 })

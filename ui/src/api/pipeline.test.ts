@@ -4,7 +4,7 @@ import { mockApiClient } from '@/test/mocks/api-client'
 mockApiClient()
 
 import { apiClient } from '@/api/client'
-import { fetchPipelineRuns, fetchRunsFeed } from './pipeline'
+import { fetchPipelineRun, fetchPipelineRuns, fetchRunsFeed } from './pipeline'
 
 const mockGet = vi.mocked(apiClient.get)
 const payload = { data: [{ commit_sha: 'abc' }], metadata: { message: 'ok' }, pagination: {} }
@@ -35,5 +35,13 @@ describe('fetchRunsFeed', () => {
   ])('fetchRunsFeed(%j) GETs %s and returns the response', async (args, url) => {
     expect(await fetchRunsFeed(...args)).toEqual(payload)
     expect(mockGet).toHaveBeenCalledWith(url)
+  })
+})
+
+describe('fetchPipelineRun', () => {
+  // Same key as the failures endpoint: pipeline ID or commit SHA, encoded.
+  it('GETs one run of a group by its encoded run key and returns the response', async () => {
+    expect(await fetchPipelineRun('10', 'gh/run 7')).toEqual(payload)
+    expect(mockGet).toHaveBeenCalledWith('/projects/10/pipeline-runs/gh%2Frun%207')
   })
 })

@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, GitCommitHorizontal } from 'lucide-react'
 import { Link } from 'react-router'
 
-import { projectIndexOptions, runsFeedOptions } from '@/lib/queries'
-import { useUIStore } from '@/store/ui'
+import { runsFeedOptions } from '@/lib/queries'
 import { PageHeader } from '@/components/app/PageHeader'
 import { FilterBar } from '@/components/app/FilterBar'
 import { Button } from '@/components/ui/button'
@@ -13,47 +12,26 @@ import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/p
 import { FeedBranchSelect } from './FeedBranchSelect'
 import { GroupFilter } from './GroupFilter'
 import { RunRow } from './RunRow'
-import { useFeedBranches } from './useFeedBranches'
+import { useFeedParams } from './useFeedParams'
 
 export function RunsFeedPage() {
-  const [page, setPage] = useState(1)
-  const selectedBranch = useUIStore((s) => s.selectedBranch)
-  const runsFeedGroupIds = useUIStore((s) => s.runsFeedGroupIds)
+  const { branch, groupIds, page, setPage, isFiltered, allRunsHref } = useFeedParams()
 
-  // Mirror FeedBranchSelect's parent-id resolution so both agree on which
-  // branches are available before deciding whether selectedBranch applies.
-  const { data: projectsResp } = useQuery(projectIndexOptions())
-  const allParentIds = (projectsResp?.data ?? [])
-    .filter((p) => (p.children?.length ?? 0) > 0)
-    .map((p) => p.project_id)
-  const parentIds = runsFeedGroupIds.length > 0 ? runsFeedGroupIds : allParentIds
-
-  const { branchNames } = useFeedBranches(parentIds)
-  const effectiveBranch =
-    selectedBranch && branchNames.includes(selectedBranch) ? selectedBranch : undefined
-
-  // Reset to page 1 when the branch or group filter changes
-  const [prevBranch, setPrevBranch] = useState(effectiveBranch)
-  if (prevBranch !== effectiveBranch) {
-    setPrevBranch(effectiveBranch)
-    setPage(1)
-  }
-  const [prevGroupIds, setPrevGroupIds] = useState(runsFeedGroupIds)
-  if (prevGroupIds !== runsFeedGroupIds) {
-    setPrevGroupIds(runsFeedGroupIds)
-    setPage(1)
-  }
-
-  const groupIds = runsFeedGroupIds.length > 0 ? runsFeedGroupIds : undefined
-
-  const { data, isLoading } = useQuery({
-    ...runsFeedOptions(page, effectiveBranch, groupIds),
+  const { data, isLoading, isPlaceholderData } = useQuery({
+    ...runsFeedOptions(page, branch, groupIds.length > 0 ? groupIds : undefined),
     placeholderData: keepPreviousData,
   })
 
   const runs = data?.data ?? []
   const pagination = data?.pagination
   const totalPages = Math.max(1, pagination?.total_pages ?? 1)
+
+  // A page past the end (an old link, a filter that shrank) moves to the last page.
+  // Only on real data for this page: placeholder data belongs to the previous one.
+  const lastPage = data && !isPlaceholderData ? totalPages : undefined
+  useEffect(() => {
+    if (lastPage !== undefined && page > lastPage) setPage(lastPage)
+  }, [page, lastPage, setPage])
 
   return (
     <div className="space-y-6" data-testid="runs-feed">
@@ -83,15 +61,31 @@ export function RunsFeedPage() {
       ) : runs.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
           <GitCommitHorizontal size={36} className="text-muted-foreground/40" />
-          <div>
-            <p className="font-medium">No runs found</p>
-            <p className="text-fact text-sm">
-              Runs appear here when suites upload results with CI metadata.
-            </p>
-          </div>
-          <Link to="/projects" className="text-primary text-sm hover:underline">
-            Browse projects
-          </Link>
+          {isFiltered ? (
+            <>
+              <div>
+                <p className="font-medium">No runs match these filters</p>
+                <p className="text-fact text-sm">
+                  Runs on other branches or in other groups are hidden.
+                </p>
+              </div>
+              <Link to={allRunsHref} className="text-primary text-sm hover:underline">
+                Show all runs
+              </Link>
+            </>
+          ) : (
+            <>
+              <div>
+                <p className="font-medium">No runs found</p>
+                <p className="text-fact text-sm">
+                  Runs appear here when suites upload results with CI metadata.
+                </p>
+              </div>
+              <Link to="/projects" className="text-primary text-sm hover:underline">
+                Browse projects
+              </Link>
+            </>
+          )}
         </div>
       ) : (
         // One bordered list with divided rows rather than a card per run: the
@@ -114,7 +108,7 @@ export function RunsFeedPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage(page - 1)}
                 disabled={page <= 1}
               >
                 <ChevronLeft size={14} />
@@ -130,7 +124,7 @@ export function RunsFeedPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => setPage(Math.min(totalPages, page + 1))}
                 disabled={page >= totalPages}
               >
                 Next

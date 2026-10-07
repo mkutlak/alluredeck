@@ -3,6 +3,7 @@ export { dashboardOptions } from './dashboard'
 export {
   pipelineRunsOptions,
   runsFeedOptions,
+  pipelineRunOptions,
   buildFailedTestsOptions,
   runFailuresOptions,
 } from './pipeline'

@@ -27,9 +27,15 @@ export class AllureDeckClient {
     return { Authorization: `Bearer ${this.token}` }
   }
 
-  async uploadAllureResults(projectId: string, tarGzPath: string): Promise<void> {
+  /** `query` adds upload params such as the CI metadata (ci_branch, ci_pipeline_id, …). */
+  async uploadAllureResults(
+    projectId: string,
+    tarGzPath: string,
+    query: Record<string, string> = {},
+  ): Promise<void> {
     const body = fs.readFileSync(tarGzPath)
-    const url = `${API_URL}/projects/${encodeURIComponent(projectId)}/results?force_project_creation=true`
+    const params = new URLSearchParams({ force_project_creation: 'true', ...query })
+    const url = `${API_URL}/projects/${encodeURIComponent(projectId)}/results?${params}`
     const res = await fetch(url, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/gzip' },

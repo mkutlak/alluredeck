@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { PaginatedResponse, PipelineRun, RunFailuresResponse } from '@/types/api'
+import type { ApiResponse, PaginatedResponse, PipelineRun, RunFailuresResponse } from '@/types/api'
 
 /**
  * Fetches every failing test in one pipeline run. runKey is the run's
@@ -14,6 +14,21 @@ export async function fetchRunFailures(
   const res = await apiClient.get<RunFailuresResponse>(
     `/projects/${encodeURIComponent(projectId)}/pipeline-runs/${encodeURIComponent(runKey)}/failures`,
     { params: limit !== undefined ? { limit } : {} },
+  )
+  return res.data
+}
+
+/**
+ * Fetches one pipeline run of a group, in the same shape as a runs-feed entry.
+ * runKey is the run's ci_pipeline_id, or its commit SHA when that is absent.
+ * 404 when the group has no such run.
+ */
+export async function fetchPipelineRun(
+  projectId: string,
+  runKey: string,
+): Promise<ApiResponse<PipelineRun>> {
+  const res = await apiClient.get<ApiResponse<PipelineRun>>(
+    `/projects/${encodeURIComponent(projectId)}/pipeline-runs/${encodeURIComponent(runKey)}`,
   )
   return res.data
 }

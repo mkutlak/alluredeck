@@ -16,6 +16,7 @@ Copy changes, ARIA refactors, and Tailwind churn must not break E2E tests. The `
 - `allure-iframe`, `view-toggle-playwright`, `view-toggle-allure`
 - `runs-feed`, `run-row`, `run-row-toggle`, `run-suite-chips`, `run-suite-chips-more`, `run-suite-chip`, `run-suite-chip-shards`
 - `run-failures`, `run-failure-grouping`, `run-failure-grouping-suite`, `run-failure-grouping-error`, `run-failure-group`, `run-failure-row`
+- `run-page`, `run-page-summary` — the run page (`/runs/:groupId/:runKey`); its suites carry `id="suite-<project_id>"`
 - `project-parent-link` — "Part of" parent link in the project page header
 
 ### Rules

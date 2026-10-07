@@ -1,3 +1,31 @@
+import type { PipelineRun, PipelineSuite } from '@/types/api'
+
+/**
+ * A suite fails its run when a test failed, or when its report could not be read:
+ * no counts, but status "failed".
+ */
+export function isFailingSuite(suite: PipelineSuite): boolean {
+  return suite.failed > 0 || suite.status === 'failed'
+}
+
+export type RunVerdict = 'failed' | 'skipped' | 'passed'
+
+const GLYPHS = { failed: '✗', skipped: '○', passed: '✓' } as const
+
+/**
+ * The run's verdict and headline counts, shared by the feed row and the run page.
+ * Every suite skipped means nothing ran: a neutral ○, never the green ✓. That is
+ * decided from suite status, not from zero counts, which also describe a build
+ * whose stats were unreadable.
+ */
+export function summarizeRun(run: PipelineRun) {
+  const failedCount = run.suites.reduce((sum, s) => sum + s.failed, 0)
+  const suitesFailing = run.suites.filter(isFailingSuite).length
+  const allSkipped = run.suites.length > 0 && run.suites.every((s) => s.status === 'skipped')
+  const verdict: RunVerdict = suitesFailing > 0 ? 'failed' : allSkipped ? 'skipped' : 'passed'
+  return { verdict, glyph: GLYPHS[verdict], failedCount, suitesFailing }
+}
+
 const TAIL_LENGTH = 8
 // Up to this long a branch is never split; it is short enough to read whole.
 const WHOLE_MAX = 24

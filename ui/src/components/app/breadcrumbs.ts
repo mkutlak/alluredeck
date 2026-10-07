@@ -1,3 +1,4 @@
+import { formatProjectLabel } from '@/lib/projectLabel'
 import type { ProjectEntry } from '@/types/api'
 
 // Derive tab label + href from a pathname segment
@@ -24,6 +25,16 @@ export interface BreadcrumbParams {
   id?: string
   reportId?: string
   source?: string
+  /** The run page, /runs/:groupId/:runKey. */
+  groupId?: string
+  runKey?: string
+}
+
+// A run key is the pipeline ID, else the commit SHA; the page shows a SHA as its
+// first 7 characters. Hex with a letter, 12+ long, is a SHA: pipeline IDs are numbers
+// or carry dashes (UUIDs), and a 40-character SHA without a letter is about 1 in 10^8.
+function runLabel(runKey: string): string {
+  return /^[0-9a-f]{12,}$/i.test(runKey) && /[a-f]/i.test(runKey) ? runKey.slice(0, 7) : runKey
 }
 
 export interface ResolvedProject {
@@ -42,6 +53,19 @@ export function buildBreadcrumbs(
   { project, projects, isLoading }: ResolvedProject,
 ): Crumb[] | null {
   if (pathname === '/') return null
+
+  if (params.groupId && params.runKey) {
+    if (isLoading) return [{ label: LOADING_CRUMB }]
+    return [
+      { label: 'Runs', href: '/' },
+      {
+        label: formatProjectLabel(project, projects) || params.groupId,
+        href: `/projects/${project?.project_id ?? params.groupId}`,
+        icon: 'folder',
+      },
+      { label: runLabel(params.runKey) },
+    ]
+  }
 
   // Always include root
   const crumbs: Crumb[] = [{ label: 'Projects', href: '/' }]
