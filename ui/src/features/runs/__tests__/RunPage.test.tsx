@@ -546,7 +546,7 @@ describe('RunPage "is it me?" origins', () => {
   it('counts only effective "new" failures in the panel header', async () => {
     respond(tagged)
     renderRunAt('/runs/10/48213')
-    expect(await screen.findByText('7 failures · 2 suites · 2 new')).toBeInTheDocument()
+    expect(await screen.findByText('2 new · 3 inherited (1 env)')).toBeInTheDocument()
   })
 
   it.each([

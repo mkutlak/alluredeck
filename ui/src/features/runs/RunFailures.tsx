@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { FailureBadges } from './FailureBadges'
-import { countOrigins, failureBucket } from './failureOrigin'
+import { countOrigins, failureBucket, originParts } from './failureOrigin'
 import { FailureSummaryPanel } from './FailureSummaryPanel'
 import {
   groupByError,
@@ -162,10 +162,13 @@ export function RunFailures({
   const toggleGroup = (key: string, index: number) =>
     setOpenOverrides((prev) => ({ ...prev, [key]: !(prev[key] ?? (asPage || index === 0)) }))
 
-  const suiteCount = new Set(failures.map((f) => f.projectId)).size
-  // Effective "new" only: an environment failure is never counted as new.
-  const newCount = countOrigins(failures).new
   const truncated = data?.metadata.truncated === true
+  // Only where the failures came from: the collapsed row and its chips already say how many
+  // tests failed in how many suites. Unknown origins are left out (nothing to report).
+  const origins = originParts(
+    { ...countOrigins(failures), unknown: 0 },
+    truncated ? failures.length : undefined,
+  )
 
   return (
     <div
@@ -185,12 +188,11 @@ export function RunFailures({
             aria-label="Group failures by"
           />
         </div>
-        <span className={cn('text-fact text-xs', failures.length === 0 && 'hidden')}>
-          {`${failures.length} ${failures.length === 1 ? 'failure' : 'failures'} · ${suiteCount} ${
-            suiteCount === 1 ? 'suite' : 'suites'
-          }`}
-          {newCount > 0 && ` · ${newCount} new`}
-        </span>
+        {origins.length > 0 && (
+          <span className="text-fact text-xs" data-testid="run-failure-origins">
+            {origins.join(' · ')}
+          </span>
+        )}
       </div>
 
       <div className="divide-y">

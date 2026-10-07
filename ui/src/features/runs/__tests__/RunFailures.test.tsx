@@ -176,7 +176,6 @@ describe('RunFailures', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('run-failure-row')).toHaveLength(1)
     })
-    expect(screen.getByText('1 failure · 1 suite · 1 new')).toBeInTheDocument()
     expect(screen.getByTestId('flaky-badge')).toHaveTextContent('flaky · 3x')
     expect(screen.getByText('new')).toBeInTheDocument()
     expect(screen.getByText('known')).toBeInTheDocument()
