@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/render'
 import { RunSuiteChip } from '../RunSuiteChip'
 import type { PipelineSuite } from '@/types/api'
@@ -27,6 +28,28 @@ describe('RunSuiteChip', () => {
     renderWithProviders(<RunSuiteChip suite={suite} />)
     expect(screen.getByText(label)).toBeInTheDocument()
     expect(screen.queryByText('api-cloud') !== null).toBe(label === 'api-cloud')
+  })
+
+  // "Degraded" is derived from pass rate, so a suite at 95% was drawn as an
+  // amber warning although tests in it failed. Any failure reads as ✗.
+  it.each(['degraded', 'failed'] as const)(
+    'marks a suite with failures ✗ whatever its pass-rate status (%s)',
+    (status) => {
+      renderWithProviders(<RunSuiteChip suite={makeSuite({ failed: 3, status })} />)
+      const chip = screen.getByTestId('run-suite-chip')
+      expect(chip).toHaveTextContent('✗')
+      expect(chip).not.toHaveTextContent('⚠')
+    },
+  )
+
+  // Nothing ran in the suite: neither the green ✓ nor the red ✗ is true.
+  it('draws a skipped suite neutral: no ✓, ✗ or ⚠, in the skipped gray', () => {
+    renderWithProviders(
+      <RunSuiteChip suite={makeSuite({ total: 5, skipped: 5, passed: 0, status: 'skipped' })} />,
+    )
+    const chip = screen.getByTestId('run-suite-chip')
+    expect(chip).not.toHaveTextContent(/[✓✗⚠]/)
+    expect(screen.getByText('○')).toHaveClass('text-[#6c6f85]')
   })
 
   it.each([4, 0])('shows a failed-count badge only for failures > 0 (%i)', (failed) => {
@@ -68,5 +91,17 @@ describe('RunSuiteChip', () => {
     renderWithProviders(<RunSuiteChip suite={suite} />)
     expect(screen.getByTestId('run-suite-chip')).toHaveAttribute('href', href)
     expect(screen.queryByTestId('run-suite-chip-shards')?.textContent ?? null).toBe(shards)
+  })
+
+  // Opening upward covered the run's own ID and branch on line 1.
+  it('opens the shard tooltip below the chip', async () => {
+    const user = userEvent.setup()
+    const builds = [1, 2, 3].map((n) => ({ build_id: 100 + n, build_number: n }))
+    renderWithProviders(<RunSuiteChip suite={makeSuite({ failed: 4, builds })} />)
+
+    await user.tab() // keyboard focus opens a Radix tooltip without the hover delay
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip).toHaveTextContent('api-cloud: 4 failed across 3 shards')
+    expect(tooltip).toHaveAttribute('data-side', 'bottom')
   })
 })

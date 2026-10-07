@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { Copy } from 'lucide-react'
+import { Split } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -14,6 +14,7 @@ const STATUS_ICON = {
   passed: '✓',
   degraded: '⚠',
   failed: '✗',
+  skipped: '○', // nothing ran: neither ✓ nor ✗ is true
 } as const
 
 // Suite status is derived from pass rate, so "degraded" has no direct entry in
@@ -22,12 +23,16 @@ const STATUS_CLASS = {
   passed: STATUS_TEXT_CLASSES.passed,
   degraded: STATUS_TEXT_CLASSES.broken,
   failed: STATUS_TEXT_CLASSES.failed,
+  skipped: STATUS_TEXT_CLASSES.skipped,
 } as const
 
 export function RunSuiteChip({ suite }: RunSuiteChipProps) {
   const label = suite.display_name || suite.slug
   const shardCount = suite.builds?.length ?? 1
   const isSharded = shardCount > 1
+  // "Degraded" is derived from pass rate, so a suite at 95% was drawn as an
+  // amber warning although tests in it failed. Any failure reads as ✗.
+  const status = suite.failed > 0 ? 'failed' : suite.status
 
   // A sharded suite has no single report to open — several builds contributed
   // to it — so send those to the project, where every build is listed.
@@ -41,21 +46,22 @@ export function RunSuiteChip({ suite }: RunSuiteChipProps) {
       className="hover:bg-accent inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors"
       data-testid="run-suite-chip"
     >
-      <span aria-hidden="true" className={STATUS_CLASS[suite.status]}>
-        {STATUS_ICON[suite.status]}
+      <span aria-hidden="true" className={STATUS_CLASS[status]}>
+        {STATUS_ICON[status]}
       </span>
       <span className="truncate font-medium">{label}</span>
       {suite.failed > 0 && (
-        <Badge variant="failed" className="px-1.5 py-0 text-[10px]">
+        // Ink on the red tint (5.6:1); red on its own tint is 3.75:1 by day.
+        <Badge variant="failed" className="text-foreground px-1.5 py-0 text-[10px]">
           {suite.failed}
         </Badge>
       )}
       {isSharded && (
         <span
-          className="text-muted-foreground inline-flex items-center gap-0.5"
+          className="text-fact inline-flex items-center gap-0.5"
           data-testid="run-suite-chip-shards"
         >
-          <Copy size={10} aria-hidden="true" />
+          <Split size={10} aria-hidden="true" />
           {shardCount}
         </span>
       )}
@@ -67,7 +73,8 @@ export function RunSuiteChip({ suite }: RunSuiteChipProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{chip}</TooltipTrigger>
-      <TooltipContent>
+      {/* Below the chip: opening upward covered the run's own ID and branch. */}
+      <TooltipContent side="bottom">
         {`${label}: ${suite.failed} failed across ${shardCount} shards`}
       </TooltipContent>
     </Tooltip>

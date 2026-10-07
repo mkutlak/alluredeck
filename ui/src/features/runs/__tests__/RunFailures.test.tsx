@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
@@ -238,10 +238,110 @@ describe('RunFailures', () => {
       await waitFor(() => {
         expect(screen.getAllByTestId('run-failure-group')).toHaveLength(2)
       })
-      expect(screen.getByText('Timed out Nms waiting for expect(locator)')).toBeInTheDocument()
-      expect(screen.getByText('2 tests · 1 suite')).toBeInTheDocument()
+      // The group is titled with the first real message verbatim; the
+      // normalised signature only decides the grouping.
+      expect(screen.getByText('Timed out 5000ms waiting for expect(locator)')).toBeInTheDocument()
+      expect(screen.getByText('×2 · ui-tests')).toBeInTheDocument()
       expect(useUIStore.getState().runsFailureGrouping).toBe('error')
     })
+  })
+
+  // The group header used to repeat the per-suite count the chip above it
+  // already shows ("N failed"), and by-error repeats it in "×N".
+  it.each(['suite', 'error'] as const)(
+    'does not print a "N failed" count in the group headers when grouped by %s',
+    async (grouping) => {
+      useUIStore.setState({ runsFailureGrouping: grouping })
+      renderRun([
+        makeFailure({ test_name: 'a', full_name: 'a.js:1:1' }),
+        makeFailure({ test_name: 'b', full_name: 'b.js:1:1' }),
+      ])
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('run-failure-group')).toHaveLength(1)
+      })
+      expect(screen.queryByText(/^\d+ failed$/)).not.toBeInTheDocument()
+    },
+  )
+
+  describe('error text', () => {
+    const long =
+      'AssertionError: expected 200 to equal 503 at https://sandbox.example.com/api/v1/payments'
+
+    // The message stays plain, selectable text (a button would swallow a drag to
+    // copy); a small separate toggle reveals the rest, reachable by keyboard.
+    it('clamps a long error to two lines and expands it from a separate toggle', async () => {
+      const user = userEvent.setup()
+      renderRun([makeFailure({ error_message: long })])
+
+      const text = await screen.findByText(long)
+      expect(text.closest('button')).toBeNull()
+      expect(text).toHaveClass('line-clamp-2')
+
+      const toggle = screen.getByRole('button', { name: 'Show full error' })
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveAttribute('aria-controls', text.id)
+
+      toggle.focus()
+      await user.keyboard('{Enter}')
+      expect(toggle).toHaveAccessibleName('Hide full error')
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(text).not.toHaveClass('line-clamp-2')
+
+      await user.keyboard('{Enter}')
+      expect(toggle).toHaveAccessibleName('Show full error')
+      expect(text).toHaveClass('line-clamp-2')
+    })
+
+    it.each([
+      {
+        name: 'a short single-line message',
+        message: 'TimeoutError: locator.click',
+        toggle: false,
+      },
+      { name: 'a message over 80 characters', message: long, toggle: true },
+      { name: 'a multi-line message', message: 'Error: boom\n    at foo.js:1:1', toggle: true },
+      { name: 'no message', message: '', toggle: false },
+    ])(
+      'offers "Show full error" only when it can hide something: $name',
+      async ({ message, toggle }) => {
+        renderRun([makeFailure({ error_message: message })])
+        const row = await screen.findByTestId('run-failure-row')
+        expect(!!within(row).queryByRole('button', { name: 'Show full error' })).toBe(toggle)
+      },
+    )
+  })
+
+  // A multi-line Playwright error made one title 4097px wide and pushed the
+  // feed 4291px wide. The title is the message's first line only.
+  it('titles an error group with the first line of the message, not the whole stack', async () => {
+    const user = userEvent.setup()
+    const stack =
+      'Error: expected locator to be visible\n\n    at login.spec.js:10:5\n    at run (runner.js:2:2)'
+    renderRun([makeFailure({ error_message: stack })])
+    await user.click(await screen.findByTestId('run-failure-grouping-error'))
+
+    const title = await screen.findByText('Error: expected locator to be visible')
+    expect(title).toHaveClass('truncate', 'min-w-0')
+    expect(title).toHaveAttribute('title', 'Error: expected locator to be visible')
+    const toggle = screen.getByRole('button', { name: /expected locator to be visible/ })
+    expect(toggle).not.toHaveAccessibleName(expect.stringContaining('login.spec.js'))
+  })
+
+  it('offers Retry on a failed load and refetches the failures', async () => {
+    const user = userEvent.setup()
+    vi.mocked(fetchRunFailures).mockRejectedValueOnce(new Error('network error'))
+    vi.mocked(fetchRunFailures).mockResolvedValue({
+      data: [makeFailure()],
+      metadata: { message: 'ok', truncated: false },
+    })
+    renderWithProviders(<RunFailures run={makeRun()} />)
+
+    expect(await screen.findByText(/failed to load failures/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+
+    expect(await screen.findByRole('link', { name: 'should login' })).toBeInTheDocument()
+    expect(fetchRunFailures).toHaveBeenCalledTimes(2)
   })
 
   describe('sharded suites', () => {

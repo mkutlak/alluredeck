@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, ExternalLink, GitBranch, GitCommitHorizontal } from 'lucide-react'
 
-import { formatDate, formatDuration } from '@/lib/utils'
-import { getPassRateColorClass } from '@/lib/status-colors'
+import { formatDate, formatDuration, formatPassRate } from '@/lib/utils'
+import { getPassRateColorClass, STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { SuiteBadge } from './SuiteBadge'
@@ -17,6 +17,12 @@ export function PipelineRunCard({ run }: PipelineRunCardProps) {
   const { aggregate } = run
   const shortSHA = run.commit_sha?.slice(0, 7)
   const hasPipeline = !!run.pipeline_id
+  // Nothing ran (every suite skipped): "—" in neutral ink, not a red 0%. Suite
+  // status, not zero counts: a build with unreadable stats also has total 0.
+  const allSkipped = run.suites.length > 0 && run.suites.every((s) => s.status === 'skipped')
+  const rateClass = allSkipped
+    ? STATUS_TEXT_CLASSES.skipped
+    : getPassRateColorClass(aggregate.pass_rate)
 
   return (
     <Card>
@@ -86,12 +92,13 @@ export function PipelineRunCard({ run }: PipelineRunCardProps) {
       <CardContent className="px-4 pt-0 pb-4">
         {/* Summary line */}
         <p className="text-muted-foreground text-sm">
-          <span className={getPassRateColorClass(aggregate.pass_rate)}>
+          <span className={rateClass}>
             {aggregate.suites_passed}/{aggregate.suites_total} suites passing
           </span>
           {' · '}
-          <span className={getPassRateColorClass(aggregate.pass_rate)}>
-            {aggregate.pass_rate.toFixed(1)}% overall
+          <span className={rateClass}>
+            {formatPassRate(aggregate.tests_passed, aggregate.tests_total, aggregate.tests_skipped)}{' '}
+            overall
           </span>
           {' · '}
           {formatDuration(aggregate.total_duration_ms)}

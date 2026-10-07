@@ -91,16 +91,16 @@ describe('DashboardPage', () => {
     renderPage()
     const groupRow = within((await screen.findByText('group-one')).closest('tr')!)
     expect(groupRow.getByText('Group')).toBeInTheDocument()
-    expect(groupRow.getByText('87.80%')).toBeInTheDocument()
+    expect(groupRow.getByText('87.8%')).toBeInTheDocument()
   })
 
   // Links use the numeric project_id, never the slug (9e053b3), and the pass rate
-  // excludes skipped tests: 90 passed / (100 - 3 skipped) = 92.78%, not 90%.
+  // excludes skipped tests: 90 passed / (100 - 3 skipped) = 92.7%, not 90%.
   it('links a project by numeric id and excludes skipped tests from its pass rate', async () => {
     renderPage()
     const link = await screen.findByRole('link', { name: 'proj-alpha' })
     expect(link).toHaveAttribute('href', '/projects/1')
-    expect(within(link.closest('tr')!).getByText('92.78%')).toBeInTheDocument()
+    expect(within(link.closest('tr')!).getByText('92.7%')).toBeInTheDocument()
   })
 
   it('shows empty state when no projects', async () => {

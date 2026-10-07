@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
@@ -114,6 +115,101 @@ describe('RunRow', () => {
     expect(screen.getByTestId('run-row-toggle')).not.toContainElement(link)
   })
 
+  // A 95.9% pass rate used to render green on a run that failed, so the loudest
+  // colour on the row said "fine". The verdict glyph and the failed-test count
+  // carry the colour; the pass rate is a plain fact.
+  // The text comes from the counts (127/142, all passed), not from pass_rate.
+  it.each([
+    {
+      name: 'failing',
+      run: makeRun({ aggregate: { ...makeRun().aggregate, pass_rate: 95.9 } }),
+      text: '89.4%',
+    },
+    { name: 'passing', run: allPassingRun(), text: '100%' },
+  ])('does not colour the pass rate of a $name run', ({ run, text }) => {
+    renderWithProviders(<RunRow run={run} />)
+    const rate = screen.getByText(text)
+    expect(rate.className).not.toMatch(/text-\[#/)
+  })
+
+  // The server's pass_rate can overstate; the row rates from counts, floored.
+  it('shows 99.9% for 2499 of 2500 passed even when pass_rate says 100', () => {
+    const run = makeRun({
+      aggregate: { ...makeRun().aggregate, tests_passed: 2499, tests_total: 2500, pass_rate: 100 },
+    })
+    renderWithProviders(<RunRow run={run} />)
+    expect(screen.getByText('99.9%')).toBeInTheDocument()
+  })
+
+  // Every test skipped: nothing ran, so there is no rate and no verdict. The row
+  // must not read as a green pass nor as a red 0%.
+  describe('a run where every test was skipped', () => {
+    function allSkippedRun(): PipelineRun {
+      return makeRun({
+        suites: [makeSuite({ total: 5, skipped: 5, passed: 0, pass_rate: 0, status: 'skipped' })],
+        aggregate: {
+          suites_passed: 0,
+          suites_total: 1,
+          tests_passed: 0,
+          tests_total: 5,
+          tests_skipped: 5,
+          pass_rate: 0,
+          total_duration_ms: 1000,
+        },
+      })
+    }
+
+    it('shows "—" as the rate and "all tests skipped" as the summary', () => {
+      renderWithProviders(<RunRow run={allSkippedRun()} />)
+      expect(screen.getByText('—')).toBeInTheDocument()
+      expect(screen.getByTestId('run-row-summary')).toHaveTextContent('all tests skipped')
+      expect(screen.getByTestId('run-row-summary')).not.toHaveTextContent('suites passed')
+    })
+
+    it('uses a neutral glyph: no green check, no red anywhere', () => {
+      renderWithProviders(<RunRow run={allSkippedRun()} />)
+      const row = screen.getByTestId('run-row')
+      expect(row).not.toHaveTextContent('✓')
+      expect(row).not.toHaveTextContent('✗')
+      expect(row.outerHTML).not.toMatch(/d20f39|f38ba8|40a02b|a6e3a1/)
+    })
+  })
+
+  // A build whose stats could not be read has no counts at all (total 0), yet the
+  // API keeps its suite `failed`. Zero counts must not read as "all skipped": that
+  // would hide a broken report behind a neutral glyph.
+  describe('a run whose suites have no readable stats', () => {
+    function noStatsRun(): PipelineRun {
+      return makeRun({
+        suites: [makeSuite({ total: 0, passed: 0, skipped: 0, pass_rate: 0, status: 'failed' })],
+        aggregate: {
+          suites_passed: 0,
+          suites_total: 1,
+          tests_passed: 0,
+          tests_total: 0,
+          tests_skipped: 0,
+          pass_rate: 0,
+          total_duration_ms: 1000,
+        },
+      })
+    }
+
+    it('is a failing run: ✗, "—" for the rate, never "all tests skipped"', () => {
+      renderWithProviders(<RunRow run={noStatsRun()} />)
+      const row = screen.getByTestId('run-row')
+      expect(row).toHaveTextContent('✗')
+      expect(row).not.toHaveTextContent(/[✓○]/)
+      expect(screen.getByText('—')).toBeInTheDocument()
+      expect(screen.getByTestId('run-row-summary')).toHaveTextContent('1/1 suites failing')
+      expect(screen.getByTestId('run-row-summary')).not.toHaveTextContent('all tests skipped')
+    })
+  })
+
+  it('makes the failed-test count the one red figure on a failing run', () => {
+    renderWithProviders(<RunRow run={makeRun()} />)
+    expect(screen.getByText('15 failed tests')).toHaveClass('text-[#d20f39]')
+  })
+
   it('falls back to group_slug when group_project_id is absent', () => {
     renderWithProviders(
       <RunRow run={makeRun({ group_project_id: undefined, group_slug: 'orphan-group' })} />,
@@ -157,9 +253,69 @@ describe('RunRow', () => {
     },
   ])('summarises the run as $summary with chips $chips', ({ run, summary, chips }) => {
     renderWithProviders(<RunRow run={run} />)
-    expect(screen.getByText(summary)).toBeInTheDocument()
+    // The failed-test count has its own element (it is the one red figure), so
+    // the summary is no longer a single text node.
+    expect(screen.getByTestId('run-row-summary')).toHaveTextContent(summary)
     expect(screen.queryAllByTestId('run-suite-chip').map((c) => c.textContent)).toEqual(
       chips.map((c) => expect.stringContaining(c)),
     )
+  })
+
+  it.each([
+    { failed: 1, text: '1 failed test' },
+    { failed: 2, text: '2 failed tests' },
+  ])('counts failures in the singular or plural: "$text"', ({ failed, text }) => {
+    const run = makeRun({ suites: [makeSuite({ failed, status: 'degraded' })] })
+    renderWithProviders(<RunRow run={run} />)
+    expect(screen.getByText(text)).toBeInTheDocument()
+  })
+
+  // Nothing to expand on a run without failures: the toggle used to open only
+  // "No failing tests in this run."
+  it.each([
+    { name: 'passing', run: allPassingRun() },
+    {
+      name: 'all-skipped',
+      run: makeRun({
+        suites: [makeSuite({ total: 5, skipped: 5, passed: 0, status: 'skipped' })],
+        aggregate: {
+          suites_passed: 0,
+          suites_total: 1,
+          tests_passed: 0,
+          tests_total: 5,
+          tests_skipped: 5,
+          pass_rate: 0,
+          total_duration_ms: 1000,
+        },
+      }),
+    },
+  ])('gives a $name run no expand toggle', ({ run }) => {
+    renderWithProviders(<RunRow run={run} />)
+    expect(screen.queryByTestId('run-row-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /toggle failures/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('run-failures')).not.toBeInTheDocument()
+  })
+
+  // A refetch can leave an expanded run with no failures; its toggle goes away,
+  // so the open panel must go with it rather than linger with no way to close.
+  it('closes the panel when an expanded run stops having failures', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [run, setRun] = useState(makeRun())
+      return (
+        <>
+          <button onClick={() => setRun(allPassingRun())}>refetched</button>
+          <RunRow run={run} />
+        </>
+      )
+    }
+    renderWithProviders(<Harness />)
+
+    await user.click(screen.getByTestId('run-row-toggle'))
+    expect(await screen.findByTestId('run-failures')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'refetched' }))
+    expect(screen.queryByTestId('run-row-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('run-failures')).not.toBeInTheDocument()
   })
 })

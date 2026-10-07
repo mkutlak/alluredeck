@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink } from 'react-router'
-import { ChevronDown, ChevronRight, ExternalLink, Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, RefreshCw, Sparkles } from 'lucide-react'
 
 import { runFailuresOptions } from '@/lib/queries'
 import { getConfig } from '@/api/system'
 import { useUIStore, type FailureGrouping } from '@/store/ui'
+import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -32,7 +33,7 @@ const GROUPING_OPTIONS = [
 // Identical grid templates on every row of a mode keep the columns locked. The
 // previous flex layout let a column shift by hundreds of pixels depending on
 // whether a row happened to carry an error message.
-const GRID_BY_SUITE = 'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,40%)] items-center gap-3'
+const GRID_BY_SUITE = 'grid grid-cols-[minmax(12rem,32ch)_auto_minmax(0,1fr)] items-baseline gap-3'
 const GRID_BY_ERROR = 'grid grid-cols-[minmax(0,1fr)_10rem_auto] items-center gap-3'
 
 export function RunFailures({ run }: RunFailuresProps) {
@@ -49,7 +50,7 @@ export function RunFailures({ run }: RunFailuresProps) {
 
   // This component is only mounted once its run is expanded, so a feed of
   // collapsed runs issues no failure requests at all.
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     ...runFailuresOptions(groupProjectId ?? 0, runKey),
     enabled: groupProjectId != null && runKey !== '',
   })
@@ -66,7 +67,7 @@ export function RunFailures({ run }: RunFailuresProps) {
 
   if (groupProjectId == null) {
     return (
-      <p className="text-muted-foreground text-sm" data-testid="run-failures">
+      <p className="text-fact text-sm" data-testid="run-failures">
         Failure details are unavailable for this run.
       </p>
     )
@@ -84,15 +85,24 @@ export function RunFailures({ run }: RunFailuresProps) {
 
   if (isError) {
     return (
-      <p className="text-destructive text-sm" data-testid="run-failures">
-        Failed to load failures for this run.
-      </p>
+      <div className="flex items-center gap-3" data-testid="run-failures">
+        <p className="text-destructive text-sm">Failed to load failures for this run.</p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={() => void refetch()}
+        >
+          <RefreshCw className="h-3 w-3" />
+          Retry
+        </Button>
+      </div>
     )
   }
 
   if (failures.length === 0) {
     return (
-      <p className="text-muted-foreground text-sm" data-testid="run-failures">
+      <p className="text-fact text-sm" data-testid="run-failures">
         No failing tests in this run.
       </p>
     )
@@ -119,7 +129,7 @@ export function RunFailures({ run }: RunFailuresProps) {
             aria-label="Group failures by"
           />
         </div>
-        <span className="text-muted-foreground text-xs">
+        <span className="text-fact text-xs">
           {`${failures.length} ${failures.length === 1 ? 'failure' : 'failures'} · ${suiteCount} ${
             suiteCount === 1 ? 'suite' : 'suites'
           }`}
@@ -147,7 +157,7 @@ export function RunFailures({ run }: RunFailuresProps) {
       </div>
 
       {data?.metadata.truncated && (
-        <p className="text-muted-foreground border-t px-3 py-2 text-xs">
+        <p className="text-fact border-t px-3 py-2 text-xs">
           Showing the first {failures.length} failures; this run has more.
         </p>
       )}
@@ -188,24 +198,23 @@ function FailureGroupBlock({
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="text-muted-foreground hover:text-foreground flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="text-fact hover:text-foreground flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           {open ? (
             <ChevronDown size={14} className="shrink-0" />
           ) : (
             <ChevronRight size={14} className="shrink-0" />
           )}
-          <span className="text-foreground min-w-0 truncate text-sm font-medium">
-            {group.title}
+          <span
+            className="text-foreground min-w-0 truncate text-sm font-medium"
+            title={group.message}
+          >
+            {group.message ?? group.title}
           </span>
           {group.subtitle && (
-            <span className="text-muted-foreground shrink-0 text-xs">{group.subtitle}</span>
+            <span className="text-fact shrink-0 text-xs">{group.subtitle}</span>
           )}
         </button>
-
-        <span className="text-muted-foreground shrink-0 text-xs">
-          {`${group.rows.length} failed`}
-        </span>
 
         {/* Every contributing build stays reachable, so a sharded suite does
             not hide two thirds of its reports behind one link. */}
@@ -213,10 +222,10 @@ function FailureGroupBlock({
           <NavLink
             key={build.build_id}
             to={`/projects/${group.suite?.project_id ?? 0}/reports/${build.build_number}`}
-            className="text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center gap-0.5 text-xs hover:underline"
+            className="text-fact hover:text-foreground inline-flex shrink-0 items-center gap-0.5 text-xs hover:underline"
           >
             {`#${build.build_number}`}
-            <ExternalLink size={10} />
+            <FileText size={10} />
           </NavLink>
         ))}
       </div>
@@ -238,7 +247,7 @@ function FailureGroupBlock({
             <button
               type="button"
               onClick={onShowAllRows}
-              className="text-muted-foreground hover:text-foreground px-3 py-1 pl-9 text-xs underline-offset-2 hover:underline"
+              className="text-fact hover:text-foreground px-3 py-1 pl-9 text-xs underline-offset-2 hover:underline"
             >
               {`… ${hiddenCount} more`}
             </button>
@@ -272,7 +281,7 @@ function FailureRow({ row, grouping, llmEnabled, summaryOpen, onToggleSummary }:
           onClick={onToggleSummary}
           aria-expanded={summaryOpen}
           aria-label={`Toggle AI failure summary for ${row.testName}`}
-          className="text-muted-foreground hover:text-foreground shrink-0"
+          className="text-fact hover:text-foreground shrink-0"
         >
           <Sparkles size={12} />
         </button>
@@ -297,18 +306,14 @@ function FailureRow({ row, grouping, llmEnabled, summaryOpen, onToggleSummary }:
         </NavLink>
 
         {grouping === 'error' ? (
-          <span className="text-muted-foreground truncate text-xs" title={row.slug}>
+          <span className="text-fact truncate text-xs" title={row.slug}>
             {row.displayName || row.slug}
           </span>
         ) : null}
 
         {badges}
 
-        {grouping === 'suite' ? (
-          <span className="text-muted-foreground truncate text-xs" title={row.errorMessage}>
-            {row.errorMessage}
-          </span>
-        ) : null}
+        {grouping === 'suite' && row.errorMessage ? <ErrorText message={row.errorMessage} /> : null}
       </div>
 
       {llmEnabled && summaryOpen && (
@@ -320,6 +325,47 @@ function FailureRow({ row, grouping, llmEnabled, summaryOpen, onToggleSummary }:
             open={summaryOpen}
           />
         </div>
+      )}
+    </div>
+  )
+}
+
+/** Past this many characters (or any line break) the 2-line clamp may hide text. */
+const CLAMP_HINT_CHARS = 80
+
+/**
+ * The failure's error text, clamped to two lines. It stays plain, selectable
+ * text; a separate toggle reveals the rest, because the full text used to live
+ * only in a `title` tooltip that a keyboard cannot reach. The toggle appears
+ * only when the clamp could actually hide something.
+ */
+function ErrorText({ message }: { message: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const textId = useId()
+  const trimmed = message.trim()
+  const canHide = trimmed.includes('\n') || trimmed.length > CLAMP_HINT_CHARS
+
+  return (
+    <div className="min-w-0 text-xs">
+      <span
+        id={textId}
+        className={cn(
+          'text-fact block break-words',
+          expanded ? 'whitespace-pre-wrap' : 'line-clamp-2 whitespace-pre-line',
+        )}
+      >
+        {message}
+      </span>
+      {canHide && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={textId}
+          className="text-fact hover:text-foreground cursor-pointer underline-offset-2 hover:underline"
+        >
+          {expanded ? 'Hide full error' : 'Show full error'}
+        </button>
       )}
     </div>
   )

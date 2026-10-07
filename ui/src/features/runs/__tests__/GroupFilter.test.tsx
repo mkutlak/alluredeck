@@ -59,4 +59,31 @@ describe('GroupFilter', () => {
 
     expect(useUIStore.getState().runsFeedGroupIds).toEqual(want)
   })
+
+  // "All groups" means no box is ticked; once some are, a reset inside the same
+  // popover beats unticking each one.
+  it('clears every selected group from inside the filter', async () => {
+    useUIStore.setState({ runsFeedGroupIds: [10, 20] })
+    const user = await openFilter()
+    await user.click(screen.getByText(/clear/i))
+
+    expect(useUIStore.getState().runsFeedGroupIds).toEqual([])
+  })
+
+  // The clear row removes itself, which would drop keyboard focus into the void;
+  // closing the popover hands focus back to the trigger.
+  it('closes the popover after clearing and returns focus to the trigger', async () => {
+    useUIStore.setState({ runsFeedGroupIds: [10] })
+    const user = await openFilter()
+    await user.click(screen.getByText(/clear/i))
+
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /filter by group/i })).toHaveFocus()
+  })
+
+  it('offers no clear while nothing is selected', async () => {
+    await openFilter()
+    expect(screen.getByText('Acme')).toBeInTheDocument()
+    expect(screen.queryByText(/clear/i)).not.toBeInTheDocument()
+  })
 })

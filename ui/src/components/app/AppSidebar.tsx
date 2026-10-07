@@ -108,7 +108,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <p className="text-muted-foreground px-2 py-1 text-xs">v{env.appVersion}</p>
+        <p className="text-fact px-2 py-1 text-xs">v{env.appVersion}</p>
       </SidebarFooter>
     </Sidebar>
   )

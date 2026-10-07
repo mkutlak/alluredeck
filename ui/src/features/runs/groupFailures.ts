@@ -7,6 +7,8 @@ export interface FailureGroup {
   title: string
   /** Secondary line: shard/build context, or which suites a cluster spans. */
   subtitle?: string
+  /** Error groups only: the first non-empty line of the first real message, verbatim; `title` is just the grouping signature. */
+  message?: string
   rows: MergedFailure[]
   /** Present only for suite groups — drives the per-build report links. */
   suite?: PipelineSuite
@@ -56,11 +58,22 @@ export function groupBySuite(
     .sort((a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title))
 }
 
+/** First non-empty line, verbatim: a stack trace must not become a title. */
+function firstLine(message: string): string {
+  return (
+    message
+      .split('\n')
+      .find((line) => line.trim() !== '')
+      ?.trim() ?? ''
+  )
+}
+
 /**
  * Groups failures by normalised error signature, worst first.
  *
  * A single run routinely repeats one message across a dozen-plus tests; this
- * view states that once and lists what it hit.
+ * view states that once and lists what it hit. The signature only decides the
+ * grouping: the group is shown under the first real message, verbatim.
  */
 export function groupByError(failures: readonly MergedFailure[]): FailureGroup[] {
   const order: string[] = []
@@ -80,15 +93,18 @@ export function groupByError(failures: readonly MergedFailure[]): FailureGroup[]
   return order
     .map((signature) => {
       const rows = bySignature.get(signature) ?? []
-      const suiteCount = new Set(rows.map((r) => r.projectId)).size
-      return {
+      // Keyed on project, not name: two projects can share a display name.
+      const suites = [...new Map(rows.map((r) => [r.projectId, r.displayName || r.slug])).values()]
+      const named = suites.slice(0, 2).join(', ')
+      const group: FailureGroup = {
         key: `error-${signature}`,
         title: signature,
-        subtitle: `${rows.length} ${rows.length === 1 ? 'test' : 'tests'} · ${suiteCount} ${
-          suiteCount === 1 ? 'suite' : 'suites'
-        }`,
+        subtitle: `×${rows.length} · ${named}${suites.length > 2 ? ` +${suites.length - 2}` : ''}`,
         rows,
       }
+      const message = rows.map((r) => firstLine(r.errorMessage)).find(Boolean)
+      if (message) group.message = message
+      return group
     })
     .sort((a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title))
 }

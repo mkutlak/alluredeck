@@ -40,7 +40,7 @@ export function RunSuiteChips({ suites }: RunSuiteChipsProps) {
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+          className="text-fact hover:text-foreground text-xs underline-offset-2 hover:underline"
           data-testid="run-suite-chips-more"
         >
           {`+${hiddenCount} failing`}
@@ -48,7 +48,7 @@ export function RunSuiteChips({ suites }: RunSuiteChipsProps) {
       )}
 
       {passedCount > 0 && (
-        <span className="text-muted-foreground text-xs">{`· ${passedCount} passed`}</span>
+        <span className="text-fact text-xs">{`· ${passedCount} passed`}</span>
       )}
     </div>
   )

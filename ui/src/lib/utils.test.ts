@@ -46,28 +46,30 @@ describe('calcPassRate', () => {
   })
 })
 
-// Floors to two decimals so a run with failures never shows 100% (fix bb96c92).
+// Floors to one decimal so a run with failures never shows 100% (fix bb96c92).
 describe('formatPassRate', () => {
   it.each<[string, Counts, string]>([
-    ['the canonical bug case', [737, 740], '99.59%'],
-    ['floors near-100% values rather than rounding up', [731, 735], '99.45%'],
+    ['the canonical bug case', [737, 740], '99.5%'],
+    ['floors near-100% values rather than rounding up', [731, 735], '99.4%'],
+    ['one failure in 2,500 is 99.9%, never 100.0%', [2499, 2500], '99.9%'],
+    ['exact floor arithmetic: 57/100 is 57.0, not 56.9', [57, 100], '57.0%'],
     ['all passed', [50, 50], '100%'],
     ['all passed (small run)', [3, 3], '100%'],
     ['none passed', [0, 100], '0%'],
     ['total is 0', [0, 0], '—'],
-    ['a tiny non-zero rate', [1, 740], '0.13%'],
+    ['a tiny non-zero rate', [1, 740], '0.1%'],
     ['skipped excluded: 31 passed / 36 total / 5 skipped', [31, 36, 5], '100%'],
-    ['broken counts against: 30 passed / 36 total / 5 skipped', [30, 36, 5], '96.77%'],
+    ['broken counts against: 30 passed / 36 total / 5 skipped', [30, 36, 5], '96.7%'],
     ['all skipped', [0, 5, 5], '—'],
   ])('formats %s: %j -> %s', (_, args, expected) => {
     expect(formatPassRate(...args)).toBe(expected)
   })
 
   it.each([
-    [99.594, '99.59%'],
+    [99.594, '99.5%'],
     [100, '100%'],
     [0, '0%'],
-    [99.999, '99.99%'], // floor guarantee
+    [99.999, '99.9%'], // floor guarantee
   ])('formats a precomputed rate %d as %s', (rate, expected) => {
     expect(formatPassRate(rate)).toBe(expected)
   })

@@ -56,13 +56,13 @@ export function TopBar() {
       {/* Search trigger */}
       <Button
         variant="ghost"
-        className="text-muted-foreground h-8 gap-2 px-3 text-sm"
+        className="text-fact h-8 gap-2 px-3 text-sm"
         onClick={() => setSearchOpen(true)}
         aria-label="Search"
       >
         <Search size={16} />
         <span className="hidden sm:inline">Search...</span>
-        <kbd className="bg-muted pointer-events-none hidden rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium select-none sm:inline">
+        <kbd className="bg-muted text-foreground pointer-events-none hidden rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium select-none sm:inline">
           ⌘K
         </kbd>
       </Button>

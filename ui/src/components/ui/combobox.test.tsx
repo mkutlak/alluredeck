@@ -54,4 +54,16 @@ describe('Combobox', () => {
     await user.click(screen.getByText('Clear selection'))
     expect(onChange).toHaveBeenCalledExactlyOnceWith(null)
   })
+
+  // cmdk highlights the first item on open; "Clear selection" must not be it
+  // (it was, and its muted text on the highlight read at 1.76:1).
+  it('opens with the first option highlighted, never the clear row', async () => {
+    const user = userEvent.setup()
+    renderCombobox('banana', true)
+    await user.click(screen.getByRole('combobox'))
+
+    expect(screen.queryByRole('option', { name: /clear/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Apple')
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeInTheDocument()
+  })
 })

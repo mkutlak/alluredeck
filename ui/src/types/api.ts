@@ -825,9 +825,13 @@ export interface PipelineSuite {
   build_id: number
   pass_rate: number
   total: number
+  /** Optional like `builds`: responses cached before the field existed still typecheck. */
+  passed?: number
   failed: number
+  skipped?: number
   duration_ms: number
-  status: 'passed' | 'failed' | 'degraded'
+  /** `skipped`: nothing ran (every test skipped), so there is no rate. */
+  status: 'passed' | 'failed' | 'degraded' | 'skipped'
   /**
    * Every contributing build, oldest first. Optional so responses cached
    * before the field existed still typecheck; treat a missing value as a
@@ -841,6 +845,7 @@ export interface PipelineAggregate {
   suites_total: number
   tests_passed: number
   tests_total: number
+  tests_skipped?: number
   pass_rate: number
   total_duration_ms: number
 }

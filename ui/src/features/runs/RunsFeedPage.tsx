@@ -73,9 +73,11 @@ export function RunsFeedPage() {
       />
 
       {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+        // Same frame as the list, with rows at the real heights (a passing run is
+        // 40px, a failing one 73px), so the page does not jump when data arrives.
+        <div className="divide-y rounded-lg border">
+          {['h-10', 'h-[73px]', 'h-10'].map((height, i) => (
+            <Skeleton key={i} className={`${height} w-full rounded-none`} />
           ))}
         </div>
       ) : runs.length === 0 ? (
@@ -83,7 +85,7 @@ export function RunsFeedPage() {
           <GitCommitHorizontal size={36} className="text-muted-foreground/40" />
           <div>
             <p className="font-medium">No runs found</p>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-fact text-sm">
               Runs appear here when suites upload results with CI metadata.
             </p>
           </div>
@@ -105,7 +107,7 @@ export function RunsFeedPage() {
         </div>
       )}
 
-      {runs.length > 0 && (
+      {runs.length > 0 && totalPages > 1 && (
         <Pagination>
           <PaginationContent>
             <PaginationItem>
@@ -120,7 +122,7 @@ export function RunsFeedPage() {
               </Button>
             </PaginationItem>
             <PaginationItem>
-              <span className="text-muted-foreground px-4 text-sm">
+              <span className="text-fact px-4 text-sm">
                 Page {page} of {totalPages}
               </span>
             </PaginationItem>

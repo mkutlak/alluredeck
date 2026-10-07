@@ -17,6 +17,7 @@
   --color-secondary-foreground: hsl(var(--secondary-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-fact: hsl(var(--fact));
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
   --color-destructive: hsl(var(--destructive));
@@ -69,6 +70,10 @@
     --secondary-foreground: 234 16% 35%;
     --muted: 223 16% 83%;
     --muted-foreground: 231 10% 59%;
+    /* Readable secondary text (Latte Subtext 1, 5.5:1 on the canvas) for facts a
+       developer scans: branch, counts, errors, timestamps. muted-foreground is
+       2.8:1 here, so it stays for placeholders, separators and hints. */
+    --fact: 233 13% 41%;
     --accent: 225 14% 77%;
     --accent-foreground: 234 16% 35%;
     --destructive: 347 87% 44%;
@@ -108,6 +113,7 @@
     --secondary-foreground: 226 64% 88%;
     --muted: 227 15% 31%;
     --muted-foreground: 228 24% 72%;
+    --fact: 228 24% 72%;
     --accent: 227 15% 31%;
     --accent-foreground: 226 64% 88%;
     --destructive: 343 81% 75%;

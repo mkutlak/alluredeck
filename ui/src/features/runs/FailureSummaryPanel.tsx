@@ -65,7 +65,7 @@ export function FailureSummaryPanel({
       >
         {!summary ? (
           <div
-            className="text-muted-foreground flex items-center gap-2 text-xs"
+            className="text-fact flex items-center gap-2 text-xs"
             data-testid="failure-summary-soft-error"
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -86,7 +86,7 @@ export function FailureSummaryPanel({
             <Markdown text={summary.hypothesis} />
 
             {evidence.length > 0 && (
-              <ul className="text-muted-foreground list-disc space-y-0.5 pl-5 text-xs">
+              <ul className="text-fact list-disc space-y-0.5 pl-5 text-xs">
                 {evidence.map((item, i) => (
                   <li key={i}>{item}</li>
                 ))}
@@ -96,7 +96,7 @@ export function FailureSummaryPanel({
             {query.data?.last_good && (
               <NavLink
                 to={`/projects/${projectId}/reports/${query.data.last_good.build_number}`}
-                className="text-muted-foreground block text-xs hover:underline"
+                className="text-fact block text-xs hover:underline"
               >
                 Last passed: build #{query.data.last_good.build_number} (
                 {query.data.last_good.builds_since} builds ago)
@@ -104,7 +104,7 @@ export function FailureSummaryPanel({
             )}
 
             {query.data?.disclaimer && (
-              <p className="text-muted-foreground text-[10px] italic">{query.data.disclaimer}</p>
+              <p className="text-fact text-[10px] italic">{query.data.disclaimer}</p>
             )}
           </div>
         )}

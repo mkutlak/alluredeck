@@ -3,8 +3,8 @@ import { NavLink } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react'
 
-import { formatDate, formatDuration } from '@/lib/utils'
-import { getPassRateColorClass, STATUS_TEXT_CLASSES } from '@/lib/status-colors'
+import { formatDate, formatDuration, formatPassRate } from '@/lib/utils'
+import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { formatProjectLabel } from '@/lib/projectLabel'
 import { projectIndexOptions } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -26,7 +26,10 @@ export function RunRow({ run }: RunRowProps) {
   const shortSHA = run.commit_sha?.slice(0, 7)
   const failedCount = run.suites.reduce((sum, s) => sum + s.failed, 0)
   const hasFailures = failedCount > 0
-  const suitesFailing = run.suites.filter((s) => s.failed > 0).length
+  // A suite whose report could not be read has no counts but status "failed":
+  // it fails the run although no test is listed as failed.
+  const suitesFailing = run.suites.filter((s) => s.failed > 0 || s.status === 'failed').length
+  const isFailing = suitesFailing > 0
 
   const { data: projectsResp } = useQuery(projectIndexOptions())
   const projects = projectsResp?.data
@@ -37,26 +40,41 @@ export function RunRow({ run }: RunRowProps) {
   const groupLabel = groupProject ? formatProjectLabel(groupProject, projects) : run.group_slug
   const groupHref = run.group_project_id != null ? `/projects/${run.group_project_id}` : undefined
 
-  const passRateClass = getPassRateColorClass(aggregate.pass_rate)
-  const statusClass = hasFailures ? STATUS_TEXT_CLASSES.failed : STATUS_TEXT_CLASSES.passed
+  // Every suite skipped: nothing ran, so there is no verdict and no rate. Neutral
+  // glyph, "—", never the green ✓ or a red 0%. Decided from suite status, not
+  // from zero counts, which also describe a build whose stats were unreadable.
+  const allSkipped = run.suites.length > 0 && run.suites.every((s) => s.status === 'skipped')
+  const verdict = isFailing ? 'failed' : allSkipped ? 'skipped' : 'passed'
+  const glyph = { failed: '✗', skipped: '○', passed: '✓' }[verdict]
+  const passRate = formatPassRate(
+    aggregate.tests_passed,
+    aggregate.tests_total,
+    aggregate.tests_skipped,
+  )
 
   return (
     <div className="px-4 py-2.5" data-testid="run-row">
       {/* Line 1 — identity and headline numbers, always one line. */}
       <div className="flex items-center gap-2 text-sm">
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground shrink-0"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-label={`Toggle failures for ${run.pipeline_id ?? shortSHA}`}
-          data-testid="run-row-toggle"
-        >
-          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        </button>
+        {hasFailures ? (
+          <button
+            type="button"
+            className="text-fact hover:text-foreground shrink-0"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={`Toggle failures for ${run.pipeline_id ?? shortSHA}`}
+            data-testid="run-row-toggle"
+          >
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
+        ) : (
+          // Nothing to expand on a run without failures; the spacer keeps the
+          // verdict glyph in the same column as on failing rows.
+          <span aria-hidden="true" className="w-4 shrink-0" />
+        )}
 
-        <span aria-hidden="true" className={cn('shrink-0', statusClass)}>
-          {hasFailures ? '✗' : '✓'}
+        <span aria-hidden="true" className={cn('shrink-0', STATUS_TEXT_CLASSES[verdict])}>
+          {glyph}
         </span>
 
         <code className="shrink-0 font-semibold">
@@ -76,7 +94,9 @@ export function RunRow({ run }: RunRowProps) {
         </code>
 
         {run.branch && (
-          <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-xs">
+          // The branch is how a developer finds their run, so it takes the full
+          // ink colour rather than the metadata gray around it.
+          <span className="text-foreground inline-flex shrink-0 items-center gap-1 text-xs">
             <GitBranch size={11} />
             {run.branch}
           </span>
@@ -86,26 +106,40 @@ export function RunRow({ run }: RunRowProps) {
           (groupHref ? (
             <NavLink
               to={groupHref}
-              className="text-muted-foreground min-w-0 truncate text-xs hover:underline"
+              className="text-fact min-w-0 truncate text-xs hover:underline"
             >
               {groupLabel}
             </NavLink>
           ) : (
-            <span className="text-muted-foreground min-w-0 truncate text-xs">{groupLabel}</span>
+            <span className="text-fact min-w-0 truncate text-xs">{groupLabel}</span>
           ))}
 
-        <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
-          <span className={passRateClass}>{`${aggregate.pass_rate.toFixed(1)}%`}</span>
-          <span className="text-muted-foreground">
+        <span className="text-fact ml-auto flex shrink-0 items-center gap-3 text-xs">
+          {/* A plain fact, not a verdict: coloured by threshold, a failing run at
+              95.9% read green. The glyph and the failed-test count carry status. */}
+          <span>{passRate}</span>
+          <span data-testid="run-row-summary">
             {/* Spell out "failing" — a bare "7/8 suites" reads as 7 passing. */}
-            {hasFailures
-              ? `${suitesFailing}/${aggregate.suites_total} suites failing · ${failedCount} failed tests`
-              : `${aggregate.suites_total}/${aggregate.suites_total} suites passed`}
+            {isFailing ? (
+              <>
+                {`${suitesFailing}/${aggregate.suites_total} suites failing`}
+                {hasFailures && (
+                  <>
+                    {' · '}
+                    <span className={cn('font-medium', STATUS_TEXT_CLASSES.failed)}>
+                      {`${failedCount} ${failedCount === 1 ? 'failed test' : 'failed tests'}`}
+                    </span>
+                  </>
+                )}
+              </>
+            ) : allSkipped ? (
+              'all tests skipped'
+            ) : (
+              `${aggregate.suites_total}/${aggregate.suites_total} suites passed`
+            )}
           </span>
-          <span className="text-muted-foreground tabular-nums">
-            {formatDuration(aggregate.total_duration_ms)}
-          </span>
-          <span className="text-muted-foreground tabular-nums">{formatDate(run.timestamp)}</span>
+          <span className="tabular-nums">{formatDuration(aggregate.total_duration_ms)}</span>
+          <span className="tabular-nums">{formatDate(run.timestamp)}</span>
         </span>
       </div>
 
@@ -116,7 +150,7 @@ export function RunRow({ run }: RunRowProps) {
         </div>
       )}
 
-      {expanded && (
+      {expanded && hasFailures && (
         <div className="mt-2 pl-6">
           <RunFailures run={run} />
         </div>

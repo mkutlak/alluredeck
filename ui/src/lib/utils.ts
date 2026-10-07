@@ -62,20 +62,23 @@ export function calcPassRate(passed: number, total: number, skipped = 0): number
 export function formatPassRate(passed: number, total: number, skipped?: number): string
 export function formatPassRate(rate: number): string
 export function formatPassRate(passedOrRate: number, total?: number, skipped = 0): string {
-  let rate: number
+  // Tenths of a percent, floored, so a run with any failure never reads 100.0%.
+  let tenths: number
   if (total === undefined) {
-    rate = passedOrRate
+    const rate = passedOrRate
     if (!Number.isFinite(rate) || rate <= 0) return '0%'
     if (rate >= 100) return '100%'
+    tenths = Math.floor(rate * 10)
   } else {
     const denom = total - skipped
     if (denom <= 0) return '—'
     const passed = passedOrRate
     if (passed <= 0) return '0%'
     if (passed >= denom) return '100%'
-    rate = (passed / denom) * 100
+    // Integer arithmetic: float forms such as (p / d) * 100 give 56.9 for 57/100.
+    tenths = Math.floor((passed * 1000) / denom)
   }
-  return `${(Math.floor(rate * 100) / 100).toFixed(2)}%`
+  return `${(tenths / 10).toFixed(1)}%`
 }
 
 export function getStatusVariant(

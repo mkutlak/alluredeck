@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/render'
 import { PipelineRunCard } from '../PipelineRunCard'
+import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import type { PipelineRun, PipelineSuite } from '@/types/api'
 
 function makeSuite(project_id: number, slug: string): PipelineSuite {
@@ -43,6 +44,52 @@ describe('PipelineRunCard', () => {
       'https://ci.example.com/pipelines/123',
     )
     expect(screen.getByText('main')).toBeInTheDocument()
+  })
+
+  it('rates the run from counts, floored, not from pass_rate', () => {
+    renderWithProviders(
+      <PipelineRunCard
+        run={{
+          ...run,
+          aggregate: { ...run.aggregate, tests_passed: 2499, tests_total: 2500, pass_rate: 100 },
+        }}
+      />,
+    )
+    expect(screen.getByText('99.9% overall')).toBeInTheDocument()
+  })
+
+  it('shows "—" in a neutral colour when every suite was skipped', () => {
+    renderWithProviders(
+      <PipelineRunCard
+        run={{
+          ...run,
+          suites: [{ ...makeSuite(1, 'api-cloud'), total: 5, skipped: 5, status: 'skipped' }],
+          aggregate: {
+            ...run.aggregate,
+            tests_passed: 0,
+            tests_total: 5,
+            tests_skipped: 5,
+            pass_rate: 0,
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText('— overall')).toHaveClass(...STATUS_TEXT_CLASSES.skipped.split(' '))
+  })
+
+  // Zero counts alone do not mean "skipped": a suite whose stats could not be
+  // read is `failed` and keeps the failing colour.
+  it('keeps the failing colour for a suite with no readable stats', () => {
+    renderWithProviders(
+      <PipelineRunCard
+        run={{
+          ...run,
+          suites: [{ ...makeSuite(1, 'api-cloud'), total: 0, status: 'failed', pass_rate: 0 }],
+          aggregate: { ...run.aggregate, tests_passed: 0, tests_total: 0, pass_rate: 0 },
+        }}
+      />,
+    )
+    expect(screen.getByText('— overall').className).toMatch(/d20f39/)
   })
 
   it('expands to show suite grid on click', async () => {

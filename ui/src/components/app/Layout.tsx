@@ -18,7 +18,9 @@ export function Layout() {
           <BreadcrumbBar />
           <div className="flex min-h-0 flex-1">
             <AppSidebar />
-            <SidebarInset>
+            {/* min-w-0: a flex item defaults to min-width:auto, so one long unbroken line
+                (an error message) would widen the pane and squeeze the sidebar. */}
+            <SidebarInset className="min-w-0">
               <div className="flex-1 overflow-auto p-6">
                 <Outlet />
               </div>

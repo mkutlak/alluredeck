@@ -24,6 +24,7 @@ export type ComboboxProps = {
   allowClear?: boolean
   className?: string
   disabled?: boolean
+  'aria-label'?: string
 }
 
 export function Combobox({
@@ -36,6 +37,7 @@ export function Combobox({
   allowClear = false,
   className,
   disabled = false,
+  'aria-label': ariaLabel,
 }: ComboboxProps): React.JSX.Element {
   const [open, setOpen] = React.useState<boolean>(false)
 
@@ -58,10 +60,11 @@ export function Combobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           disabled={disabled}
           className={cn('w-full justify-between', className)}
         >
-          <span className={cn(!selectedLabel && 'text-muted-foreground')}>
+          <span className={cn('truncate', !selectedLabel && 'text-muted-foreground')}>
             {selectedLabel ?? placeholder}
           </span>
           <ChevronsUpDown className="ml-2 shrink-0 opacity-50" />
@@ -73,11 +76,6 @@ export function Combobox({
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
-              {allowClear && value !== null && (
-                <CommandItem onSelect={handleClear}>
-                  <span className="text-muted-foreground">Clear selection</span>
-                </CommandItem>
-              )}
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
@@ -93,6 +91,18 @@ export function Combobox({
             </CommandGroup>
           </CommandList>
         </Command>
+        {allowClear && value !== null && (
+          // Outside the cmdk list: as its first item it took the initial
+          // highlight (and its muted text on that highlight read at 1.76:1).
+          // After the Command, so the search box keeps the open-focus.
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-foreground hover:bg-muted focus-visible:bg-muted w-full rounded-b-md border-t px-3 py-1.5 text-left text-sm outline-hidden"
+          >
+            Clear selection
+          </button>
+        )}
       </PopoverContent>
     </Popover>
   )

@@ -44,6 +44,20 @@ export function GroupFilter() {
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-2">
         <div className="space-y-1">
+          {runsFeedGroupIds.length > 0 && (
+            // A reset inside the filter, so there is no extra control on the page.
+            <button
+              type="button"
+              onClick={() => {
+                setRunsFeedGroupIds([])
+                // The row removes itself; close so focus returns to the trigger.
+                setOpen(false)
+              }}
+              className="text-fact hover:bg-accent w-full rounded-md px-2 py-1.5 text-left text-sm"
+            >
+              Clear selection
+            </button>
+          )}
           {groups.map((g) => {
             const checkboxId = `group-filter-${g.project_id}`
             return (

@@ -3,15 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { projectIndexOptions } from '@/lib/queries'
 import { useUIStore } from '@/store/ui'
 import { useFeedBranches } from './useFeedBranches'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-
-const ALL_BRANCHES_VALUE = '__all__'
+import { Combobox } from '@/components/ui/combobox'
 
 export function FeedBranchSelect() {
   const runsFeedGroupIds = useUIStore((s) => s.runsFeedGroupIds)
@@ -27,47 +19,27 @@ export function FeedBranchSelect() {
 
   const { branchNames, isLoading } = useFeedBranches(parentIds)
 
-  const handleValueChange = (val: string) => {
-    setSelectedBranch(val === ALL_BRANCHES_VALUE ? undefined : val)
-  }
+  if (!isLoading && branchNames.length === 0) return null
 
+  // The stored branch is shared across pages; one this feed lacks reads as "All branches".
   const storedBranchInList = selectedBranch !== undefined && branchNames.includes(selectedBranch)
-  const displayValue = storedBranchInList ? selectedBranch : ALL_BRANCHES_VALUE
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground text-xs">Branch:</span>
-        <Select disabled value={ALL_BRANCHES_VALUE}>
-          <SelectTrigger className="h-8 min-w-28 w-auto text-xs" aria-label="Filter by branch">
-            <SelectValue placeholder="All branches" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_BRANCHES_VALUE}>All branches</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-    )
-  }
-
-  if (branchNames.length === 0) return null
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-muted-foreground text-xs">Branch:</span>
-      <Select value={displayValue} onValueChange={handleValueChange}>
-        <SelectTrigger className="h-8 min-w-28 w-auto text-xs" aria-label="Filter by branch">
-          <SelectValue placeholder="All branches" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL_BRANCHES_VALUE}>All branches</SelectItem>
-          {branchNames.map((name) => (
-            <SelectItem key={name} value={name}>
-              {name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <span className="text-fact text-xs">Branch:</span>
+      <Combobox
+        aria-label="Filter by branch"
+        options={branchNames.map((name) => ({ value: name, label: name }))}
+        value={storedBranchInList ? selectedBranch : null}
+        onChange={(branch) => setSelectedBranch(branch ?? undefined)}
+        placeholder="All branches"
+        searchPlaceholder="Search branches…"
+        emptyText="No matching branches."
+        allowClear
+        disabled={isLoading}
+        // "All branches" is a real state, not a hint: same ink as the group filter.
+        className="[&>span]:text-foreground h-8 w-auto max-w-72 min-w-56 px-3 text-xs"
+      />
     </div>
   )
 }
