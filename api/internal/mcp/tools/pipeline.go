@@ -103,10 +103,13 @@ type PipelineFailingTest struct {
 	// store.RunFailureRow. Empty only when the tags could not be read or this
 	// test lies beyond the cap on tagged failures (both say so in
 	// DiagnosePipelineOutput.Warnings). Same value the run failures endpoint
-	// reports.
+	// reports: the stored origin, which failure_origins overrides for an
+	// Environment test by counting it under inherited.
 	Origin string `json:"origin,omitempty"`
 	// Environment is true when the test's defect fingerprint is categorised
-	// infrastructure. Same value the run failures endpoint reports.
+	// infrastructure. Same value the run failures endpoint reports. Like
+	// Origin it is the stored fact: failure_origins counts an environment
+	// failure under inherited even when its Origin here says new or unknown.
 	Environment bool `json:"environment,omitempty"`
 }
 
@@ -134,9 +137,12 @@ type PipelineTotals struct {
 // FailureOrigins counts every failing test of this project's builds in the
 // pipeline by where it comes from, not just the ones listed under builds[]:
 // the same rows, tagged the same way, as the run failures endpoint returns for
-// this suite. New, Inherited and Unknown partition Total; Environment counts the
-// infrastructure-fingerprinted tests among them whatever their origin, so it
-// overlaps the other three. Total can differ from Totals.FailedTests: it counts
+// this suite. New, Inherited and Unknown partition Total. An environment
+// failure (infrastructure-fingerprinted) is never new: it counts under
+// Inherited whatever its stored origin, and Environment is the subset of
+// Inherited made of those tests, so it is not a fourth bucket. This is the rule
+// the runs page applies; the per-test origin and environment on failing_tests
+// stay as stored. Total can differ from Totals.FailedTests: it counts
 // rows as stored, so a legacy build with twin rows for one test counts twice
 // while Totals.FailedTests counts distinct tests, and it covers every build of
 // the pipeline while Totals only covers the first 50 (TruncatedBuilds).
@@ -185,7 +191,7 @@ func RegisterPipelineTools(s *mcpsdk.Server, stores *bootstrap.Stores, logger *z
 		Name:        "diagnose_pipeline",
 		Title:       "Diagnose AllureDeck CI pipeline",
 		Annotations: readOnlyAnnotations(),
-		Description: "Diagnose every shard build of a CI pipeline run in ONE call. Playwright CI shards a suite across parallel jobs and each shard uploads its OWN build under a shared ci_pipeline_id (builds.ci_pipeline_id) within the same project — diagnose_failure only ever sees one of those builds, so an agent that diagnoses a single shard's report never learns that sibling shards also failed, or that they all failed for the SAME reason. Prefer diagnose_pipeline over diagnose_failure whenever a build's ci_pipeline_id is non-empty (list_recent_builds, resolve_url, diagnose_failure, list_failing_tests, and compare_builds all now surface it) and you want the whole run's picture rather than one shard's. Returns `builds[]`, one compact block per shard {build_id, build_number, branch, created_at, stats, failing_tests, truncated}, `totals` {builds, failed_builds, total_tests, failed_tests} summed across every shard, and `clusters` — the UNION of every shard's failing tests grouped by root cause (same clustering diagnose_failure uses), so one environment outage spanning four shards reads as ONE cluster instead of four separate failure lists. Per-test detail is intentionally thin here: full_name, status, and a 500-char-capped error_message, with per-test triage, last-good pointers, retry attempts, and build history left OFF — those require several queries per test and would multiply across every shard's failures. Once diagnose_pipeline points at the shard and test that matter, call diagnose_failure on that specific build for the full per-test diagnosis. max_tests_per_build caps detailed examination per shard (default 10, clamped to 50); a shard with more failures than that is reported with truncated=true. Each failing test carries `origin` (new: it passed in the suite's default-branch baseline, the latest older run there, all its shards; inherited: it failed there too; unknown: no baseline to compare with) and `environment` (its defect fingerprint is infrastructure), and `failure_origins` counts them over ALL this project's failing tests in the pipeline, the same figures the run failures endpoint and the UI show. run_url is the UI page of the whole pipeline run (every suite, not just this project's shards); give it to a person who needs the pipeline's picture. An unknown pipeline_id returns a clear error — check list_recent_builds for the project's actual ci_pipeline_id values.",
+		Description: "Diagnose every shard build of a CI pipeline run in ONE call. Playwright CI shards a suite across parallel jobs and each shard uploads its OWN build under a shared ci_pipeline_id (builds.ci_pipeline_id) within the same project — diagnose_failure only ever sees one of those builds, so an agent that diagnoses a single shard's report never learns that sibling shards also failed, or that they all failed for the SAME reason. Prefer diagnose_pipeline over diagnose_failure whenever a build's ci_pipeline_id is non-empty (list_recent_builds, resolve_url, diagnose_failure, list_failing_tests, and compare_builds all now surface it) and you want the whole run's picture rather than one shard's. Returns `builds[]`, one compact block per shard {build_id, build_number, branch, created_at, stats, failing_tests, truncated}, `totals` {builds, failed_builds, total_tests, failed_tests} summed across every shard, and `clusters` — the UNION of every shard's failing tests grouped by root cause (same clustering diagnose_failure uses), so one environment outage spanning four shards reads as ONE cluster instead of four separate failure lists. Per-test detail is intentionally thin here: full_name, status, and a 500-char-capped error_message, with per-test triage, last-good pointers, retry attempts, and build history left OFF — those require several queries per test and would multiply across every shard's failures. Once diagnose_pipeline points at the shard and test that matter, call diagnose_failure on that specific build for the full per-test diagnosis. max_tests_per_build caps detailed examination per shard (default 10, clamped to 50); a shard with more failures than that is reported with truncated=true. Each failing test carries `origin` (new: it passed in the suite's default-branch baseline, the latest older run there, all its shards; inherited: it failed there too; unknown: no baseline to compare with) and `environment` (its defect fingerprint is infrastructure), and `failure_origins` counts them over ALL this project's failing tests in the pipeline, the same figures the run failures endpoint and the UI show; the per-test fields are the stored facts, while the counts put an environment failure under inherited (environment is a subset of inherited, so new + inherited + unknown = total). run_url is the UI page of the whole pipeline run (every suite, not just this project's shards); give it to a person who needs the pipeline's picture. An unknown pipeline_id returns a clear error — check list_recent_builds for the project's actual ci_pipeline_id values.",
 	}, diagnosePipelineHandler(stores, logger, publicURL))
 }
 
@@ -264,16 +270,19 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger, publi
 				r := &tagRows[i]
 				tagsByResult[r.TestResultID] = *r
 				fo.Total++
-				switch r.Origin {
-				case store.FailureOriginNew:
+				// An environment failure is never new: it counts as inherited
+				// and also as environment, a subset of inherited. The same
+				// rule the runs page applies to the same rows.
+				switch {
+				case r.Environment:
+					fo.Inherited++
+					fo.Environment++
+				case r.Origin == store.FailureOriginNew:
 					fo.New++
-				case store.FailureOriginInherited:
+				case r.Origin == store.FailureOriginInherited:
 					fo.Inherited++
 				default:
 					fo.Unknown++
-				}
-				if r.Environment {
-					fo.Environment++
 				}
 			}
 			out.FailureOrigins = &fo

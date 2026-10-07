@@ -32,7 +32,8 @@ type restFailure struct {
 // same facts. One group run is served both ways from the same rows: the REST
 // handler over the whole group (a sibling suite's failures included), the tool
 // over the one suite it is asked about. The summary must equal the REST rows of
-// that suite counted by origin and environment, and every failing test the tool
+// that suite counted by the runs page's bucket rule (an environment failure
+// counts as inherited, and as environment), and every failing test the tool
 // lists must carry the tags its REST row has. Build 10 holds three failures
 // with max_tests_per_build=2, so the summary also has to cover tests the tool
 // does not list.
@@ -116,20 +117,22 @@ func TestDiagnosePipeline_OriginsAgreeWithRESTFailures(t *testing.T) {
 			continue
 		}
 		want.Total++
-		switch r.Origin {
-		case "new":
-			want.New++
-		case "inherited":
+		// The runs page's bucket rule: an environment failure is never new, it
+		// counts as inherited and as environment, a subset of inherited.
+		switch {
+		case r.Environment:
 			want.Inherited++
-		case "unknown":
+			want.Environment++
+		case r.Origin == "new":
+			want.New++
+		case r.Origin == "inherited":
+			want.Inherited++
+		case r.Origin == "unknown":
 			want.Unknown++
 		}
-		if r.Environment {
-			want.Environment++
-		}
 	}
-	if want != (tools.FailureOrigins{Total: 5, New: 2, Inherited: 2, Unknown: 1, Environment: 2}) {
-		t.Fatalf("REST counts for the suite = %+v, want 5 failures: 2 new, 2 inherited, 1 unknown, 2 environment", want)
+	if want != (tools.FailureOrigins{Total: 5, New: 1, Inherited: 4, Unknown: 0, Environment: 2}) {
+		t.Fatalf("REST counts for the suite = %+v, want 5 failures: 1 new, 4 inherited (2 of them environment), 0 unknown", want)
 	}
 
 	// MCP: diagnose_pipeline over the one suite.
@@ -230,5 +233,55 @@ func TestDiagnosePipeline_OriginsTruncated(t *testing.T) {
 	}
 	if len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], "failing_tests") || !strings.Contains(out.Warnings[0], "origin") {
 		t.Errorf("warnings = %v, want one that names the per-test tags as well as the counts", out.Warnings)
+	}
+}
+
+// TestDiagnosePipeline_EnvironmentFailuresCountAsInherited: an environment
+// failure is never "new" for the person reading the summary. It counts under
+// inherited whatever its stored origin, and is also counted as environment, a
+// subset of inherited, so new + inherited + unknown = total. This is the rule
+// the runs page applies to the same rows. The per-test origin and environment
+// stay as stored, the way the run failures endpoint serves them.
+func TestDiagnosePipeline_EnvironmentFailuresCountAsInherited(t *testing.T) {
+	mocks := testutil.New()
+	proj, _ := mocks.Projects.CreateProject(context.Background(), "solo")
+	rows := []store.RunFailureRow{
+		{TestResultID: 1, FullName: "new", Origin: store.FailureOriginNew},
+		{TestResultID: 2, FullName: "new+env", Origin: store.FailureOriginNew, Environment: true},
+		{TestResultID: 3, FullName: "unknown", Origin: store.FailureOriginUnknown},
+		{TestResultID: 4, FullName: "unknown+env", Origin: store.FailureOriginUnknown, Environment: true},
+		{TestResultID: 5, FullName: "inherited", Origin: store.FailureOriginInherited},
+		{TestResultID: 6, FullName: "inherited+env", Origin: store.FailureOriginInherited, Environment: true},
+	}
+	mocks.Pipeline.ListBuildsByPipelineIDFn = func(context.Context, int64, string, int) ([]store.Build, error) {
+		return []store.Build{{ID: 1, ProjectID: proj.ID, BuildNumber: 1, CIPipelineID: new("p")}}, nil
+	}
+	mocks.Pipeline.ListFailuresByPipelineIDFn = func(context.Context, int64, string, int) ([]store.RunFailureRow, error) {
+		return rows, nil
+	}
+	mocks.TestResults.ListFailedByBuildFn = func(context.Context, int64, int64, int) ([]store.TestResult, error) {
+		out := make([]store.TestResult, len(rows))
+		for i := range rows {
+			out[i] = store.TestResult{ID: rows[i].TestResultID, BuildID: 1, FullName: rows[i].FullName, Status: "failed", StatusMessage: "x"}
+		}
+		return out, nil
+	}
+	cs := setupTestServer(t, &bootstrap.Stores{Project: mocks.Projects, Build: mocks.Builds, TestResult: mocks.TestResults, Pipeline: mocks.Pipeline})
+
+	out, _ := call[tools.DiagnosePipelineOutput](t, cs, "diagnose_pipeline", map[string]any{"project_id": proj.ID, "pipeline_id": "p"})
+	want := tools.FailureOrigins{Total: 6, New: 1, Inherited: 4, Unknown: 1, Environment: 3}
+	if out.FailureOrigins == nil || *out.FailureOrigins != want {
+		t.Errorf("failure_origins = %+v, want %+v (environment rows count as inherited, new + inherited + unknown = total)", out.FailureOrigins, want)
+	}
+	for _, ft := range out.Builds[0].FailingTests {
+		var raw *store.RunFailureRow
+		for i := range rows {
+			if rows[i].FullName == ft.FullName {
+				raw = &rows[i]
+			}
+		}
+		if raw == nil || ft.Origin != raw.Origin || ft.Environment != raw.Environment {
+			t.Errorf("%s: origin/environment = %q/%v, want the stored %v", ft.FullName, ft.Origin, ft.Environment, raw)
+		}
 	}
 }
