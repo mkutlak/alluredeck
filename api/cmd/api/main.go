@@ -985,7 +985,7 @@ func registerRoutes(d routeDeps) {
 	// A single run is no-store: it changes while its shards upload and a link can
 	// be opened before the first upload, so no response, 404 included, may be reused.
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs/{run_key}", viewerUp(noStore(d.h.pipeline.GetPipelineRun)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs/{run_key}/failures", viewerUp(shortCache(d.h.pipeline.GetRunFailures)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs/{run_key}/failures", viewerUp(noStore(d.h.pipeline.GetRunFailures)))
 	mux.HandleFunc("GET "+prefix+"/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetAllPipelineRuns)))
 
 	// Admin system monitor endpoints.

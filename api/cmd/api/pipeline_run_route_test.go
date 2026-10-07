@@ -117,6 +117,21 @@ func TestRegisterRoutes_PipelineRunIsNeverCached(t *testing.T) {
 	}
 }
 
+// TestRegisterRoutes_RunFailuresIsNeverCached: the run page and the feed's
+// expanded rows read the failures of a run that may still be uploading, so a
+// cached answer is a partial list for as long as the cache lives.
+func TestRegisterRoutes_RunFailuresIsNeverCached(t *testing.T) {
+	mux := pipelineRunMux(t, &config.Config{MakeViewerEndpointsPublic: true}, nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/pipeline-runs/196765/failures", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+}
+
 // TestRegisterRoutes_PipelineRunRequiresViewer: with viewer endpoints not
 // public the route sits behind auth and the viewer role, like its siblings.
 func TestRegisterRoutes_PipelineRunRequiresViewer(t *testing.T) {
