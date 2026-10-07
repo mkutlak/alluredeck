@@ -1429,7 +1429,9 @@ paths:
         (its defect fingerprint is categorised infrastructure). Each test also carries
         `cluster_key`: tests with the same key share a failure shape (the same normalised
         message, failure phase and deepest failed step), the key diagnose_pipeline
-        clusters on.'
+        clusters on. `failed_step` is the deepest failed step the key was built from
+        (the step name, absent when the test has no failed step, no history id, or
+        the step has no name).'
       parameters:
       - description: Parent (group) project ID
         in: path

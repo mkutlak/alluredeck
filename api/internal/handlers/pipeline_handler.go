@@ -210,6 +210,8 @@ func (h *PipelineHandler) GetAllPipelineRuns(w http.ResponseWriter, r *http.Requ
 // pipeline when it had one (see store.RunFailureRow). environment is true when
 // the test's defect fingerprint is categorised infrastructure. cluster_key is
 // shared by the tests with one failure shape (see runFailureClusterKey).
+// failed_step is the deepest failed step that key was built from (the step
+// name), absent when the test has no failed step, no history id, or the step has no name.
 type runFailureResp struct {
 	ProjectID    int64  `json:"project_id"`
 	Slug         string `json:"slug"`
@@ -229,6 +231,16 @@ type runFailureResp struct {
 	Known        bool   `json:"known"`
 	ErrorMessage string `json:"error_message"`
 	ClusterKey   string `json:"cluster_key"`
+	FailedStep   string `json:"failed_step,omitempty"`
+}
+
+// runFailureStep is the deepest failed step of the row, the last element of its
+// failed-step path, or "" when the test has no failed step.
+func runFailureStep(row *store.RunFailureRow) string {
+	if n := len(row.FailedStepPath); n > 0 {
+		return row.FailedStepPath[n-1]
+	}
+	return ""
 }
 
 // runFailureClusterKey is the key diagnose_pipeline clusters the row on: the
@@ -237,14 +249,10 @@ type runFailureResp struct {
 // through the functions diagnose_pipeline uses, so the browser and the IDE group
 // the same tests together.
 func runFailureClusterKey(row *store.RunFailureRow) string {
-	var lastStep string
-	if n := len(row.FailedStepPath); n > 0 {
-		lastStep = row.FailedStepPath[n-1]
-	}
 	return runner.ClusterKey(
 		runner.ClusterMessage(row.FailedStepMessage, row.StatusMessage),
 		triage.FailurePhase(row.FailedStepPath),
-		lastStep)
+		runFailureStep(row))
 }
 
 // GetPipelineRun returns one pipeline run: the same object the runs feed lists,
@@ -298,7 +306,7 @@ func (h *PipelineHandler) GetPipelineRun(w http.ResponseWriter, r *http.Request)
 // replaces what would otherwise be a per-build request fan-out from the client.
 //
 //	@Summary      List run failures
-//	@Description  Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed. Each test also carries `origin` (`inherited` when it failed or broke in the suite's baseline, `new` when it passed there, `unknown` when the baseline cannot say: the baseline is the latest older build on the suite's own default branch outside this run, with all the shards of its pipeline when it had one) and `environment` (its defect fingerprint is categorised infrastructure). Each test also carries `cluster_key`: tests with the same key share a failure shape (the same normalised message, failure phase and deepest failed step), the key diagnose_pipeline clusters on.
+//	@Description  Returns the failed and broken tests of every build in one pipeline run, flagged as known, flaky, retried, or newly-failed. Each test also carries `origin` (`inherited` when it failed or broke in the suite's baseline, `new` when it passed there, `unknown` when the baseline cannot say: the baseline is the latest older build on the suite's own default branch outside this run, with all the shards of its pipeline when it had one) and `environment` (its defect fingerprint is categorised infrastructure). Each test also carries `cluster_key`: tests with the same key share a failure shape (the same normalised message, failure phase and deepest failed step), the key diagnose_pipeline clusters on. `failed_step` is the deepest failed step the key was built from (the step name, absent when the test has no failed step, no history id, or the step has no name).
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        project_id  path   string  true   "Parent (group) project ID"
@@ -394,6 +402,7 @@ func (h *PipelineHandler) GetRunFailures(w http.ResponseWriter, r *http.Request)
 			Known:        knownByProject[row.ProjectID][row.TestName],
 			ErrorMessage: firstErrorLine(row.StatusMessage),
 			ClusterKey:   runFailureClusterKey(row),
+			FailedStep:   runFailureStep(row),
 		})
 	}
 
