@@ -3,7 +3,6 @@ package handlers
 import (
 	"cmp"
 	"fmt"
-	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -296,6 +295,10 @@ type pipelineRunResp struct {
 	Aggregate      pipelineAggResp     `json:"aggregate"`
 }
 
+// pipelineSuiteResp is one suite of a run. Status is "passed" (every test that
+// ran passed), "skipped" (stats exist but nothing ran), "degraded" (pass rate
+// >= 70%) or "failed" (below that, or no stats at all). PassRate is floored to
+// one decimal and is 0 when nothing ran.
 type pipelineSuiteResp struct {
 	ProjectID   int64   `json:"project_id"`
 	Slug        string  `json:"slug"`
@@ -304,7 +307,9 @@ type pipelineSuiteResp struct {
 	BuildID     int64   `json:"build_id"`
 	PassRate    float64 `json:"pass_rate"`
 	Total       int     `json:"total"`
+	Passed      int     `json:"passed"`
 	Failed      int     `json:"failed"`
+	Skipped     int     `json:"skipped"`
 	DurationMs  int64   `json:"duration_ms"`
 	Status      string  `json:"status"`
 	// Builds lists every build that contributed to this suite, oldest first.
@@ -325,6 +330,7 @@ type pipelineAggResp struct {
 	SuitesTotal     int     `json:"suites_total"`
 	TestsPassed     int     `json:"tests_passed"`
 	TestsTotal      int     `json:"tests_total"`
+	TestsSkipped    int     `json:"tests_skipped"`
 	PassRate        float64 `json:"pass_rate"`
 	TotalDurationMs int64   `json:"total_duration_ms"`
 }
@@ -345,6 +351,7 @@ type suiteAccum struct {
 	buildID     int64 // newest contributing build
 	buildNumber int
 	hasBuild    bool
+	hasStats    bool // some contributing build reported stats (stat_total non-NULL)
 	builds      []pipelineSuiteBuildResp
 }
 
@@ -410,6 +417,7 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 			acc.suiteOrder = append(acc.suiteOrder, r.ProjectID)
 		}
 
+		sa.hasStats = sa.hasStats || r.StatTotal != nil
 		sa.total += derefInt(r.StatTotal)
 		sa.failed += derefInt(r.StatFailed) + derefInt(r.StatBroken)
 		sa.passed += derefInt(r.StatPassed)
@@ -444,18 +452,25 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 			})
 
 			denom := sa.total - sa.skipped
+			// Floor with integer arithmetic so the rate never overstates:
+			// 2499/2500 is 99.9, not 100.0.
 			passRate := 0.0
 			if denom > 0 {
-				passRate = math.Round(float64(sa.passed)/float64(denom)*1000) / 10
+				passRate = float64(sa.passed*1000/denom) / 10
 			}
 
-			// A merged suite only reaches 100% when every shard was clean, so
-			// one failing shard is enough to keep the whole suite out of the
-			// passed bucket.
+			// A merged suite only passes when every test that ran passed, so one
+			// failing shard is enough to keep the whole suite out of the passed
+			// bucket. A suite where nothing ran is "skipped"; one with no stats at
+			// all (ReadBuildStats failed) is a broken report and stays "failed".
 			status := "failed"
-			if passRate >= 100 {
+			switch {
+			case !sa.hasStats:
+			case denom <= 0:
+				status = "skipped"
+			case sa.passed >= denom:
 				status = "passed"
-			} else if passRate >= 70 {
+			case passRate >= 70:
 				status = "degraded"
 			}
 
@@ -467,7 +482,9 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 				BuildID:     sa.buildID,
 				PassRate:    passRate,
 				Total:       sa.total,
+				Passed:      sa.passed,
 				Failed:      sa.failed,
+				Skipped:     sa.skipped,
 				DurationMs:  sa.durationMs,
 				Status:      status,
 				Builds:      sa.builds,
@@ -477,6 +494,7 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 			effDenom += denom
 
 			agg.TestsTotal += sa.total
+			agg.TestsSkipped += sa.skipped
 			agg.TotalDurationMs += sa.durationMs
 			if status == "passed" {
 				agg.SuitesPassed++
@@ -489,7 +507,7 @@ func groupPipelineRuns(rows []store.PipelineRunRow) []pipelineRunResp {
 		// of quietly counting skipped tests as passes.
 		agg.TestsPassed = effPassed
 		if effDenom > 0 {
-			agg.PassRate = math.Round(float64(effPassed)/float64(effDenom)*1000) / 10
+			agg.PassRate = float64(effPassed*1000/effDenom) / 10
 		}
 		acc.resp.Aggregate = agg
 		result = append(result, acc.resp)

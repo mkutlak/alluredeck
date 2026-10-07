@@ -47,11 +47,56 @@ func TestGroupPipelineRuns(t *testing.T) {
 		return pipelineRow(store.PipelineRunRow{PipelineID: "p1", CommitSHA: "sha", CreatedAt: pipelineTS, ProjectID: projectID,
 			Slug: slug, BuildNumber: number, BuildID: int64(number)}, passed, failed, 0, 10, 100)
 	}
+	// counts is a one-build suite with explicit counters, for the pass-rate cases.
+	counts := func(projectID int64, slug string, passed, failed, skipped, total int) store.PipelineRunRow {
+		return pipelineRow(store.PipelineRunRow{PipelineID: "p2", CommitSHA: "sha2", CreatedAt: pipelineTS, ProjectID: projectID,
+			Slug: slug, BuildNumber: 1, BuildID: projectID}, passed, failed, skipped, total, 100)
+	}
 	tests := []struct {
 		name string
 		rows []store.PipelineRunRow
 		want map[string]any
 	}{
+		// Nothing ran: the rate stays 0 but the status is "skipped", not "failed",
+		// and the skipped counts are exposed so the UI can show "—".
+		{name: "all-skipped suite", rows: []store.PipelineRunRow{counts(50, "skipper", 0, 0, 5, 5)}, want: map[string]any{
+			"0.suites.0.status": "skipped", "0.suites.0.pass_rate": 0, "0.suites.0.passed": 0, "0.suites.0.skipped": 5, "0.suites.0.total": 5,
+			"0.aggregate.suites_total": 1, "0.aggregate.suites_passed": 0, "0.aggregate.pass_rate": 0,
+			"0.aggregate.tests_passed": 0, "0.aggregate.tests_skipped": 5, "0.aggregate.tests_total": 5,
+		}},
+		// 2499/2500 is 99.96%: rounding would show 100.0 and call it passed; the
+		// floor shows 99.9 and the suite is degraded, not counted in suites_passed.
+		{name: "one failure in 2500 is not a pass", rows: []store.PipelineRunRow{counts(51, "big", 2499, 1, 0, 2500)}, want: map[string]any{
+			"0.suites.0.status": "degraded", "0.suites.0.pass_rate": 99.9, "0.suites.0.passed": 2499, "0.suites.0.skipped": 0,
+			"0.aggregate.suites_total": 1, "0.aggregate.suites_passed": 0, "0.aggregate.pass_rate": 99.9, "0.aggregate.tests_passed": 2499,
+		}},
+		// The rate is an exact floor: 6995/10000 is 69.95%, which rounding would
+		// report as 70.0 and so as degraded; the floor gives 69.9 and failed.
+		{name: "exact floor", rows: []store.PipelineRunRow{counts(52, "floor", 6995, 3005, 0, 10000)}, want: map[string]any{
+			"0.suites.0.status": "failed", "0.suites.0.pass_rate": 69.9, "0.aggregate.pass_rate": 69.9,
+		}},
+		// No stats at all (ReadBuildStats failed, so the stat columns are NULL) is
+		// a broken report, not a suite where nothing ran: it stays "failed".
+		{name: "suite without stats stays failed", rows: []store.PipelineRunRow{
+			{PipelineID: "p2", CommitSHA: "sha2", CreatedAt: pipelineTS, ProjectID: 56, Slug: "nostats", BuildNumber: 1, BuildID: 56},
+		}, want: map[string]any{
+			"0.suites.0.status": "failed", "0.suites.0.pass_rate": 0, "0.suites.0.total": 0,
+			"0.aggregate.suites_total": 1, "0.aggregate.suites_passed": 0, "0.aggregate.pass_rate": 0,
+		}},
+		// Skipped tests do not count against a suite: 9 passed of 10-1 is a pass.
+		{name: "skipped tests do not block passed", rows: []store.PipelineRunRow{counts(53, "partial", 9, 0, 1, 10)}, want: map[string]any{
+			"0.suites.0.status": "passed", "0.suites.0.pass_rate": 100, "0.suites.0.skipped": 1,
+			"0.aggregate.suites_passed": 1, "0.aggregate.pass_rate": 100, "0.aggregate.tests_skipped": 1,
+		}},
+		// A passed suite beside an all-skipped one: only the passed suite counts,
+		// and the aggregate rate comes from the suite that actually ran.
+		{name: "passed suite beside all-skipped suite", rows: []store.PipelineRunRow{
+			counts(54, "clean", 10, 0, 0, 10), counts(55, "skipper", 0, 0, 4, 4),
+		}, want: map[string]any{
+			"0.suites.0.status": "passed", "0.suites.1.status": "skipped", "0.suites.1.pass_rate": 0, "0.suites.1.skipped": 4,
+			"0.aggregate.suites_total": 2, "0.aggregate.suites_passed": 1, "0.aggregate.pass_rate": 100,
+			"0.aggregate.tests_total": 14, "0.aggregate.tests_passed": 10, "0.aggregate.tests_skipped": 4,
+		}},
 		{name: "groups rows by commit", rows: pipelineTwoCommits, want: map[string]any{
 			"#":            2,
 			"0.commit_sha": "abc1234", "0.ci_build_url": "https://ci/1", "0.suites#": 2,
