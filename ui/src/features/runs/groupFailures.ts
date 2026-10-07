@@ -10,6 +10,8 @@ export interface FailureGroup {
   subtitle?: string
   /** Error groups only: the first non-empty line of the first real message, verbatim; unset when no row has one. */
   message?: string
+  /** Error groups only: the deepest failed step shared by the cluster; unset when no row has one. */
+  step?: string
   rows: MergedFailure[]
   /** Present only for suite groups — drives the per-build report links. */
   suite?: PipelineSuite
@@ -123,6 +125,8 @@ export function groupByError(failures: readonly MergedFailure[]): FailureGroup[]
       const suites = [...new Map(rows.map((r) => [r.projectId, r.displayName || r.slug])).values()]
       const named = suites.slice(0, 2).join(', ')
       const message = rows.map((r) => firstLine(r.errorMessage)).find(Boolean)
+      // Clusters can share a message and differ only in the failed step; the header names it.
+      const step = rows.find((r) => r.failedStep)?.failedStep
       const group: FailureGroup = {
         key: `error-${cluster}`,
         title: message ?? 'No error message',
@@ -130,6 +134,7 @@ export function groupByError(failures: readonly MergedFailure[]): FailureGroup[]
         rows,
       }
       if (message) group.message = message
+      if (step) group.step = step
       return group
     })
     .sort((a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title))

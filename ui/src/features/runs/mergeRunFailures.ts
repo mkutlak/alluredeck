@@ -22,6 +22,8 @@ export interface MergedFailure {
   environment?: boolean
   /** The API's key for the failure's shape (message, phase, deepest step); travels with `errorMessage`. */
   clusterKey?: string
+  /** The API's deepest failed step; travels with `errorMessage` like `clusterKey`. */
+  failedStep?: string
 }
 
 // Copies of one test can disagree because only one history_id may match the baseline.
@@ -73,15 +75,17 @@ export function mergeRunFailures(rows: readonly RunFailure[]): MergedFailure[] {
         origin: row.origin,
         environment: row.environment,
         clusterKey: row.cluster_key,
+        failedStep: row.failed_step,
       })
       continue
     }
 
     // The copy carrying the message is the more useful one to link to, so it
-    // supplies the build as well, and the cluster key that describes the message.
+    // supplies the build as well, and the cluster key and step that describe the message.
     if (!existing.errorMessage && row.error_message) {
       existing.errorMessage = row.error_message
       existing.clusterKey = row.cluster_key
+      existing.failedStep = row.failed_step
       existing.buildId = row.build_id
       existing.buildNumber = row.build_number
       existing.historyId = row.history_id

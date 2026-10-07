@@ -904,6 +904,11 @@ export interface RunFailure {
    * keys mean one cluster. Optional so an older API and fixtures without it still type-check.
    */
   cluster_key?: string
+  /**
+   * Name of the deepest failed step; absent when the test has none. Part of what `cluster_key`
+   * separates, so two clusters with one message can differ only here. Optional like `cluster_key`.
+   */
+  failed_step?: string
 }
 
 export interface RunFailuresResponse {

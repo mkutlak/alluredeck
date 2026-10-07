@@ -273,39 +273,52 @@ function FailureGroupBlock({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="text-fact hover:text-foreground flex min-w-[min(100%,12rem)] flex-1 items-center gap-2 text-left"
+      className="text-fact hover:text-foreground min-w-[min(100%,12rem)] flex-1 text-left"
     >
-      {open ? (
-        <ChevronDown size={14} className="shrink-0" />
-      ) : (
-        <ChevronRight size={14} className="shrink-0" />
-      )}
-      {sectionVerdict && (
+      <span className="flex items-center gap-2">
+        {open ? (
+          <ChevronDown size={14} className="shrink-0" />
+        ) : (
+          <ChevronRight size={14} className="shrink-0" />
+        )}
+        {sectionVerdict && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              'shrink-0',
+              STATUS_TEXT_CLASSES[sectionVerdict === 'failed' ? 'failed' : 'broken'],
+            )}
+          >
+            {sectionVerdict === 'failed' ? '✗' : '⚠'}
+          </span>
+        )}
         <span
-          aria-hidden="true"
-          className={cn(
-            'shrink-0',
-            STATUS_TEXT_CLASSES[sectionVerdict === 'failed' ? 'failed' : 'broken'],
-          )}
+          className="text-foreground min-w-0 truncate text-sm font-medium"
+          title={group.message}
         >
-          {sectionVerdict === 'failed' ? '✗' : '⚠'}
+          {group.message ?? group.title}
         </span>
-      )}
-      <span className="text-foreground min-w-0 truncate text-sm font-medium" title={group.message}>
-        {group.message ?? group.title}
+        {/* The words, so neither the glyph nor its colour carries this alone. */}
+        {/* The spaces keep accessible names like "api-cloud flaky or known"; flex hides them. */}
+        {sectionVerdict === 'tolerated' && (
+          <>
+            {' '}
+            <span className="text-fact shrink-0 text-xs">flaky or known</span>
+          </>
+        )}
+        {group.subtitle && (
+          <>
+            {' '}
+            <span className="text-fact shrink-0 text-xs">{group.subtitle}</span>
+          </>
+        )}
       </span>
-      {/* The words, so neither the glyph nor its colour carries this alone. */}
-      {/* The spaces keep accessible names like "api-cloud flaky or known"; flex hides them. */}
-      {sectionVerdict === 'tolerated' && (
+      {/* Clusters sharing a message differ only in this step, so it is shown whole on its own
+          line, indented to the rows below. */}
+      {group.step && (
         <>
           {' '}
-          <span className="text-fact shrink-0 text-xs">flaky or known</span>
-        </>
-      )}
-      {group.subtitle && (
-        <>
-          {' '}
-          <span className="text-fact shrink-0 text-xs">{group.subtitle}</span>
+          <span className="text-fact block pl-6 text-xs wrap-anywhere">{`in ${group.step}`}</span>
         </>
       )}
     </button>
