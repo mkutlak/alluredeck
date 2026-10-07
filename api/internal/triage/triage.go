@@ -288,6 +288,11 @@ func lastPassingDuration(history []BuildHistoryEntry) (int64, bool) {
 	return 0, false
 }
 
+// FailurePhase derives the lifecycle phase from a failed-step path, exactly as
+// [Analyze] does for [Signals.FailurePhase], for callers that hold the path but
+// not a full [Input].
+func FailurePhase(path []string) string { return computeFailurePhase(path) }
+
 // computeFailurePhase derives the lifecycle phase from the failed-step path.
 // It picks the outermost (closest to the root) meaningful phase marker so that,
 // for example, a fixture failure deep inside "Before Hooks" still reports the

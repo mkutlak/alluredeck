@@ -436,7 +436,8 @@ type PipelineStorer interface {
 	// against the baseline of the row's own build (so a sharded suite is judged
 	// shard by shard): the latest older default-branch build of the suite that is
 	// not part of this run, widened to every shard of its pipeline when it has
-	// one; and Environment, from the test's defect fingerprint. Ordered by
+	// one; and Environment, from the test's defect fingerprint. FailedStepPath
+	// and FailedStepMessage are filled here and by no other method. Ordered by
 	// suite, build_order, then slowest first; limit caps the rows.
 	ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]RunFailureRow, error)
 	// ListFailuresByPipelineID is ListRunFailures for the builds one project
@@ -445,6 +446,8 @@ type PipelineStorer interface {
 	// instead of a parent group, so it also serves a standalone project that
 	// has no group. The MCP diagnose_pipeline tool reads its tags from here, so
 	// what it reports for a suite is what the group run's failures show.
+	// FailedStepPath and FailedStepMessage are the exception: they are filled by
+	// ListRunFailures only, and are empty here.
 	ListFailuresByPipelineID(ctx context.Context, projectID int64, pipelineID string, limit int) ([]RunFailureRow, error)
 	// ListBuildsByPipelineID returns the builds within a single project that
 	// share the given ci_pipeline_id, ordered by build_order ascending. This

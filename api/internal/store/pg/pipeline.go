@@ -349,7 +349,70 @@ WITH run_builds AS (
 // parameterized tests that legitimately share a full name. Callers that need a
 // per-test view merge on their own terms.
 func (s *PipelineStore) ListRunFailures(ctx context.Context, groupProjectID int64, runKey string, limit int) ([]store.RunFailureRow, error) {
-	return s.queryRunFailures(ctx, runFailuresQuery, "run failures", groupProjectID, runKey, limit)
+	rows, err := s.queryRunFailures(ctx, runFailuresQuery, "run failures", groupProjectID, runKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.fillFailedSteps(ctx, rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// fillFailedSteps sets FailedStepPath and FailedStepMessage on rows with one
+// query for all of them. Only failed and broken steps are fetched: the walk in
+// failedStepPath descends through failed steps alone, so the others cannot
+// change its result; the filter only reduces the data returned, as
+// idx_test_steps_result covers test_result_id alone. The tests of a run that
+// have no such step, or no history_id, keep both fields empty.
+func (s *PipelineStore) fillFailedSteps(ctx context.Context, rows []store.RunFailureRow) error {
+	ids := make([]int64, 0, len(rows))
+	for i := range rows {
+		// diagnose_pipeline looks no steps up for a test without a history_id;
+		// match it, so the two never cluster the same test differently.
+		if rows[i].HistoryID != "" {
+			ids = append(ids, rows[i].TestResultID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	steps, err := s.pool.Query(ctx, `
+		SELECT test_result_id, id, parent_step_id, name, status,
+		       COALESCE(LEFT(status_message, 500), ''), step_order
+		FROM test_steps
+		WHERE test_result_id = ANY($1) AND status IN ('failed', 'broken')
+		ORDER BY test_result_id, step_order`, ids)
+	if err != nil {
+		return fmt.Errorf("run failed steps query: %w", err)
+	}
+	defer steps.Close()
+
+	byResult := map[int64][]stepRow{}
+	for steps.Next() {
+		var (
+			resultID int64
+			st       stepRow
+		)
+		if err := steps.Scan(&resultID, &st.id, &st.parentID, &st.name, &st.status, &st.statusMessage, &st.stepOrder); err != nil {
+			return fmt.Errorf("scan run failed step: %w", err)
+		}
+		byResult[resultID] = append(byResult[resultID], st)
+	}
+	if err := steps.Err(); err != nil {
+		return fmt.Errorf("iterate run failed steps: %w", err)
+	}
+
+	for i := range rows {
+		// Leave both fields nil rather than assign failedStepPath's empty slice,
+		// so a row with no failed step is identical to the same row from
+		// ListFailuresByPipelineID, which never reads steps.
+		if path, msg := failedStepPath(byResult[rows[i].TestResultID]); len(path) > 0 {
+			rows[i].FailedStepPath, rows[i].FailedStepMessage = path, msg
+		}
+	}
+	return nil
 }
 
 // ListFailuresByPipelineID returns the failing tests of the builds one project

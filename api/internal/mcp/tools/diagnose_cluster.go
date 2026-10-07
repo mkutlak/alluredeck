@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 
 	"go.uber.org/zap"
 
@@ -24,12 +23,6 @@ import (
 // text on one representative per group, and lets the build verdict reason over
 // groups rather than rows.
 // ---------------------------------------------------------------------------
-
-// clusterNoMessageKey stands in for an absent error message in the cluster key,
-// so tests with no message group together instead of each forming a cluster of
-// one keyed on the empty string. It is a key only — it never reaches the
-// output.
-const clusterNoMessageKey = "(no error message)"
 
 // clusterKnownIssueMatchCap bounds how many regex matches are reported per
 // cluster; a project with a large rule set should not turn one cluster into a
@@ -143,21 +136,17 @@ func clusterFailingTests(tests []DiagnoseTest) ([]DiagnoseCluster, [][]int) {
 	return clusters, groups
 }
 
-// clusterKey is the failure shape two tests must share to be one root cause:
-// the same error message once dynamic values are normalized away, the same
-// lifecycle phase, and the same deepest failed step. The deepest step alone is
-// used rather than the whole path because the outer steps differ per test while
-// the step that actually blew up does not.
+// clusterKey is the failure shape two tests must share to be one root cause;
+// see runner.ClusterKey. The REST failures list builds the same key, from the
+// same inputs as diagnose_pipeline, so the browser and the IDE group the same
+// tests together. diagnose_failure uses the function with its own inputs: the
+// deepest step's message alone, uncapped.
 func clusterKey(d *DiagnoseTest) string {
-	msg := runner.NormalizeMessage(strings.TrimSpace(d.ErrorMessage))
-	if strings.TrimSpace(msg) == "" {
-		msg = clusterNoMessageKey
-	}
 	var lastStep string
 	if n := len(d.FailedStepPath); n > 0 {
 		lastStep = d.FailedStepPath[n-1]
 	}
-	return msg + "\x00" + d.Signals.FailurePhase + "\x00" + lastStep
+	return runner.ClusterKey(d.ErrorMessage, d.Signals.FailurePhase, lastStep)
 }
 
 // sharedStatusPattern returns the status pattern common to every member of the

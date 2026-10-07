@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/bootstrap"
+	"github.com/mkutlak/alluredeck/api/internal/runner"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/triage"
 )
@@ -54,12 +55,6 @@ const diagnosePipelineAbsoluteMaxTests = 50
 // per-test query fan-out bounded at maxBuilds × max_tests_per_build.
 const diagnosePipelineMaxBuilds = 50
 
-// diagnosePipelineMessageMax bounds a per-test error message in the output.
-// ListFailedByBuild already caps status_message at this length at the query;
-// the failed-step message used in preference to it is uncapped, so the cap is
-// re-applied here to keep both sources to one budget.
-const diagnosePipelineMessageMax = 500
-
 // diagnosePipelineOriginsMaxRows caps how many failing tests the origin counts
 // cover: the run failures endpoint's own maximum, so for any pipeline that
 // endpoint can fully list the two report the same figures.
@@ -89,8 +84,9 @@ type PipelineBuildStats struct {
 type PipelineFailingTest struct {
 	FullName string `json:"full_name"`
 	Status   string `json:"status"`
-	// ErrorMessage is capped at 500 characters — the same cap
-	// stores.TestResult.ListFailedByBuild applies at the query. Empty for a
+	// ErrorMessage is cut to 500 bytes by runner.ClusterMessage; the test's own
+	// message is already capped at 500 characters by
+	// stores.TestResult.ListFailedByBuild at the query. Empty for a
 	// non-representative cluster member; read the cluster's shared_error.
 	ErrorMessage string `json:"error_message,omitempty"`
 	// ClusterID names the cross-shard cluster (see
@@ -373,19 +369,19 @@ func diagnosePipelineHandler(stores *bootstrap.Stores, logger *zap.Logger, publi
 			// off; use diagnose_failure on a specific build for that.
 			start := len(allTests)
 			for j := range failing {
-				errMsg := failing[j].StatusMessage
-				var stepPath []string
+				var (
+					stepPath []string
+					stepErr  string
+				)
 				if failing[j].HistoryID != "" {
-					if sp, stepErr, err := stores.TestResult.GetFailedStepPath(ctx, proj.ID, b.ID, failing[j].HistoryID); err == nil {
-						stepPath = sp
-						if stepErr != "" {
-							errMsg = stepErr
-						}
+					if sp, msg, err := stores.TestResult.GetFailedStepPath(ctx, proj.ID, b.ID, failing[j].HistoryID); err == nil {
+						stepPath, stepErr = sp, msg
 					}
 				}
-				if len(errMsg) > diagnosePipelineMessageMax {
-					errMsg = errMsg[:diagnosePipelineMessageMax]
-				}
+				// The failed step's message is uncapped and the test's is capped
+				// at the query, so the pick is cut here to keep one budget. The
+				// REST failures list picks and cuts through the same helper.
+				errMsg := runner.ClusterMessage(stepErr, failing[j].StatusMessage)
 				signals := triage.Analyze(triage.Input{
 					DurationMs:     failing[j].DurationMs,
 					ErrorMessage:   errMsg,

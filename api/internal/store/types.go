@@ -177,6 +177,9 @@ type PipelineRunRow struct {
 // Environment is true when the test's defect fingerprint is categorised
 // infrastructure; a test with no fingerprint is false. TestResultID is the
 // test_results row, to join these tags back to rows read elsewhere.
+//
+// FailedStepPath and FailedStepMessage are filled by ListRunFailures only, and
+// only for tests that have a history_id.
 type RunFailureRow struct {
 	ProjectID     int64
 	Slug          string
@@ -195,6 +198,13 @@ type RunFailureRow struct {
 	Origin        string
 	Environment   bool
 	StatusMessage string
+	// FailedStepPath is the deepest failed step trail of the test result, root
+	// first (see GetFailedStepPath); empty when the test has no failed step.
+	FailedStepPath []string
+	// FailedStepMessage is the status_message of the last step of
+	// FailedStepPath, capped like StatusMessage; empty when the test has no
+	// failed step or that step carries no message.
+	FailedStepMessage string
 }
 
 // Origins of a failing test; see RunFailureRow.Origin.
