@@ -22,26 +22,32 @@ function makeFailure(overrides?: Partial<MergedFailure>): MergedFailure {
 
 describe('groupByError', () => {
   const rows = [
-    makeFailure({ key: 'a', errorMessage: 'Timed out 5000ms waiting for x' }),
+    makeFailure({
+      key: 'a',
+      errorMessage: 'Timed out 5000ms waiting for x',
+      clusterKey: 'k-timeout',
+    }),
     makeFailure({
       key: 'b',
       projectId: 2,
       slug: 'api-tests',
       displayName: 'API tests',
       errorMessage: 'Timed out 10000ms waiting for x',
+      clusterKey: 'k-timeout',
     }),
     makeFailure({
       key: 'c',
       projectId: 3,
       slug: 'e2e',
       errorMessage: 'Timed out 1ms waiting for x',
+      clusterKey: 'k-timeout',
     }),
-    makeFailure({ key: 'd', errorMessage: 'Connection refused' }),
+    makeFailure({ key: 'd', errorMessage: 'Connection refused', clusterKey: 'k-refused' }),
   ]
 
-  it('still groups on the normalised signature', () => {
+  it("groups on the server's cluster key", () => {
     const [timeouts, refused] = groupByError(rows)
-    expect(timeouts?.key).toBe('error-Timed out Nms waiting for x')
+    expect(timeouts?.key).toBe('error-k-timeout')
     expect(timeouts?.rows).toHaveLength(3)
     expect(refused?.rows).toHaveLength(1)
   })

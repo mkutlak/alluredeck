@@ -893,6 +893,11 @@ export interface RunFailure {
   origin?: 'new' | 'inherited' | 'unknown'
   /** The failure's defect is classified as infrastructure. */
   environment?: boolean
+  /**
+   * Server-computed failure shape (normalised message + phase + deepest failed step): equal
+   * keys mean one cluster. Optional so an older API and fixtures without it still type-check.
+   */
+  cluster_key?: string
 }
 
 export interface RunFailuresResponse {

@@ -213,23 +213,26 @@ describe('RunFailures', () => {
 
     // 18+ failures per run routinely share one message differing only in a
     // timeout value; by-error states that once.
-    it('clusters failures by normalised error signature and persists the choice', async () => {
+    it("clusters failures by the server's cluster key and persists the choice", async () => {
       const user = userEvent.setup()
       renderRun([
         makeFailure({
           test_name: 'a',
           full_name: 'a.js:1:1',
           error_message: 'Timed out 5000ms waiting for expect(locator)',
+          cluster_key: 'k-timeout',
         }),
         makeFailure({
           test_name: 'b',
           full_name: 'b.js:1:1',
           error_message: 'Timed out 10000ms waiting for expect(locator)',
+          cluster_key: 'k-timeout',
         }),
         makeFailure({
           test_name: 'c',
           full_name: 'c.js:1:1',
           error_message: 'Failed to execute query',
+          cluster_key: 'k-query',
         }),
       ])
 
@@ -239,7 +242,7 @@ describe('RunFailures', () => {
         expect(screen.getAllByTestId('run-failure-group')).toHaveLength(2)
       })
       // The group is titled with the first real message verbatim; the
-      // normalised signature only decides the grouping.
+      // server's cluster key only decides the grouping.
       expect(screen.getByText('Timed out 5000ms waiting for expect(locator)')).toBeInTheDocument()
       expect(screen.getByText('×2 · ui-tests')).toBeInTheDocument()
       expect(useUIStore.getState().runsFailureGrouping).toBe('error')

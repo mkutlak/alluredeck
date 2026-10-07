@@ -1,4 +1,3 @@
-import { errorSignature } from '@/lib/errorSignature'
 import { failureBucket } from './failureOrigin'
 import { isFailingSuite } from './rowFormat'
 import type { MergedFailure } from './mergeRunFailures'
@@ -9,7 +8,7 @@ export interface FailureGroup {
   title: string
   /** Secondary line: shard/build context, or which suites a cluster spans. */
   subtitle?: string
-  /** Error groups only: the first non-empty line of the first real message, verbatim; `title` is just the grouping signature. */
+  /** Error groups only: the first non-empty line of the first real message, verbatim; unset when no row has one. */
   message?: string
   rows: MergedFailure[]
   /** Present only for suite groups — drives the per-build report links. */
@@ -95,40 +94,41 @@ function firstLine(message: string): string {
 }
 
 /**
- * Groups failures by normalised error signature, worst first.
+ * Groups failures by the server's cluster key, worst first.
  *
- * A single run routinely repeats one message across a dozen-plus tests; this
- * view states that once and lists what it hit. The signature only decides the
- * grouping: the group is shown under the first real message, verbatim.
+ * A single run routinely repeats one failure shape across a dozen-plus tests; this
+ * view states that once and lists what it hit. The server key alone decides the
+ * grouping (the exact message stands in for it when an older API sends none): the
+ * group is shown under the first real message, verbatim.
  */
 export function groupByError(failures: readonly MergedFailure[]): FailureGroup[] {
   const order: string[] = []
-  const bySignature = new Map<string, MergedFailure[]>()
+  const byCluster = new Map<string, MergedFailure[]>()
 
   for (const failure of failures) {
-    const signature = errorSignature(failure.errorMessage)
-    const existing = bySignature.get(signature)
+    const cluster = failure.clusterKey ?? failure.errorMessage
+    const existing = byCluster.get(cluster)
     if (existing) {
       existing.push(failure)
       continue
     }
-    order.push(signature)
-    bySignature.set(signature, [failure])
+    order.push(cluster)
+    byCluster.set(cluster, [failure])
   }
 
   return order
-    .map((signature) => {
-      const rows = bySignature.get(signature) ?? []
+    .map((cluster) => {
+      const rows = byCluster.get(cluster) ?? []
       // Keyed on project, not name: two projects can share a display name.
       const suites = [...new Map(rows.map((r) => [r.projectId, r.displayName || r.slug])).values()]
       const named = suites.slice(0, 2).join(', ')
+      const message = rows.map((r) => firstLine(r.errorMessage)).find(Boolean)
       const group: FailureGroup = {
-        key: `error-${signature}`,
-        title: signature,
+        key: `error-${cluster}`,
+        title: message ?? 'No error message',
         subtitle: `×${rows.length} · ${named}${suites.length > 2 ? ` +${suites.length - 2}` : ''}`,
         rows,
       }
-      const message = rows.map((r) => firstLine(r.errorMessage)).find(Boolean)
       if (message) group.message = message
       return group
     })

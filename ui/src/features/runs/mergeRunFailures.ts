@@ -20,6 +20,8 @@ export interface MergedFailure {
   errorMessage: string
   origin?: RunFailure['origin']
   environment?: boolean
+  /** The API's key for the failure's shape (message, phase, deepest step); travels with `errorMessage`. */
+  clusterKey?: string
 }
 
 // Copies of one test can disagree because only one history_id may match the baseline.
@@ -70,14 +72,16 @@ export function mergeRunFailures(rows: readonly RunFailure[]): MergedFailure[] {
         errorMessage: row.error_message,
         origin: row.origin,
         environment: row.environment,
+        clusterKey: row.cluster_key,
       })
       continue
     }
 
     // The copy carrying the message is the more useful one to link to, so it
-    // supplies the build as well.
+    // supplies the build as well, and the cluster key that describes the message.
     if (!existing.errorMessage && row.error_message) {
       existing.errorMessage = row.error_message
+      existing.clusterKey = row.cluster_key
       existing.buildId = row.build_id
       existing.buildNumber = row.build_number
       existing.historyId = row.history_id
