@@ -980,13 +980,14 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("DELETE "+prefix+"/projects/{project_id}/parent", adminOnly(noStore(d.h.parent.ClearParent)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/children", viewerUp(mutableCache(d.h.parent.ListChildren)))
 
-	// Pipeline runs (parent project aggregation by commit SHA).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetPipelineRuns)))
-	// A single run is no-store: it changes while its shards upload and a link can
-	// be opened before the first upload, so no response, 404 included, may be reused.
+	// Pipeline runs (parent project aggregation by commit SHA), all no-store: a run
+	// changes while its shards upload and a link can be opened before the first
+	// upload, so no response, 404 included, may be reused. The lists also carry
+	// aggregate.awaiting_suites, which depends on the server clock.
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs", viewerUp(noStore(d.h.pipeline.GetPipelineRuns)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs/{run_key}", viewerUp(noStore(d.h.pipeline.GetPipelineRun)))
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/pipeline-runs/{run_key}/failures", viewerUp(noStore(d.h.pipeline.GetRunFailures)))
-	mux.HandleFunc("GET "+prefix+"/pipeline-runs", viewerUp(shortCache(d.h.pipeline.GetAllPipelineRuns)))
+	mux.HandleFunc("GET "+prefix+"/pipeline-runs", viewerUp(noStore(d.h.pipeline.GetAllPipelineRuns)))
 
 	// Admin system monitor endpoints.
 	mux.HandleFunc("GET "+prefix+"/admin/jobs", adminOnly(noStore(d.h.admin.ListJobs)))
