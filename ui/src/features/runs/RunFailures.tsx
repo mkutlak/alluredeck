@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation } from 'react-router'
 import { ChevronDown, ChevronRight, FileText, RefreshCw, Sparkles } from 'lucide-react'
 
@@ -22,6 +22,7 @@ import {
   type FailureGroup,
 } from './groupFailures'
 import { mergeRunFailures } from './mergeRunFailures'
+import { failingBuildIds } from './rowFormat'
 import { runKeyOf } from './runKey'
 import type { MergedFailure } from './mergeRunFailures'
 import type { PipelineRun } from '@/types/api'
@@ -78,9 +79,11 @@ export function RunFailures({
   const llmEnabled = configResp?.data.llm_enabled === true
 
   // This component is only mounted once its run is expanded, so a feed of
-  // collapsed runs issues no failure requests at all.
+  // collapsed runs issues no failure requests at all. The key changes when a failing suite
+  // arrives (see runFailuresOptions): the list on screen stays until the new one is in.
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    ...runFailuresOptions(groupProjectId ?? 0, runKey),
+    ...runFailuresOptions(groupProjectId ?? 0, runKey, failingBuildIds(run)),
+    placeholderData: keepPreviousData,
     enabled: groupProjectId != null && runKey !== '',
   })
 

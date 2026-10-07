@@ -8,6 +8,18 @@ export function isFailingSuite(suite: PipelineSuite): boolean {
   return suite.failed > 0 || suite.status === 'failed'
 }
 
+/**
+ * The builds that fail the run, as a string that changes when a failing suite arrives
+ * or is replaced by a newer build. The failures list is keyed by it (see `runFailuresOptions`),
+ * so every caller passes this one value and they share a cache entry.
+ */
+export function failingBuildIds(run: PipelineRun): string {
+  return run.suites
+    .filter(isFailingSuite)
+    .map((s) => s.build_id)
+    .join(',')
+}
+
 export type RunVerdict = 'failed' | 'skipped' | 'passed' | 'awaiting'
 
 const GLYPHS = { failed: '✗', skipped: '○', passed: '✓', awaiting: '○' } as const

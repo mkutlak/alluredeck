@@ -98,8 +98,8 @@ export const queryKeys = {
   buildFailedTests: (projectId: number, buildId: number) =>
     ['build-failed-tests', projectId, buildId] as const,
   pipelineRun: (groupId: string, runKey: string) => ['pipeline-run', groupId, runKey] as const,
-  runFailures: (groupProjectId: number, runKey: string) =>
-    ['run-failures', groupProjectId, runKey] as const,
+  runFailures: (groupProjectId: number, runKey: string, failingBuilds: string) =>
+    ['run-failures', groupProjectId, runKey, failingBuilds] as const,
   failureSummary: (buildId: number, historyId: string) =>
     ['failureSummary', buildId, historyId] as const,
   proposals: (type: string, projectId: number, cursor?: string) =>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useParams } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   AlertCircle,
   ChevronRight,
@@ -21,7 +21,7 @@ import { RelativeTime, RunGlyph, RunGroupLink, RunSummary } from './RunFacts'
 import { RunFailures } from './RunFailures'
 import { countOrigins, originParts } from './failureOrigin'
 import { mergeRunFailures } from './mergeRunFailures'
-import { isFailingSuite, summarizeRun } from './rowFormat'
+import { failingBuildIds, isFailingSuite, summarizeRun } from './rowFormat'
 import { runIdOf, runKeyOf, suiteReportHref } from './runKey'
 import type { PipelineRun } from '@/types/api'
 
@@ -147,7 +147,9 @@ function RunView({ run }: { run: PipelineRun }) {
   // settle, so no target is scrolled to before then: they would push it away.
   // dataUpdatedAt also moves on a success after an error (a Retry).
   const failuresQuery = useQuery({
-    ...runFailuresOptions(run.group_project_id ?? 0, runKeyOf(run)),
+    ...runFailuresOptions(run.group_project_id ?? 0, runKeyOf(run), failingBuildIds(run)),
+    // The same as in RunFailures, so the header's origin counts do not blink out either.
+    placeholderData: keepPreviousData,
     enabled: isFailing && run.group_project_id != null,
   })
   const failuresSettled =

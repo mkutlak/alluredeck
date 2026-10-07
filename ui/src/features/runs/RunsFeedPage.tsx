@@ -12,6 +12,7 @@ import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/p
 import { FeedBranchSelect } from './FeedBranchSelect'
 import { GroupFilter } from './GroupFilter'
 import { RunRow } from './RunRow'
+import { runKeyOf } from './runKey'
 import { useFeedParams } from './useFeedParams'
 
 export function RunsFeedPage() {
@@ -94,7 +95,9 @@ export function RunsFeedPage() {
         <div className="@container divide-y rounded-lg border">
           {runs.map((run) => (
             <RunRow
-              key={`${run.group_project_id ?? run.group_slug}:${run.pipeline_id ?? run.commit_sha}:${run.timestamp}`}
+              // A run is (group, key); its timestamp moves with every suite that uploads, and
+              // a new key would rebuild the row and close it while it is being read.
+              key={`${run.group_project_id ?? run.group_slug}:${runKeyOf(run)}`}
               run={run}
             />
           ))}
