@@ -10,9 +10,17 @@ import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { FailureBadges } from './FailureBadges'
+import { countOrigins, failureBucket } from './failureOrigin'
 import { FailureSummaryPanel } from './FailureSummaryPanel'
-import { groupByError, groupBySuite, suiteSections, type FailureGroup } from './groupFailures'
+import {
+  groupByError,
+  groupBySuite,
+  suiteSections,
+  suiteVerdict,
+  type FailureGroup,
+} from './groupFailures'
 import { mergeRunFailures } from './mergeRunFailures'
 import { runKeyOf } from './runKey'
 import type { MergedFailure } from './mergeRunFailures'
@@ -155,7 +163,9 @@ export function RunFailures({
     setOpenOverrides((prev) => ({ ...prev, [key]: !(prev[key] ?? (asPage || index === 0)) }))
 
   const suiteCount = new Set(failures.map((f) => f.projectId)).size
-  const newCount = failures.filter((f) => f.newFailed).length
+  // Effective "new" only: an environment failure is never counted as new.
+  const newCount = countOrigins(failures).new
+  const truncated = data?.metadata.truncated === true
 
   return (
     <div
@@ -195,9 +205,11 @@ export function RunFailures({
             onShowAllRows={() => setExpandedGroups((prev) => ({ ...prev, [group.key]: true }))}
             llmEnabled={llmEnabled}
             asSection={asPage && bySuite}
+            // ✗, or ⚠ "flaky or known" (suiteVerdict); the run's own verdict stays ✗.
+            sectionVerdict={asPage && bySuite ? suiteVerdict(group, truncated) : undefined}
             historyBranch={asPage ? run.branch : undefined}
             emptyNote={
-              data?.metadata.truncated
+              truncated
                 ? 'Not listed: this run has more failures than were loaded.'
                 : 'No failing tests listed for this suite.'
             }
@@ -230,6 +242,8 @@ interface FailureGroupBlockProps {
   historyBranch: string | undefined
   /** Shown in place of rows for a failing suite none of whose rows arrived. */
   emptyNote: string
+  /** Page sections: ✗, or ⚠ "flaky or known" when every listed failure is one. */
+  sectionVerdict?: 'failed' | 'tolerated'
   openSummaries: Record<string, boolean>
   onToggleSummary: (key: string) => void
 }
@@ -245,6 +259,7 @@ function FailureGroupBlock({
   asSection,
   historyBranch,
   emptyNote,
+  sectionVerdict,
   openSummaries,
   onToggleSummary,
 }: FailureGroupBlockProps) {
@@ -264,10 +279,34 @@ function FailureGroupBlock({
       ) : (
         <ChevronRight size={14} className="shrink-0" />
       )}
+      {sectionVerdict && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'shrink-0',
+            STATUS_TEXT_CLASSES[sectionVerdict === 'failed' ? 'failed' : 'broken'],
+          )}
+        >
+          {sectionVerdict === 'failed' ? '✗' : '⚠'}
+        </span>
+      )}
       <span className="text-foreground min-w-0 truncate text-sm font-medium" title={group.message}>
         {group.message ?? group.title}
       </span>
-      {group.subtitle && <span className="text-fact shrink-0 text-xs">{group.subtitle}</span>}
+      {/* The words, so neither the glyph nor its colour carries this alone. */}
+      {/* The spaces keep accessible names like "api-cloud flaky or known"; flex hides them. */}
+      {sectionVerdict === 'tolerated' && (
+        <>
+          {' '}
+          <span className="text-fact shrink-0 text-xs">flaky or known</span>
+        </>
+      )}
+      {group.subtitle && (
+        <>
+          {' '}
+          <span className="text-fact shrink-0 text-xs">{group.subtitle}</span>
+        </>
+      )}
     </button>
   )
 
@@ -386,6 +425,8 @@ function FailureRow({
         retries={row.retries}
         newFailed={row.newFailed}
         known={row.known}
+        inherited={failureBucket(row) === 'inherited'}
+        environment={row.environment === true}
       />
       {llmEnabled && (
         <button

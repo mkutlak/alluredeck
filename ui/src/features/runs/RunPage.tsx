@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RelativeTime, RunGroupLink, RunSummary } from './RunFacts'
 import { RunFailures } from './RunFailures'
+import { countOrigins, originParts } from './failureOrigin'
+import { mergeRunFailures } from './mergeRunFailures'
 import { isFailingSuite, summarizeRun } from './rowFormat'
 import { runIdOf, runKeyOf, suiteReportHref } from './runKey'
 import type { PipelineRun } from '@/types/api'
@@ -170,6 +172,18 @@ function RunView({ run }: { run: PipelineRun }) {
     othersOpen,
   ])
 
+  // "3 new · 2 inherited (1 env)": from the query RunFailures already made, once it
+  // has loaded; counted over the same merged rows the panel lists.
+  const failuresData = failuresQuery.data
+  const origins = useMemo(() => {
+    if (!failuresData) return []
+    const listed = mergeRunFailures(failuresData.data)
+    return originParts(
+      countOrigins(listed),
+      failuresData.metadata.truncated ? listed.length : undefined,
+    )
+  }, [failuresData])
+
   const passRate = formatPassRate(
     aggregate.tests_passed,
     aggregate.tests_total,
@@ -218,6 +232,7 @@ function RunView({ run }: { run: PipelineRun }) {
           <RunSummary
             run={run}
             extra={[
+              ...origins,
               // "—" means nothing could be rated: no "— passed".
               passRate !== '—' && `${passRate} passed`,
               formatDuration(aggregate.total_duration_ms),

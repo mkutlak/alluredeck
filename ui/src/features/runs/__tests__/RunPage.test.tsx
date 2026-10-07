@@ -146,6 +146,12 @@ describe('RunPage', () => {
   })
 
   it('states branch, SHA, group, CI link, time and the summary under the title', async () => {
+    // Every bucket present, plus an environment failure that is new against its baseline.
+    const origins = ['new', 'inherited', 'unknown', 'new', 'new', 'inherited', 'unknown'] as const
+    vi.mocked(fetchRunFailures).mockResolvedValue({
+      data: failures.map((f, i) => ({ ...f, origin: origins[i], environment: i === 4 })),
+      metadata: { message: 'ok', truncated: false },
+    })
     renderRunAt('/runs/10/48213')
     await runHeading()
 
@@ -159,8 +165,11 @@ describe('RunPage', () => {
     expect(ci).toHaveAttribute('href', 'https://ci.example/48213')
     expect(ci).toHaveAttribute('rel', expect.stringContaining('noopener'))
     expect(screen.getByText(/ago$/)).toHaveAttribute('title', formatDate(failingRun.timestamp))
-    expect(screen.getByTestId('run-page-summary')).toHaveTextContent(
-      '2/3 suites failing · 7 failed tests · 97.6% passed · 3m 33s',
+    // The origin counts join the line once the failures have loaded.
+    await waitFor(() =>
+      expect(screen.getByTestId('run-page-summary')).toHaveTextContent(
+        '2/3 suites failing · 7 failed tests · 2 new · 3 inherited (1 env) · 2 unknown · 97.6% passed · 3m 33s',
+      ),
     )
   })
 
@@ -479,5 +488,151 @@ describe('RunPage', () => {
       expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument(),
     )
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+  })
+})
+
+describe('RunPage "is it me?" origins', () => {
+  // a3 is new in its baseline but an environment failure: it counts as inherited, shows env.
+  // u3 still carries the old new_failed flag, which the page no longer reads.
+  const tagged: RunFailure[] = [
+    { ...failure(1, 'api-cloud', 'a1'), origin: 'new' },
+    { ...failure(1, 'api-cloud', 'a2'), origin: 'inherited' },
+    { ...failure(1, 'api-cloud', 'a3'), origin: 'new', environment: true },
+    { ...failure(2, 'ui-tests', 'u1'), origin: 'unknown' },
+    { ...failure(2, 'ui-tests', 'u2'), origin: 'new' },
+    { ...failure(2, 'ui-tests', 'u3'), origin: 'inherited', new_failed: true },
+    failure(2, 'ui-tests', 'u4'),
+  ]
+  const respond = (data: RunFailure[], truncated = false) =>
+    vi.mocked(fetchRunFailures).mockResolvedValue({ data, metadata: { message: 'ok', truncated } })
+  const rowOf = (name: string) => {
+    const row = screen
+      .getAllByTestId('run-failure-row')
+      .find((r) => within(r).queryByRole('link', { name }))
+    if (!row) throw new Error(`no row for ${name}`)
+    return within(row)
+  }
+
+  it('adds the origin counts to the header once the failures have loaded', async () => {
+    let release: (v: RunFailuresResponse) => void = () => {}
+    vi.mocked(fetchRunFailures).mockReturnValue(new Promise((r) => (release = r)))
+    renderRunAt('/runs/10/48213')
+    await runHeading()
+    const summary = screen.getByTestId('run-page-summary')
+    expect(summary).toHaveTextContent(
+      /^2\/3 suites failing · 7 failed tests · 97\.6% passed · 3m 33s$/,
+    )
+
+    await act(async () => release({ data: tagged, metadata: { message: 'ok', truncated: false } }))
+
+    await waitFor(() =>
+      expect(summary).toHaveTextContent(
+        /^2\/3 suites failing · 7 failed tests · 2 new · 3 inherited \(1 env\) · 2 unknown · 97\.6% passed · 3m 33s$/,
+      ),
+    )
+    expect(fetchRunFailures).toHaveBeenCalledTimes(1)
+  })
+
+  it('scopes the counts to the listed failures when the response was truncated', async () => {
+    respond(tagged.slice(0, 3), true)
+    renderRunAt('/runs/10/48213')
+    await waitFor(() =>
+      expect(screen.getByTestId('run-page-summary')).toHaveTextContent(
+        '7 failed tests · first 3: 1 new · 2 inherited (1 env) · 97.6% passed',
+      ),
+    )
+  })
+
+  it('counts only effective "new" failures in the panel header', async () => {
+    respond(tagged)
+    renderRunAt('/runs/10/48213')
+    expect(await screen.findByText('7 failures · 2 suites · 2 new')).toBeInTheDocument()
+  })
+
+  it.each([
+    { name: 'a1', shows: 'new', hides: ['inherited', 'env'] },
+    { name: 'a2', shows: 'inherited', hides: ['new', 'env'] },
+    { name: 'a3', shows: 'env', hides: ['new', 'inherited'] },
+    { name: 'u3', shows: 'inherited', hides: ['new', 'env'] },
+  ])('tags failure $name "$shows" only', async ({ name, shows, hides }) => {
+    respond(tagged)
+    renderRunAt('/runs/10/48213')
+    await screen.findByRole('link', { name })
+    expect(rowOf(name).getByText(shows, { exact: true })).toBeInTheDocument()
+    for (const word of hides) expect(rowOf(name).queryByText(word, { exact: true })).toBeNull()
+  })
+
+  it('gives an unknown-origin failure no origin tag', async () => {
+    respond(tagged)
+    renderRunAt('/runs/10/48213')
+    await screen.findByRole('link', { name: 'u1' })
+    for (const word of ['new', 'inherited', 'env']) {
+      expect(rowOf('u1').queryByText(word, { exact: true })).toBeNull()
+      expect(rowOf('u4').queryByText(word, { exact: true })).toBeNull()
+    }
+  })
+})
+
+describe('RunPage suites whose failures are all flaky or known', () => {
+  const twoSuites = (apiFailed: number, apiStatus: PipelineSuite['status'] = 'degraded') => ({
+    ...failingRun,
+    suites: [
+      suite(1, 'api-cloud', apiFailed, { status: apiStatus }),
+      suite(2, 'ui-tests', 4),
+      suite(3, 'contract-tests', 0),
+    ],
+  })
+  const tolerated = [
+    { ...failure(1, 'api-cloud', 'a1'), flaky: true },
+    { ...failure(1, 'api-cloud', 'a2'), known: true },
+  ]
+  const uiRows = ['u1', 'u2', 'u3', 'u4'].map((t) => failure(2, 'ui-tests', t))
+  const heading = (name: RegExp) => screen.findByRole('heading', { level: 2, name })
+
+  it('marks a complete, all-flaky-or-known suite ⚠ with words; the run stays ✗', async () => {
+    vi.mocked(fetchRunFailures).mockResolvedValue({
+      data: [...tolerated, ...uiRows],
+      metadata: { message: 'ok', truncated: false },
+    })
+    renderRunAt('/runs/10/48213', twoSuites(2))
+
+    const api = await heading(/^api-cloud/)
+    expect(api).toHaveTextContent('⚠')
+    expect(api).toHaveAccessibleName('api-cloud flaky or known')
+    expect(api).not.toHaveTextContent('✗')
+    const ui = await heading(/^ui-tests/)
+    expect(ui).toHaveTextContent('✗')
+    expect(ui).not.toHaveTextContent(/⚠|flaky or known/)
+    expect(await runHeading()).toHaveTextContent('✗')
+  })
+
+  it.each([
+    { name: 'rows missing for the suite', run: twoSuites(3), rows: tolerated, truncated: false },
+    { name: 'a truncated response', run: twoSuites(2), rows: tolerated, truncated: true },
+    // Nothing listed is not "all flaky": an unreadable report is still a failure.
+    { name: 'no rows at all', run: twoSuites(0, 'failed'), rows: [], truncated: false },
+    // The header would say "1 new": a flaky failure that is new is not tolerated.
+    {
+      name: 'a flaky failure that is new',
+      run: twoSuites(1),
+      rows: [{ ...failure(1, 'api-cloud', 'a1'), flaky: true, origin: 'new' as const }],
+      truncated: false,
+    },
+    {
+      name: 'one flaky and one plain failure',
+      run: twoSuites(2),
+      rows: [tolerated[0]!, failure(1, 'api-cloud', 'a2')],
+      truncated: false,
+    },
+  ])('keeps ✗ with $name', async ({ run, rows, truncated }) => {
+    vi.mocked(fetchRunFailures).mockResolvedValue({
+      data: [...rows, ...uiRows],
+      metadata: { message: 'ok', truncated },
+    })
+    renderRunAt('/runs/10/48213', run)
+
+    const api = await heading(/^api-cloud/)
+    expect(api).toHaveTextContent('✗')
+    expect(api).not.toHaveTextContent(/⚠|flaky or known/)
   })
 })

@@ -1,4 +1,5 @@
 import { errorSignature } from '@/lib/errorSignature'
+import { failureBucket } from './failureOrigin'
 import { isFailingSuite } from './rowFormat'
 import type { MergedFailure } from './mergeRunFailures'
 import type { PipelineSuite } from '@/types/api'
@@ -132,4 +133,21 @@ export function groupByError(failures: readonly MergedFailure[]): FailureGroup[]
       return group
     })
     .sort((a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title))
+}
+
+/**
+ * A run-page suite section's glyph. ⚠ ("flaky or known") only when every listed failure
+ * is flaky or known and none is new (the header would count it as "new"), and the list
+ * is complete for the suite: rows match its failed count and the response was not
+ * truncated. Anything else, including nothing listed, stays ✗.
+ */
+export function suiteVerdict(group: FailureGroup, truncated: boolean): 'failed' | 'tolerated' {
+  const { suite, rows } = group
+  const tolerated =
+    !truncated &&
+    suite !== undefined &&
+    rows.length > 0 &&
+    rows.length === suite.failed &&
+    rows.every((r) => (r.flaky || r.known) && failureBucket(r) !== 'new')
+  return tolerated ? 'tolerated' : 'failed'
 }

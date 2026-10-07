@@ -42,6 +42,7 @@ describe('mergeRunFailures', () => {
         build_number: 2,
         error_message: 'Timed out 5000ms',
         new_failed: true,
+        origin: 'new',
         known: true,
       }),
     ])

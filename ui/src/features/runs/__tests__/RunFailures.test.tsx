@@ -170,7 +170,7 @@ describe('RunFailures', () => {
   it('collapses duplicate copies of one test into a single row with merged badges', async () => {
     renderRun([
       makeFailure({ history_id: '1ab6c50a.d93c', retries: 3, flaky: true, error_message: '' }),
-      makeFailure({ history_id: '462170f6:d93c', new_failed: true, known: true }),
+      makeFailure({ history_id: '462170f6:d93c', new_failed: true, origin: 'new', known: true }),
     ])
 
     await waitFor(() => {

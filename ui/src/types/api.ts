@@ -885,6 +885,14 @@ export interface RunFailure {
   new_failed: boolean
   known: boolean
   error_message: string
+  /**
+   * Against the suite's default-branch baseline: `new` passed there, `inherited` failed
+   * there too, `unknown` no baseline or the test is absent from it. Optional so fixtures
+   * from before the field keep type-checking. `new_failed` is kept for compatibility only.
+   */
+  origin?: 'new' | 'inherited' | 'unknown'
+  /** The failure's defect is classified as infrastructure. */
+  environment?: boolean
 }
 
 export interface RunFailuresResponse {

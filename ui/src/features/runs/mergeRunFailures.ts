@@ -1,3 +1,4 @@
+import { failureBucket, normalOrigin } from './failureOrigin'
 import type { RunFailure } from '@/types/api'
 
 /** One failing test after duplicate ingestion copies have been folded together. */
@@ -13,10 +14,18 @@ export interface MergedFailure {
   historyId: string
   flaky: boolean
   retries: number
+  /** The effective bucket is `new` (failureBucket); the API's `new_failed` is not read. */
   newFailed: boolean
   known: boolean
   errorMessage: string
+  origin?: RunFailure['origin']
+  environment?: boolean
 }
+
+// Copies of one test can disagree because only one history_id may match the baseline.
+// As in the API's SQL, a failure in the baseline under either id means it was already
+// failing (inherited beats new), and any known origin beats unknown.
+const ORIGIN_RANK = { unknown: 0, new: 1, inherited: 2 } as const
 
 /**
  * Folds duplicate copies of the same failing test into one row.
@@ -56,9 +65,11 @@ export function mergeRunFailures(rows: readonly RunFailure[]): MergedFailure[] {
         historyId: row.history_id,
         flaky: row.flaky,
         retries: row.retries,
-        newFailed: row.new_failed,
+        newFailed: false,
         known: row.known,
         errorMessage: row.error_message,
+        origin: row.origin,
+        environment: row.environment,
       })
       continue
     }
@@ -74,9 +85,15 @@ export function mergeRunFailures(rows: readonly RunFailure[]): MergedFailure[] {
 
     existing.retries = Math.max(existing.retries, row.retries)
     existing.flaky = existing.flaky || row.flaky
-    existing.newFailed = existing.newFailed || row.new_failed
     existing.known = existing.known || row.known
+    existing.environment = existing.environment || row.environment
+    if (ORIGIN_RANK[normalOrigin(row.origin)] > ORIGIN_RANK[normalOrigin(existing.origin)]) {
+      existing.origin = row.origin
+    }
   }
 
-  return order.map((key) => byKey.get(key)).filter((row): row is MergedFailure => row !== undefined)
+  return order
+    .map((key) => byKey.get(key))
+    .filter((row): row is MergedFailure => row !== undefined)
+    .map((row) => ({ ...row, newFailed: failureBucket(row) === 'new' }))
 }
