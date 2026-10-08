@@ -84,7 +84,7 @@
     --warning-foreground: 220 23% 95%;
     --border: 225 14% 77%;
     --input: 225 14% 77%;
-    --ring: 231 97% 72%;
+    --ring: 231 85% 62%;
     --sidebar: 220 21% 89%;
     --sidebar-foreground: 234 16% 35%;
     --sidebar-primary: 220 91% 54%;
@@ -92,7 +92,7 @@
     --sidebar-accent: 223 16% 83%;
     --sidebar-accent-foreground: 234 16% 35%;
     --sidebar-border: 225 14% 77%;
-    --sidebar-ring: 231 97% 72%;
+    --sidebar-ring: 231 85% 62%;
     --chart-1: 109 58% 40%;
     --chart-2: 347 87% 44%;
     --chart-3: 22 99% 52%;
@@ -144,6 +144,14 @@
 @layer base {
   * {
     @apply border-border;
+  }
+  /* Focusable elements without their own ring or outline suppression (feed rows' links and toggle)
+     get the token ring instead of the browser outline. focus-visible:outline-none/outline-hidden
+     utilities still win: they live in a later layer. Recharts' svg sets outline-none, so charts
+     are not covered. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
   body {
     @apply bg-background text-foreground font-sans;

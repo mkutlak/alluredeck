@@ -49,7 +49,7 @@ describe('RunSuiteChip', () => {
     )
     const chip = screen.getByTestId('run-suite-chip')
     expect(chip).not.toHaveTextContent(/[✓✗⚠]/)
-    expect(screen.getByText('○')).toHaveClass('text-[#6c6f85]')
+    expect(screen.getByText('○')).toHaveClass('text-[#5c5f77]')
   })
 
   it.each([4, 0])('shows a failed-count badge only for failures > 0 (%i)', (failed) => {

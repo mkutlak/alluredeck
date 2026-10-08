@@ -17,8 +17,10 @@ export interface FailureBadgesProps {
 // Labels, not controls: the outline variant has no hover fill (the default variant
 // fills solid blue on hover). "inherited" and "env" both say "not from this change",
 // so both keep a visible outline and no tint, which keeps them apart from the tinted
-// new (blue), flaky (peach) and known (gray) badges. inherited is the quietest, in
-// secondary ink; env, which names a cause, is in full ink.
+// new (blue), flaky (peach) and known (gray) badges. Those three keep their hue in the
+// tint (and in dark mode) but use ink for light-mode text: 10px hue text on a 15% tint
+// was 2.3-3.8:1. inherited is the quietest, in secondary ink; env, which names a cause,
+// is in full ink.
 const OUTLINE = 'border-border bg-transparent text-[10px]'
 
 export function FailureBadges({
@@ -31,7 +33,7 @@ export function FailureBadges({
 }: FailureBadgesProps) {
   return (
     <div className="flex flex-wrap gap-1">
-      {flaky && <FlakyBadge retries={retries} className="text-[10px]" />}
+      {flaky && <FlakyBadge retries={retries} className="text-foreground text-[10px]" />}
       {environment ? (
         <Badge
           variant="outline"
@@ -45,7 +47,7 @@ export function FailureBadges({
       ) : newFailed ? (
         <Badge
           variant="outline"
-          className={`${INFO_BADGE_CLASSES} text-[10px]`}
+          className={`${INFO_BADGE_CLASSES} text-foreground text-[10px]`}
           title="New: this test passed on the default branch"
         >
           new
@@ -62,7 +64,7 @@ export function FailureBadges({
         )
       )}
       {known && (
-        <Badge variant="outline" className={`${NEUTRAL_BADGE_CLASSES} text-[10px]`}>
+        <Badge variant="outline" className={`${NEUTRAL_BADGE_CLASSES} text-foreground text-[10px]`}>
           known
         </Badge>
       )}

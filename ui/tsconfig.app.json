@@ -24,5 +24,6 @@
     },
     "types": ["vitest/globals"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/test/designTokens.test.ts"]
 }

@@ -11,16 +11,16 @@ export const STATUS_DARK_COLORS = {
   passed: '#a6e3a1', // green
   failed: '#f38ba8', // red
   broken: '#fab387', // peach
-  skipped: '#a6adc8', // subtext1
+  skipped: '#a6adc8', // subtext0
 } as const
 
 // Tailwind text class strings (light text-[hex] dark:text-[hex])
-// Note: skipped text uses subtext0 (#6c6f85) for better contrast, not overlay1
+// Note: skipped text uses subtext1 (#5c5f77, about 5.5:1 on the canvas) for better contrast, not overlay1
 export const STATUS_TEXT_CLASSES = {
   passed: 'text-[#40a02b] dark:text-[#a6e3a1]',
   failed: 'text-[#d20f39] dark:text-[#f38ba8]',
   broken: 'text-[#fe640b] dark:text-[#fab387]',
-  skipped: 'text-[#6c6f85] dark:text-[#a6adc8]',
+  skipped: 'text-[#5c5f77] dark:text-[#a6adc8]',
 } as const
 
 // Background-only class strings (for non-badge elements like category spans)
