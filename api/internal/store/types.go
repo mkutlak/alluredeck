@@ -366,6 +366,21 @@ type TestMatch struct {
 	Status    string
 }
 
+// PipelineRunMatch is returned by search for pipeline-number queries: one
+// pipeline run, identified like a feed run (its group project and pipeline id).
+type PipelineRunMatch struct {
+	GroupProjectID int64
+	GroupSlug      string
+	PipelineID     string
+	Branch         string
+	Timestamp      time.Time
+}
+
+// BranchMatch is returned by search for branch-name queries.
+type BranchMatch struct {
+	Name string
+}
+
 // MultiTimelineRow holds timeline data for a test execution across multiple builds.
 type MultiTimelineRow struct {
 	BuildID     int64

@@ -356,6 +356,8 @@ type BranchStorer interface {
 type SearchStorer interface {
 	SearchProjects(ctx context.Context, query string, limit int) ([]ProjectMatch, error)
 	SearchTests(ctx context.Context, query string, limit int) ([]TestMatch, error)
+	SearchPipelineRuns(ctx context.Context, query string, limit int) ([]PipelineRunMatch, error)
+	SearchBranches(ctx context.Context, query string, limit int) ([]BranchMatch, error)
 }
 
 // ErrorCluster holds a grouped failure message and its occurrence count.

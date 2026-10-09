@@ -805,6 +805,9 @@ func (m *MockBranchStore) GetByName(ctx context.Context, projectID int64, name s
 type MockSearchStore struct {
 	SearchProjectsFn func(ctx context.Context, query string, limit int) ([]store.ProjectMatch, error)
 	SearchTestsFn    func(ctx context.Context, query string, limit int) ([]store.TestMatch, error)
+
+	SearchPipelineRunsFn func(ctx context.Context, query string, limit int) ([]store.PipelineRunMatch, error)
+	SearchBranchesFn     func(ctx context.Context, query string, limit int) ([]store.BranchMatch, error)
 }
 
 func (m *MockSearchStore) SearchProjects(ctx context.Context, query string, limit int) ([]store.ProjectMatch, error) {
@@ -819,6 +822,20 @@ func (m *MockSearchStore) SearchTests(ctx context.Context, query string, limit i
 		return m.SearchTestsFn(ctx, query, limit)
 	}
 	return nil, nil
+}
+
+func (m *MockSearchStore) SearchPipelineRuns(ctx context.Context, query string, limit int) ([]store.PipelineRunMatch, error) {
+	if m.SearchPipelineRunsFn != nil {
+		return m.SearchPipelineRunsFn(ctx, query, limit)
+	}
+	return []store.PipelineRunMatch{}, nil
+}
+
+func (m *MockSearchStore) SearchBranches(ctx context.Context, query string, limit int) ([]store.BranchMatch, error) {
+	if m.SearchBranchesFn != nil {
+		return m.SearchBranchesFn(ctx, query, limit)
+	}
+	return []store.BranchMatch{}, nil
 }
 
 // ---------------------------------------------------------------------------
