@@ -38,10 +38,14 @@ export function RunSuiteChip({ suite, runPath }: RunSuiteChipProps) {
   const status = suite.failed > 0 ? 'failed' : suite.status
 
   const href = runPath ? `${runPath}#suite-${suite.project_id}` : suiteReportHref(suite)
+  // The glyph is hidden and the counts are bare numbers, so the name says what they mean.
+  // A passing suite needs no name: RunSuiteChips draws chips only for failing ones.
+  const failedText = `${label}: ${suite.failed} failed${isSharded ? ` across ${shardCount} shards` : ''}`
 
   const chip = (
     <NavLink
       to={href}
+      aria-label={suite.failed > 0 ? failedText : undefined}
       className="hover:bg-accent inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors"
       data-testid="run-suite-chip"
     >
@@ -73,9 +77,7 @@ export function RunSuiteChip({ suite, runPath }: RunSuiteChipProps) {
     <Tooltip>
       <TooltipTrigger asChild>{chip}</TooltipTrigger>
       {/* Below the chip: opening upward covered the run's own ID and branch. */}
-      <TooltipContent side="bottom">
-        {`${label}: ${suite.failed} failed across ${shardCount} shards`}
-      </TooltipContent>
+      <TooltipContent side="bottom">{failedText}</TooltipContent>
     </Tooltip>
   )
 }

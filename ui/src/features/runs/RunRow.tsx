@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router'
 import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react'
 
@@ -21,6 +21,7 @@ export function RunRow({ run }: RunRowProps) {
   // ten runs into an unscannable wall, and it fetched failures for all of them
   // before the user had asked for any.
   const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
 
   const runId = runIdOf(run)
   const href = runPath(run)
@@ -57,11 +58,12 @@ export function RunRow({ run }: RunRowProps) {
       </span>
     </>
   ) : (
-    href && <span className="text-fact font-normal">no branch</span>
+    // Also without a link: the cell is the row's heading, which must not be empty.
+    <span className="text-fact font-normal">no branch</span>
   )
 
   return (
-    <div className="px-4 py-2.5" data-testid="run-row">
+    <li className="px-4 py-2.5" data-testid="run-row">
       {/* Line 1 — identity and headline numbers. A grid of fixed columns when the feed is
           wide enough (a container query, because the room depends on the sidebar), so the
           figures line up from row to row; below that it stacks into three short lines
@@ -70,11 +72,15 @@ export function RunRow({ run }: RunRowProps) {
         {hasFailures ? (
           <button
             type="button"
-            className="text-fact hover:text-foreground self-center"
+            // -m-1 p-1: a 24px target that still takes the 16px column.
+            className="text-fact hover:text-foreground -m-1 self-center p-1"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
+            aria-controls={expanded ? panelId : undefined}
             aria-label={`Toggle failures for ${runId}`}
             data-testid="run-row-toggle"
+            // j/k stop here when the row has no branch link.
+            data-row-link={href ? undefined : true}
           >
             {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
@@ -103,23 +109,28 @@ export function RunRow({ run }: RunRowProps) {
         </code>
 
         <div className="col-start-3 col-end-5 row-start-2 flex min-w-0 items-baseline gap-2 @4xl:contents">
-          {href ? (
-            <Link
-              to={href}
-              title={run.branch || undefined}
-              // Every row has a "main" link; the run ID says which run this one opens.
-              aria-label={`${run.branch || 'no branch'}, run ${runId}`}
-              className={cn(branchClass, 'hover:underline')}
-            >
-              {branchContent}
-            </Link>
-          ) : (
-            <span title={run.branch || undefined} className={branchClass}>
-              {branchContent}
-            </span>
-          )}
+          {/* Each run's heading, for jumping run to run; contents keeps the cell in the grid. */}
+          <h2 className="contents">
+            {href ? (
+              <Link
+                to={href}
+                title={run.branch || undefined}
+                // Every row has a "main" link; the run ID says which run this one opens.
+                aria-label={`${run.branch || 'no branch'}, run ${runId}`}
+                className={cn(branchClass, 'hover:underline')}
+                data-row-link
+              >
+                {branchContent}
+              </Link>
+            ) : (
+              <span title={run.branch || undefined} className={branchClass}>
+                {branchContent}
+              </span>
+            )}
+          </h2>
 
-          <span className="text-fact max-w-[40%] min-w-0 shrink-0 text-xs @4xl:max-w-none">
+          {/* min-w: a narrow feed keeps a few letters of the group, never a bare ellipsis. */}
+          <span className="text-fact max-w-[40%] min-w-[6ch] shrink-0 text-xs @4xl:max-w-none">
             {/* truncate on the link, not a wrapper: a wrapper would clip the focus ring. */}
             <RunGroupLink run={run} className="block truncate" />
           </span>
@@ -151,10 +162,10 @@ export function RunRow({ run }: RunRowProps) {
       )}
 
       {expanded && hasFailures && (
-        <div className="mt-2 pl-6">
+        <div id={panelId} className="mt-2 pl-6">
           <RunFailures run={run} />
         </div>
       )}
-    </div>
+    </li>
   )
 }

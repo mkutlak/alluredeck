@@ -45,6 +45,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { DefectProposal, FlakyProposal, KnownIssueProposal, ProposalType } from '@/types/proposals'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -405,6 +407,7 @@ function McpDisabled() {
 const LIMIT = 20
 
 export function PendingProposalsPage() {
+  useDocumentTitle(`Pending Proposals — ${env.appTitle}`)
   const isAdmin = useAuthStore(selectIsAdmin)
   const queryClient = useQueryClient()
 

@@ -16,8 +16,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { projectIndexOptions } from '@/lib/queries'
 import { formatProjectLabel } from '@/lib/projectLabel'
 import { WebhookList } from './components/WebhookList'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 export function WebhooksPage() {
+  useDocumentTitle(`Webhooks — ${env.appTitle}`)
   const [searchParams, setSearchParams] = useSearchParams()
   const projectId = searchParams.get('project') ?? ''
 

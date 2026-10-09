@@ -2,8 +2,11 @@ import { Navigate } from 'react-router'
 import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { JobsCard } from './components/JobsCard'
 import { ResultsCard } from './components/ResultsCard'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 export function AdminPage() {
+  useDocumentTitle(`System Monitor — ${env.appTitle}`)
   const isAdmin = useAuthStore(selectIsAdmin)
 
   if (!isAdmin) {

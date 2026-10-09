@@ -3,7 +3,9 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, GitCommitHorizontal } from 'lucide-react'
 import { Link } from 'react-router'
 
+import { env } from '@/lib/env'
 import { runsFeedOptions } from '@/lib/queries'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 import { PageHeader } from '@/components/app/PageHeader'
 import { FilterBar } from '@/components/app/FilterBar'
 import { Button } from '@/components/ui/button'
@@ -14,9 +16,11 @@ import { GroupFilter } from './GroupFilter'
 import { RunRow } from './RunRow'
 import { runKeyOf } from './runKey'
 import { useFeedParams } from './useFeedParams'
+import { navigateRows } from './rowNavigation'
 
 export function RunsFeedPage() {
   const { branch, groupIds, page, setPage, isFiltered, allRunsHref } = useFeedParams()
+  useDocumentTitle(`Runs — ${env.appTitle}`)
 
   const { data, isLoading, isPlaceholderData } = useQuery({
     ...runsFeedOptions(page, branch, groupIds.length > 0 ? groupIds : undefined),
@@ -92,7 +96,9 @@ export function RunsFeedPage() {
         // One bordered list with divided rows rather than a card per run: the
         // feed is meant to be scanned top to bottom, and per-card padding was
         // most of what made it tall.
-        <div className="@container divide-y rounded-lg border">
+        // role="list": Safari drops the list role from a list without bullets.
+        // j/k move between rows while focus is in the list.
+        <ul role="list" onKeyDown={navigateRows} className="@container divide-y rounded-lg border">
           {runs.map((run) => (
             <RunRow
               // A run is (group, key); its timestamp moves with every suite that uploads, and
@@ -101,7 +107,7 @@ export function RunsFeedPage() {
               run={run}
             />
           ))}
-        </div>
+        </ul>
       )}
 
       {runs.length > 0 && totalPages > 1 && (

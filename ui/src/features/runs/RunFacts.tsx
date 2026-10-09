@@ -108,11 +108,18 @@ export function RunGroupLink({ run, className }: { run: PipelineRun; className: 
   const label = group ? formatProjectLabel(group, projects) : run.group_slug
   if (!label) return null
 
+  // Titled because the feed truncates the label.
   return run.group_project_id != null ? (
-    <NavLink to={`/projects/${run.group_project_id}`} className={`${className} hover:underline`}>
+    <NavLink
+      to={`/projects/${run.group_project_id}`}
+      title={label}
+      className={`${className} hover:underline`}
+    >
       {label}
     </NavLink>
   ) : (
-    <span className={className}>{label}</span>
+    <span title={label} className={className}>
+      {label}
+    </span>
   )
 }

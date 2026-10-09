@@ -33,7 +33,13 @@ export function FailureBadges({
 }: FailureBadgesProps) {
   return (
     <div className="flex flex-wrap gap-1">
-      {flaky && <FlakyBadge retries={retries} className="text-foreground text-[10px]" />}
+      {flaky && (
+        <FlakyBadge
+          retries={retries}
+          className="text-foreground text-[10px]"
+          title="Flaky: this test passed on a retry or fails intermittently"
+        />
+      )}
       {environment ? (
         <Badge
           variant="outline"
@@ -51,6 +57,7 @@ export function FailureBadges({
           title="New: this test passed on the default branch"
         >
           new
+          <span className="sr-only"> (passed on the default branch)</span>
         </Badge>
       ) : (
         inherited && (
@@ -60,12 +67,18 @@ export function FailureBadges({
             title="Inherited: this test is failing on the default branch too"
           >
             inherited
+            <span className="sr-only"> (also failing on the default branch)</span>
           </Badge>
         )
       )}
       {known && (
-        <Badge variant="outline" className={`${NEUTRAL_BADGE_CLASSES} text-foreground text-[10px]`}>
+        <Badge
+          variant="outline"
+          className={`${NEUTRAL_BADGE_CLASSES} text-foreground text-[10px]`}
+          title="Known issue: this test matches a known issue declared for its project"
+        >
           known
+          <span className="sr-only"> (matches a known issue)</span>
         </Badge>
       )}
     </div>

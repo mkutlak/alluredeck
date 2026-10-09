@@ -12,6 +12,7 @@ import {
 
 import { ApiError, extractErrorMessage } from '@/api/client'
 import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 import { pipelineRunOptions, runFailuresOptions } from '@/lib/queries'
 import { cn, formatDuration, formatPassRate } from '@/lib/utils'
 import { useUIStore, type FailureGrouping } from '@/store/ui'
@@ -37,14 +38,9 @@ export function RunPage() {
   )
   const run = data?.data
 
-  useEffect(() => {
-    if (!run) return
-    const previous = document.title
-    document.title = `${runIdOf(run)} · ${run.branch || 'no branch'} — ${env.appTitle}`
-    return () => {
-      document.title = previous
-    }
-  }, [run])
+  useDocumentTitle(
+    run ? `${runIdOf(run)} · ${run.branch || 'no branch'} — ${env.appTitle}` : undefined,
+  )
 
   if (isLoading) {
     // The header's real height, so the page does not jump when the run arrives.

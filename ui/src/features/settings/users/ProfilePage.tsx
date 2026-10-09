@@ -9,6 +9,8 @@ import { useUIStore } from '@/store/ui'
 import { useMeQuery, useUpdateMeMutation } from './hooks/useMe'
 import { ChangePasswordCard } from './components/ChangePasswordCard'
 import type { User } from '@/types/api'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 interface ProfileFormProps {
   me: User
@@ -179,6 +181,7 @@ function DisplayCard() {
 }
 
 export function ProfilePage() {
+  useDocumentTitle(`Profile — ${env.appTitle}`)
   const { data: me, isLoading, isError } = useMeQuery()
 
   if (isLoading) {

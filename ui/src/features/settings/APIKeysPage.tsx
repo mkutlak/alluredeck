@@ -8,8 +8,11 @@ import { APIKeyList } from './components/APIKeyList'
 import { APIKeyFormDialog } from './components/APIKeyFormDialog'
 import { CreatedKeyDialog } from './components/CreatedKeyDialog'
 import { DeleteAPIKeyDialog } from './components/DeleteAPIKeyDialog'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 export function APIKeysPage() {
+  useDocumentTitle(`API Keys — ${env.appTitle}`)
   const [createOpen, setCreateOpen] = useState(false)
   const [createdKey, setCreatedKey] = useState<APIKeyCreated | null>(null)
   const [deletingKey, setDeletingKey] = useState<APIKey | null>(null)

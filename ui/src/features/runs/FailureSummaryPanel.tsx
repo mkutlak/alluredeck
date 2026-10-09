@@ -103,9 +103,7 @@ export function FailureSummaryPanel({
               </NavLink>
             )}
 
-            {query.data?.disclaimer && (
-              <p className="text-fact text-[10px] italic">{query.data.disclaimer}</p>
-            )}
+            {query.data?.disclaimer && <p className="text-fact text-xs">{query.data.disclaimer}</p>}
           </div>
         )}
       </CardState>

@@ -13,8 +13,11 @@ import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardTable } from './components/DashboardTable'
 import { compareRows } from './components/sort'
 import type { SortDir, SortField, ViewMode } from './components/sort'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 export function DashboardPage() {
+  useDocumentTitle(`Projects — ${env.appTitle}`)
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')

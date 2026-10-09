@@ -53,7 +53,9 @@ const GROUPING_OPTIONS = [
 // previous flex layout let a column shift by hundreds of pixels depending on
 // whether a row happened to carry an error message.
 // Below 36rem of panel the error column had no room left (0px at a 390px viewport), so
-// there the error drops under the test name and spans the row (see ErrorText).
+// there the error drops under the test name and spans the row (see ErrorText). The test
+// name and the badges span it too, one above the other: beside the name, the badges and
+// the AI label left it a few characters.
 const GRID_BY_SUITE =
   'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 @xl:grid-cols-[minmax(12rem,32ch)_auto_minmax(0,1fr)] @xl:gap-y-3'
 // Same below 36rem: the suite name moves under the test name instead of taking 10rem of it.
@@ -427,6 +429,7 @@ function FailureRow({
   onToggleSummary,
 }: FailureRowProps) {
   const reportHref = `/projects/${row.projectId}/reports/${row.buildNumber}`
+  const summaryId = useId()
   // On the run page the test's history ("is it me or flaky?") comes first.
   // TestHistoryPage needs a history_id; a row without one keeps its report link.
   const historyHref =
@@ -437,8 +440,9 @@ function FailureRow({
         }).toString()}`
       : undefined
 
+  // Narrow, the group has a line of its own, where an empty badge list would indent the rest.
   const badges = (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="col-span-2 flex shrink-0 flex-wrap items-center gap-1 @xl:col-span-1 @xl:flex-nowrap @max-xl:[&>:empty]:hidden">
       <FailureBadges
         flaky={row.flaky}
         retries={row.retries}
@@ -452,10 +456,13 @@ function FailureRow({
           type="button"
           onClick={onToggleSummary}
           aria-expanded={summaryOpen}
+          aria-controls={summaryOpen ? summaryId : undefined}
           aria-label={`Toggle AI failure summary for ${row.testName}`}
-          className="text-fact hover:text-foreground shrink-0"
+          // -my-1 py-1: a 24px target that keeps the row's height.
+          className="text-fact hover:text-foreground -my-1 inline-flex shrink-0 items-center gap-1 py-1 text-xs whitespace-nowrap"
         >
-          <Sparkles size={12} />
+          <Sparkles size={12} aria-hidden="true" />
+          AI failure summary
         </button>
       )}
       {historyHref && (
@@ -481,7 +488,7 @@ function FailureRow({
       >
         <NavLink
           to={historyHref ?? reportHref}
-          className="min-w-0 truncate hover:underline"
+          className="col-span-2 min-w-0 truncate hover:underline @xl:col-span-1"
           title={row.fullName || row.testName}
         >
           {row.testName}
@@ -502,7 +509,7 @@ function FailureRow({
       </div>
 
       {llmEnabled && summaryOpen && (
-        <div className="px-3 pl-9">
+        <div id={summaryId} className="px-3 pl-9">
           <FailureSummaryPanel
             projectId={row.projectId}
             buildId={row.buildId}

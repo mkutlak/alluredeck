@@ -26,10 +26,13 @@ import {
   useUpdateActiveMutation,
   useDeactivateUserMutation,
 } from './hooks/useUsers'
+import { env } from '@/lib/env'
+import { useDocumentTitle } from '@/lib/useDocumentTitle'
 
 const PAGE_SIZE = 20
 
 export function UsersPage() {
+  useDocumentTitle(`Users — ${env.appTitle}`)
   const isAdmin = useAuthStore(selectIsAdmin)
 
   if (!isAdmin) {
