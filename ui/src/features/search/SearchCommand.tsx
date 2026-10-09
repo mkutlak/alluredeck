@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Folder, FileText, FlaskConical } from 'lucide-react'
+import { Folder, FileText, FlaskConical, GitBranch } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   CommandDialog,
@@ -16,6 +16,7 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { search } from '@/api/search'
 import { queryKeys } from '@/lib/query-keys'
 import { projectIndexOptions } from '@/lib/queries'
+import { formatProjectLabel } from '@/lib/projectLabel'
 
 type SearchCommandContextValue = {
   open: boolean
@@ -81,15 +82,18 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
 
   const projects = data?.data.projects ?? []
   const tests = data?.data.tests ?? []
+  const runs = data?.data.runs ?? []
+  const branches = data?.data.branches ?? []
   const hasQuery = debouncedQuery.length >= 2
-  const hasResults = projects.length > 0 || tests.length > 0
+  const hasResults =
+    projects.length > 0 || tests.length > 0 || runs.length > 0 || branches.length > 0
 
   return (
     <SearchCommandContext.Provider value={{ open, setOpen }}>
       {children}
       <CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false}>
         <CommandInput
-          placeholder="Search projects and tests..."
+          placeholder="Search projects, tests, runs and branches..."
           value={query}
           onValueChange={setQuery}
         />
@@ -147,6 +151,51 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                   <Badge variant="outline" className="ml-auto shrink-0 text-xs">
                     {t.status}
                   </Badge>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
+          {runs.length > 0 && (
+            <CommandGroup heading="Runs">
+              {runs.map((r) => {
+                // Named as the feed names it; the slug until the project index has loaded.
+                const group = projectIndex?.data.find((p) => p.project_id === r.group_project_id)
+                return (
+                  <CommandItem
+                    key={`${r.group_project_id}-${r.pipeline_id}`}
+                    value={`run-${r.group_project_id}-${r.pipeline_id}`}
+                    onSelect={() =>
+                      handleSelect(
+                        `/runs/${r.group_project_id}/${encodeURIComponent(r.pipeline_id)}`,
+                      )
+                    }
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate font-mono">{r.pipeline_id}</span>
+                      <span className="text-muted-foreground block truncate text-xs">
+                        {r.branch || 'no branch'} ·{' '}
+                        {group ? formatProjectLabel(group, projectIndex?.data) : r.group_slug}
+                      </span>
+                    </div>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          )}
+
+          {branches.length > 0 && (
+            <CommandGroup heading="Branches">
+              {branches.map((b) => (
+                <CommandItem
+                  key={b.name}
+                  value={`branch-${b.name}`}
+                  onSelect={() =>
+                    handleSelect(`/?${new URLSearchParams({ branch: b.name }).toString()}`)
+                  }
+                >
+                  <GitBranch className="text-muted-foreground size-4 shrink-0" />
+                  <span className="truncate">{b.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

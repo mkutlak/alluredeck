@@ -320,9 +320,24 @@ export interface SearchTestMatch {
   status: string
 }
 
+export interface SearchRunMatch {
+  group_project_id: number
+  group_slug: string
+  pipeline_id: string
+  branch: string
+  timestamp: string
+}
+
+export interface SearchBranchMatch {
+  name: string
+}
+
 export interface SearchData {
   projects: SearchProjectMatch[]
   tests: SearchTestMatch[]
+  // Optional: an API that predates run/branch search omits them, and the UI must still work.
+  runs?: SearchRunMatch[]
+  branches?: SearchBranchMatch[]
 }
 
 // ---------------------------------------------------------------------------
