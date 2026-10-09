@@ -147,8 +147,7 @@
   }
   /* Focusable elements without their own ring or outline suppression (feed rows' links and toggle)
      get the token ring instead of the browser outline. focus-visible:outline-none/outline-hidden
-     utilities still win: they live in a later layer. Recharts' svg sets outline-none, so charts
-     are not covered. */
+     utilities still win: they live in a later layer. Charts' focusable svg is covered too. */
   :focus-visible {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
