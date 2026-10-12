@@ -4,7 +4,6 @@ import "net/http"
 
 // Cache-Control directive constants.
 const (
-	CacheImmutable  = "public, max-age=86400, immutable"
 	CacheShortLived = "public, max-age=300"
 	CacheMutable    = "public, max-age=30"
 	CacheNoStore    = "no-store"
@@ -27,21 +26,6 @@ func CacheControl(directive string) func(http.HandlerFunc) http.HandlerFunc {
 			w.Header().Set("Cache-Control", directive)
 			next(w, r)
 		}
-	}
-}
-
-// ReportCache inspects the report_id path value to choose a cache tier.
-// Numeric IDs (historical builds) get immutable caching; "latest" and
-// everything else get short-lived caching.
-func ReportCache(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		reportID := r.PathValue("report_id")
-		if IsNumericID(reportID) {
-			w.Header().Set("Cache-Control", CacheImmutable)
-		} else {
-			w.Header().Set("Cache-Control", CacheShortLived)
-		}
-		next(w, r)
 	}
 }
 

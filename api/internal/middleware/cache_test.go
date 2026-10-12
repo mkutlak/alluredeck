@@ -7,20 +7,19 @@ import (
 )
 
 // TestCacheHeaders: each cache middleware overwrites any Cache-Control set
-// earlier in the chain and still calls the next handler. ReportCache marks
-// numbered (historical) builds immutable and everything else short-lived.
+// earlier in the chain and still calls the next handler. No tier is immutable:
+// build numbers are reused after a history clean, so no cached response may
+// outlive the build behind it for long.
 func TestCacheHeaders(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		mw       func(http.HandlerFunc) http.HandlerFunc
-		reportID string
-		want     string
+		name string
+		mw   func(http.HandlerFunc) http.HandlerFunc
+		want string
 	}{
-		{"NoStore", NoStore, "", CacheNoStore},
-		{"CacheControl", CacheControl(CacheMutable), "", CacheMutable},
-		{"ReportCache numbered build", ReportCache, "42", CacheImmutable},
-		{"ReportCache latest", ReportCache, "latest", CacheShortLived},
+		{"NoStore", NoStore, CacheNoStore},
+		{"CacheControl mutable", CacheControl(CacheMutable), CacheMutable},
+		{"CacheControl short-lived", CacheControl(CacheShortLived), CacheShortLived},
 	}
 	for _, tc := range tests {
 		called := false
@@ -29,7 +28,6 @@ func TestCacheHeaders(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.SetPathValue("report_id", tc.reportID)
 		rr := httptest.NewRecorder()
 		rr.Header().Set("Cache-Control", "public, max-age=3600")
 		h.ServeHTTP(rr, req)

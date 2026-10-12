@@ -905,7 +905,6 @@ func registerRoutes(d routeDeps) {
 	noStore := middleware.NoStore
 	mutableCache := middleware.CacheControl(middleware.CacheMutable)
 	shortCache := middleware.CacheControl(middleware.CacheShortLived)
-	reportCache := middleware.ReportCache
 
 	prefix := d.prefix
 	mux := d.mux
@@ -945,13 +944,13 @@ func registerRoutes(d routeDeps) {
 	// Multi-build timeline endpoint (registered before report widget routes to avoid {report_id} matching "timeline").
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/timeline", viewerUp(d.h.projectTimeline.GetProjectTimeline))
 
-	// Report widget endpoints — dynamic cache (immutable for numbered builds, short-lived for latest).
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(reportCache(d.h.report.GetReportCategories)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(reportCache(d.h.report.GetReportEnvironment)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(reportCache(d.h.knownIssue.GetReportKnownFailures)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(reportCache(d.h.report.GetReportTimeline)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(reportCache(d.h.report.GetReportStability)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(reportCache(d.h.report.GetReportSummary)))
+	// Report widget endpoints — short-lived cache: build numbers are reused after a history clean, so no build is immutable.
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/categories", viewerUp(shortCache(d.h.report.GetReportCategories)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/environment", viewerUp(shortCache(d.h.report.GetReportEnvironment)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/known-failures", viewerUp(shortCache(d.h.knownIssue.GetReportKnownFailures)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/timeline", viewerUp(shortCache(d.h.report.GetReportTimeline)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/stability", viewerUp(shortCache(d.h.report.GetReportStability)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/summary", viewerUp(shortCache(d.h.report.GetReportSummary)))
 
 	// Known issues list — mutable cache (changes when issues are created/updated/deleted).
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/known-issues", viewerUp(mutableCache(d.h.knownIssue.ListKnownIssues)))
@@ -1020,8 +1019,8 @@ func registerRoutes(d routeDeps) {
 	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/analytics/flaky", viewerUp(shortCache(d.h.flakyImpact.GetFlakyImpact)))
 
 	// Attachment viewer endpoints.
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(reportCache(d.h.attachment.ListAttachments)))
-	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments/{source}", viewerUp(reportCache(d.h.attachment.ServeAttachment)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments", viewerUp(shortCache(d.h.attachment.ListAttachments)))
+	mux.HandleFunc("GET "+prefix+"/projects/{project_id}/reports/{report_id}/attachments/{source}", viewerUp(shortCache(d.h.attachment.ServeAttachment)))
 
 	// Signed attachment download — backs the alluredeck://attachment/{id} MCP
 	// resource links. Authentication is the HMAC signature on the URL itself
