@@ -381,6 +381,67 @@ func TestS3Store_KeepHistory(t *testing.T) {
 	}
 }
 
+// TestS3Store_RenameProject copies every object under projects/<old>/ to
+// projects/<new>/ server-side (CopyObject, never a download) and then deletes
+// the old prefix, leaving a sibling like projects/oldx/ alone. A missing
+// project is not an error, unlike LocalStore. When a copy fails the old
+// objects are all still there, because nothing is deleted before every copy
+// has succeeded.
+func TestS3Store_RenameProject(t *testing.T) {
+	t.Parallel()
+	seed := map[string]string{
+		"projects/old/.keep":                "",
+		"projects/old/results/b/r.json":     "result",
+		"projects/old/reports/1/index.html": "report",
+		"projects/oldx/.keep":               "sibling",
+	}
+	renamed := map[string]string{
+		"projects/new/.keep":                "",
+		"projects/new/results/b/r.json":     "result",
+		"projects/new/reports/1/index.html": "report",
+		"projects/oldx/.keep":               "sibling",
+	}
+	copyFails := map[string]error{"Copy " + testBucket + "/projects/old/reports/1/index.html": errBoom}
+	tests := []struct {
+		name       string
+		oldID      string
+		failOn     map[string]error
+		wantErr    error
+		wantCopy   int
+		wantDelete int
+		wantAll    map[string]string // nil: skip, the partial copy is not pinned
+	}{
+		{"moves every object", "old", nil, nil, 3, 3, renamed},
+		{"missing project is a no-op", "ghost", nil, nil, 0, 0, seed},
+		{"copy failure keeps the old objects", "old", copyFails, errBoom, 2, 0, nil},
+	}
+	for _, tc := range tests {
+		f := newFakeS3(seed)
+		f.failOn = tc.failOn
+		err := newTestS3Store(f, true).RenameProject(context.Background(), tc.oldID, "new")
+		if !errors.Is(err, tc.wantErr) {
+			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.wantErr)
+		}
+		got := map[string]string{}
+		for _, k := range f.keys("") {
+			got[k], _ = f.get(k)
+		}
+		if tc.wantAll != nil && !reflect.DeepEqual(got, tc.wantAll) {
+			t.Errorf("%s: bucket = %v, want %v", tc.name, got, tc.wantAll)
+		}
+		if tc.wantErr != nil {
+			for k, v := range seed {
+				if got[k] != v {
+					t.Errorf("%s: %s = %q, want it kept as %q", tc.name, k, got[k], v)
+				}
+			}
+		}
+		if f.count("Copy") != tc.wantCopy || f.count("Delete") != tc.wantDelete || f.count("Get") != 0 || f.count("Upload") != 0 {
+			t.Errorf("%s: calls %v, want %d copies, %d deletes and no downloads or uploads", tc.name, f.calls, tc.wantCopy, tc.wantDelete)
+		}
+	}
+}
+
 // TestS3Store_PrepareLocal downloads results and the latest history into a
 // temp project dir; a failing history download is not fatal.
 func TestS3Store_PrepareLocal(t *testing.T) {

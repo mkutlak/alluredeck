@@ -127,6 +127,33 @@ func TestLocalStore_ProjectLifecycle(t *testing.T) {
 	}
 }
 
+// TestLocalStore_RenameProject moves the project dir with its files, reports a
+// missing source as ErrProjectNotFound, and refuses to overwrite an existing
+// destination.
+func TestLocalStore_RenameProject(t *testing.T) {
+	t.Parallel()
+	ls, root := newLocal(t)
+	ctx := context.Background()
+	writeFile(t, filepath.Join(root, "old", "results", "b", "r.json"), "result")
+	writeFile(t, filepath.Join(root, "taken", "keep.txt"), "mine")
+
+	if err := ls.RenameProject(ctx, "old", "new"); err != nil {
+		t.Fatalf("RenameProject(old, new): %v", err)
+	}
+	if got := readTree(t, root); !reflect.DeepEqual(got, map[string]string{"new/results/b/r.json": "result", "taken/keep.txt": "mine"}) {
+		t.Errorf("files after rename = %v", got)
+	}
+	if err := ls.RenameProject(ctx, "ghost", "x"); !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("RenameProject(ghost) = %v, want ErrProjectNotFound", err)
+	}
+	if err := ls.RenameProject(ctx, "new", "taken"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("RenameProject onto an existing project = %v, want an \"already exists\" error", err)
+	}
+	if got := readTree(t, root); !reflect.DeepEqual(got, map[string]string{"new/results/b/r.json": "result", "taken/keep.txt": "mine"}) {
+		t.Errorf("files after refused rename = %v", got)
+	}
+}
+
 // TestLocalStore_Results writes files under results/<batch>/, lists only the
 // batch's files, and CleanResults empties results/ (a missing project is fine).
 func TestLocalStore_Results(t *testing.T) {
