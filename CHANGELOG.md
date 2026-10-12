@@ -1,3 +1,41 @@
+## [0.49.0](https://github.com/mkutlak/alluredeck/compare/v0.48.0...v0.49.0) (2026-10-12)
+
+### Features
+
+* **api:** count failures of unknown origin in the runs feed ([5d3b8ed](https://github.com/mkutlak/alluredeck/commit/5d3b8edfad637efc0003fdccc3cde6850a4851ce))
+* **api:** find pipeline runs and branches in search ([9d2b0ce](https://github.com/mkutlak/alluredeck/commit/9d2b0ce7e2d1d70c09feb8eb443f68aea1f858f3))
+* **api:** give each run failure a cluster key shared with the pipeline diagnosis ([4f42822](https://github.com/mkutlak/alluredeck/commit/4f42822729810f1cb4a7a37111feaeb5ef617048))
+* **api:** name the deepest failed step of each run failure ([d845dba](https://github.com/mkutlak/alluredeck/commit/d845dba8a1339622aa84465834b0b63bfc70d560))
+* **api:** say how many suites a pipeline run is still waiting for ([f470738](https://github.com/mkutlak/alluredeck/commit/f4707383b8679ed2a75de0e8a59a1ae0ef3de93d))
+* **api:** say where each listed run's failures came from ([a921a98](https://github.com/mkutlak/alluredeck/commit/a921a989d291b813378e265d52df5d88e5ba1ba6))
+* **api:** serve a single pipeline run and tag failures as new, inherited or environment ([6270273](https://github.com/mkutlak/alluredeck/commit/627027333e4ea15c5f5abac41b6357a5e04081fd))
+* **ui:** add a page for each run and keep the runs feed state in the URL ([9f109d2](https://github.com/mkutlak/alluredeck/commit/9f109d2ffa14d8e149ef33b5f907e0d3000bae98))
+* **ui:** find a pipeline run or a branch from the search palette ([df56661](https://github.com/mkutlak/alluredeck/commit/df56661d1e721757cb91930b74d1df23db8bf8a8))
+* **ui:** group failures by the server's cluster key ([f6a7c93](https://github.com/mkutlak/alluredeck/commit/f6a7c93fc0276dcbd5c62472fd180eafc660591a))
+* **ui:** name each run's verdict and the CI links for screen readers ([93cb26e](https://github.com/mkutlak/alluredeck/commit/93cb26e98b2bf986795dd83fb5dc94e489920e3f))
+* **ui:** refresh a run that is still uploading until it is complete ([6fc3ca4](https://github.com/mkutlak/alluredeck/commit/6fc3ca40f9f833251f3d47a74141f057fa78a439))
+* **ui:** say "none new" and stop hiding failures of unknown origin ([8fd2889](https://github.com/mkutlak/alluredeck/commit/8fd288991709a59b19143b4da9319c36605795c2))
+* **ui:** show a run that is still uploading as awaiting suites, not as finished ([5375f42](https://github.com/mkutlak/alluredeck/commit/5375f422db3e49b53810675708c94b2f6ff48cd4))
+* **ui:** show the failed step under each error group's heading ([e5913c9](https://github.com/mkutlak/alluredeck/commit/e5913c997ba52fa0307b9be6dd2bd262f2b3f971))
+* **ui:** show where a run's failures came from without expanding it ([21f05f2](https://github.com/mkutlak/alluredeck/commit/21f05f210ab797c202a8b183db7fb45e3ef60525))
+* **ui:** tag each failure as new, inherited or environment ([1405891](https://github.com/mkutlak/alluredeck/commit/1405891a41c4b4804c3bf5c17c472c18aac18510))
+
+### Bug Fixes
+
+* **api:** count environment failures as inherited in the pipeline diagnosis ([1a6a1d0](https://github.com/mkutlak/alluredeck/commit/1a6a1d083343ffdb057f715786c2653a991f6627))
+* **api:** never cache the failures of a pipeline run ([6b43cea](https://github.com/mkutlak/alluredeck/commit/6b43ceafb1e2a874020c20bfd69d9c29a43a3a33))
+* **api:** never cache the lists of pipeline runs ([d63c1e6](https://github.com/mkutlak/alluredeck/commit/d63c1e631647d0611cb6b72cfea1a5d4fabe9af2))
+* **helm:** let helm test find the connection test pods ([6ff73ea](https://github.com/mkutlak/alluredeck/commit/6ff73ea24a13c9db46aee46ddfa110b61d0ba0cc))
+* **ui:** apply the saved theme before the first paint ([165b67e](https://github.com/mkutlak/alluredeck/commit/165b67e391d304d27449f30a88496523b8b8eb88))
+* **ui:** keep "none new" out of the failure panel when the row withholds it ([21bc8e5](https://github.com/mkutlak/alluredeck/commit/21bc8e5a20e290e22c82981ae77bb34a128324e1))
+* **ui:** line up the failure panel's columns and move the AI control last ([14ab567](https://github.com/mkutlak/alluredeck/commit/14ab56746a0d934162ed24b64ca9ad3d8d02d1ac))
+* **ui:** make the focus ring and the feed's badge text readable in light mode ([ed1d81d](https://github.com/mkutlak/alluredeck/commit/ed1d81ddeba8a7f3f87953e222ccfbb20d849d37)), closes [#6c6f85](https://github.com/mkutlak/alluredeck/issues/6c6f85) [#5c5f77](https://github.com/mkutlak/alluredeck/issues/5c5f77)
+* **ui:** make the runs feed usable by keyboard and screen reader ([7ea5848](https://github.com/mkutlak/alluredeck/commit/7ea5848dcbcdf3dc274e2c89a974d14746d03d47))
+* **ui:** reflow the runs feed rows and remember the sidebar state ([7001405](https://github.com/mkutlak/alluredeck/commit/7001405a9623beb0ef87796f2e6a65aab2c60b75))
+* **ui:** show the focus ring on a chart that has keyboard focus ([c269bfb](https://github.com/mkutlak/alluredeck/commit/c269bfbcbbb07fabc20eaca5003c75e21a2f2031))
+* **ui:** stop repeating the failure and suite counts in the failures panel ([a9ebf51](https://github.com/mkutlak/alluredeck/commit/a9ebf51af6e9d3cdc6008fae576ec3e4bd0602b8))
+* **ui:** stop the theme provider's script tag from warning in development ([d216f83](https://github.com/mkutlak/alluredeck/commit/d216f83942660cb82bd15d6bf4bded45740afced))
+
 ## [0.48.0](https://github.com/mkutlak/alluredeck/compare/v0.47.3...v0.48.0) (2026-10-07)
 
 ### Features
