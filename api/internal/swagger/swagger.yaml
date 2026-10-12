@@ -569,10 +569,10 @@ paths:
         by commit SHA within each parent's group. While a run's newest upload is under
         30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous
         run that have not uploaded yet. For a run with failures, `aggregate.origins`
-        counts its failing tests as new or inherited (`environment` is the inherited
-        ones caused by the environment), omitted when its failures list would be truncated
-        (more than 500 failing results), and all zero when no failing test has a known
-        origin.
+        counts its failing tests as new, inherited or unknown (`environment` is the
+        inherited ones caused by the environment; `unknown` is the rest, which have
+        no pass or fail on the default branch to compare with), omitted when its failures
+        list would be truncated (more than 500 failing results).
       parameters:
       - default: 1
         description: Page number

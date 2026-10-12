@@ -89,7 +89,7 @@ func (h *PipelineHandler) markAwaitingSuites(ctx context.Context, runs []pipelin
 }
 
 // markFailureOrigins sets Aggregate.Origins on every run with failing suites:
-// how many of its failing tests are new and how many inherited, for the feed's
+// how many of its failing tests are new, inherited or unknown, for the feed's
 // collapsed row. A run with more failures than the panel lists (over
 // defaultRunFailuresLimit) is left without, as is a run whose failures the
 // store could not list: the feed must not fail over a hint. groupID is the group
@@ -124,13 +124,13 @@ func (h *PipelineHandler) markFailureOrigins(ctx context.Context, runs []pipelin
 	}
 }
 
-// countRunOrigins counts a run's failing tests as new or inherited. It mirrors
+// countRunOrigins counts a run's failing tests as new, inherited or unknown. It mirrors
 // the UI's mergeRunFailures + countOrigins so the feed row and the expanded
 // panel's header agree: copies of one test (same project and full name, or test
 // name when that is empty) fold into one, whose origin is the strongest of the
 // copies (inherited, then new, else unknown) and which is environment if any
 // copy is. An environment failure counts as inherited and also in Environment;
-// a test with no known origin is not reported.
+// any other test with no known origin counts as Unknown.
 func countRunOrigins(rows []store.RunFailureRow) pipelineOriginsResp {
 	type testKey struct {
 		projectID int64
@@ -170,6 +170,8 @@ func countRunOrigins(rows []store.RunFailureRow) pipelineOriginsResp {
 			counts.New++
 		case t.origin == store.FailureOriginInherited:
 			counts.Inherited++
+		default:
+			counts.Unknown++
 		}
 	}
 	return counts
@@ -237,7 +239,7 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 // not scoped to a single parent project.
 //
 //	@Summary      List all pipeline runs
-//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group. While a run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet. For a run with failures, `aggregate.origins` counts its failing tests as new or inherited (`environment` is the inherited ones caused by the environment), omitted when its failures list would be truncated (more than 500 failing results), and all zero when no failing test has a known origin.
+//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group. While a run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet. For a run with failures, `aggregate.origins` counts its failing tests as new, inherited or unknown (`environment` is the inherited ones caused by the environment; `unknown` is the rest, which have no pass or fail on the default branch to compare with), omitted when its failures list would be truncated (more than 500 failing results).
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        page        query  int     false  "Page number"                            default(1)
@@ -568,6 +570,7 @@ type pipelineOriginsResp struct {
 	New         int `json:"new"`
 	Inherited   int `json:"inherited"`
 	Environment int `json:"environment"`
+	Unknown     int `json:"unknown"`
 }
 
 // suiteAccum merges every build a single child project contributed to one run.

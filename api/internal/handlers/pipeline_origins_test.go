@@ -106,13 +106,13 @@ func TestPipelineOrigins(t *testing.T) {
 				{ProjectID: 11, FullName: "a", Origin: store.FailureOriginNew},
 			},
 			want: map[string]any{"new": 2.0, "inherited": 0.0, "environment": 0.0}},
-		{name: "unknown is not reported",
+		{name: "unknown is counted",
 			rows: []store.RunFailureRow{
 				originsRow("a", "a", store.FailureOriginUnknown, false),
 				originsRow("b", "b", "", false),
 				originsRow("c", "c", "something-newer", false),
 			},
-			want: map[string]any{"new": 0.0, "inherited": 0.0, "environment": 0.0}},
+			want: map[string]any{"new": 0.0, "inherited": 0.0, "environment": 0.0, "unknown": 3.0}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
