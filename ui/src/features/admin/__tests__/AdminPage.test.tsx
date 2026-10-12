@@ -1,25 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/render'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { AdminPage } from '../AdminPage'
 import * as adminApi from '@/api/admin'
+import * as projectsApi from '@/api/projects'
 import { useAuthStore, type Role } from '@/store/auth'
-import type { AdminJobEntry, AdminResultsEntry } from '@/types/api'
+import type { AdminJobEntry, AdminResultsEntry, ProjectEntry } from '@/types/api'
 
 import { mockApiClient } from '@/test/mocks/api-client'
 
 vi.mock('@/api/admin')
+vi.mock('@/api/projects')
 mockApiClient()
 
 function renderPage({
   jobs = [],
   results = [],
   roles = ['admin'],
-}: { jobs?: AdminJobEntry[]; results?: AdminResultsEntry[]; roles?: Role[] } = {}) {
+  projects = [],
+}: {
+  jobs?: AdminJobEntry[]
+  results?: AdminResultsEntry[]
+  roles?: Role[]
+  projects?: ProjectEntry[]
+} = {}) {
   useAuthStore.setState({ roles })
+  vi.mocked(projectsApi.getProjectIndex).mockResolvedValue({
+    data: projects,
+    metadata: { message: 'OK' },
+  })
   vi.mocked(adminApi.fetchAdminJobs).mockResolvedValue({
     data: jobs,
     metadata: { message: 'OK' },
@@ -140,7 +152,41 @@ describe('AdminPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^confirm$/i }))
 
     await waitFor(() => {
-      expect(adminApi.cleanAdminResults).toHaveBeenCalledWith('proj-del', expect.anything())
+      expect(adminApi.cleanAdminResults).toHaveBeenCalledWith('3', expect.anything())
+    })
+  })
+
+  it('cleans the pending results of the child whose Delete was clicked, not its namesake', async () => {
+    vi.mocked(adminApi.cleanAdminResults).mockResolvedValue()
+    const pending = (project_id: number): AdminResultsEntry => ({
+      project_id,
+      slug: 'e2e',
+      storage_key: `e2e-${project_id}`,
+      file_count: 1,
+      total_size: 1,
+      last_modified: '2026-03-07T09:00:00Z',
+    })
+    renderPage({
+      results: [pending(5), pending(9)],
+      projects: [
+        { project_id: 1, slug: 'group-a' },
+        { project_id: 2, slug: 'group-b' },
+        { project_id: 5, slug: 'e2e', parent_id: 1 },
+        { project_id: 9, slug: 'e2e', parent_id: 2 },
+      ],
+    })
+
+    await screen.findByText('group-b')
+    expect(screen.getByRole('checkbox', { name: 'Select group-b/e2e' })).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: /^delete$/i })[1]!)
+
+    const dialogs = await screen.findAllByRole('alertdialog')
+    expect(dialogs).toHaveLength(1)
+    expect(within(dialogs[0]!).getByText('group-b/e2e')).toBeInTheDocument()
+    await userEvent.click(within(dialogs[0]!).getByRole('button', { name: /^confirm$/i }))
+
+    await waitFor(() => {
+      expect(adminApi.cleanAdminResults).toHaveBeenCalledWith('9', expect.anything())
     })
   })
 })

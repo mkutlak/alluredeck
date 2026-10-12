@@ -23,7 +23,7 @@ import { DeleteResultsBulkDialog } from './DeleteResultsBulkDialog'
 import { groupByParent } from '../utils/groupByParent'
 
 export function ResultsCard() {
-  const [deletingSlug, setDeletingSlug] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(() => new Set())
@@ -76,12 +76,18 @@ export function ResultsCard() {
     })
   }
 
-  const handleSingleConfirm = (slug: string) => {
-    doClean(slug, {
+  // By id: children of different groups can share a slug.
+  const handleSingleConfirm = (projectId: number) => {
+    doClean(String(projectId), {
       onSuccess: () => {
-        setDeletingSlug(null)
+        setDeletingId(null)
       },
     })
+  }
+
+  const labelOf = (entry: { project_id: number; slug: string }) => {
+    const matched = projects?.find((p) => p.project_id === entry.project_id)
+    return matched ? formatProjectLabel(matched, projects) : entry.slug
   }
 
   const groups = groupByParent(results, projects)
@@ -151,7 +157,7 @@ export function ResultsCard() {
                         <Checkbox
                           checked={selectedIds.has(entry.project_id)}
                           onCheckedChange={() => toggleResult(entry.project_id)}
-                          aria-label={`Select ${entry.slug}`}
+                          aria-label={`Select ${labelOf(entry)}`}
                         />
                       </TableCell>
                       <TableCell>
@@ -159,14 +165,7 @@ export function ResultsCard() {
                           to={`/projects/${entry.project_id}`}
                           className="font-medium hover:underline"
                         >
-                          {(() => {
-                            const matched = projects?.find(
-                              (p) => p.project_id === entry.project_id,
-                            )
-                            return matched
-                              ? formatProjectLabel(matched, projects)
-                              : entry.slug
-                          })()}
+                          {labelOf(entry)}
                         </Link>
                       </TableCell>
                       <TableCell>{entry.file_count}</TableCell>
@@ -178,10 +177,10 @@ export function ResultsCard() {
                       </TableCell>
                       <TableCell className="text-right">
                         <DeleteResultDialog
-                          open={deletingSlug === entry.slug}
-                          onOpenChange={(open) => setDeletingSlug(open ? entry.slug : null)}
-                          label={entry.slug}
-                          onConfirm={() => handleSingleConfirm(entry.slug)}
+                          open={deletingId === entry.project_id}
+                          onOpenChange={(open) => setDeletingId(open ? entry.project_id : null)}
+                          label={labelOf(entry)}
+                          onConfirm={() => handleSingleConfirm(entry.project_id)}
                         />
                       </TableCell>
                     </TableRow>
@@ -217,7 +216,7 @@ export function ResultsCard() {
                         <Checkbox
                           checked={selectedIds.has(entry.project_id)}
                           onCheckedChange={() => toggleResult(entry.project_id)}
-                          aria-label={`Select ${entry.slug}`}
+                          aria-label={`Select ${labelOf(entry)}`}
                         />
                       </TableCell>
                       <TableCell className="pl-10">
@@ -225,14 +224,7 @@ export function ResultsCard() {
                           to={`/projects/${entry.project_id}`}
                           className="font-medium hover:underline"
                         >
-                          {(() => {
-                            const matched = projects?.find(
-                              (p) => p.project_id === entry.project_id,
-                            )
-                            return matched
-                              ? (matched.display_name || matched.slug)
-                              : entry.slug
-                          })()}
+                          {labelOf(entry)}
                         </Link>
                       </TableCell>
                       <TableCell>{entry.file_count}</TableCell>
@@ -244,10 +236,10 @@ export function ResultsCard() {
                       </TableCell>
                       <TableCell className="text-right">
                         <DeleteResultDialog
-                          open={deletingSlug === entry.slug}
-                          onOpenChange={(open) => setDeletingSlug(open ? entry.slug : null)}
-                          label={entry.slug}
-                          onConfirm={() => handleSingleConfirm(entry.slug)}
+                          open={deletingId === entry.project_id}
+                          onOpenChange={(open) => setDeletingId(open ? entry.project_id : null)}
+                          label={labelOf(entry)}
+                          onConfirm={() => handleSingleConfirm(entry.project_id)}
                         />
                       </TableCell>
                     </TableRow>
