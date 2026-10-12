@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -20,8 +21,8 @@ type contextKey string
 // ClaimsKey is the context key used to store JWT claims for downstream handlers
 const ClaimsKey contextKey = "jwt_claims"
 
-// errRecheckUnavailable is the 503 message sent when the is_active recheck
-// cannot reach the database.
+// errRecheckUnavailable is the 503 message sent when the database cannot be
+// reached to look up an API key or recheck is_active.
 const errRecheckUnavailable = "Unable to verify account status"
 
 // AuthMiddleware protects routes using the JWT manager.
@@ -69,8 +70,13 @@ func AuthMiddleware(
 			if !isRefresh && strings.HasPrefix(tokenStr, security.APIKeyPrefix) && apiKeyStore != nil {
 				hash := security.HashAPIKey(tokenStr)
 				apiKey, err := apiKeyStore.GetByHash(r.Context(), hash)
-				if err != nil {
+				if errors.Is(err, store.ErrAPIKeyNotFound) {
 					writeMiddlewareError(w, http.StatusUnauthorized, "Invalid API key")
+					return
+				}
+				if err != nil {
+					logging.FromContext(r.Context()).Warn("auth: api key lookup failed", zap.Error(err))
+					writeMiddlewareError(w, http.StatusServiceUnavailable, errRecheckUnavailable)
 					return
 				}
 				if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {

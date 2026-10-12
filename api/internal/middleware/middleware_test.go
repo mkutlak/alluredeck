@@ -99,6 +99,7 @@ func TestAuthMiddleware(t *testing.T) {
 		header   string         // Authorization header
 		cookie   string         // jwt cookie
 		key      *store.APIKey  // stored under apiKey's hash; nil = none
+		keyErr   error          // returned by the key lookup instead
 		cache    *UserActiveCache
 		wantCode int
 		wantMsg  string // metadata.message of a rejection
@@ -113,6 +114,7 @@ func TestAuthMiddleware(t *testing.T) {
 		{name: "API key", header: "Bearer " + apiKey, key: keyOf("apiuser", &future), wantCode: http.StatusOK, wantSub: "apiuser"},
 		{name: "expired API key", header: "Bearer " + apiKey, key: keyOf("apiuser", &past), wantCode: http.StatusUnauthorized, wantMsg: "API key has expired"},
 		{name: "unknown API key", header: "Bearer " + apiKey, wantCode: http.StatusUnauthorized, wantMsg: "Invalid API key"},
+		{name: "API key whose lookup fails gets 503", header: "Bearer " + apiKey, keyErr: errors.New("db down"), wantCode: http.StatusServiceUnavailable, wantMsg: "Unable to verify account status"},
 		{name: "API key of a legacy env username", header: "Bearer " + apiKey, key: keyOf("admin", &future), cache: cache, wantCode: http.StatusOK, wantSub: "admin"},
 		{name: "API key of an active numeric username", header: "Bearer " + apiKey, key: keyOf("1", &future), cache: cache, wantCode: http.StatusOK, wantSub: "1"},
 		{name: "API key of an active email username", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: cache, wantCode: http.StatusOK, wantSub: "x@y.z"},
@@ -128,6 +130,9 @@ func TestAuthMiddleware(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			keys := &testutil.MockAPIKeyStore{
 				GetByHashFn: func(_ context.Context, hash string) (*store.APIKey, error) {
+					if tc.keyErr != nil {
+						return nil, tc.keyErr
+					}
 					if tc.key == nil || hash != security.HashAPIKey(apiKey) {
 						return nil, store.ErrAPIKeyNotFound
 					}

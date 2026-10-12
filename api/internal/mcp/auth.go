@@ -17,9 +17,9 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
 
-// errRecheckUnavailable is what Verify returns when the is_active recheck
-// cannot reach the database. The SDK sends the error text to the client, so it
-// carries no store detail.
+// errRecheckUnavailable is what Verify returns when the database cannot be
+// reached to look up an API key or recheck is_active. The SDK sends the error
+// text to the client, so it carries no store detail.
 var errRecheckUnavailable = errors.New("unable to verify account status")
 
 // refusal is a token Verify turns down: an unknown or expired key, an invalid
@@ -76,8 +76,13 @@ func (v *Verifier) Verify(ctx context.Context, token string, req *http.Request) 
 func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.TokenInfo, error) {
 	hash := security.HashAPIKey(token)
 	apiKey, err := v.apiKeyStore.GetByHash(ctx, hash)
-	if err != nil {
+	if errors.Is(err, store.ErrAPIKeyNotFound) {
 		return nil, refusal("invalid API key")
+	}
+	if err != nil {
+		// Not a refusal: signing in again would not fix a failing database.
+		v.logger.Warn("mcp auth: api key lookup failed", zap.Error(err))
+		return nil, errRecheckUnavailable
 	}
 
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {

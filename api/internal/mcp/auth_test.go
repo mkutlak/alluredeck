@@ -270,10 +270,14 @@ func TestVerify_RefusalIsInvalidToken(t *testing.T) {
 		GetByIDFn:    func(context.Context, int64) (*store.User, error) { return nil, boom },
 		GetByEmailFn: func(context.Context, string) (*store.User, error) { return nil, boom },
 	}, time.Minute, 0)
+	unreadable := &store.APIKey{} // its lookup fails rather than returning it
 	keyStore := func(key *store.APIKey) *testutil.MockAPIKeyStore {
 		return &testutil.MockAPIKeyStore{GetByHashFn: func(context.Context, string) (*store.APIKey, error) {
 			if key == nil {
 				return nil, store.ErrAPIKeyNotFound
+			}
+			if key == unreadable {
+				return nil, boom
 			}
 			return key, nil
 		}}
@@ -294,6 +298,7 @@ func TestVerify_RefusalIsInvalidToken(t *testing.T) {
 		{"JWT of an inactive account", nil, noUsers, jwtOf7, true},
 		{"API key whose account check failed", &store.APIKey{ID: 1, Username: "u@example.com"}, failing, apiKey, false},
 		{"JWT whose account check failed", nil, failing, jwtOf7, false},
+		{"API key whose lookup failed", unreadable, noUsers, apiKey, false},
 	}
 	for _, tc := range tests {
 		_, err := NewVerifier(keyStore(tc.key), jwtMgr, tc.cache, zap.NewNop()).Verify(context.Background(), tc.token, nil)
