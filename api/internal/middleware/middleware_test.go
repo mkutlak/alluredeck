@@ -69,16 +69,13 @@ func TestAuthMiddleware(t *testing.T) {
 		GetByIDFn:    func(context.Context, int64) (*store.User, error) { return nil, boom },
 		GetByEmailFn: func(context.Context, string) (*store.User, error) { return nil, boom },
 	}, time.Second, 10, "ops")
-	// An env user needs no users row, so any store call here is a bug.
-	noStore := NewUserActiveCache(&testutil.MockUserStore{
+	// An env user has no users row, so a lookup by ID here is a bug.
+	noRow := NewUserActiveCache(&testutil.MockUserStore{
 		GetByIDFn: func(context.Context, int64) (*store.User, error) {
-			t.Error("env user must not reach the store")
+			t.Error("env user must not be looked up by ID")
 			return nil, boom
 		},
-		GetByEmailFn: func(context.Context, string) (*store.User, error) {
-			t.Error("env user must not reach the store")
-			return nil, boom
-		},
+		GetByEmailFn: func(context.Context, string) (*store.User, error) { return nil, store.ErrUserNotFound },
 	}, time.Second, 10, "ops")
 	inactive, _, err := jwtMgr.GenerateTokens("3", "viewer")
 	if err != nil {
@@ -119,7 +116,7 @@ func TestAuthMiddleware(t *testing.T) {
 		{name: "API key of a legacy env username", header: "Bearer " + apiKey, key: keyOf("admin", &future), cache: cache, wantCode: http.StatusOK, wantSub: "admin"},
 		{name: "API key of an active numeric username", header: "Bearer " + apiKey, key: keyOf("1", &future), cache: cache, wantCode: http.StatusOK, wantSub: "1"},
 		{name: "API key of an active email username", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: cache, wantCode: http.StatusOK, wantSub: "x@y.z"},
-		{name: "API key of a configured env user needs no store call", header: "Bearer " + apiKey, key: keyOf("ops", &future), cache: noStore, wantCode: http.StatusOK, wantSub: "ops"},
+		{name: "API key of a configured env user without a users row", header: "Bearer " + apiKey, key: keyOf("ops", &future), cache: noRow, wantCode: http.StatusOK, wantSub: "ops"},
 		{name: "API key of an unknown email is rejected", header: "Bearer " + apiKey, key: keyOf("nope@nowhere", &future), cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
 		{name: "API key whose recheck fails gets 503", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: failing, wantCode: http.StatusServiceUnavailable, wantMsg: "Unable to verify account status"},
 		{name: "JWT whose recheck fails gets 503", header: "Bearer " + inactive, cache: failing, wantCode: http.StatusServiceUnavailable, wantMsg: "Unable to verify account status"},

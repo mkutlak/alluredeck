@@ -170,9 +170,11 @@ because the key is minted from that account's session.
 > **Keys owned by config-file users cannot propose.** If you sign in with
 > `ADMIN_USER`/`VIEWER_USER` from the environment rather than with a
 > registered account, keys you create are owned by that name, such as `admin`,
-> which has no `users` row. Read-only tools work; the `propose_*` tools refuse
-> with an explanation, because a proposal has to reference a real user. Use a
-> registered account for anything that writes.
+> which has no `users` row. (If a registered account has that name as its
+> email, the keys are that account's and follow its active state.) Read-only
+> tools work; the `propose_*` tools refuse with an explanation, because a
+> proposal has to reference a real user. Use a registered account for anything
+> that writes.
 
 ---
 

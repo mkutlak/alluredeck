@@ -39,7 +39,9 @@ func countingUsers(active bool, err error, delay time.Duration) (*testutil.MockU
 }
 
 // TestUserActiveCache_Lookup calls one entry point twice per row and counts
-// the store lookups. Configured env users never reach the store; numeric values
+// the store lookups. A JWT env sub never reaches the store. An API key of a
+// configured env user goes by email first, since a users row with that email
+// is authoritative, and only the absence of one is cached; numeric values
 // go by ID and are cached, including a not-found negative; store errors are
 // not cached. An API key whose email owner is not found is inactive, as a
 // missing numeric owner is; only a failing store is an error.
@@ -62,8 +64,8 @@ func TestUserActiveCache_Lookup(t *testing.T) {
 		{"deactivated user is cached", byID, "42", false, nil, false, nil, 1, 0},
 		{"unknown ID caches a negative", byID, "999", true, store.ErrUserNotFound, false, nil, 1, 0},
 		{"store errors propagate uncached", byID, "5", true, boom, false, boom, 2, 0},
-		{"API key of env admin", byKey, "admin", false, nil, true, nil, 0, 0},
-		{"API key of a custom env user", byKey, "ops", false, nil, true, nil, 0, 0},
+		{"API key of an env user without a users row", byKey, "admin", false, store.ErrUserNotFound, true, nil, 0, 1},
+		{"API key of an env name that is an inactive user's email", byKey, "ops", false, nil, false, nil, 0, 2},
 		{"API key of an unconfigured literal goes by email", byKey, "editor", false, nil, false, nil, 0, 2},
 		{"API key of an empty username is no env user", byKey, "", false, store.ErrUserNotFound, false, nil, 0, 2},
 		{"API key of a numeric username goes by ID", byKey, "1", true, nil, true, nil, 1, 0},

@@ -37,7 +37,7 @@ type UserActiveCache struct {
 	ttl        time.Duration
 	maxEntries int
 	nowFn      func() time.Time
-	envUsers   map[string]bool // configured env-user names: no users row, always active
+	envUsers   map[string]bool // configured env-user names: active when no users row has the name
 
 	mu      sync.RWMutex
 	entries map[string]userActiveEntry // keyed by stringified user.ID or oidcKey(email)
@@ -129,6 +129,10 @@ func (c *UserActiveCache) IsActiveForToken(ctx context.Context, sub, provider st
 // keeps it apart from the numeric-ID keys.
 func oidcKey(email string) string { return "oidc:" + strings.ToLower(email) }
 
+// envUserKey is the cache key recording that an env-user name has no users
+// row.
+func envUserKey(name string) string { return "env:" + name }
+
 // APIKeyIdentity is the users row behind an API key.
 //
 // UserID is 0 when the key belongs to an env-config user (ADMIN_USER or
@@ -141,12 +145,14 @@ type APIKeyIdentity struct {
 
 // ResolveAPIKeyUsername resolves an api_keys.username value to the owning user,
 // regardless of the value's historical shape:
-//   - a configured env-user name → {UserID: 0, IsActive: true}; these have no
-//     users row and are always active.
-//   - numeric string (legacy DB-user ID stored at creation time) → looks up by
-//     users.id.
+//   - numeric string other than an env-user name (legacy DB-user ID stored at
+//     creation time) → looks up by users.id.
 //   - anything else (email address, the correct post-Phase-2 shape) → looks up
 //     by email.
+//   - a configured env-user name → looks up by email too, because a users row
+//     with that email is authoritative. Only when there is none is it the env
+//     user, {UserID: 0, IsActive: true}, which has no users row and is always
+//     active; that answer is cached for the TTL.
 //
 // A key whose owner no longer exists — an OIDC email change leaves the old
 // address behind — resolves to {IsActive: false}, like a deactivated owner,
@@ -159,17 +165,24 @@ type APIKeyIdentity struct {
 // is the same lookup the is_active recheck already performs — callers get the
 // ID for free rather than paying a second query.
 func (c *UserActiveCache) ResolveAPIKeyUsername(ctx context.Context, username string) (APIKeyIdentity, error) {
-	if c.envUsers[username] {
-		return APIKeyIdentity{UserID: 0, IsActive: true}, nil
-	}
-	if id, err := strconv.ParseInt(username, 10, 64); err == nil {
+	envUser := c.envUsers[username]
+	if id, err := strconv.ParseInt(username, 10, 64); err == nil && !envUser {
 		active, err := c.isActiveByID(ctx, id, username)
 		return APIKeyIdentity{UserID: id, IsActive: active}, err
+	}
+	if envUser {
+		if _, ok := c.cached(envUserKey(username)); ok {
+			return APIKeyIdentity{UserID: 0, IsActive: true}, nil
+		}
 	}
 
 	u, err := c.store.GetByEmail(ctx, username)
 	if err != nil {
 		if errors.Is(err, store.ErrUserNotFound) {
+			if envUser {
+				c.storeEntry(envUserKey(username), true)
+				return APIKeyIdentity{UserID: 0, IsActive: true}, nil
+			}
 			// Do not cache — no stable key.
 			return APIKeyIdentity{}, nil
 		}
@@ -210,15 +223,10 @@ func (c *UserActiveCache) isActiveByID(ctx context.Context, id int64, key string
 
 // lookup returns the flag cached under key, loading it through get on a miss.
 func (c *UserActiveCache) lookup(key string, get func() (*store.User, error)) (bool, error) {
-	now := c.nowFn()
-
 	// Fast path: read-locked cache hit.
-	c.mu.RLock()
-	if e, ok := c.entries[key]; ok && now.Before(e.expiresAt) {
-		c.mu.RUnlock()
-		return e.isActive, nil
+	if active, ok := c.cached(key); ok {
+		return active, nil
 	}
-	c.mu.RUnlock()
 
 	// Slow path: dedupe concurrent loads via inline singleflight.
 	c.sfMu.Lock()
@@ -241,6 +249,18 @@ func (c *UserActiveCache) lookup(key string, get func() (*store.User, error)) (b
 	c.sfMu.Unlock()
 
 	return call.val, call.err
+}
+
+// cached returns the flag stored under key, if it has not expired.
+func (c *UserActiveCache) cached(key string) (isActive, ok bool) {
+	now := c.nowFn()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	e, ok := c.entries[key]
+	if !ok || !now.Before(e.expiresAt) {
+		return false, false
+	}
+	return e.isActive, true
 }
 
 // load fetches the user through get and populates the cache under key.
