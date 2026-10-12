@@ -90,7 +90,7 @@ describe('the AI failure summary toggle', () => {
     const toggle = await screen.findByRole('button', {
       name: 'Toggle AI failure summary for should login',
     })
-    expect(toggle).toHaveTextContent('AI failure summary')
+    expect(toggle).toHaveTextContent('AI summary')
     expect(toggle).not.toHaveAttribute('aria-controls')
 
     await user.click(toggle)

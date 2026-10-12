@@ -49,18 +49,24 @@ const GROUPING_OPTIONS = [
   { value: 'error' as const, label: 'by error', 'data-testid': 'run-failure-grouping-error' },
 ]
 
-// Identical grid templates on every row of a mode keep the columns locked. The
-// previous flex layout let a column shift by hundreds of pixels depending on
-// whether a row happened to carry an error message.
+// One grid template per group, which every row of the group shares as a subgrid (see
+// FailureRow): the Locked-Column Rule. A template per row sized its auto badge column per
+// row, so the error text started at a different x on every row.
+// At @xl: by suite, name · badges · error; by error, name · suite · badges. The AI control
+// takes a last column only when the feature is on. The name track counts the row's 2.25rem
+// indent, which in a subgrid sits inside the first track (32ch of name, as before: the
+// group carries text-sm, so ch is measured at 14px as it was on the row).
 // Below 36rem of panel the error column had no room left (0px at a 390px viewport), so
 // there the error drops under the test name and spans the row (see ErrorText). The test
-// name and the badges span it too, one above the other: beside the name, the badges and
-// the AI label left it a few characters.
-const GRID_BY_SUITE =
-  'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 @xl:grid-cols-[minmax(12rem,32ch)_auto_minmax(0,1fr)] @xl:gap-y-3'
-// Same below 36rem: the suite name moves under the test name instead of taking 10rem of it.
-const GRID_BY_ERROR =
-  'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 @xl:grid-cols-[minmax(0,1fr)_10rem_auto]'
+// name and the badges span it too, and by suite the AI control goes on a line of its own
+// after the error, so it comes where the DOM order puts it: beside the name, the badges
+// and the AI label left it a few characters.
+// By error, the suite name likewise moves under the test name instead of taking 10rem of it.
+const GRID_BY_SUITE = '@xl:grid-cols-[minmax(14.25rem,calc(32ch+2.25rem))_auto_minmax(0,1fr)]'
+const GRID_BY_SUITE_AI =
+  '@xl:grid-cols-[minmax(14.25rem,calc(32ch+2.25rem))_auto_minmax(0,1fr)_auto]'
+const GRID_BY_ERROR = '@xl:grid-cols-[minmax(0,1fr)_10rem_auto]'
+const GRID_BY_ERROR_AI = '@xl:grid-cols-[minmax(0,1fr)_10rem_auto_auto]'
 
 export function RunFailures({
   run,
@@ -369,17 +375,30 @@ function FailureGroupBlock({
       {open && (
         <div className="pb-1.5">
           {rows.length === 0 && <p className="text-fact px-3 py-1 pl-9 text-xs">{emptyNote}</p>}
-          {rows.map((row) => (
-            <FailureRow
-              key={row.key}
-              row={row}
-              grouping={grouping}
-              historyBranch={historyBranch}
-              llmEnabled={llmEnabled}
-              summaryOpen={openSummaries[row.key] ?? false}
-              onToggleSummary={() => onToggleSummary(row.key)}
-            />
-          ))}
+          <div
+            className={cn(
+              'grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 text-sm',
+              grouping === 'suite'
+                ? llmEnabled
+                  ? GRID_BY_SUITE_AI
+                  : GRID_BY_SUITE
+                : llmEnabled
+                  ? GRID_BY_ERROR_AI
+                  : GRID_BY_ERROR,
+            )}
+          >
+            {rows.map((row) => (
+              <FailureRow
+                key={row.key}
+                row={row}
+                grouping={grouping}
+                historyBranch={historyBranch}
+                llmEnabled={llmEnabled}
+                summaryOpen={openSummaries[row.key] ?? false}
+                onToggleSummary={() => onToggleSummary(row.key)}
+              />
+            ))}
+          </div>
 
           {hiddenCount > 0 && (
             <button
@@ -441,7 +460,13 @@ function FailureRow({
   const bucket = failureBucket(row)
   // Narrow, the group has a line of its own, where an empty badge list would indent the rest.
   const badges = (
-    <div className="col-span-2 flex shrink-0 flex-wrap items-center gap-1 @xl:col-span-1 @xl:flex-nowrap @max-xl:[&>:empty]:hidden">
+    <div
+      className={cn(
+        'flex shrink-0 flex-wrap items-center gap-1 @xl:flex-nowrap @max-xl:[&>:empty]:hidden',
+        // By suite, narrow: the whole line, so the AI control falls after the error.
+        grouping === 'suite' && 'col-span-2 @xl:col-span-1',
+      )}
+    >
       <FailureBadges
         flaky={row.flaky}
         retries={row.retries}
@@ -451,20 +476,6 @@ function FailureRow({
         unknown={bucket === 'unknown'}
         environment={row.environment === true}
       />
-      {llmEnabled && (
-        <button
-          type="button"
-          onClick={onToggleSummary}
-          aria-expanded={summaryOpen}
-          aria-controls={summaryOpen ? summaryId : undefined}
-          aria-label={`Toggle AI failure summary for ${row.testName}`}
-          // -my-1 py-1: a 24px target that keeps the row's height.
-          className="text-fact hover:text-foreground -my-1 inline-flex shrink-0 items-center gap-1 py-1 text-xs whitespace-nowrap"
-        >
-          <Sparkles size={12} aria-hidden="true" />
-          AI failure summary
-        </button>
-      )}
       {historyHref && (
         <NavLink
           to={reportHref}
@@ -479,11 +490,12 @@ function FailureRow({
   )
 
   return (
-    <div data-testid="run-failure-row">
+    // Both levels are subgrids, so the cells sit on the group's columns (see GRID_BY_SUITE).
+    <div data-testid="run-failure-row" className="col-span-full grid grid-cols-subgrid">
       <div
         className={cn(
-          'hover:bg-muted/40 px-3 py-1 pl-9 text-sm',
-          grouping === 'suite' ? GRID_BY_SUITE : GRID_BY_ERROR,
+          'hover:bg-muted/40 col-span-full grid grid-cols-subgrid px-3 py-1 pl-9',
+          grouping === 'suite' ? 'items-baseline gap-y-0.5 @xl:gap-y-3' : 'items-center',
         )}
       >
         <NavLink
@@ -495,10 +507,7 @@ function FailureRow({
         </NavLink>
 
         {grouping === 'error' ? (
-          <span
-            className="text-fact col-start-1 row-start-2 truncate text-xs @xl:col-start-auto @xl:row-start-auto"
-            title={row.slug}
-          >
+          <span className="text-fact col-span-2 truncate text-xs @xl:col-span-1" title={row.slug}>
             {row.displayName || row.slug}
           </span>
         ) : null}
@@ -506,10 +515,25 @@ function FailureRow({
         {badges}
 
         {grouping === 'suite' && row.errorMessage ? <ErrorText message={row.errorMessage} /> : null}
+
+        {llmEnabled && (
+          <button
+            type="button"
+            onClick={onToggleSummary}
+            aria-expanded={summaryOpen}
+            aria-controls={summaryOpen ? summaryId : undefined}
+            aria-label={`Toggle AI failure summary for ${row.testName}`}
+            // -my-1 py-1: a 24px target that keeps the row's height.
+            className="text-fact hover:text-foreground col-start-2 -my-1 inline-flex shrink-0 items-center gap-1 py-1 text-xs whitespace-nowrap @xl:col-start-4"
+          >
+            <Sparkles size={12} aria-hidden="true" />
+            AI summary
+          </button>
+        )}
       </div>
 
       {llmEnabled && summaryOpen && (
-        <div id={summaryId} className="px-3 pl-9">
+        <div id={summaryId} className="col-span-full px-3 pl-9">
           <FailureSummaryPanel
             projectId={row.projectId}
             buildId={row.buildId}
