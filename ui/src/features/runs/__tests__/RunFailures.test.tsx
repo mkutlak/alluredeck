@@ -178,7 +178,7 @@ describe('RunFailures', () => {
     })
     expect(screen.getByTestId('flaky-badge')).toHaveTextContent('flaky · 3x')
     expect(screen.getByText('new')).toBeInTheDocument()
-    expect(screen.getByText('known')).toBeInTheDocument()
+    expect(screen.getByText('known issue')).toBeInTheDocument()
   })
 
   describe('grouping', () => {

@@ -10,7 +10,9 @@ export interface FailureBadgesProps {
   retries?: number
   /** Failing on the default branch too. */
   inherited?: boolean
-  /** An infrastructure failure: shown as env, never as new or inherited. */
+  /** No pass or fail on the default branch to compare with. */
+  unknown?: boolean
+  /** An infrastructure failure: shown as env, never as new, inherited or unknown. */
   environment?: boolean
 }
 
@@ -20,7 +22,7 @@ export interface FailureBadgesProps {
 // new (blue), flaky (peach) and known (gray) badges. Those three keep their hue in the
 // tint (and in dark mode) but use ink for light-mode text: 10px hue text on a 15% tint
 // was 2.3-3.8:1. inherited is the quietest, in secondary ink; env, which names a cause,
-// is in full ink.
+// is in full ink. unknown, which cannot say either way, looks like inherited.
 const OUTLINE = 'border-border bg-transparent text-[10px]'
 
 export function FailureBadges({
@@ -29,6 +31,7 @@ export function FailureBadges({
   known,
   retries,
   inherited = false,
+  unknown = false,
   environment = false,
 }: FailureBadgesProps) {
   return (
@@ -59,15 +62,27 @@ export function FailureBadges({
           new
           <span className="sr-only"> (passed on the default branch)</span>
         </Badge>
+      ) : inherited ? (
+        <Badge
+          variant="outline"
+          className={`${OUTLINE} text-fact`}
+          title="Inherited: this test is failing on the default branch too"
+        >
+          inherited
+          <span className="sr-only"> (also failing on the default branch)</span>
+        </Badge>
       ) : (
-        inherited && (
+        unknown && (
           <Badge
             variant="outline"
             className={`${OUTLINE} text-fact`}
-            title="Inherited: this test is failing on the default branch too"
+            title="Unknown: the default branch has no pass or fail of this test to compare with"
           >
-            inherited
-            <span className="sr-only"> (also failing on the default branch)</span>
+            unknown
+            <span className="sr-only">
+              {' '}
+              (no pass or fail on the default branch to compare with)
+            </span>
           </Badge>
         )
       )}
@@ -77,8 +92,8 @@ export function FailureBadges({
           className={`${NEUTRAL_BADGE_CLASSES} text-foreground text-[10px]`}
           title="Known issue: this test matches a known issue declared for its project"
         >
-          known
-          <span className="sr-only"> (matches a known issue)</span>
+          known issue
+          <span className="sr-only"> (matches one declared for its project)</span>
         </Badge>
       )}
     </div>

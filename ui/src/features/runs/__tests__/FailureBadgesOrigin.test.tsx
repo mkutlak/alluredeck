@@ -35,7 +35,7 @@ describe('FailureBadges as labels', () => {
     render(<FailureBadges flaky newFailed known retries={2} />)
     render(<FailureBadges flaky={false} newFailed={false} known={false} inherited />)
     render(<FailureBadges flaky={false} newFailed={false} known={false} environment />)
-    for (const text of [/^flaky/, 'new', 'known', 'inherited', 'env']) {
+    for (const text of [/^flaky/, 'new', 'known issue', 'inherited', 'env']) {
       expect(screen.getByText(text).className).not.toMatch(/hover:/)
     }
   })

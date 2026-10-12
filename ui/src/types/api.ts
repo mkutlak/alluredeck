@@ -871,12 +871,12 @@ export interface PipelineAggregate {
   awaiting_suites?: number
   /**
    * Failing tests by origin, copies of one test counted once; environment is a subset
-   * of inherited, and tests of unknown origin are not counted, so new + inherited can be
-   * less than the failed-test count. Sent only by the runs feed (GET /pipeline-runs), only
-   * for runs with failing tests; absent when there are too many to count or the server
-   * could not list them. Can be all zero.
+   * of inherited, and unknown counts those with no pass or fail on the default branch to
+   * compare with. Sent only by the runs feed (GET /pipeline-runs), only for runs with
+   * failing tests; absent when there are too many to count or the server could not list
+   * them. `unknown` is optional because an older API does not send it.
    */
-  origins?: { new: number; inherited: number; environment: number }
+  origins?: { new: number; inherited: number; environment: number; unknown?: number }
 }
 
 export interface PipelineRun {

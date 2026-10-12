@@ -8,7 +8,7 @@ import { RunSuiteChips } from './RunSuiteChips'
 import { RunFailures } from './RunFailures'
 import { RelativeTime, RunGlyph, RunGroupLink, RunSummary } from './RunFacts'
 import { originParts } from './failureOrigin'
-import { splitBranch, summarizeRun } from './rowFormat'
+import { canSayNoneNew, splitBranch, summarizeRun } from './rowFormat'
 import { runIdOf, runPath } from './runKey'
 import type { PipelineRun } from '@/types/api'
 
@@ -34,13 +34,15 @@ export function RunRow({ run }: RunRowProps) {
   // "2 new · 3 inherited (1 env)", as the expanded panel's header says it. On the chips
   // line, not the summary: a longer summary would widen its column and squeeze the branch.
   const counts = aggregate.origins
+  // An older API sends no unknown count, so it cannot back "none new" either.
+  const noneNewOk = counts?.unknown !== undefined && canSayNoneNew(run)
   const origins = counts
     ? originParts({
         new: counts.new,
         inherited: counts.inherited,
         env: counts.environment,
-        unknown: 0,
-      })
+        unknown: counts.unknown ?? 0,
+      }).filter((part) => noneNewOk || part !== 'none new')
     : []
   const passRate = formatPassRate(
     aggregate.tests_passed,

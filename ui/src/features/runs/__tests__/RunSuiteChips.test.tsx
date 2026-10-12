@@ -27,7 +27,7 @@ describe('RunSuiteChips', () => {
     {
       name: 'with two passing',
       suites: [failing, makeSuite({ project_id: 2 }), makeSuite({ project_id: 3 })],
-      passed: '· 2 passed',
+      passed: '· 2 suites passed',
     },
     { name: 'with none passing', suites: [failing], passed: null },
   ])('renders only the failing suites and counts the rest ($name)', ({ suites, passed }) => {

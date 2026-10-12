@@ -104,18 +104,18 @@ describe.each([
   it('shows the origin counts and no failure or suite count', async () => {
     renderPanel(tagged, { asPage })
 
-    expect(await screen.findByText('2 new · 3 inherited (1 env)')).toBeInTheDocument()
+    expect(await screen.findByText('2 new · 3 inherited (1 env) · 1 unknown')).toBeInTheDocument()
     expect(screen.queryByText(/\bfailures? ·/)).not.toBeInTheDocument()
     expect(screen.queryByText(/· \d+ suites?\b/)).not.toBeInTheDocument()
   })
 
-  it('shows no header text when no failure has a known origin', async () => {
+  it('counts the failures in the header as unknown when none has a known origin', async () => {
     renderPanel([failure('u1'), failure('u2'), failure('u3', { origin: 'unknown' })], { asPage })
 
     await screen.findAllByTestId('run-failure-row')
     expect(screen.queryByText(/^\d+ failures?\b/)).not.toBeInTheDocument()
     expect(screen.queryByText(/\d+ suites?\b/)).not.toBeInTheDocument()
-    expect(screen.queryByTestId('run-failure-origins')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-failure-origins')).toHaveTextContent(/^3 unknown$/)
   })
 
   it('says the counts cover only the listed failures when the response was truncated', async () => {

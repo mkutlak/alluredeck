@@ -39,9 +39,15 @@ export function countOrigins(rows: readonly Origin[]): OriginCounts {
 /**
  * "3 new · 2 inherited (1 env) · 1 unknown" as parts, zeros left out. When the API
  * truncated the failures (`listed` set), the counts cover only those, said once up front.
+ *
+ * Owner's rule: when every failure is inherited (none new, none unknown) and all were
+ * listed, the parts lead with "none new", so "is it me?" is answered before the counts.
  */
 export function originParts(counts: OriginCounts, listed?: number): string[] {
+  const noneNew =
+    listed === undefined && counts.new === 0 && counts.unknown === 0 && counts.inherited > 0
   const parts = [
+    noneNew && 'none new',
     counts.new > 0 && `${counts.new} new`,
     counts.inherited > 0 &&
       `${counts.inherited} inherited${counts.env > 0 ? ` (${counts.env} env)` : ''}`,

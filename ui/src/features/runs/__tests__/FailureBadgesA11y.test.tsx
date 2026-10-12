@@ -8,15 +8,19 @@ describe('FailureBadges for screen readers', () => {
   it.each([
     { flags: { newFailed: true }, text: 'new', spoken: /^new \(.*passed on the default branch/ },
     { flags: { inherited: true }, text: 'inherited', spoken: /^inherited \(.*default branch/ },
-    { flags: { known: true }, text: 'known', spoken: /^known \(.*known issue/i },
+    {
+      flags: { known: true },
+      text: 'known issue',
+      spoken: /^known issue \(.*declared for its project/i,
+    },
   ])('spells out "$text"', ({ flags, text, spoken }) => {
     render(<FailureBadges flaky={false} newFailed={false} known={false} {...flags} />)
     expect(screen.getByText(text)).toHaveTextContent(spoken)
   })
 
-  it('explains "known" in its title', () => {
+  it('explains "known issue" in its title', () => {
     render(<FailureBadges flaky={false} newFailed={false} known />)
-    expect(screen.getByText('known')).toHaveAttribute(
+    expect(screen.getByText('known issue')).toHaveAttribute(
       'title',
       expect.stringMatching(/known issue/i),
     )

@@ -37,7 +37,7 @@ describe('originParts', () => {
       counts: { new: 3, inherited: 2, unknown: 1, env: 1 },
       want: ['3 new', '2 inherited (1 env)', '1 unknown'],
     },
-    { counts: { new: 0, inherited: 4, unknown: 0, env: 0 }, want: ['4 inherited'] },
+    { counts: { new: 0, inherited: 4, unknown: 0, env: 0 }, want: ['none new', '4 inherited'] },
     { counts: { new: 1, inherited: 0, unknown: 0, env: 0 }, want: ['1 new'] },
     { counts: { new: 0, inherited: 0, unknown: 0, env: 0 }, want: [] },
   ])('reads $counts as $want', ({ counts, want }) => {

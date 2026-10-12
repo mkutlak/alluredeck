@@ -546,7 +546,7 @@ describe('RunPage "is it me?" origins', () => {
   it('counts only effective "new" failures in the panel header', async () => {
     respond(tagged)
     renderRunAt('/runs/10/48213')
-    expect(await screen.findByText('2 new · 3 inherited (1 env)')).toBeInTheDocument()
+    expect(await screen.findByText('2 new · 3 inherited (1 env) · 2 unknown')).toBeInTheDocument()
   })
 
   it.each([
@@ -562,10 +562,12 @@ describe('RunPage "is it me?" origins', () => {
     for (const word of hides) expect(rowOf(name).queryByText(word, { exact: true })).toBeNull()
   })
 
-  it('gives an unknown-origin failure no origin tag', async () => {
+  it('tags an unknown-origin failure "unknown" and nothing else', async () => {
     respond(tagged)
     renderRunAt('/runs/10/48213')
     await screen.findByRole('link', { name: 'u1' })
+    expect(rowOf('u1').getByText('unknown', { exact: true })).toBeInTheDocument()
+    expect(rowOf('u4').getByText('unknown', { exact: true })).toBeInTheDocument()
     for (const word of ['new', 'inherited', 'env']) {
       expect(rowOf('u1').queryByText(word, { exact: true })).toBeNull()
       expect(rowOf('u4').queryByText(word, { exact: true })).toBeNull()

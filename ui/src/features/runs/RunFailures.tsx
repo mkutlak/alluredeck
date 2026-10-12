@@ -169,11 +169,9 @@ export function RunFailures({
 
   const truncated = data?.metadata.truncated === true
   // Only where the failures came from: the collapsed row and its chips already say how many
-  // tests failed in how many suites. Unknown origins are left out (nothing to report).
-  const origins = originParts(
-    { ...countOrigins(failures), unknown: 0 },
-    truncated ? failures.length : undefined,
-  )
+  // tests failed in how many suites. Unknown origins are counted too, so "2 new" never
+  // reads as the whole answer when it is not.
+  const origins = originParts(countOrigins(failures), truncated ? failures.length : undefined)
 
   return (
     <div
@@ -440,6 +438,7 @@ function FailureRow({
         }).toString()}`
       : undefined
 
+  const bucket = failureBucket(row)
   // Narrow, the group has a line of its own, where an empty badge list would indent the rest.
   const badges = (
     <div className="col-span-2 flex shrink-0 flex-wrap items-center gap-1 @xl:col-span-1 @xl:flex-nowrap @max-xl:[&>:empty]:hidden">
@@ -448,7 +447,8 @@ function FailureRow({
         retries={row.retries}
         newFailed={row.newFailed}
         known={row.known}
-        inherited={failureBucket(row) === 'inherited'}
+        inherited={bucket === 'inherited'}
+        unknown={bucket === 'unknown'}
         environment={row.environment === true}
       />
       {llmEnabled && (

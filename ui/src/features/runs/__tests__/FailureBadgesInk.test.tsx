@@ -17,7 +17,7 @@ describe('FailureBadges ink', () => {
       dark: 'dark:text-[#89b4fa]',
     },
     {
-      text: 'known',
+      text: 'known issue',
       tint: 'bg-[#8c8fa1]/15',
       dark: 'dark:text-[#a6adc8]',
     },

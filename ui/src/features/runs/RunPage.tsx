@@ -22,7 +22,7 @@ import { RelativeTime, RunGlyph, RunGroupLink, RunSummary } from './RunFacts'
 import { RunFailures } from './RunFailures'
 import { countOrigins, originParts } from './failureOrigin'
 import { mergeRunFailures } from './mergeRunFailures'
-import { failingBuildIds, isFailingSuite, summarizeRun } from './rowFormat'
+import { canSayNoneNew, failingBuildIds, isFailingSuite, summarizeRun } from './rowFormat'
 import { runIdOf, runKeyOf, suiteReportHref } from './runKey'
 import type { PipelineRun } from '@/types/api'
 
@@ -178,8 +178,8 @@ function RunView({ run }: { run: PipelineRun }) {
     return originParts(
       countOrigins(listed),
       failuresData.metadata.truncated ? listed.length : undefined,
-    )
-  }, [failuresData])
+    ).filter((part) => part !== 'none new' || canSayNoneNew(run))
+  }, [failuresData, run])
 
   const passRate = formatPassRate(
     aggregate.tests_passed,

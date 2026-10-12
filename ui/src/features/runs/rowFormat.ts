@@ -20,6 +20,18 @@ export function failingBuildIds(run: PipelineRun): string {
     .join(',')
 }
 
+/**
+ * Whether the run can back "none new": every failing test was placed against the default
+ * branch. A suite still uploading, or one that failed with no test listed (its report
+ * could not be read), may hold failures that were never counted.
+ */
+export function canSayNoneNew(run: PipelineRun): boolean {
+  return (
+    (run.aggregate.awaiting_suites ?? 0) <= 0 &&
+    !run.suites.some((s) => isFailingSuite(s) && s.failed === 0)
+  )
+}
+
 export type RunVerdict = 'failed' | 'skipped' | 'passed' | 'awaiting'
 
 const GLYPHS = { failed: '✗', skipped: '○', passed: '✓', awaiting: '○' } as const

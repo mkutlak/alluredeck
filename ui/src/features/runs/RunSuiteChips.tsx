@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { cn } from '@/lib/utils'
 import { RunSuiteChip } from './RunSuiteChip'
 import type { PipelineSuite } from '@/types/api'
 
@@ -27,7 +28,8 @@ export function RunSuiteChips({ suites, runPath, origins = [] }: RunSuiteChipsPr
   const failing = suites
     .filter((s) => s.failed > 0)
     .sort((a, b) => b.failed - a.failed || a.slug.localeCompare(b.slug))
-  const passedCount = suites.length - failing.length
+  // The API's suites_passed rule: an unreadable or all-skipped suite did not pass.
+  const passedCount = suites.filter((s) => s.status === 'passed').length
 
   if (failing.length === 0) return null
 
@@ -51,14 +53,25 @@ export function RunSuiteChips({ suites, runPath, origins = [] }: RunSuiteChipsPr
         </button>
       )}
 
-      {passedCount > 0 && <span className="text-fact text-xs">{`· ${passedCount} passed`}</span>}
+      {passedCount > 0 && (
+        <span className="text-fact text-xs">
+          {`· ${passedCount} ${passedCount === 1 ? 'suite' : 'suites'} passed`}
+        </span>
+      )}
 
-      {/* contents: each part is a flex item, spaced like "· N passed" and wrapping on its own. */}
+      {/* contents: each part is a flex item, spaced like "· N suites passed" and wrapping on
+          its own. The part answering "is it me?" ("2 new", "none new") is in ink. */}
       {origins.length > 0 && (
         <span className="contents" data-testid="run-suite-chips-origins">
           <span className="sr-only">Failing tests:</span>
           {origins.map((part) => (
-            <span key={part} className="text-fact text-xs">{`· ${part}`}</span>
+            <span
+              key={part}
+              className={cn(
+                'text-xs',
+                part.endsWith('new') ? 'text-foreground font-medium' : 'text-fact',
+              )}
+            >{`· ${part}`}</span>
           ))}
         </span>
       )}

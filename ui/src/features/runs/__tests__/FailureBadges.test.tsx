@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { FailureBadges } from '../FailureBadges'
 
-const BADGES = { flaky: /^flaky/, new: /^new$/, known: /^known$/ }
+const BADGES = { flaky: /^flaky/, new: /^new$/, known: /^known issue$/ }
 
 describe('FailureBadges', () => {
   it.each([
