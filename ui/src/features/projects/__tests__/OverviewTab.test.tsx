@@ -53,11 +53,6 @@ function renderTab() {
     data: [{ project_id: 7, slug: 'test-project' }],
     metadata: { message: 'ok' },
   })
-  vi.mocked(reportsApi.fetchReportKnownFailures).mockResolvedValue({
-    known_failures: [],
-    new_failures: [],
-    adjusted_stats: { known_count: 0, new_count: 0, total_count: 0 },
-  })
   vi.mocked(reportsApi.fetchReportEnvironment).mockResolvedValue([])
   vi.mocked(reportsApi.fetchReportCategories).mockResolvedValue([])
   vi.mocked(reportsApi.fetchReportStability).mockResolvedValue({

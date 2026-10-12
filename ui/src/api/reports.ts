@@ -8,12 +8,10 @@ import type {
   GenerateReportAccepted,
   GenerateReportParams,
   JobData,
-  KnownFailuresData,
   LowPerformingData,
   MultiTimelineData,
   ReportHistoryData,
   StabilityData,
-  TimelineData,
 } from '@/types/api'
 
 export async function generateReport(
@@ -139,26 +137,6 @@ export async function fetchReportEnvironment(
 ): Promise<EnvironmentEntry[]> {
   const res = await apiClient.get<ApiResponse<EnvironmentEntry[]>>(
     `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/environment`,
-  )
-  return res.data.data
-}
-
-export async function fetchReportKnownFailures(
-  projectId: string,
-  reportId = 'latest',
-): Promise<KnownFailuresData> {
-  const res = await apiClient.get<ApiResponse<KnownFailuresData>>(
-    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/known-failures`,
-  )
-  return res.data.data
-}
-
-export async function fetchReportTimeline(
-  projectId: string,
-  reportId = 'latest',
-): Promise<TimelineData> {
-  const res = await apiClient.get<ApiResponse<TimelineData>>(
-    `/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/timeline`,
   )
   return res.data.data
 }

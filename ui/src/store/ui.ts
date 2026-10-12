@@ -18,12 +18,10 @@ export interface UIState {
   _syncedAt: string | null
   pinnedProjectIds: number[]
   recentProjectIds: number[]
-  lastTabPerProject: Record<string, string>
   runsFeedGroupIds: number[]
   runsFailureGrouping: FailureGrouping
 
   setProjectViewMode: (mode: ViewMode) => void
-  setLastProjectId: (id: string | null) => void
   clearLastProjectId: () => void
   setReportsPerPage: (perPage: number) => void
   setReportsGroupBy: (groupBy: GroupByMode) => void
@@ -34,7 +32,6 @@ export interface UIState {
   pinProject: (id: number) => void
   unpinProject: (id: number) => void
   recordProjectVisit: (id: number) => void
-  setLastTabForProject: (projectId: string, tab: string) => void
   setRunsFeedGroupIds: (ids: number[]) => void
   setRunsFailureGrouping: (grouping: FailureGrouping) => void
 }
@@ -52,12 +49,10 @@ export const useUIStore = create<UIState>()(
       _syncedAt: null,
       pinnedProjectIds: [],
       recentProjectIds: [],
-      lastTabPerProject: {},
       runsFeedGroupIds: [],
       runsFailureGrouping: 'suite',
 
       setProjectViewMode: (mode) => set({ projectViewMode: mode }),
-      setLastProjectId: (id) => set({ lastProjectId: id }),
       clearLastProjectId: () => set({ lastProjectId: null }),
       setReportsPerPage: (perPage) => set({ reportsPerPage: perPage }),
       setReportsGroupBy: (groupBy) => set({ reportsGroupBy: groupBy }),
@@ -78,8 +73,6 @@ export const useUIStore = create<UIState>()(
           const deduped = s.recentProjectIds.filter((p) => p !== id)
           return { recentProjectIds: [id, ...deduped].slice(0, 5) }
         }),
-      setLastTabForProject: (projectId, tab) =>
-        set((s) => ({ lastTabPerProject: { ...s.lastTabPerProject, [projectId]: tab } })),
       setRunsFeedGroupIds: (ids) => set({ runsFeedGroupIds: [...ids] }),
       setRunsFailureGrouping: (grouping) => set({ runsFailureGrouping: grouping }),
     }),

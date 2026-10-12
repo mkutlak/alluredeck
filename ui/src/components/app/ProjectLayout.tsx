@@ -4,7 +4,6 @@ import { useProjectFromParam } from '@/lib/resolveProject'
 import { formatProjectLabel } from '@/lib/projectLabel'
 import { projectNavItems } from '@/lib/projectNav'
 import { useDocumentTitle } from '@/lib/useDocumentTitle'
-import { useTrackActiveTab } from '@/hooks/useTrackActiveTab'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/app/PageHeader'
 import { TabsNav } from '@/components/ui/tabs-nav'
@@ -14,7 +13,6 @@ export function ProjectLayout() {
   const { id: projectId } = useParams<{ id: string }>()
   const { project, projects, isLoading } = useProjectFromParam(projectId)
   const { pathname } = useLocation()
-  useTrackActiveTab(projectId ?? null)
 
   const navItems = projectNavItems(project)
   // The tab is what follows /projects/:id. Compared by path segment: the URL may name the

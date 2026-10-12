@@ -7,7 +7,6 @@ beforeEach(() => {
   useUIStore.setState({
     pinnedProjectIds: [],
     recentProjectIds: [],
-    lastTabPerProject: {},
     runsFeedGroupIds: [],
   })
 })
@@ -28,13 +27,6 @@ describe('useUIStore', () => {
 
     for (const id of [4, 5, 6]) store().recordProjectVisit(id)
     expect(store().recentProjectIds).toEqual([6, 5, 4, 1, 3])
-  })
-
-  it('setLastTabForProject stores one tab per project, overwriting that project only', () => {
-    store().setLastTabForProject('1', 'analytics')
-    store().setLastTabForProject('2', '')
-    store().setLastTabForProject('1', 'defects')
-    expect(store().lastTabPerProject).toEqual({ '1': 'defects', '2': '' })
   })
 
   it('setRunsFeedGroupIds stores a new array reference (immutable)', () => {

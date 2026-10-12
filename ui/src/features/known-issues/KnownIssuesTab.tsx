@@ -69,7 +69,6 @@ export function KnownIssuesTab() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId!) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId!) })
       toast({ title: 'Status updated' })
     },
     onError: (err) => {
@@ -85,7 +84,6 @@ export function KnownIssuesTab() {
     mutationFn: (issueId: number) => deleteKnownIssue(projectId!, issueId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.knownIssues(projectId!) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.reportKnownFailures(projectId!) })
       toast({ title: 'Known issue removed' })
       setDeleteIssueId(null)
     },

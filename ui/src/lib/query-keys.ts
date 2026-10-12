@@ -11,14 +11,8 @@ export const queryKeys = {
   reportCategoriesLatest: (pid: string) => ['report-categories', pid, 'latest'] as const,
   reportEnvironment: (pid: string) => ['report-environment', pid] as const,
   reportStability: (pid: string) => ['report-stability', pid] as const,
-  reportKnownFailures: (pid: string) => ['report-known-failures', pid] as const,
-  reportTimeline: (pid: string) => ['report-timeline', pid] as const,
   projectTimeline: (pid: string, branch?: string, from?: string, to?: string, limit?: number) =>
     ['project-timeline', pid, branch, from, to, limit] as const,
-  reportHistoryAnalytics: (pid: string, branch?: string) =>
-    branch != null
-      ? (['report-history-analytics', pid, branch] as const)
-      : (['report-history-analytics', pid] as const),
   lowPerforming: (pid: string, sort?: string, branch?: string) =>
     sort !== undefined || branch !== undefined
       ? (['low-performing-tests', pid, sort ?? undefined, branch ?? undefined] as const)
@@ -73,7 +67,6 @@ export const queryKeys = {
     filters != null
       ? (['defects', 'build', projectId, buildId, filters] as const)
       : (['defects', 'build', projectId, buildId] as const),
-  defectDetail: (defectId: string) => ['defects', 'detail', defectId] as const,
   defectTests: (projectId: string, defectId: string) =>
     ['defects', 'tests', projectId, defectId] as const,
   defectProjectSummary: (projectId: string) => ['defects', 'summary', projectId] as const,
@@ -125,9 +118,6 @@ const PROJECT_SCOPED_FAMILIES = [
   'report-categories',
   'report-environment',
   'report-stability',
-  'report-known-failures',
-  'report-timeline',
-  'report-history-analytics',
   'low-performing-tests',
   'known-issues',
   'attachments',

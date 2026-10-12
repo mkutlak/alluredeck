@@ -59,13 +59,6 @@ export async function fetchBuildDefects(
   return res.data
 }
 
-export async function fetchDefect(projectId: string, defectId: string): Promise<DefectFingerprint> {
-  const res = await apiClient.get<ApiResponse<DefectFingerprint>>(
-    `/projects/${encodeURIComponent(projectId)}/defects/${encodeURIComponent(defectId)}`,
-  )
-  return res.data.data
-}
-
 export async function fetchDefectTests(
   projectId: string,
   defectId: string,

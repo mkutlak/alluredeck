@@ -26,11 +26,6 @@ export async function fetchUsers(params: FetchUsersParams = {}): Promise<UserLis
   return res.data.data
 }
 
-export async function fetchUser(id: number): Promise<User> {
-  const res = await apiClient.get<ApiResponse<User>>(`/users/${id}`)
-  return res.data.data
-}
-
 export async function createUser(body: CreateUserRequest): Promise<CreateUserResponse> {
   const res = await apiClient.post<ApiResponse<CreateUserResponse>>('/users', body)
   return res.data.data

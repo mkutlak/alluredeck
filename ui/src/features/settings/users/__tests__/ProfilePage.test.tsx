@@ -11,7 +11,6 @@ import type { User } from '@/types/api'
 
 vi.mock('@/api/users', () => ({
   fetchUsers: vi.fn(),
-  fetchUser: vi.fn(),
   createUser: vi.fn(),
   updateUserRole: vi.fn(),
   updateUserActive: vi.fn(),
