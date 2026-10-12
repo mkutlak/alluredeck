@@ -6,7 +6,6 @@ import { fetchPreferences, updatePreferences } from '@/api/preferences'
 /** Keys from UIState that are persisted to the server. */
 const SYNC_KEYS: readonly (keyof UIState)[] = [
   'projectViewMode',
-  'lastProjectId',
   'reportsPerPage',
   'reportsGroupBy',
   'selectedBranch',

@@ -17,7 +17,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/use-toast'
-import { useUIStore } from '@/store/ui'
 
 interface DeleteProjectDialogProps {
   projectId: string
@@ -41,10 +40,6 @@ export function DeleteProjectDialog({
   const mutation = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
-      const { lastProjectId, clearLastProjectId } = useUIStore.getState()
-      if (lastProjectId === projectId) {
-        clearLastProjectId()
-      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       removeProjectQueries(queryClient, projectId)

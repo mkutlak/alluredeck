@@ -9,7 +9,6 @@ export const PER_PAGE_OPTIONS = [10, 20, 50, 100] as const
 
 export interface UIState {
   projectViewMode: ViewMode
-  lastProjectId: string | null
   reportsPerPage: number
   reportsGroupBy: GroupByMode
   selectedBranch: string | undefined
@@ -22,7 +21,6 @@ export interface UIState {
   runsFailureGrouping: FailureGrouping
 
   setProjectViewMode: (mode: ViewMode) => void
-  clearLastProjectId: () => void
   setReportsPerPage: (perPage: number) => void
   setReportsGroupBy: (groupBy: GroupByMode) => void
   setSelectedBranch: (branch: string | undefined) => void
@@ -40,7 +38,6 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       projectViewMode: 'grid',
-      lastProjectId: null,
       reportsPerPage: 20,
       reportsGroupBy: 'none',
       selectedBranch: undefined,
@@ -53,7 +50,6 @@ export const useUIStore = create<UIState>()(
       runsFailureGrouping: 'suite',
 
       setProjectViewMode: (mode) => set({ projectViewMode: mode }),
-      clearLastProjectId: () => set({ lastProjectId: null }),
       setReportsPerPage: (perPage) => set({ reportsPerPage: perPage }),
       setReportsGroupBy: (groupBy) => set({ reportsGroupBy: groupBy }),
       setSelectedBranch: (branch) => set({ selectedBranch: branch }),
