@@ -61,6 +61,12 @@ type sfCall struct {
 	err error
 }
 
+// UserActiveTTL is how long the API and MCP servers trust a cached is_active
+// flag. Neither process hears of a deactivation made in another (the MCP
+// server shares no cache with the API, and each API replica has its own), so
+// this is how long a deactivated user keeps access there.
+const UserActiveTTL = 2 * time.Second
+
 // NewUserActiveCache returns an initialised UserActiveCache. ttl<=0 falls back
 // to 30s; maxEntries<=0 falls back to 10000. envUsers are the usernames of the
 // env-configured users (ADMIN_USER, VIEWER_USER): they have no users row, so an

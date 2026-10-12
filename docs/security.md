@@ -106,7 +106,7 @@ Stale IP entries are cleaned up periodically in the background.
 
 Every authenticated request checks that the user's `is_active` flag is still true before proceeding. This ensures deactivated accounts lose access without waiting for their token to expire.
 
-To avoid a database round-trip on every request, the result is cached in an in-process `UserActiveCache` with a **30-second TTL**. Deactivation propagates within 30 seconds across all pod instances under load.
+To avoid a database round-trip on every request, the result is cached in an in-process `UserActiveCache` with a **2-second TTL**. Deactivation propagates within 2 seconds to every API replica and to the MCP server, none of which share a cache.
 
 Cache details:
 - Keyed by stringified `user.id`

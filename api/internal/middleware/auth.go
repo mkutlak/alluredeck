@@ -35,7 +35,7 @@ const errRecheckUnavailable = "Unable to verify account status"
 // email sub) and for API-key authenticated requests. This is the F-3
 // defence-in-depth control: even if a future code path forgets to revoke
 // explicit sessions on deactivation, the next request after the cache TTL
-// (30s by default) will be rejected.
+// (UserActiveTTL) will be rejected.
 // Pass nil to disable the recheck (preserves old test wiring).
 func AuthMiddleware(
 	cfg *config.Config,

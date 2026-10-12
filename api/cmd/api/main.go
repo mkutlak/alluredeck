@@ -216,11 +216,12 @@ func main() {
 	// route real traffic while the slow, non-essential work runs.
 	bootstrapReady := &atomic.Bool{}
 
-	// Per-request is_active recheck cache (F-3 of SECURITY_REVIEW.md). 30s TTL
-	// is the residual exposure window after a deactivation if explicit revoke
-	// was missed; 10k entries comfortably holds typical working sets. The auth
-	// middleware reads it; the user handler invalidates entries on (de)activation.
-	userActiveCache := middleware.NewUserActiveCache(s.user, 30*time.Second, 10000, cfg.AdminUser, cfg.ViewerUser)
+	// Per-request is_active recheck cache (F-3 of SECURITY_REVIEW.md). The TTL
+	// is the residual exposure window after a deactivation made on another
+	// replica or missed by explicit revoke; 10k entries comfortably holds
+	// typical working sets. The auth middleware reads it; the user handler
+	// invalidates entries on (de)activation.
+	userActiveCache := middleware.NewUserActiveCache(s.user, middleware.UserActiveTTL, 10000, cfg.AdminUser, cfg.ViewerUser)
 
 	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, userActiveCache, pgDB.Pool(), bootstrapReady, logger)
 

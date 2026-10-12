@@ -64,8 +64,9 @@ func main() {
 
 	jwtManager := bootstrap.InitJWTManager(cfg, stores.Blacklist, logger)
 
-	// Per-request is_active recheck cache (F-3). 30s TTL, 10k entries.
-	userActiveCache := middleware.NewUserActiveCache(stores.User, 30*time.Second, 10000, cfg.AdminUser, cfg.ViewerUser)
+	// Per-request is_active recheck cache (F-3). Nothing invalidates it from
+	// the API process, so the short TTL is what limits a deactivated user's access.
+	userActiveCache := middleware.NewUserActiveCache(stores.User, middleware.UserActiveTTL, 10000, cfg.AdminUser, cfg.ViewerUser)
 
 	// Parse allowed origins from config.
 	allowedOrigins := mcp.ParseAllowedOrigins(cfg.MCPAllowedOrigins)

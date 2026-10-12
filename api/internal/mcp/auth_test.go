@@ -131,6 +131,45 @@ func TestVerifyJWT(t *testing.T) {
 	}
 }
 
+// TestVerify_NoticesDeactivationWithinTTL: the MCP server shares no cache with
+// the API, so nothing tells it a user was deactivated; it must notice once the
+// shared TTL has passed.
+func TestVerify_NoticesDeactivationWithinTTL(t *testing.T) {
+	t.Parallel()
+	jwtMgr := security.NewJWTManager(&config.Config{
+		JWTSecret:          "test-secret-key",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}, testutil.NewMemBlacklist(), zap.NewNop())
+	users := testutil.NewMemUserStore()
+	if _, err := users.UpsertByOIDC(context.Background(), "local", "sub-1", "u@example.com", "U", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := jwtMgr.GenerateTokens("1", "viewer", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := middleware.NewUserActiveCache(users, middleware.UserActiveTTL, 0)
+	now := time.Now()
+	cache.SetNowFn(func() time.Time { return now })
+	v := NewVerifier(nil, jwtMgr, cache, zap.NewNop())
+
+	if _, err := v.verifyJWT(context.Background(), token); err != nil {
+		t.Fatalf("verifyJWT of an active user: %v", err)
+	}
+	if err := users.Deactivate(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(middleware.UserActiveTTL - time.Nanosecond)
+	if _, err := v.verifyJWT(context.Background(), token); err != nil {
+		t.Fatalf("verifyJWT inside the TTL: %v, want the cached answer", err)
+	}
+	now = now.Add(time.Nanosecond)
+	if _, err := v.verifyJWT(context.Background(), token); err == nil || err.Error() != "account inactive" {
+		t.Fatalf("verifyJWT after the TTL: err = %v, want %q", err, "account inactive")
+	}
+}
+
 // TestVerifyAPIKey_Owner: a key whose owner has no users row (the email was
 // changed, or the row is gone) is refused as inactive, like a deactivated
 // one. A configured env user needs no users row and resolves to user_db_id 0.
