@@ -22,6 +22,15 @@ import (
 // carries no store detail.
 var errRecheckUnavailable = errors.New("unable to verify account status")
 
+// refusal is a token Verify turns down: an unknown or expired key, an invalid
+// JWT, or an inactive account. It unwraps to auth.ErrInvalidToken, which the
+// SDK answers with 401 so the client signs in again; any other error is a
+// 500. Its text is what the client sees.
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
+func (refusal) Unwrap() error   { return mcpauth.ErrInvalidToken }
+
 // Verifier implements MCP bearer-token verification.
 // It supports two token types:
 //   - API keys (ald_ prefix): hashed and looked up in the store.
@@ -68,11 +77,11 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 	hash := security.HashAPIKey(token)
 	apiKey, err := v.apiKeyStore.GetByHash(ctx, hash)
 	if err != nil {
-		return nil, fmt.Errorf("invalid API key")
+		return nil, refusal("invalid API key")
 	}
 
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("API key has expired")
+		return nil, refusal("API key has expired")
 	}
 
 	// F-3: re-check owning user is still active, and resolve the users.id
@@ -92,7 +101,7 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 				zap.String("username", apiKey.Username), zap.Error(recheckErr))
 			return nil, errRecheckUnavailable
 		case !identity.IsActive:
-			return nil, fmt.Errorf("account inactive")
+			return nil, refusal("account inactive")
 		default:
 			userDBID = identity.UserID
 		}
@@ -142,7 +151,7 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenInfo, error) {
 	_, claims, err := v.jwtManager.ValidateToken(token, "access")
 	if err != nil {
-		return nil, fmt.Errorf("invalid JWT: %w", err)
+		return nil, fmt.Errorf("%w: %w", refusal("invalid JWT"), err)
 	}
 
 	sub, _ := claims["sub"].(string)
@@ -159,7 +168,7 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 			return nil, errRecheckUnavailable
 		}
 		if !active {
-			return nil, fmt.Errorf("account inactive")
+			return nil, refusal("account inactive")
 		}
 	}
 

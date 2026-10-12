@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"go.uber.org/zap"
 
 	"github.com/mkutlak/alluredeck/api/internal/config"
@@ -244,6 +245,60 @@ func TestVerify_RecheckFailure(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), "db.internal") {
 			t.Errorf("%s: error leaks the store failure: %v", name, err)
+		}
+	}
+}
+
+// TestVerify_RefusalIsInvalidToken: the SDK answers 401, which asks the client
+// to sign in again, only for an error that wraps auth.ErrInvalidToken; any
+// other error is a 500. A refused key or account must wrap it, and a recheck
+// that could not reach the database must not.
+func TestVerify_RefusalIsInvalidToken(t *testing.T) {
+	t.Parallel()
+	jwtMgr := security.NewJWTManager(&config.Config{
+		JWTSecret:          "test-secret-key",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}, testutil.NewMemBlacklist(), zap.NewNop())
+	jwtOf7, _, err := jwtMgr.GenerateTokens("7", "viewer", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noUsers := middleware.NewUserActiveCache(testutil.NewMemUserStore(), time.Minute, 0)
+	boom := errors.New("db down")
+	failing := middleware.NewUserActiveCache(&testutil.MockUserStore{
+		GetByIDFn:    func(context.Context, int64) (*store.User, error) { return nil, boom },
+		GetByEmailFn: func(context.Context, string) (*store.User, error) { return nil, boom },
+	}, time.Minute, 0)
+	keyStore := func(key *store.APIKey) *testutil.MockAPIKeyStore {
+		return &testutil.MockAPIKeyStore{GetByHashFn: func(context.Context, string) (*store.APIKey, error) {
+			if key == nil {
+				return nil, store.ErrAPIKeyNotFound
+			}
+			return key, nil
+		}}
+	}
+	apiKey := security.APIKeyPrefix + "dummyhash"
+	past := time.Now().Add(-time.Hour)
+	tests := []struct {
+		name        string
+		key         *store.APIKey // stored under any hash; nil = none
+		cache       *middleware.UserActiveCache
+		token       string
+		wantInvalid bool
+	}{
+		{"unknown API key", nil, noUsers, apiKey, true},
+		{"expired API key", &store.APIKey{ID: 1, Username: "u@example.com", ExpiresAt: &past}, noUsers, apiKey, true},
+		{"API key of an inactive account", &store.APIKey{ID: 1, Username: "u@example.com"}, noUsers, apiKey, true},
+		{"invalid JWT", nil, noUsers, "not-a-jwt", true},
+		{"JWT of an inactive account", nil, noUsers, jwtOf7, true},
+		{"API key whose account check failed", &store.APIKey{ID: 1, Username: "u@example.com"}, failing, apiKey, false},
+		{"JWT whose account check failed", nil, failing, jwtOf7, false},
+	}
+	for _, tc := range tests {
+		_, err := NewVerifier(keyStore(tc.key), jwtMgr, tc.cache, zap.NewNop()).Verify(context.Background(), tc.token, nil)
+		if err == nil || errors.Is(err, mcpauth.ErrInvalidToken) != tc.wantInvalid {
+			t.Errorf("%s: err = %v, want one wrapping ErrInvalidToken: %v", tc.name, err, tc.wantInvalid)
 		}
 	}
 }
