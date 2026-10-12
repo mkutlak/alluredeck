@@ -16,3 +16,6 @@
 .idea/
 *.tmproj
 .vscode/
+# Agent tooling state
+.omc/
+.claude/
