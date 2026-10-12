@@ -66,7 +66,7 @@ async function renderFeed(data = runs) {
     pagination: { page: 1, per_page: 10, total: data.length, total_pages: 1 },
   })
   const view = renderWithProviders(<RunsFeedPage />)
-  await screen.findByRole('link', { name: 'main, run 101' })
+  await screen.findByRole('link', { name: 'main, run 101, passed' })
   return view
 }
 
@@ -87,7 +87,7 @@ describe('RunsFeedPage for keyboard and screen-reader users', () => {
     ).toEqual(['main', 'feature/login'])
     expect(
       within(within(items[1]!).getByRole('heading', { level: 2 })).getByRole('link', {
-        name: 'feature/login, run 102',
+        name: 'feature/login, run 102, passed',
       }),
     ).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
@@ -106,11 +106,11 @@ describe('RunsFeedPage for keyboard and screen-reader users', () => {
 
     await user.keyboard('j')
     expect(document.body).toHaveFocus()
-    screen.getByRole('link', { name: 'main, run 101' }).focus()
+    screen.getByRole('link', { name: 'main, run 101, passed' }).focus()
     await user.keyboard('j')
-    expect(screen.getByRole('link', { name: 'feature/login, run 102' })).toHaveFocus()
+    expect(screen.getByRole('link', { name: 'feature/login, run 102, passed' })).toHaveFocus()
     await user.keyboard('k')
-    expect(screen.getByRole('link', { name: 'main, run 101' })).toHaveFocus()
+    expect(screen.getByRole('link', { name: 'main, run 101, passed' })).toHaveFocus()
   })
 
   // A run outside any group has no page, so no branch link: j lands on its toggle.
@@ -122,7 +122,7 @@ describe('RunsFeedPage for keyboard and screen-reader users', () => {
     orphan.suites = orphan.suites.map((s) => ({ ...s, failed: 2, status: 'degraded' }))
     await renderFeed([runs[0]!, orphan])
 
-    screen.getByRole('link', { name: 'main, run 101' }).focus()
+    screen.getByRole('link', { name: 'main, run 101, passed' }).focus()
     await user.keyboard('j')
     expect(screen.getByRole('button', { name: 'Toggle failures for 103' })).toHaveFocus()
   })

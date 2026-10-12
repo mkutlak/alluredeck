@@ -30,9 +30,8 @@ import type { PipelineRun } from '@/types/api'
 export interface RunFailuresProps {
   run: PipelineRun
   /**
-   * The run page: every failing suite gets an open, anchored `<section id="suite-<id>">`
-   * (reopened when the URL hash points at it), and test names link to their history
-   * on the run's branch with the report as a second link.
+   * The run page: every failing suite gets an open, anchored `<section id="suite-<id>">`,
+   * reopened when the URL hash points at it.
    */
   asPage?: boolean
   /** Shown instead of the saved grouping (the run page's deep-link view); the store is untouched. */
@@ -219,7 +218,7 @@ export function RunFailures({
             // ✗, or ⚠ "flaky or known" (suiteVerdict); the run's own glyph is ✗,
             // or ○ while suites are awaited.
             sectionVerdict={asPage && bySuite ? suiteVerdict(group, truncated) : undefined}
-            historyBranch={asPage ? run.branch : undefined}
+            historyBranch={run.branch}
             emptyNote={
               truncated
                 ? 'Not listed: this run has more failures than were loaded.'
@@ -250,8 +249,8 @@ interface FailureGroupBlockProps {
   llmEnabled: boolean
   /** Page mode: an anchored section with an h2 the hash can focus. */
   asSection: boolean
-  /** Page mode: test names link to their history on this branch. */
-  historyBranch: string | undefined
+  /** Test names link to their history on this branch; '' for none (a run without a branch). */
+  historyBranch: string
   /** Shown in place of rows for a failing suite none of whose rows arrived. */
   emptyNote: string
   /** Page sections: ✗, or ⚠ "flaky or known" when every listed failure is one. */
@@ -431,7 +430,7 @@ function FailureGroupBlock({
 interface FailureRowProps {
   row: MergedFailure
   grouping: FailureGrouping
-  historyBranch: string | undefined
+  historyBranch: string
   llmEnabled: boolean
   summaryOpen: boolean
   onToggleSummary: () => void
@@ -447,15 +446,15 @@ function FailureRow({
 }: FailureRowProps) {
   const reportHref = `/projects/${row.projectId}/reports/${row.buildNumber}`
   const summaryId = useId()
-  // On the run page the test's history ("is it me or flaky?") comes first.
-  // TestHistoryPage needs a history_id; a row without one keeps its report link.
-  const historyHref =
-    historyBranch !== undefined && row.historyId
-      ? `/projects/${row.projectId}/tests?${new URLSearchParams({
-          history_id: row.historyId,
-          ...(historyBranch ? { branch: historyBranch } : {}),
-        }).toString()}`
-      : undefined
+  // The test's history ("is it me or flaky?") comes first, the report second, in the feed
+  // and on the run page alike. TestHistoryPage needs a history_id; a row without one keeps
+  // its report link.
+  const historyHref = row.historyId
+    ? `/projects/${row.projectId}/tests?${new URLSearchParams({
+        history_id: row.historyId,
+        ...(historyBranch ? { branch: historyBranch } : {}),
+      }).toString()}`
+    : undefined
 
   const bucket = failureBucket(row)
   // Narrow, the group has a line of its own, where an empty badge list would indent the rest.

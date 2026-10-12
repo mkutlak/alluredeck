@@ -29,7 +29,7 @@ export function RunRow({ run }: RunRowProps) {
   const [branchHead, branchTail] = splitBranch(run.branch ?? '')
   // A suite whose report could not be read fails the run with no test listed as
   // failed, so "failing" and "has failures to expand" are different questions.
-  const { failedCount } = summarizeRun(run)
+  const { verdict, failedCount, suitesFailing, awaiting } = summarizeRun(run)
   const hasFailures = failedCount > 0
   // "2 new · 3 inherited (1 env)", as the expanded panel's header says it. On the chips
   // line, not the summary: a longer summary would widen its column and squeeze the branch.
@@ -44,6 +44,27 @@ export function RunRow({ run }: RunRowProps) {
         unknown: counts.unknown ?? 0,
       }).filter((part) => noneNewOk || part !== 'none new')
     : []
+  // The heading link's name ends with the verdict, in the row's words: "failed, 15 failed
+  // tests, 2 new". Only the "new" part of the origins, the one that says "is it me?".
+  const failedTests = `${failedCount} ${failedCount === 1 ? 'failed test' : 'failed tests'}`
+  const newPart = origins.find((part) => part.endsWith(' new'))
+  // A suite that could not be read has no failed test to count; the row names the suite.
+  const failingSuites = `${suitesFailing} ${suitesFailing === 1 ? 'suite' : 'suites'} failing`
+  const verdictWords = {
+    failed: 'failed',
+    passed: 'passed',
+    skipped: 'all tests skipped',
+    awaiting: `awaiting ${awaiting} ${awaiting === 1 ? 'suite' : 'suites'}`,
+  }[verdict]
+  const headingLabel = [
+    run.branch || 'no branch',
+    `run ${runId}`,
+    verdictWords,
+    hasFailures ? failedTests : suitesFailing > 0 && failingSuites,
+    newPart,
+  ]
+    .filter(Boolean)
+    .join(', ')
   const passRate = formatPassRate(
     aggregate.tests_passed,
     aggregate.tests_total,
@@ -112,6 +133,8 @@ export function RunRow({ run }: RunRowProps) {
               href={run.pipeline_url ?? run.ci_build_url}
               target="_blank"
               rel="noopener noreferrer"
+              // Named apart from the run-page link beside it, which has the same number.
+              aria-label={`CI pipeline ${runId} (opens in new tab)`}
               className="inline-flex items-center gap-1 hover:underline"
             >
               {runId}
@@ -129,8 +152,9 @@ export function RunRow({ run }: RunRowProps) {
               <Link
                 to={href}
                 title={run.branch || undefined}
-                // Every row has a "main" link; the run ID says which run this one opens.
-                aria-label={`${run.branch || 'no branch'}, run ${runId}`}
+                // Every row has a "main" link; the run ID says which run this one opens,
+                // the verdict what happened there.
+                aria-label={headingLabel}
                 className={cn(branchClass, 'hover:underline')}
                 data-row-link
               >

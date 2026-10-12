@@ -124,7 +124,7 @@ describe('RunFailures', () => {
     renderRun([makeFailure()], run)
 
     const link = await screen.findByRole('link', { name: 'should login' })
-    expect(link).toHaveAttribute('href', '/projects/2/reports/3')
+    expect(link).toHaveAttribute('href', '/projects/2/tests?history_id=h1&branch=main')
     expect(fetchRunFailures).toHaveBeenCalledTimes(1)
     expect(fetchRunFailures).toHaveBeenCalledWith(10, key)
   })

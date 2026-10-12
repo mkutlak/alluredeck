@@ -35,6 +35,11 @@ export function useSearchCommand() {
   return useContext(SearchCommandContext)
 }
 
+// The highlighted item sits on the canvas with a focus ring, not on the shared accent fill:
+// text-fact is 3.5:1 (day) and 4.1:1 (night) on accent, 5.6:1 and 7.4:1 on the canvas.
+const ITEM_CLASS =
+  'data-[selected=true]:bg-background data-[selected=true]:ring-ring data-[selected=true]:ring-2 data-[selected=true]:ring-inset'
+
 export function SearchCommand({ children }: { children?: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -100,9 +105,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
         <CommandList>
           {isFetching && hasQuery && <CommandEmpty>Searching...</CommandEmpty>}
 
-          {!isFetching && hasQuery && !hasResults && (
-            <CommandEmpty>No results found.</CommandEmpty>
-          )}
+          {!isFetching && hasQuery && !hasResults && <CommandEmpty>No results found.</CommandEmpty>}
 
           {!hasQuery && <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>}
 
@@ -112,6 +115,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                 <CommandItem
                   key={p.project_id}
                   value={`project-${p.slug}`}
+                  className={ITEM_CLASS}
                   onSelect={() => handleSelect(`/projects/${p.project_id}`)}
                 >
                   {groupIds.has(p.project_id) ? (
@@ -139,14 +143,13 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                 <CommandItem
                   key={`${t.project_id}-${t.test_name}-${i}`}
                   value={`test-${t.slug}-${t.test_name}-${i}`}
+                  className={ITEM_CLASS}
                   onSelect={() => handleSelect(`/projects/${t.project_id}`)}
                 >
                   <FlaskConical className="text-muted-foreground size-4 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <span className="block truncate">{t.test_name}</span>
-                    <span className="text-muted-foreground block truncate text-xs">
-                      {t.slug}
-                    </span>
+                    <span className="text-fact block truncate text-xs">{t.slug}</span>
                   </div>
                   <Badge variant="outline" className="ml-auto shrink-0 text-xs">
                     {t.status}
@@ -165,6 +168,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                   <CommandItem
                     key={`${r.group_project_id}-${r.pipeline_id}`}
                     value={`run-${r.group_project_id}-${r.pipeline_id}`}
+                    className={ITEM_CLASS}
                     onSelect={() =>
                       handleSelect(
                         `/runs/${r.group_project_id}/${encodeURIComponent(r.pipeline_id)}`,
@@ -173,7 +177,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                   >
                     <div className="min-w-0 flex-1">
                       <span className="block truncate font-mono">{r.pipeline_id}</span>
-                      <span className="text-muted-foreground block truncate text-xs">
+                      <span className="text-fact block truncate text-xs">
                         {r.branch || 'no branch'} ·{' '}
                         {group ? formatProjectLabel(group, projectIndex?.data) : r.group_slug}
                       </span>
@@ -190,6 +194,7 @@ export function SearchCommand({ children }: { children?: React.ReactNode }) {
                 <CommandItem
                   key={b.name}
                   value={`branch-${b.name}`}
+                  className={ITEM_CLASS}
                   onSelect={() =>
                     handleSelect(`/?${new URLSearchParams({ branch: b.name }).toString()}`)
                   }

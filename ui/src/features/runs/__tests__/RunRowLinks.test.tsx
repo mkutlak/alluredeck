@@ -76,9 +76,12 @@ describe('RunRow links', () => {
 
   // Every row has a "main" link; the run ID tells a screen reader which run each opens.
   it.each([
-    { run: makeRun(), name: 'feature/login, run 196765' },
-    { run: makeRun({ pipeline_id: undefined }), name: 'feature/login, run abc1234' },
-    { run: makeRun({ branch: '' }), name: 'no branch, run 196765' },
+    { run: makeRun(), name: 'feature/login, run 196765, failed, 15 failed tests' },
+    {
+      run: makeRun({ pipeline_id: undefined }),
+      name: 'feature/login, run abc1234, failed, 15 failed tests',
+    },
+    { run: makeRun({ branch: '' }), name: 'no branch, run 196765, failed, 15 failed tests' },
   ])('names the branch link "$name"', ({ run, name }) => {
     renderWithProviders(<RunRow run={run} />)
     expect(screen.getByRole('link', { name })).toBeInTheDocument()
@@ -87,10 +90,9 @@ describe('RunRow links', () => {
   // The pipeline ID stays the way out to CI.
   it('keeps the pipeline ID as the external CI link', () => {
     renderWithProviders(<RunRow run={makeRun()} />)
-    expect(screen.getByRole('link', { name: '196765' })).toHaveAttribute(
-      'href',
-      'https://ci.example.com/pipelines/196765',
-    )
+    expect(
+      screen.getByRole('link', { name: 'CI pipeline 196765 (opens in new tab)' }),
+    ).toHaveAttribute('href', 'https://ci.example.com/pipelines/196765')
   })
 
   it('offers "no branch" as the link text when the run has no branch', () => {

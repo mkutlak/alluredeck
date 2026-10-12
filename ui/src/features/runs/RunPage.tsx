@@ -214,6 +214,7 @@ function RunView({ run }: { run: PipelineRun }) {
               href={ciUrl}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="CI pipeline (opens in new tab)"
               className="inline-flex items-center gap-1 hover:underline"
             >
               CI pipeline
