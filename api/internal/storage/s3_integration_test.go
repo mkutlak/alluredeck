@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -128,4 +130,45 @@ func TestS3Store_Integration_FullWorkflow(t *testing.T) {
 	}
 
 	t.Log("Integration test passed for project:", projectID)
+}
+
+// TestS3Store_Integration_RenameEscapedKeys renames a project whose result
+// files have names that must be URL-escaped in the copy source (a space, a
+// plus sign and a percent sign) and expects all of them under the new id.
+func TestS3Store_Integration_RenameEscapedKeys(t *testing.T) {
+	cfg := integrationConfig(t)
+	st, err := storage.NewS3Store(cfg, zap.NewNop())
+	if err != nil {
+		t.Fatalf("NewS3Store: %v", err)
+	}
+
+	ctx := context.Background()
+	oldID := fmt.Sprintf("integration-rename-%d", time.Now().UnixNano())
+	newID := oldID + "-renamed"
+	t.Cleanup(func() {
+		_ = st.DeleteProject(ctx, oldID)
+		_ = st.DeleteProject(ctx, newID)
+	})
+
+	names := []string{"100%.json", "a%20b.json", "a+b.json", "my report.json"}
+	for _, name := range names {
+		if err := st.WriteResultFile(ctx, oldID, "batch", name, bytes.NewReader([]byte(name))); err != nil {
+			t.Fatalf("WriteResultFile(%q): %v", name, err)
+		}
+	}
+	if err := st.RenameProject(ctx, oldID, newID); err != nil {
+		t.Fatalf("RenameProject: %v", err)
+	}
+
+	got, err := st.ListResultFiles(ctx, newID, "batch")
+	if err != nil {
+		t.Fatalf("ListResultFiles: %v", err)
+	}
+	sort.Strings(got)
+	if !slices.Equal(got, names) {
+		t.Errorf("files under the new project = %v, want %v", got, names)
+	}
+	if left, _ := st.ListResultFiles(ctx, oldID, "batch"); len(left) != 0 {
+		t.Errorf("files left under the old project = %v, want none", left)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -193,7 +194,8 @@ func (f *fakeS3) HeadBucket(_ context.Context, in *s3.HeadBucketInput, _ ...func
 	return &s3.HeadBucketOutput{}, f.record(in.Bucket, "HeadBucket", "")
 }
 
-// CopyObject copies within the bucket; CopySource must be "bucket/key".
+// CopyObject copies within the bucket; CopySource must be "bucket/key" with the
+// key URL-encoded, as S3 requires.
 func (f *fakeS3) CopyObject(_ context.Context, in *s3.CopyObjectInput, _ ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
 	source := aws.ToString(in.CopySource)
 	if err := f.record(in.Bucket, "Copy", source); err != nil {
@@ -202,6 +204,10 @@ func (f *fakeS3) CopyObject(_ context.Context, in *s3.CopyObjectInput, _ ...func
 	key, ok := strings.CutPrefix(source, testBucket+"/")
 	if !ok {
 		return nil, fmt.Errorf("copy source %q is not %q+key", source, testBucket+"/")
+	}
+	key, err := url.PathUnescape(key)
+	if err != nil {
+		return nil, fmt.Errorf("copy source %q: %w", source, err)
 	}
 	v, ok := f.get(key)
 	if !ok {
@@ -381,6 +387,26 @@ func TestS3Store_KeepHistory(t *testing.T) {
 	}
 }
 
+// TestCopySource: S3 reads the CopySource header URL-encoded, so each path
+// segment is escaped and the slashes between them are kept. A plain '+' must
+// not stay a '+', which S3 reads as a space, and a space must not become one.
+func TestCopySource(t *testing.T) {
+	t.Parallel()
+	for key, want := range map[string]string{
+		"projects/p/results/r.json": "b/projects/p/results/r.json",
+		"projects/p/my report.json": "b/projects/p/my%20report.json",
+		"projects/p/a+b.json":       "b/projects/p/a%2Bb.json",
+		"projects/p/100%.json":      "b/projects/p/100%25.json",
+		"projects/p/a%20b.json":     "b/projects/p/a%2520b.json",
+		"projects/p/a?b#c.json":     "b/projects/p/a%3Fb%23c.json", // '?' would start a versionId query
+		"projects/p/zażółć.json":    "b/projects/p/za%C5%BC%C3%B3%C5%82%C4%87.json",
+	} {
+		if got := copySource("b", key); got != want {
+			t.Errorf("copySource(b, %q) = %q, want %q", key, got, want)
+		}
+	}
+}
+
 // TestS3Store_RenameProject copies every object under projects/<old>/ to
 // projects/<new>/ server-side (CopyObject, never a download) and then deletes
 // the old prefix, leaving a sibling like projects/oldx/ alone. A missing
@@ -392,12 +418,14 @@ func TestS3Store_RenameProject(t *testing.T) {
 	seed := map[string]string{
 		"projects/old/.keep":                "",
 		"projects/old/results/b/r.json":     "result",
+		"projects/old/results/b/a%20b+c.md": "needs escaping",
 		"projects/old/reports/1/index.html": "report",
 		"projects/oldx/.keep":               "sibling",
 	}
 	renamed := map[string]string{
 		"projects/new/.keep":                "",
 		"projects/new/results/b/r.json":     "result",
+		"projects/new/results/b/a%20b+c.md": "needs escaping",
 		"projects/new/reports/1/index.html": "report",
 		"projects/oldx/.keep":               "sibling",
 	}
@@ -411,7 +439,7 @@ func TestS3Store_RenameProject(t *testing.T) {
 		wantDelete int
 		wantAll    map[string]string // nil: skip, the partial copy is not pinned
 	}{
-		{"moves every object", "old", nil, nil, 3, 3, renamed},
+		{"moves every object", "old", nil, nil, 4, 4, renamed},
 		{"missing project is a no-op", "ghost", nil, nil, 0, 0, seed},
 		{"copy failure keeps the old objects", "old", copyFails, errBoom, 2, 0, nil},
 	}

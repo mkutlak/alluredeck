@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -106,6 +107,18 @@ func newS3StoreWithClient(cfg *config.Config, client s3API, uploader s3Uploader,
 // s3Key builds the S3 key from parts joined by "/".
 func (s *S3Store) s3Key(parts ...string) string {
 	return strings.Join(parts, "/")
+}
+
+// copySource builds the CopyObject source for key in bucket. S3 requires the
+// header URL-encoded and the SDK sends it as given, so each path segment is
+// escaped and the slashes are kept. A '+' is escaped too because S3 would read
+// it as a space.
+func copySource(bucket, key string) string {
+	segments := strings.Split(bucket+"/"+key, "/")
+	for i, seg := range segments {
+		segments[i] = strings.ReplaceAll(url.PathEscape(seg), "+", "%2B")
+	}
+	return strings.Join(segments, "/")
 }
 
 // CreateProject writes a ".keep" marker object under the project prefix so that
@@ -497,7 +510,7 @@ func (s *S3Store) KeepHistory(ctx context.Context, projectID, batchID string) er
 		// Same-bucket copy — S3 handles the data transfer server-side.
 		if _, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
 			Bucket:     aws.String(s.bucket),
-			CopySource: aws.String(s.bucket + "/" + srcKey),
+			CopySource: aws.String(copySource(s.bucket, srcKey)),
 			Key:        aws.String(dstKey),
 		}); err != nil {
 			return fmt.Errorf("copy history object %q → %q: %w", srcKey, dstKey, err)
@@ -806,7 +819,7 @@ func (s *S3Store) RenameProject(ctx context.Context, oldID, newID string) error 
 		dstKey := newPrefix + relPath
 		if _, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
 			Bucket:     aws.String(s.bucket),
-			CopySource: aws.String(s.bucket + "/" + srcKey),
+			CopySource: aws.String(copySource(s.bucket, srcKey)),
 			Key:        aws.String(dstKey),
 		}); err != nil {
 			return fmt.Errorf("copy object %q -> %q: %w", srcKey, dstKey, err)
@@ -877,7 +890,7 @@ func (s *S3Store) CopyPlaywrightLatestToBuild(ctx context.Context, projectID str
 			dstKey := dstPrefix + relPath
 			if _, err := s.client.CopyObject(gctx, &s3.CopyObjectInput{
 				Bucket:     aws.String(s.bucket),
-				CopySource: aws.String(s.bucket + "/" + srcKey),
+				CopySource: aws.String(copySource(s.bucket, srcKey)),
 				Key:        aws.String(dstKey),
 			}); err != nil {
 				return fmt.Errorf("copy playwright object %q -> %q: %w", srcKey, dstKey, err)
