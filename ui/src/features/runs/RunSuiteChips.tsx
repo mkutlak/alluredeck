@@ -7,6 +7,8 @@ export interface RunSuiteChipsProps {
   suites: PipelineSuite[]
   /** The run's page, so each chip opens its suite's section there. */
   runPath?: string
+  /** Where the failing tests came from ("2 new", "3 inherited"), after the passed count. */
+  origins?: string[]
 }
 
 /** Chips shown before the "+N failing" expander kicks in. */
@@ -19,7 +21,7 @@ const VISIBLE_LIMIT = 4
  * news and cost three wrapped lines of chips per run, so they collapse to a
  * count and the failing ones lead.
  */
-export function RunSuiteChips({ suites, runPath }: RunSuiteChipsProps) {
+export function RunSuiteChips({ suites, runPath, origins = [] }: RunSuiteChipsProps) {
   const [showAll, setShowAll] = useState(false)
 
   const failing = suites
@@ -50,6 +52,16 @@ export function RunSuiteChips({ suites, runPath }: RunSuiteChipsProps) {
       )}
 
       {passedCount > 0 && <span className="text-fact text-xs">{`· ${passedCount} passed`}</span>}
+
+      {/* contents: each part is a flex item, spaced like "· N passed" and wrapping on its own. */}
+      {origins.length > 0 && (
+        <span className="contents" data-testid="run-suite-chips-origins">
+          <span className="sr-only">Failing tests:</span>
+          {origins.map((part) => (
+            <span key={part} className="text-fact text-xs">{`· ${part}`}</span>
+          ))}
+        </span>
+      )}
     </div>
   )
 }

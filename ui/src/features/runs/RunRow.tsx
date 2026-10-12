@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { RunSuiteChips } from './RunSuiteChips'
 import { RunFailures } from './RunFailures'
 import { RelativeTime, RunGlyph, RunGroupLink, RunSummary } from './RunFacts'
+import { originParts } from './failureOrigin'
 import { splitBranch, summarizeRun } from './rowFormat'
 import { runIdOf, runPath } from './runKey'
 import type { PipelineRun } from '@/types/api'
@@ -30,6 +31,17 @@ export function RunRow({ run }: RunRowProps) {
   // failed, so "failing" and "has failures to expand" are different questions.
   const { failedCount } = summarizeRun(run)
   const hasFailures = failedCount > 0
+  // "2 new · 3 inherited (1 env)", as the expanded panel's header says it. On the chips
+  // line, not the summary: a longer summary would widen its column and squeeze the branch.
+  const counts = aggregate.origins
+  const origins = counts
+    ? originParts({
+        new: counts.new,
+        inherited: counts.inherited,
+        env: counts.environment,
+        unknown: 0,
+      })
+    : []
   const passRate = formatPassRate(
     aggregate.tests_passed,
     aggregate.tests_total,
@@ -157,7 +169,7 @@ export function RunRow({ run }: RunRowProps) {
       {/* Line 2 — only when something failed, so a green run stays one line. */}
       {hasFailures && (
         <div className="mt-1.5 pl-6">
-          <RunSuiteChips suites={run.suites} runPath={href} />
+          <RunSuiteChips suites={run.suites} runPath={href} origins={origins} />
         </div>
       )}
 

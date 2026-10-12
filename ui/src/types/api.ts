@@ -869,6 +869,14 @@ export interface PipelineAggregate {
    * counts are not a verdict. Absent otherwise. Optional so fixtures keep type-checking.
    */
   awaiting_suites?: number
+  /**
+   * Failing tests by origin, copies of one test counted once; environment is a subset
+   * of inherited, and tests of unknown origin are not counted, so new + inherited can be
+   * less than the failed-test count. Sent only by the runs feed (GET /pipeline-runs), only
+   * for runs with failing tests; absent when there are too many to count or the server
+   * could not list them. Can be all zero.
+   */
+  origins?: { new: number; inherited: number; environment: number }
 }
 
 export interface PipelineRun {
