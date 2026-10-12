@@ -1,4 +1,9 @@
 import '@testing-library/jest-dom'
+import { configure } from '@testing-library/react'
+
+// The 1 s default runs out on a loaded machine before a query settles (FlakyTestsCard
+// failed full runs at load ~10), so findBy*/waitFor get 3 s.
+configure({ asyncUtilTimeout: 3000 })
 
 // localStorage / sessionStorage stub for Zustand persist middleware (jsdom compat)
 function createStorageMock(): Storage {
