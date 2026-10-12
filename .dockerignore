@@ -15,8 +15,9 @@ ui/node_modules
 ui/dist
 api/bin
 
-# Test coverage
-coverage
+# Test output
+**/coverage
+**/allure-results
 
 # TypeScript build info
 *.tsbuildinfo
