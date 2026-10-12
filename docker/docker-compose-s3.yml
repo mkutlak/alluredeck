@@ -104,6 +104,8 @@ services:
       SECURITY_ENABLED: "1"
       # Must match allure-api's JWT_SECRET_KEY so tokens issued there validate here
       JWT_SECRET_KEY: "s3-dev-secret-change-in-production-32chars"
+      # Must match allure-api's, or API keys of this user are refused here
+      ADMIN_USER: "admin"
       # Same storage backend as allure-api so resources/read can fetch attachments
       STORAGE_TYPE: "s3"
       S3_ENDPOINT: "http://minio:9000"
