@@ -9,8 +9,6 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-
-	"github.com/mkutlak/alluredeck/api/internal/observability"
 )
 
 type contextKey struct{}
@@ -42,10 +40,7 @@ func Setup(devMode bool, level string) *zap.Logger {
 		}
 	}
 
-	// Wrap the core with the trace-correlating core so that log entries
-	// emitted inside an active OTel span automatically gain trace_id / span_id
-	// fields. When observability is disabled the wrapper is a pass-through.
-	logger = zap.New(observability.NewTraceCore(logger.Core()), zap.WithCaller(true), zap.AddStacktrace(zapcore.ErrorLevel))
+	logger = logger.WithOptions(zap.AddStacktrace(zapcore.ErrorLevel))
 
 	zap.ReplaceGlobals(logger)
 	return logger

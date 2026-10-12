@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
@@ -55,6 +57,46 @@ func TestLoggingMiddleware(t *testing.T) {
 		}
 		if _, ok := fields["duration"]; !ok {
 			t.Errorf("%s: completion entry has no duration", tc.name)
+		}
+	}
+}
+
+// TestLoggingMiddlewareTraceIDs: behind OTel, the handler's logger and the
+// completion entry both carry the request span's trace_id and span_id. Without
+// a span the fields are absent.
+func TestLoggingMiddlewareTraceIDs(t *testing.T) {
+	t.Parallel()
+	core, logs := observer.New(zap.DebugLevel)
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	handler := middleware.RequestID(middleware.OTel(tp)(middleware.LoggingMiddleware(zap.New(core))(
+		http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			logging.FromContext(r.Context()).Info("inside handler")
+		}))))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
+
+	spans := rec.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 recorded span, got %d", len(spans))
+	}
+	sc := spans[0].SpanContext()
+	entries := logs.All()
+	if len(entries) != 2 {
+		t.Fatalf("expected the handler's entry and the completion entry, got %d", len(entries))
+	}
+	for _, e := range entries {
+		fields := e.ContextMap()
+		if fields["trace_id"] != sc.TraceID().String() || fields["span_id"] != sc.SpanID().String() {
+			t.Errorf("entry %q trace fields = %v/%v, want %s/%s", e.Message, fields["trace_id"], fields["span_id"], sc.TraceID(), sc.SpanID())
+		}
+	}
+
+	noSpanCore, noSpanLogs := observer.New(zap.DebugLevel)
+	middleware.LoggingMiddleware(zap.New(noSpanCore))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).
+		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
+	for _, e := range noSpanLogs.All() {
+		if _, ok := e.ContextMap()["trace_id"]; ok {
+			t.Errorf("entry %q has trace_id without a span", e.Message)
 		}
 	}
 }
