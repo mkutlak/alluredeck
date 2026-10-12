@@ -271,6 +271,9 @@ function buildRequest(
       headers,
       body: serializedBody,
       credentials: 'include',
+      // The API marks GET responses cacheable for minutes. Revalidating on every request
+      // keeps a refetch after a mutation from being answered by the browser HTTP cache.
+      cache: 'no-cache',
     },
   }
 }

@@ -93,6 +93,17 @@ describe('apiClient', () => {
     expect(init.credentials).toBe('include')
   })
 
+  // The API marks GET responses cacheable for minutes; without revalidation a refetch
+  // after a mutation would be answered from the browser HTTP cache.
+  it('GET asks the server to revalidate instead of using the browser HTTP cache', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ ok: true }))
+    const { apiClient } = await getModule()
+
+    await apiClient.get('/test')
+
+    expect(call(0)[1].cache).toBe('no-cache')
+  })
+
   it('POST sends a JSON body', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 1 }))
     const { apiClient } = await getModule()
