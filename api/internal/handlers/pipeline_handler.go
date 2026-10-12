@@ -88,6 +88,93 @@ func (h *PipelineHandler) markAwaitingSuites(ctx context.Context, runs []pipelin
 	}
 }
 
+// markFailureOrigins sets Aggregate.Origins on every run with failing suites:
+// how many of its failing tests are new and how many inherited, for the feed's
+// collapsed row. A run with more failures than the panel lists (over
+// defaultRunFailuresLimit) is left without, as is a run whose failures the
+// store could not list: the feed must not fail over a hint. groupID is the group
+// for runs whose rows carry none.
+func (h *PipelineHandler) markFailureOrigins(ctx context.Context, runs []pipelineRunResp, groupID int64) {
+	// ponytail: one sequential ListRunFailures call per failing run on the page (10 by default, up to maxPerPage), each also running the failed-steps query it does not need; upgrade to one batched counts query per request (unnest of the page's run keys plus LATERAL), the same path markAwaitingSuites notes for ExpectedSuites
+	for i := range runs {
+		// An aborted request would fail every remaining call and log a warning each.
+		if ctx.Err() != nil {
+			return
+		}
+		run := &runs[i]
+		failed := 0
+		for j := range run.Suites {
+			failed += run.Suites[j].Failed
+		}
+		if failed == 0 {
+			continue
+		}
+		group := cmp.Or(run.GroupProjectID, groupID)
+		runKey := cmp.Or(run.PipelineID, run.CommitSHA)
+		rows, err := h.pipelineStore.ListRunFailures(ctx, group, runKey, defaultRunFailuresLimit+1)
+		if err != nil {
+			h.logger.Warn("run failure origins", zap.Int64("group_project_id", group), zap.String("run_key", runKey), zap.Error(err))
+			continue
+		}
+		if len(rows) > defaultRunFailuresLimit {
+			continue
+		}
+		origins := countRunOrigins(rows)
+		run.Aggregate.Origins = &origins
+	}
+}
+
+// countRunOrigins counts a run's failing tests as new or inherited. It mirrors
+// the UI's mergeRunFailures + countOrigins so the feed row and the expanded
+// panel's header agree: copies of one test (same project and full name, or test
+// name when that is empty) fold into one, whose origin is the strongest of the
+// copies (inherited, then new, else unknown) and which is environment if any
+// copy is. An environment failure counts as inherited and also in Environment;
+// a test with no known origin is not reported.
+func countRunOrigins(rows []store.RunFailureRow) pipelineOriginsResp {
+	type testKey struct {
+		projectID int64
+		identity  string
+	}
+	type merged struct {
+		origin      string
+		environment bool
+	}
+	rank := func(origin string) int {
+		switch origin {
+		case store.FailureOriginInherited:
+			return 2
+		case store.FailureOriginNew:
+			return 1
+		}
+		return 0
+	}
+	tests := map[testKey]merged{}
+	for i := range rows {
+		row := &rows[i]
+		key := testKey{row.ProjectID, cmp.Or(row.FullName, row.TestName)}
+		t, seen := tests[key]
+		if !seen || rank(row.Origin) > rank(t.origin) {
+			t.origin = row.Origin
+		}
+		t.environment = t.environment || row.Environment
+		tests[key] = t
+	}
+	var counts pipelineOriginsResp
+	for _, t := range tests {
+		switch {
+		case t.environment:
+			counts.Inherited++
+			counts.Environment++
+		case t.origin == store.FailureOriginNew:
+			counts.New++
+		case t.origin == store.FailureOriginInherited:
+			counts.Inherited++
+		}
+	}
+	return counts
+}
+
 // GetPipelineRuns returns paginated pipeline runs for a parent project,
 // grouped by commit SHA with per-suite and aggregate statistics.
 //
@@ -150,7 +237,7 @@ func (h *PipelineHandler) GetPipelineRuns(w http.ResponseWriter, r *http.Request
 // not scoped to a single parent project.
 //
 //	@Summary      List all pipeline runs
-//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group. While a run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet.
+//	@Description  Returns child-suite builds across every parent project, grouped by commit SHA within each parent's group. While a run's newest upload is under 30 minutes old, `aggregate.awaiting_suites` counts the suites of its previous run that have not uploaded yet. For a run with failures, `aggregate.origins` counts its failing tests as new or inherited (`environment` is the inherited ones caused by the environment), omitted when its failures list would be truncated (more than 500 failing results), and all zero when no failing test has a known origin.
 //	@Tags         pipeline
 //	@Produce      json
 //	@Param        page        query  int     false  "Page number"                            default(1)
@@ -195,6 +282,7 @@ func (h *PipelineHandler) GetAllPipelineRuns(w http.ResponseWriter, r *http.Requ
 		runs = []pipelineRunResp{}
 	}
 	h.markAwaitingSuites(ctx, runs, 0)
+	h.markFailureOrigins(ctx, runs, 0)
 
 	writePagedSuccess(w, runs, "pipeline runs retrieved", newPaginationMeta(pp.Page, pp.PerPage, total))
 }
@@ -469,6 +557,17 @@ type pipelineAggResp struct {
 	PassRate        float64 `json:"pass_rate"`
 	TotalDurationMs int64   `json:"total_duration_ms"`
 	AwaitingSuites  int     `json:"awaiting_suites,omitempty"`
+	// Origins counts the run's failing tests; see countRunOrigins. Only the
+	// runs feed sets it.
+	Origins *pipelineOriginsResp `json:"origins,omitempty"`
+}
+
+// pipelineOriginsResp counts a run's failing tests by where they come from.
+// Environment is a subset of Inherited.
+type pipelineOriginsResp struct {
+	New         int `json:"new"`
+	Inherited   int `json:"inherited"`
+	Environment int `json:"environment"`
 }
 
 // suiteAccum merges every build a single child project contributed to one run.
