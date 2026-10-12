@@ -9,6 +9,8 @@ import (
 	"net/http/pprof"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
@@ -25,7 +27,12 @@ import (
 // auxiliary HTTP server that serves the Prometheus scrape endpoint.
 // Returns the metrics HTTP server so the composite shutdown can close it.
 func newMeterProvider(ctx context.Context, cfg config.ObservabilityConfig, res *resource.Resource, logger *zap.Logger) (*http.Server, error) {
-	promExporter, err := otelprometheus.New()
+	// A registry per call, not the process-wide default, so a second Init does
+	// not register the same series again and break the scrape. The default
+	// registry's Go and process collectors are added back by hand.
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	promExporter, err := otelprometheus.New(otelprometheus.WithRegisterer(reg))
 	if err != nil {
 		return nil, fmt.Errorf("prometheus exporter: %w", err)
 	}
@@ -46,7 +53,7 @@ func newMeterProvider(ctx context.Context, cfg config.ObservabilityConfig, res *
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle(cfg.Metrics.Path, promhttp.Handler())
+	mux.Handle(cfg.Metrics.Path, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 
 	if cfg.Metrics.EnableProfiling {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)

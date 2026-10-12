@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,9 +16,18 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/observability"
 )
 
-// TestInitEnabled serves Prometheus metrics on the configured address until
-// shutdown, which closes the server. Not parallel: it binds a real TCP port.
+// TestInitEnabled initialises twice in one process, as a second test run with
+// -count does, and expects each to serve metrics. Not parallel: it binds a real
+// TCP port.
 func TestInitEnabled(t *testing.T) {
+	for i := range 2 {
+		t.Run(fmt.Sprintf("init %d", i+1), initEnabled)
+	}
+}
+
+// initEnabled serves Prometheus metrics, Go and process series included, on the
+// configured address until shutdown, which closes the server.
+func initEnabled(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("pick a free port: %v", err)
@@ -50,6 +60,11 @@ func TestInitEnabled(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || len(body) == 0 {
 		t.Errorf("GET /metrics: status %d with %d body bytes, want 200 with metrics", resp.StatusCode, len(body))
+	}
+	for _, series := range []string{"go_goroutines", "process_cpu_seconds_total"} {
+		if !strings.Contains(string(body), series) {
+			t.Errorf("GET /metrics has no %s series", series)
+		}
 	}
 
 	if err := shutdown(ctx); err != nil {
