@@ -15,6 +15,7 @@ spec:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/mcp/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/mcp/secret.yaml") . | sha256sum }}
+        checksum/api-secret: {{ include (print $.Template.BasePath "/api/secret.yaml") . | sha256sum }}
       labels:
         {{- include "alluredeck.mcp.labels" . | nindent 8 }}
     spec:
@@ -71,6 +72,19 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: mcpSigningKey
+            {{- /* API keys of the env users carry these names; the MCP server
+                   refuses such a key as inactive unless it knows them too. */}}
+            {{- $apiSecretName := include "alluredeck.api.secretName" . }}
+            - name: ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $apiSecretName }}
+                  key: adminUser
+            - name: VIEWER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $apiSecretName }}
+                  key: viewerUser
             {{- if and (eq .Values.api.config.storageType "s3") .Values.api.s3.existingSecret }}
             - name: S3_ACCESS_KEY
               valueFrom:

@@ -470,6 +470,8 @@ The chart resolves the MCP Secret name using this precedence:
 
 The auto-generated Secret is annotated with `helm.sh/resource-policy: keep` so it survives `helm uninstall`. The signing key is preserved across upgrades via Helm `lookup`.
 
+Whichever Secret that is, MCP reads `adminUser` and `viewerUser` from the API's Secret (`api.security.existingSecret`, or the chart-managed `<release>-api`). API keys created by those env users are stored under those names, and MCP refuses them as inactive unless it knows the names.
+
 **Sharing the API's existing Secret with MCP** (recommended when you already use `api.security.existingSecret`):
 
 Add `mcpSigningKey` to your existing Secret, then enable MCP — no extra configuration needed:
