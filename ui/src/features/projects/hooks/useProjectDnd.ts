@@ -4,7 +4,8 @@ import { setProjectParent, clearProjectParent } from '@/api/projects'
 import { queryKeys } from '@/lib/query-keys'
 
 export interface DndProject {
-  slug: string
+  /** Display name, as formatProjectLabel() gives it */
+  label: string
   projectId: number
   parentId: number | null
   hasChildren: boolean
@@ -71,7 +72,7 @@ export function useProjectDnd(projects: DndProject[]) {
 
       undoRef.current = { projectId: draggedId, previousParentId: dragged.parentId }
       setParent.mutate({ projectId: draggedId, parentId: target.projectId })
-      return { success: true, targetLabel: target.slug }
+      return { success: true, targetLabel: target.label }
     },
     [lookup, setParent, clearParent],
   )

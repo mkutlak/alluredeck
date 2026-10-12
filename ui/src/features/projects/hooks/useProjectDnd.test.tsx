@@ -10,13 +10,13 @@ vi.mock('@/api/projects', () => ({
   clearProjectParent: vi.fn().mockResolvedValue(undefined),
 }))
 
-// Two groups, each holding a child with the same slug: only the ids tell them apart.
+// Two groups, each holding a child with the same name: only the ids tell them apart.
 const projects: DndProject[] = [
-  { slug: 'group-a', projectId: 1, parentId: null, hasChildren: true },
-  { slug: 'group-b', projectId: 2, parentId: null, hasChildren: true },
-  { slug: 'solo', projectId: 3, parentId: null, hasChildren: false },
-  { slug: 'e2e', projectId: 5, parentId: 1, hasChildren: false },
-  { slug: 'e2e', projectId: 9, parentId: 2, hasChildren: false },
+  { label: 'group-a', projectId: 1, parentId: null, hasChildren: true },
+  { label: 'group-b', projectId: 2, parentId: null, hasChildren: true },
+  { label: 'solo', projectId: 3, parentId: null, hasChildren: false },
+  { label: 'e2e', projectId: 5, parentId: 1, hasChildren: false },
+  { label: 'e2e', projectId: 9, parentId: 2, hasChildren: false },
 ]
 
 function renderDnd() {

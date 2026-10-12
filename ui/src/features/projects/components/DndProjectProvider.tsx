@@ -44,7 +44,7 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const draggedId = Number(event.active.id)
-      const draggedSlug = lookup.get(draggedId)?.slug
+      const draggedLabel = lookup.get(draggedId)?.label
       const overId = event.over?.id
 
       setActiveId(null)
@@ -55,7 +55,7 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
         const result = moveProject(draggedId, null)
         if (result.success) {
           toast({
-            title: `Removed ${draggedSlug} from group`,
+            title: `Removed ${draggedLabel} from group`,
             action: (
               <ToastAction altText="Undo" onClick={() => undoLastMove()}>
                 Undo
@@ -71,7 +71,7 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
       const result = moveProject(draggedId, Number(overId))
       if (result.success) {
         toast({
-          title: `Moved ${draggedSlug} → ${result.targetLabel}`,
+          title: `Moved ${draggedLabel} → ${result.targetLabel}`,
           action: (
             <ToastAction altText="Undo" onClick={() => undoLastMove()}>
               Undo
@@ -126,7 +126,7 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
       >
         {children}
         <DragOverlay>
-          {activeProject ? <DragOverlayCard slug={activeProject.slug} /> : null}
+          {activeProject ? <DragOverlayCard label={activeProject.label} /> : null}
         </DragOverlay>
       </DndContext>
     </ProjectDndContext.Provider>

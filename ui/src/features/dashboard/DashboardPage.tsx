@@ -9,6 +9,7 @@ import { useAuthStore, selectIsAdmin } from '@/store/auth'
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
 import type { DndProject } from '@/features/projects/hooks/useProjectDnd'
 import type { DashboardProjectEntry } from '@/types/api'
+import { formatProjectLabel } from '@/lib/projectLabel'
 import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardTable } from './components/DashboardTable'
 import { compareRows } from './components/sort'
@@ -150,7 +151,7 @@ export function DashboardPage() {
     const items: DndProject[] = []
     for (const p of data.projects) {
       items.push({
-        slug: p.slug,
+        label: formatProjectLabel(p, data.projects),
         projectId: p.project_id,
         parentId: null, // top-level entries in dashboard
         hasChildren: !!(p.is_group && p.children?.length),
@@ -158,7 +159,7 @@ export function DashboardPage() {
       if (p.children) {
         for (const child of p.children) {
           items.push({
-            slug: child.slug,
+            label: formatProjectLabel(child, data.projects),
             projectId: child.project_id,
             parentId: p.project_id,
             hasChildren: false,

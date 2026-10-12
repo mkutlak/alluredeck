@@ -200,11 +200,15 @@ describe('DashboardPage', () => {
       await user.click(await screen.findByRole('menuitem', { name: item }))
     }
 
-    it('deletes the clicked child by numeric id', async () => {
+    it('deletes the clicked child by numeric id once its full label is typed', async () => {
       const user = userEvent.setup()
       await openActions(user, /delete project/i)
 
-      await user.type(await screen.findByLabelText(/to confirm/i), 'e2e')
+      const confirm = await screen.findByLabelText(/to confirm/i)
+      await user.type(confirm, 'e2e')
+      expect(screen.getByRole('button', { name: 'Delete project' })).toBeDisabled()
+      await user.clear(confirm)
+      await user.type(confirm, 'group-b/e2e')
       await user.click(screen.getByRole('button', { name: 'Delete project' }))
 
       await waitFor(() => expect(projectsApi.deleteProject).toHaveBeenCalledWith('9'))

@@ -53,6 +53,7 @@ export function DashboardProjectRow({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const rate = getPassRate(project)
   const type = getProjectType(project)
+  const label = formatProjectLabel(project, allProjects)
 
   const { isProjectDraggable, isProjectDropTarget } = useProjectDndContext()
 
@@ -126,7 +127,7 @@ export function DashboardProjectRow({
                   className="hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {formatProjectLabel(project, allProjects)}
+                  {label}
                 </NavLink>
                 {project.display_name && project.display_name !== project.slug && (
                   <span className="text-muted-foreground text-xs">{project.slug.split('--')[0]}</span>
@@ -208,7 +209,7 @@ export function DashboardProjectRow({
       {cleanMode && (
         <CleanDialog
           projectId={String(project.project_id)}
-          label={project.slug}
+          label={label}
           mode={cleanMode}
           open={!!cleanMode}
           onOpenChange={(o) => {
@@ -220,7 +221,7 @@ export function DashboardProjectRow({
       {renameOpen && (
         <RenameProjectDialog
           projectId={String(project.project_id)}
-          label={project.slug}
+          label={label}
           numericId={project.project_id}
           open={renameOpen}
           onOpenChange={setRenameOpen}
@@ -229,7 +230,7 @@ export function DashboardProjectRow({
       {moveOpen && (
         <SetParentDialog
           projectId={String(project.project_id)}
-          label={project.slug}
+          label={label}
           open={moveOpen}
           onOpenChange={setMoveOpen}
         />
@@ -237,7 +238,7 @@ export function DashboardProjectRow({
       {deleteOpen && (
         <DeleteProjectDialog
           projectId={String(project.project_id)}
-          label={project.slug}
+          label={label}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
         />
