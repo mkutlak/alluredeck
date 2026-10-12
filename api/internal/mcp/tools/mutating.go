@@ -221,7 +221,7 @@ func extraInt64(raw any) int64 {
 // writing without a real user produces an opaque 23503 from PostgreSQL. This
 // turns that into a message that says what is wrong and how to fix it.
 //
-// It affects API keys owned by an env-config user (ADMIN_USERNAME and friends),
+// It affects API keys owned by an env-config user (ADMIN_USER or VIEWER_USER),
 // which exist only in configuration and have no users row to reference.
 func requireProposer(p proposer) error {
 	if p.UserID == 0 {

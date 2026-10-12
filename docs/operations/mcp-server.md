@@ -59,6 +59,8 @@ MCP_STATELESS=true          # 2026-07-28 stateless transport (default)
 MCP_TOOL_COSTS=""           # per-tool rate-limit pricing override
 ```
 
+Set `ADMIN_USER` and `VIEWER_USER` to the same values as on **cmd/api**. API keys created by those env users are stored under their names, and the MCP server refuses such a key as `account inactive` unless it knows the names. The Helm chart and the compose files pass the API's values.
+
 `EXTERNAL_URL` is required whenever `ENABLE_MCP_SERVER=true` — the server signs absolute attachment download URLs and builds proposal review links from it. The Helm chart derives it automatically (see `alluredeck.externalURL`).
 
 On the **cmd/api** deployment (exposes the admin proposals route):
@@ -166,8 +168,8 @@ account that can actually authenticate — a `users` row alone is not enough,
 because the key is minted from that account's session.
 
 > **Keys owned by config-file users cannot propose.** If you sign in with
-> `ADMIN_USERNAME`/`VIEWER_USER` from the environment rather than with a
-> registered account, keys you create are owned by a literal such as `admin`,
+> `ADMIN_USER`/`VIEWER_USER` from the environment rather than with a
+> registered account, keys you create are owned by that name, such as `admin`,
 > which has no `users` row. Read-only tools work; the `propose_*` tools refuse
 > with an explanation, because a proposal has to reference a real user. Use a
 > registered account for anything that writes.
@@ -367,12 +369,13 @@ ORDER BY latest DESC;
 |---------|-------|-----|
 | 401 Unauthorized on every MCP call | Bearer token invalid or expired | Check `api_keys.last_used` in Postgres; re-issue token if needed |
 | 403 Forbidden with "origin not allowed" | Client's Origin header not in `MCP_ALLOWED_ORIGINS` | Update `MCP_ALLOWED_ORIGINS` env var; comma-separated list |
+| "account inactive" on MCP for a key the REST API accepts | The key belongs to an env-config user, and `ADMIN_USER`/`VIEWER_USER` are unset or different on cmd/mcp | Give cmd/mcp the same `ADMIN_USER` and `VIEWER_USER` as cmd/api |
 | Missing-Origin requests blocked (non-browser clients) | Feature disabled | Leave `MCP_ALLOWED_ORIGINS` empty to allow missing-Origin requests |
 | 429 Too Many Requests on every call | Per-API-key rate limit exceeded | Increase `MCP_RATE_LIMIT_PER_MIN` or contact admin to raise burst quota |
 | 429 only on `diagnose_failure` / `diagnose_pipeline` / `get_attachment` / `get_test_history` | Expensive tools cost more than one request each (defaults: `diagnose_pipeline=8`, `diagnose_failure=5`, `get_attachment=3`, `list_proposals=2`) | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
 | `propose_*` returns a prompt instead of a proposal | Working as intended — the client supports confirmations | Accept the prompt; the proposal is created on the retry leg |
 | "confirmation state rejected" on a `propose_*` retry | `MCP_SIGNING_KEY` changed, or the 10-minute window elapsed | Re-run the tool; the user will be asked again |
-| `propose_*` refuses with "owned by a configuration-file user" | The key was created while signed in as an env-config user (`ADMIN_USERNAME` etc.), which has no `users` row to attribute the proposal to | Re-issue the key while signed in as a registered account — see [Using a dedicated bot account](#using-a-dedicated-bot-account) |
+| `propose_*` refuses with "owned by a configuration-file user" | The key was created while signed in as an env-config user (`ADMIN_USER` or `VIEWER_USER`), which has no `users` row to attribute the proposal to | Re-issue the key while signed in as a registered account — see [Using a dedicated bot account](#using-a-dedicated-bot-account) |
 | Session errors after scaling to >1 replica | `MCP_STATELESS=false` with multiple replicas | Set `MCP_STATELESS=true`, or return `mcp.replicaCount` to 1 |
 | Tool returns "history_id required" | Client passed empty `history_id` parameter | history_id is mandatory due to a partial-index caveat in migration 0015; do not omit |
 | Attachment fetch returns a signed URL | Binary attachment >2MB | This is expected behavior; follow the signed URL within 10 minutes |
