@@ -39,14 +39,13 @@ func countingUsers(active bool, err error, delay time.Duration) (*testutil.MockU
 }
 
 // TestUserActiveCache_Lookup calls one entry point twice per row and counts
-// the store lookups. Env literals never reach the store; numeric values go by
-// ID and are cached, including a not-found negative; store errors are not
-// cached. By email, not-found is an error rather than "inactive" — the auth
-// middleware fails open on it (fix 927ef9e).
+// the store lookups. Configured env users never reach the store; numeric values
+// go by ID and are cached, including a not-found negative; store errors are
+// not cached. An API key whose email owner is not found is inactive, as a
+// missing numeric owner is; only a failing store is an error.
 func TestUserActiveCache_Lookup(t *testing.T) {
 	t.Parallel()
 	byID := (*UserActiveCache).IsActive
-	byEmail := (*UserActiveCache).IsActiveByEmail
 	byKey := (*UserActiveCache).IsActiveByAPIKeyUsername
 	boom := errors.New("db boom")
 	tests := []struct {
@@ -63,17 +62,18 @@ func TestUserActiveCache_Lookup(t *testing.T) {
 		{"deactivated user is cached", byID, "42", false, nil, false, nil, 1, 0},
 		{"unknown ID caches a negative", byID, "999", true, store.ErrUserNotFound, false, nil, 1, 0},
 		{"store errors propagate uncached", byID, "5", true, boom, false, boom, 2, 0},
-		{"unknown email is an error", byEmail, "nope@nowhere", true, store.ErrUserNotFound, false, store.ErrUserNotFound, 0, 2},
 		{"API key of env admin", byKey, "admin", false, nil, true, nil, 0, 0},
-		{"API key of env editor", byKey, "editor", false, nil, true, nil, 0, 0},
-		{"API key of env viewer", byKey, "viewer", false, nil, true, nil, 0, 0},
+		{"API key of a custom env user", byKey, "ops", false, nil, true, nil, 0, 0},
+		{"API key of an unconfigured literal goes by email", byKey, "editor", false, nil, false, nil, 0, 2},
+		{"API key of an empty username is no env user", byKey, "", false, store.ErrUserNotFound, false, nil, 0, 2},
 		{"API key of a numeric username goes by ID", byKey, "1", true, nil, true, nil, 1, 0},
 		{"API key of an email username goes by email", byKey, "x@y.z", true, nil, true, nil, 0, 2},
-		{"API key of an unknown email is an error", byKey, "nope@nowhere", true, store.ErrUserNotFound, false, store.ErrUserNotFound, 0, 2},
+		{"API key of an unknown email is inactive", byKey, "nope@nowhere", true, store.ErrUserNotFound, false, nil, 0, 2},
+		{"API key lookup failure is an error", byKey, "x@y.z", true, boom, false, boom, 0, 2},
 	}
 	for _, tc := range tests {
 		users, n := countingUsers(tc.active, tc.storeErr, 0)
-		c := NewUserActiveCache(users, time.Minute, 10)
+		c := NewUserActiveCache(users, time.Minute, 10, "admin", "ops", "")
 		for range 2 {
 			got, err := tc.lookup(c, context.Background(), tc.arg)
 			if got != tc.want || !errors.Is(err, tc.wantErr) {
@@ -169,14 +169,14 @@ func TestUserActiveCache_SizeBoundEvicts(t *testing.T) {
 	}
 }
 
-// TestUserActiveCache_ByEmailMergesWithByID: an email lookup warms the entry
+// TestUserActiveCache_ByEmailMergesWithByID: an API-key email lookup warms the entry
 // keyed by user ID, so a following IsActive for that ID is a cache hit.
 func TestUserActiveCache_ByEmailMergesWithByID(t *testing.T) {
 	t.Parallel()
 	users, n := countingUsers(true, nil, 0)
 	c := NewUserActiveCache(users, time.Hour, 10)
 
-	if ok, err := c.IsActiveByEmail(context.Background(), "u@x"); err != nil || !ok {
+	if ok, err := c.IsActiveByAPIKeyUsername(context.Background(), "u@x"); err != nil || !ok {
 		t.Fatalf("by-email: ok=%v err=%v", ok, err)
 	}
 	if ok, err := c.IsActive(context.Background(), "42"); err != nil || !ok {

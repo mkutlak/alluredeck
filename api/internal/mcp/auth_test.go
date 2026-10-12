@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,5 +128,83 @@ func TestVerifyJWT(t *testing.T) {
 				t.Errorf("Expiration = %v, want the exp claim %v", info.Expiration, exp.Time)
 			}
 		})
+	}
+}
+
+// TestVerifyAPIKey_Owner: a key whose owner has no users row (the email was
+// changed, or the row is gone) is refused as inactive, like a deactivated
+// one. A configured env user needs no users row and resolves to user_db_id 0.
+func TestVerifyAPIKey_Owner(t *testing.T) {
+	t.Parallel()
+	users := testutil.NewMemUserStore()
+	if _, err := users.UpsertByOIDC(context.Background(), "oidc", "sub-1", "active@example.com", "A", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, username, wantErr string
+		wantDBID                int64
+	}{
+		{"owner with a users row", "active@example.com", "", 1},
+		{"unknown email is refused", "old-address@example.com", "account inactive", 0},
+		{"configured env user", "ops", "", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			keys := &testutil.MockAPIKeyStore{GetByHashFn: func(context.Context, string) (*store.APIKey, error) {
+				return &store.APIKey{ID: 1, Username: tc.username, Role: "viewer"}, nil
+			}}
+			cache := middleware.NewUserActiveCache(users, time.Minute, 0, "ops")
+
+			info, err := NewVerifier(keys, nil, cache, zap.NewNop()).verifyAPIKey(context.Background(), security.APIKeyPrefix+"dummyhash")
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("verifyAPIKey: %v", err)
+			}
+			if got := info.Extra["user_db_id"]; got != tc.wantDBID {
+				t.Errorf("user_db_id = %v, want %d", got, tc.wantDBID)
+			}
+		})
+	}
+}
+
+// TestVerify_RecheckFailure: when the is_active recheck itself fails, neither
+// an API key nor a JWT is accepted, and the store's error text stays out of
+// the message the client sees.
+func TestVerify_RecheckFailure(t *testing.T) {
+	t.Parallel()
+	jwtMgr := security.NewJWTManager(&config.Config{
+		JWTSecret:          "test-secret-key",
+		AccessTokenExpiry:  config.DurationSeconds(15 * time.Minute),
+		RefreshTokenExpiry: config.DurationSeconds(30 * 24 * time.Hour),
+	}, testutil.NewMemBlacklist(), zap.NewNop())
+	token, _, err := jwtMgr.GenerateTokens("7", "viewer", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("connection refused to db.internal:5432")
+	cache := middleware.NewUserActiveCache(&testutil.MockUserStore{
+		GetByIDFn:    func(context.Context, int64) (*store.User, error) { return nil, boom },
+		GetByEmailFn: func(context.Context, string) (*store.User, error) { return nil, boom },
+	}, time.Minute, 0)
+	keys := &testutil.MockAPIKeyStore{GetByHashFn: func(context.Context, string) (*store.APIKey, error) {
+		return &store.APIKey{ID: 1, Username: "user@example.com", Role: "viewer"}, nil
+	}}
+	v := NewVerifier(keys, jwtMgr, cache, zap.NewNop())
+
+	for name, tok := range map[string]string{"API key": security.APIKeyPrefix + "dummyhash", "JWT": token} {
+		info, err := v.Verify(context.Background(), tok, nil)
+		if err == nil || info != nil {
+			t.Errorf("%s: got (%v, %v), want an error", name, info, err)
+			continue
+		}
+		if strings.Contains(err.Error(), "db.internal") {
+			t.Errorf("%s: error leaks the store failure: %v", name, err)
+		}
 	}
 }

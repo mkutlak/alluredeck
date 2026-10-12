@@ -37,6 +37,7 @@ type UserActiveCache struct {
 	ttl        time.Duration
 	maxEntries int
 	nowFn      func() time.Time
+	envUsers   map[string]bool // configured env-user names: no users row, always active
 
 	mu      sync.RWMutex
 	entries map[string]userActiveEntry // keyed by stringified user.ID or oidcKey(email)
@@ -61,19 +62,28 @@ type sfCall struct {
 }
 
 // NewUserActiveCache returns an initialised UserActiveCache. ttl<=0 falls back
-// to 30s; maxEntries<=0 falls back to 10000.
-func NewUserActiveCache(s store.UserStorer, ttl time.Duration, maxEntries int) *UserActiveCache {
+// to 30s; maxEntries<=0 falls back to 10000. envUsers are the usernames of the
+// env-configured users (ADMIN_USER, VIEWER_USER): they have no users row, so an
+// API key held by one is always active. Empty names are ignored.
+func NewUserActiveCache(s store.UserStorer, ttl time.Duration, maxEntries int, envUsers ...string) *UserActiveCache {
 	if ttl <= 0 {
 		ttl = 30 * time.Second
 	}
 	if maxEntries <= 0 {
 		maxEntries = 10000
 	}
+	names := make(map[string]bool, len(envUsers))
+	for _, name := range envUsers {
+		if name != "" {
+			names[name] = true
+		}
+	}
 	return &UserActiveCache{
 		store:      s,
 		ttl:        ttl,
 		maxEntries: maxEntries,
 		nowFn:      time.Now,
+		envUsers:   names,
 		entries:    make(map[string]userActiveEntry),
 		flights:    make(map[string]*sfCall),
 	}
@@ -113,42 +123,10 @@ func (c *UserActiveCache) IsActiveForToken(ctx context.Context, sub, provider st
 // keeps it apart from the numeric-ID keys.
 func oidcKey(email string) string { return "oidc:" + strings.ToLower(email) }
 
-// IsActiveByEmail mirrors IsActive but resolves the lookup via GetByEmail.
-// Used by the API-key auth path where the JWT-sub indirection is absent.
-// Cached by stringified user ID so subsequent IsActive(sub=user.ID) hits the
-// same entry.
-//
-// Unlike the old behaviour, ErrUserNotFound is now surfaced as an error
-// (wrapped, so callers can use errors.Is). The auth middleware treats this as
-// a data-inconsistency signal and fails open with a warning log — it must NOT
-// be treated as "user is inactive".
-func (c *UserActiveCache) IsActiveByEmail(ctx context.Context, email string) (bool, error) {
-	u, err := c.store.GetByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, store.ErrUserNotFound) {
-			// Surface as error so callers can distinguish "not found" from
-			// "found but deactivated". Do not cache — no stable key exists.
-			return false, fmt.Errorf("user_active_cache: get by email: %w", err)
-		}
-		return false, fmt.Errorf("user_active_cache: get by email: %w", err)
-	}
-	key := strconv.FormatInt(u.ID, 10)
-	c.storeEntry(key, u.IsActive)
-	return u.IsActive, nil
-}
-
-// envUsers is the set of environment-config user literals that have no users
-// row and are always considered active.
-var envUsers = map[string]bool{
-	"admin":  true,
-	"editor": true,
-	"viewer": true,
-}
-
 // APIKeyIdentity is the users row behind an API key.
 //
-// UserID is 0 when the key belongs to an env-config user ("admin", "editor",
-// "viewer"), which has no users row at all. Callers that need to write a
+// UserID is 0 when the key belongs to an env-config user (ADMIN_USER or
+// VIEWER_USER), which has no users row at all. Callers that need to write a
 // users(id) foreign key must treat 0 as "no such user" rather than as an ID.
 type APIKeyIdentity struct {
 	UserID   int64
@@ -157,12 +135,17 @@ type APIKeyIdentity struct {
 
 // ResolveAPIKeyUsername resolves an api_keys.username value to the owning user,
 // regardless of the value's historical shape:
-//   - env-user literal ("admin", "editor", "viewer") → {UserID: 0, IsActive: true};
-//     these have no users row and are always active.
+//   - a configured env-user name → {UserID: 0, IsActive: true}; these have no
+//     users row and are always active.
 //   - numeric string (legacy DB-user ID stored at creation time) → looks up by
 //     users.id.
 //   - anything else (email address, the correct post-Phase-2 shape) → looks up
 //     by email.
+//
+// A key whose owner no longer exists — an OIDC email change leaves the old
+// address behind — resolves to {IsActive: false}, like a deactivated owner,
+// and is not an error. Only a failing store is an error, and callers must not
+// let the key through on one.
 //
 // It exists because api_keys.user_id, though present in the schema since
 // migration 0020, is never written by APIKeyStore.Create and so is NULL on
@@ -170,7 +153,7 @@ type APIKeyIdentity struct {
 // is the same lookup the is_active recheck already performs — callers get the
 // ID for free rather than paying a second query.
 func (c *UserActiveCache) ResolveAPIKeyUsername(ctx context.Context, username string) (APIKeyIdentity, error) {
-	if envUsers[username] {
+	if c.envUsers[username] {
 		return APIKeyIdentity{UserID: 0, IsActive: true}, nil
 	}
 	if id, err := strconv.ParseInt(username, 10, 64); err == nil {
@@ -180,8 +163,10 @@ func (c *UserActiveCache) ResolveAPIKeyUsername(ctx context.Context, username st
 
 	u, err := c.store.GetByEmail(ctx, username)
 	if err != nil {
-		// Surface not-found as an error so callers can distinguish "no such
-		// user" from "found but deactivated". Do not cache — no stable key.
+		if errors.Is(err, store.ErrUserNotFound) {
+			// Do not cache — no stable key.
+			return APIKeyIdentity{}, nil
+		}
 		return APIKeyIdentity{}, fmt.Errorf("user_active_cache: get by email: %w", err)
 	}
 	c.storeEntry(strconv.FormatInt(u.ID, 10), u.IsActive)
@@ -256,8 +241,8 @@ func (c *UserActiveCache) lookup(key string, get func() (*store.User, error)) (b
 // Behaviour:
 //   - ErrUserNotFound → cache (false, nil) so we don't spam the DB for
 //     deleted/never-existed users.
-//   - any other error → propagate, do NOT cache (caller decides; auth
-//     middleware fails open on transient DB error).
+//   - any other error → propagate, do NOT cache (the auth middleware
+//     answers 503 on a transient DB error).
 func (c *UserActiveCache) load(key string, get func() (*store.User, error)) (bool, error) {
 	u, err := get()
 	if err != nil {

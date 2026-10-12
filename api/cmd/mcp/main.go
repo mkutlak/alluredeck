@@ -65,7 +65,7 @@ func main() {
 	jwtManager := bootstrap.InitJWTManager(cfg, stores.Blacklist, logger)
 
 	// Per-request is_active recheck cache (F-3). 30s TTL, 10k entries.
-	userActiveCache := middleware.NewUserActiveCache(stores.User, 30*time.Second, 10000)
+	userActiveCache := middleware.NewUserActiveCache(stores.User, 30*time.Second, 10000, cfg.AdminUser, cfg.ViewerUser)
 
 	// Parse allowed origins from config.
 	allowedOrigins := mcp.ParseAllowedOrigins(cfg.MCPAllowedOrigins)

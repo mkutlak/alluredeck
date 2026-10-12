@@ -144,7 +144,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the username stored on the key. For DB-backed users the JWT sub
 	// is a numeric user ID string; store the user's email instead so F-3 can
-	// look it up via IsActiveByEmail. For env users (non-numeric sub) keep the
+	// look it up by email. For env users (non-numeric sub) keep the
 	// literal as-is — IsActiveByAPIKeyUsername handles those at runtime. The
 	// per-user limit counts under the same resolved name.
 	keyUsername, err := h.resolveKeyUsername(ctx, username)

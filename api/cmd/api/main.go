@@ -220,7 +220,7 @@ func main() {
 	// is the residual exposure window after a deactivation if explicit revoke
 	// was missed; 10k entries comfortably holds typical working sets. The auth
 	// middleware reads it; the user handler invalidates entries on (de)activation.
-	userActiveCache := middleware.NewUserActiveCache(s.user, 30*time.Second, 10000)
+	userActiveCache := middleware.NewUserActiveCache(s.user, 30*time.Second, 10000, cfg.AdminUser, cfg.ViewerUser)
 
 	h := wireHandlers(cfg, s, sqlDB, dataStore, allureCore, jobManager, jwtManager, accountThrottler, userActiveCache, pgDB.Pool(), bootstrapReady, logger)
 

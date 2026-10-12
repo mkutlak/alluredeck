@@ -20,6 +20,10 @@ type contextKey string
 // ClaimsKey is the context key used to store JWT claims for downstream handlers
 const ClaimsKey contextKey = "jwt_claims"
 
+// errRecheckUnavailable is the 503 message sent when the is_active recheck
+// cannot reach the database.
+const errRecheckUnavailable = "Unable to verify account status"
+
 // AuthMiddleware protects routes using the JWT manager.
 // When security is disabled, the request passes through without validation.
 // On success, the parsed JWT claims are stored in the request context under ClaimsKey.
@@ -74,20 +78,20 @@ func AuthMiddleware(
 					return
 				}
 				// F-3: re-check that the API key's owning user is still active.
-				// Dispatch by username shape (env literal / numeric ID / email)
-				// so all historical api_keys.username values are handled. On
-				// transient DB error or ErrUserNotFound (data inconsistency)
-				// we fail open and log a warning — the explicit revocation in
-				// F-2 is the primary control, and we do not want a blip or
-				// a stale row to block legitimate API-key clients.
+				// Dispatch by username shape (env user / numeric ID / email)
+				// so all historical api_keys.username values are handled. An
+				// owner that cannot be found (deleted, or an OIDC email change
+				// left the old address on the key) counts as inactive. A
+				// failing DB fails closed: 503, never a pass.
 				if userActiveCache != nil {
 					active, recheckErr := userActiveCache.IsActiveByAPIKeyUsername(r.Context(), apiKey.Username)
 					if recheckErr != nil {
 						logging.FromContext(r.Context()).Warn("auth: api key user active recheck failed",
 							zap.String("username", apiKey.Username), zap.Error(recheckErr))
-						// Fail open: data-inconsistency / transient DB error is
-						// not an authn signal; let the request through.
-					} else if !active {
+						writeMiddlewareError(w, http.StatusServiceUnavailable, errRecheckUnavailable)
+						return
+					}
+					if !active {
 						writeMiddlewareError(w, http.StatusUnauthorized, "Account inactive")
 						return
 					}
@@ -132,7 +136,10 @@ func AuthMiddleware(
 				if recheckErr != nil {
 					logging.FromContext(r.Context()).Warn("auth: user active recheck failed",
 						zap.String("sub", sub), zap.Error(recheckErr))
-				} else if !active {
+					writeMiddlewareError(w, http.StatusServiceUnavailable, errRecheckUnavailable)
+					return
+				}
+				if !active {
 					writeMiddlewareError(w, http.StatusUnauthorized, "Account inactive")
 					return
 				}

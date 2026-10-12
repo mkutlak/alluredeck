@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,6 +16,11 @@ import (
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 )
+
+// errRecheckUnavailable is what Verify returns when the is_active recheck
+// cannot reach the database. The SDK sends the error text to the client, so it
+// carries no store detail.
+var errRecheckUnavailable = errors.New("unable to verify account status")
 
 // Verifier implements MCP bearer-token verification.
 // It supports two token types:
@@ -74,9 +80,9 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 	// write to proposals.proposer_user_id; api_keys.user_id cannot supply it,
 	// because APIKeyStore.Create never populates that column.
 	//
-	// userDBID stays 0 when the owner cannot be resolved — an env-config user
-	// with no users row, or a transient lookup failure. Authentication still
-	// succeeds; only the write tools care, and they report it themselves.
+	// userDBID stays 0 for an env-config user, which has no users row. An
+	// owner that cannot be found is inactive, and a failing lookup refuses the
+	// key: neither lets it through.
 	var userDBID int64
 	if v.userActiveCache != nil {
 		identity, recheckErr := v.userActiveCache.ResolveAPIKeyUsername(ctx, apiKey.Username)
@@ -84,7 +90,7 @@ func (v *Verifier) verifyAPIKey(ctx context.Context, token string) (*mcpauth.Tok
 		case recheckErr != nil:
 			v.logger.Warn("mcp auth: api key user active recheck failed",
 				zap.String("username", apiKey.Username), zap.Error(recheckErr))
-			// Fail open: transient DB error is not an authn signal.
+			return nil, errRecheckUnavailable
 		case !identity.IsActive:
 			return nil, fmt.Errorf("account inactive")
 		default:
@@ -150,7 +156,9 @@ func (v *Verifier) verifyJWT(ctx context.Context, token string) (*mcpauth.TokenI
 		if recheckErr != nil {
 			v.logger.Warn("mcp auth: user active recheck failed",
 				zap.String("sub", sub), zap.Error(recheckErr))
-		} else if !active {
+			return nil, errRecheckUnavailable
+		}
+		if !active {
 			return nil, fmt.Errorf("account inactive")
 		}
 	}

@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,8 +34,10 @@ func okHandler(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.Stat
 // their hash, and the F-3 is_active recheck, which dispatches on the API key's
 // username shape (env literal, numeric user ID, email), rejects a deactivated
 // user's JWT (an OIDC one by its email sub) or API key with 401 "Account
-// inactive" (fix 9ccee8e relies on it), and fails open when the user row is
-// missing (fix 927ef9e). Rejections never leak token details (REVIEW #7).
+// inactive" (fix 9ccee8e relies on it) and also when the key's owner cannot be
+// found, and answers 503 when the recheck itself fails. A configured env user
+// needs no users row and no store call. Rejections never leak token details
+// (REVIEW #7).
 func TestAuthMiddleware(t *testing.T) {
 	cfg := testAuthConfig()
 	jwtMgr := security.NewJWTManager(cfg, testutil.NewMemBlacklist(), zap.NewNop())
@@ -60,7 +63,23 @@ func TestAuthMiddleware(t *testing.T) {
 	if err := users.Deactivate(context.Background(), 3); err != nil {
 		t.Fatal(err)
 	}
-	cache := NewUserActiveCache(users, time.Second, 10)
+	cache := NewUserActiveCache(users, time.Second, 10, "admin", "ops")
+	boom := errors.New("db boom")
+	failing := NewUserActiveCache(&testutil.MockUserStore{
+		GetByIDFn:    func(context.Context, int64) (*store.User, error) { return nil, boom },
+		GetByEmailFn: func(context.Context, string) (*store.User, error) { return nil, boom },
+	}, time.Second, 10, "ops")
+	// An env user needs no users row, so any store call here is a bug.
+	noStore := NewUserActiveCache(&testutil.MockUserStore{
+		GetByIDFn: func(context.Context, int64) (*store.User, error) {
+			t.Error("env user must not reach the store")
+			return nil, boom
+		},
+		GetByEmailFn: func(context.Context, string) (*store.User, error) {
+			t.Error("env user must not reach the store")
+			return nil, boom
+		},
+	}, time.Second, 10, "ops")
 	inactive, _, err := jwtMgr.GenerateTokens("3", "viewer")
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +119,10 @@ func TestAuthMiddleware(t *testing.T) {
 		{name: "API key of a legacy env username", header: "Bearer " + apiKey, key: keyOf("admin", &future), cache: cache, wantCode: http.StatusOK, wantSub: "admin"},
 		{name: "API key of an active numeric username", header: "Bearer " + apiKey, key: keyOf("1", &future), cache: cache, wantCode: http.StatusOK, wantSub: "1"},
 		{name: "API key of an active email username", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: cache, wantCode: http.StatusOK, wantSub: "x@y.z"},
-		{name: "API key of an unknown email fails open", header: "Bearer " + apiKey, key: keyOf("nope@nowhere", &future), cache: cache, wantCode: http.StatusOK, wantSub: "nope@nowhere"},
+		{name: "API key of a configured env user needs no store call", header: "Bearer " + apiKey, key: keyOf("ops", &future), cache: noStore, wantCode: http.StatusOK, wantSub: "ops"},
+		{name: "API key of an unknown email is rejected", header: "Bearer " + apiKey, key: keyOf("nope@nowhere", &future), cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
+		{name: "API key whose recheck fails gets 503", header: "Bearer " + apiKey, key: keyOf("x@y.z", &future), cache: failing, wantCode: http.StatusServiceUnavailable, wantMsg: "Unable to verify account status"},
+		{name: "JWT whose recheck fails gets 503", header: "Bearer " + inactive, cache: failing, wantCode: http.StatusServiceUnavailable, wantMsg: "Unable to verify account status"},
 		{name: "JWT of an inactive user", header: "Bearer " + inactive, cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
 		{name: "OIDC JWT of an inactive user", header: "Bearer " + inactiveOIDC, cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
 		{name: "API key of an inactive user", header: "Bearer " + apiKey, key: keyOf("3", &future), cache: cache, wantCode: http.StatusUnauthorized, wantMsg: "Account inactive"},
