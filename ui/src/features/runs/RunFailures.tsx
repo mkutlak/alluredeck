@@ -22,7 +22,7 @@ import {
   type FailureGroup,
 } from './groupFailures'
 import { mergeRunFailures } from './mergeRunFailures'
-import { failingBuildIds } from './rowFormat'
+import { canSayNoneNew, failingBuildIds } from './rowFormat'
 import { runKeyOf } from './runKey'
 import type { MergedFailure } from './mergeRunFailures'
 import type { PipelineRun } from '@/types/api'
@@ -175,8 +175,12 @@ export function RunFailures({
   const truncated = data?.metadata.truncated === true
   // Only where the failures came from: the collapsed row and its chips already say how many
   // tests failed in how many suites. Unknown origins are counted too, so "2 new" never
-  // reads as the whole answer when it is not.
-  const origins = originParts(countOrigins(failures), truncated ? failures.length : undefined)
+  // reads as the whole answer when it is not. "none new" is withheld as the row and the
+  // run page withhold it: while a suite is awaited or one failed with no test listed.
+  const origins = originParts(
+    countOrigins(failures),
+    truncated ? failures.length : undefined,
+  ).filter((part) => part !== 'none new' || canSayNoneNew(run))
 
   return (
     <div
