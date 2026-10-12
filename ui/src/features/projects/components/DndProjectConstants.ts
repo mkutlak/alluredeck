@@ -3,17 +3,15 @@ import type { DndProject } from '../hooks/useProjectDnd'
 
 export interface ProjectDndContextValue {
   isDragging: boolean
-  activeSlug: string | null
-  overSlug: string | null
-  getProject: (slug: string) => DndProject | undefined
-  isProjectDraggable: (slug: string) => boolean
-  isProjectDropTarget: (slug: string) => boolean
+  activeId: number | null
+  getProject: (projectId: number) => DndProject | undefined
+  isProjectDraggable: (projectId: number) => boolean
+  isProjectDropTarget: (projectId: number) => boolean
 }
 
 export const ProjectDndContext = createContext<ProjectDndContextValue>({
   isDragging: false,
-  activeSlug: null,
-  overSlug: null,
+  activeId: null,
   getProject: () => undefined,
   isProjectDraggable: () => false,
   isProjectDropTarget: () => false,

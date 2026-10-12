@@ -23,11 +23,13 @@ import {
 
 interface Props {
   projectId: string
+  /** Name shown in the dialog; the id alone is not meaningful to a reader. */
+  label?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function SetParentDialog({ projectId, open, onOpenChange }: Props) {
+export function SetParentDialog({ projectId, label = projectId, open, onOpenChange }: Props) {
   const [selectedParent, setSelectedParent] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const qc = useQueryClient()
@@ -56,7 +58,7 @@ export function SetParentDialog({ projectId, open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Move to group</DialogTitle>
           <DialogDescription>
-            Move <span className="font-mono font-semibold">{projectId}</span> into a parent project
+            Move <span className="font-mono font-semibold">{label}</span> into a parent project
             group.
           </DialogDescription>
         </DialogHeader>

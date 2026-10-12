@@ -4,10 +4,10 @@ import { cn } from '@/lib/utils'
 import { useProjectDndContext } from './DndProjectConstants'
 
 export function NoGroupDropZone() {
-  const { isDragging, activeSlug, getProject } = useProjectDndContext()
+  const { isDragging, activeId, getProject } = useProjectDndContext()
   const { setNodeRef, isOver } = useDroppable({ id: 'no-group' })
 
-  const activeProject = activeSlug ? getProject(activeSlug) : undefined
+  const activeProject = activeId != null ? getProject(activeId) : undefined
   const shouldShow = isDragging && activeProject?.parentId != null
 
   if (!shouldShow) return null

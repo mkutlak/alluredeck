@@ -8,7 +8,6 @@ import {
   useSensors,
   pointerWithin,
   type DragStartEvent,
-  type DragOverEvent,
   type DragEndEvent,
 } from '@dnd-kit/core'
 import {
@@ -29,8 +28,7 @@ interface DndProjectProviderProps {
 }
 
 export function DndProjectProvider({ projects, children }: DndProjectProviderProps) {
-  const [activeSlug, setActiveSlug] = useState<string | null>(null)
-  const [overSlug, setOverSlug] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<number | null>(null)
   const { moveProject, undoLastMove, lookup } = useProjectDnd(projects)
 
   const pointerSensor = useSensor(PointerSensor, {
@@ -40,25 +38,21 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
   const sensors = useSensors(pointerSensor, keyboardSensor)
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActiveSlug(String(event.active.id))
-  }, [])
-
-  const handleDragOver = useCallback((event: DragOverEvent) => {
-    setOverSlug(event.over ? String(event.over.id) : null)
+    setActiveId(Number(event.active.id))
   }, [])
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const draggedSlug = String(event.active.id)
-      const targetId = event.over ? String(event.over.id) : null
+      const draggedId = Number(event.active.id)
+      const draggedSlug = lookup.get(draggedId)?.slug
+      const overId = event.over?.id
 
-      setActiveSlug(null)
-      setOverSlug(null)
+      setActiveId(null)
 
-      if (!targetId) return
+      if (overId === undefined) return
 
-      if (targetId === 'no-group') {
-        const result = moveProject(draggedSlug, null)
+      if (overId === 'no-group') {
+        const result = moveProject(draggedId, null)
         if (result.success) {
           toast({
             title: `Removed ${draggedSlug} from group`,
@@ -72,9 +66,9 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
         return
       }
 
-      if (draggedSlug === targetId) return
+      if (draggedId === Number(overId)) return
 
-      const result = moveProject(draggedSlug, targetId)
+      const result = moveProject(draggedId, Number(overId))
       if (result.success) {
         toast({
           title: `Moved ${draggedSlug} → ${result.targetLabel}`,
@@ -86,29 +80,28 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
         })
       }
     },
-    [moveProject, undoLastMove],
+    [lookup, moveProject, undoLastMove],
   )
 
   const handleDragCancel = useCallback(() => {
-    setActiveSlug(null)
-    setOverSlug(null)
+    setActiveId(null)
   }, [])
 
-  const activeProject = activeSlug ? lookup.get(activeSlug) : undefined
+  const activeProject = activeId != null ? lookup.get(activeId) : undefined
 
-  const getProject = useCallback((slug: string) => lookup.get(slug), [lookup])
+  const getProject = useCallback((projectId: number) => lookup.get(projectId), [lookup])
 
   const isProjectDraggable = useCallback(
-    (slug: string) => {
-      const p = lookup.get(slug)
+    (projectId: number) => {
+      const p = lookup.get(projectId)
       return p ? canBeDragged(p) : false
     },
     [lookup],
   )
 
   const isProjectDropTarget = useCallback(
-    (slug: string) => {
-      const p = lookup.get(slug)
+    (projectId: number) => {
+      const p = lookup.get(projectId)
       return p ? canBeDropTarget(p) : false
     },
     [lookup],
@@ -117,9 +110,8 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
   return (
     <ProjectDndContext.Provider
       value={{
-        isDragging: activeSlug !== null,
-        activeSlug,
-        overSlug,
+        isDragging: activeId !== null,
+        activeId,
         getProject,
         isProjectDraggable,
         isProjectDropTarget,
@@ -129,7 +121,6 @@ export function DndProjectProvider({ projects, children }: DndProjectProviderPro
         sensors={sensors}
         collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >

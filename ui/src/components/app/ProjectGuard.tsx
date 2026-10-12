@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Outlet, useNavigate, useParams } from 'react-router'
+import { Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router'
 import { Loader2 } from 'lucide-react'
 import { useProjectFromParam } from '@/lib/resolveProject'
 import { useUIStore } from '@/store/ui'
@@ -9,6 +9,7 @@ export function ProjectGuard() {
   const { id } = useParams<{ id: string }>()
   const { project, isLoading } = useProjectFromParam(id)
   const navigate = useNavigate()
+  const { pathname, search, hash } = useLocation()
   const clearLastProjectId = useUIStore((s) => s.clearLastProjectId)
   const redirected = useRef(false)
 
@@ -34,6 +35,13 @@ export function ProjectGuard() {
   }
 
   if (!project) return null
+
+  // A slug URL is not unique (child slugs repeat across groups) and the nested routes
+  // read the param as an id, so move to the numeric URL, keeping the tab, query and hash.
+  if (id !== String(project.project_id)) {
+    const to = pathname.replace(/^\/projects\/[^/]+/, `/projects/${project.project_id}`)
+    return <Navigate replace to={to + search + hash} />
+  }
 
   return <Outlet />
 }

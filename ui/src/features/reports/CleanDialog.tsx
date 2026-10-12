@@ -21,6 +21,8 @@ type CleanMode = 'results' | 'history'
 
 interface CleanDialogProps {
   projectId: string
+  /** Name shown in the success toast; the id alone is not meaningful to a reader. */
+  label?: string
   mode: CleanMode
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -62,7 +64,14 @@ const GROUP_MESSAGES = {
   },
 }
 
-export function CleanDialog({ projectId, mode, open, onOpenChange, groupMode }: CleanDialogProps) {
+export function CleanDialog({
+  projectId,
+  label = projectId,
+  mode,
+  open,
+  onOpenChange,
+  groupMode,
+}: CleanDialogProps) {
   const [error, setError] = useState('')
   const queryClient = useQueryClient()
   const msg = groupMode ? GROUP_MESSAGES[mode] : MESSAGES[mode]
@@ -80,7 +89,7 @@ export function CleanDialog({ projectId, mode, open, onOpenChange, groupMode }: 
       if (groupMode) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       }
-      toast({ title: msg.successTitle, description: msg.successDesc(projectId) })
+      toast({ title: msg.successTitle, description: msg.successDesc(label) })
       onOpenChange(false)
     },
     onError: (err) => {

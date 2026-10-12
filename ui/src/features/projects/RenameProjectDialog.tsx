@@ -18,6 +18,8 @@ import { Label } from '@/components/ui/label'
 
 interface Props {
   projectId: string
+  /** Current name shown in the dialog; the id alone is not meaningful to a reader. */
+  label?: string
   numericId?: number
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -25,7 +27,13 @@ interface Props {
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]+$/
 
-export function RenameProjectDialog({ projectId, numericId, open, onOpenChange }: Props) {
+export function RenameProjectDialog({
+  projectId,
+  label = projectId,
+  numericId,
+  open,
+  onOpenChange,
+}: Props) {
   const [newId, setNewId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -60,7 +68,7 @@ export function RenameProjectDialog({ projectId, numericId, open, onOpenChange }
       setError('Only letters, numbers, hyphens, and underscores')
       return
     }
-    if (trimmed === projectId) {
+    if (trimmed === label) {
       setError('New ID must differ from current')
       return
     }
@@ -74,7 +82,7 @@ export function RenameProjectDialog({ projectId, numericId, open, onOpenChange }
         <DialogHeader>
           <DialogTitle>Rename project</DialogTitle>
           <DialogDescription>
-            Rename <span className="font-mono font-semibold">{projectId}</span> to a new ID. All
+            Rename <span className="font-mono font-semibold">{label}</span> to a new ID. All
             builds and reports will be preserved. This operation may cause data loss if interrupted
             and cannot be undone.
           </DialogDescription>

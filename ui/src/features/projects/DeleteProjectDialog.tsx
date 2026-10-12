@@ -21,11 +21,18 @@ import { useUIStore } from '@/store/ui'
 
 interface DeleteProjectDialogProps {
   projectId: string
+  /** Name shown in the dialog and typed to confirm; the id alone is not meaningful to a reader. */
+  label?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeleteProjectDialogProps) {
+export function DeleteProjectDialog({
+  projectId,
+  label = projectId,
+  open,
+  onOpenChange,
+}: DeleteProjectDialogProps) {
   const [confirmText, setConfirmText] = useState('')
   const [error, setError] = useState('')
   const queryClient = useQueryClient()
@@ -41,7 +48,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() })
       removeProjectQueries(queryClient, projectId)
-      toast({ title: 'Project deleted', description: `"${projectId}" has been removed.` })
+      toast({ title: 'Project deleted', description: `"${label}" has been removed.` })
       onOpenChange(false)
       void navigate('/', { replace: true })
     },
@@ -50,7 +57,7 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
     },
   })
 
-  const canDelete = confirmText === projectId
+  const canDelete = confirmText === label
 
   const handleDelete = () => {
     setError('')
@@ -76,17 +83,17 @@ export function DeleteProjectDialog({ projectId, open, onOpenChange }: DeletePro
             Delete project
           </DialogTitle>
           <DialogDescription>
-            This will permanently delete the project <strong>{projectId}</strong> and all its
+            This will permanently delete the project <strong>{label}</strong> and all its
             reports and results. This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="delete-confirm">
-            Type <span className="font-mono font-semibold">{projectId}</span> to confirm
+            Type <span className="font-mono font-semibold">{label}</span> to confirm
           </Label>
           <Input
             id="delete-confirm"
-            placeholder={projectId}
+            placeholder={label}
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             disabled={mutation.isPending}

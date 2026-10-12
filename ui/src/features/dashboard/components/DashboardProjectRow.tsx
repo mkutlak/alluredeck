@@ -56,8 +56,8 @@ export function DashboardProjectRow({
 
   const { isProjectDraggable, isProjectDropTarget } = useProjectDndContext()
 
-  const draggable = isProjectDraggable(project.slug)
-  const dropTarget = isProjectDropTarget(project.slug)
+  const draggable = isProjectDraggable(project.project_id)
+  const dropTarget = isProjectDropTarget(project.project_id)
 
   const {
     attributes: { role: _role, tabIndex: _tabIndex, ...dragAttributes },
@@ -65,12 +65,12 @@ export function DashboardProjectRow({
     setNodeRef: setDragRef,
     isDragging,
   } = useDraggable({
-    id: project.slug,
+    id: project.project_id,
     disabled: !draggable,
   })
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: project.slug,
+    id: project.project_id,
     disabled: !dropTarget,
   })
 
@@ -207,7 +207,8 @@ export function DashboardProjectRow({
       </TableRow>
       {cleanMode && (
         <CleanDialog
-          projectId={project.slug}
+          projectId={String(project.project_id)}
+          label={project.slug}
           mode={cleanMode}
           open={!!cleanMode}
           onOpenChange={(o) => {
@@ -218,7 +219,8 @@ export function DashboardProjectRow({
       )}
       {renameOpen && (
         <RenameProjectDialog
-          projectId={project.slug}
+          projectId={String(project.project_id)}
+          label={project.slug}
           numericId={project.project_id}
           open={renameOpen}
           onOpenChange={setRenameOpen}
@@ -226,14 +228,16 @@ export function DashboardProjectRow({
       )}
       {moveOpen && (
         <SetParentDialog
-          projectId={project.slug}
+          projectId={String(project.project_id)}
+          label={project.slug}
           open={moveOpen}
           onOpenChange={setMoveOpen}
         />
       )}
       {deleteOpen && (
         <DeleteProjectDialog
-          projectId={project.slug}
+          projectId={String(project.project_id)}
+          label={project.slug}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
         />

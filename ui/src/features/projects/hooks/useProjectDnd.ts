@@ -19,14 +19,14 @@ export function canBeDropTarget(p: DndProject): boolean {
 }
 
 interface UndoState {
-  projectSlug: string
+  projectId: number
   previousParentId: number | null
 }
 
 export function useProjectDnd(projects: DndProject[]) {
   const qc = useQueryClient()
   const undoRef = useRef<UndoState | null>(null)
-  const lookup = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects])
+  const lookup = useMemo(() => new Map(projects.map((p) => [p.projectId, p])), [projects])
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: queryKeys.projects })
@@ -34,43 +34,43 @@ export function useProjectDnd(projects: DndProject[]) {
   }, [qc])
 
   const setParent = useMutation({
-    mutationFn: ({ slug, parentId }: { slug: string; parentId: number }) =>
-      setProjectParent(slug, parentId),
+    mutationFn: ({ projectId, parentId }: { projectId: number; parentId: number }) =>
+      setProjectParent(projectId, parentId),
     onSuccess: invalidate,
     onError: invalidate,
   })
 
   const clearParent = useMutation({
-    mutationFn: (slug: string) => clearProjectParent(slug),
+    mutationFn: (projectId: number) => clearProjectParent(projectId),
     onSuccess: invalidate,
     onError: invalidate,
   })
 
   const moveProject = useCallback(
     (
-      draggedSlug: string,
-      targetSlug: string | null,
+      draggedId: number,
+      targetId: number | null,
     ): { success: boolean; targetLabel?: string } => {
-      const dragged = lookup.get(draggedSlug)
+      const dragged = lookup.get(draggedId)
       if (!dragged) return { success: false }
 
-      if (targetSlug === null) {
+      if (targetId === null) {
         // Remove from group
         if (dragged.parentId == null) return { success: false }
-        undoRef.current = { projectSlug: draggedSlug, previousParentId: dragged.parentId }
-        clearParent.mutate(draggedSlug)
+        undoRef.current = { projectId: draggedId, previousParentId: dragged.parentId }
+        clearParent.mutate(draggedId)
         return { success: true }
       }
 
-      if (draggedSlug === targetSlug) return { success: false }
+      if (draggedId === targetId) return { success: false }
 
-      const target = lookup.get(targetSlug)
+      const target = lookup.get(targetId)
       if (!target || !canBeDropTarget(target) || !canBeDragged(dragged)) {
         return { success: false }
       }
 
-      undoRef.current = { projectSlug: draggedSlug, previousParentId: dragged.parentId }
-      setParent.mutate({ slug: draggedSlug, parentId: target.projectId })
+      undoRef.current = { projectId: draggedId, previousParentId: dragged.parentId }
+      setParent.mutate({ projectId: draggedId, parentId: target.projectId })
       return { success: true, targetLabel: target.slug }
     },
     [lookup, setParent, clearParent],
@@ -81,9 +81,9 @@ export function useProjectDnd(projects: DndProject[]) {
     if (!last) return
     undoRef.current = null
     if (last.previousParentId != null) {
-      setParent.mutate({ slug: last.projectSlug, parentId: last.previousParentId })
+      setParent.mutate({ projectId: last.projectId, parentId: last.previousParentId })
     } else {
-      clearParent.mutate(last.projectSlug)
+      clearParent.mutate(last.projectId)
     }
   }, [setParent, clearParent])
 

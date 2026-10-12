@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query'
+import type { Query, QueryClient } from '@tanstack/react-query'
 
 export const queryKeys = {
   projects: ['projects'] as const,
@@ -109,24 +109,13 @@ export const queryKeys = {
     ] as const,
 }
 
-// Key families whose second slot is the project id. Filters use the bare
-// [family, projectId] prefix: TanStack matches filter keys slot by slot, so a
-// builder's trailing `undefined` (e.g. reportHistory(pid)) would never match a
-// live key such as ['report-history', pid, 1, undefined, 20].
-const PROJECT_SCOPED_FAMILIES = [
-  'report-history',
-  'report-categories',
-  'report-environment',
-  'report-stability',
-  'low-performing-tests',
-  'known-issues',
-  'attachments',
-  'trends',
-  'pipeline-runs',
-] as const
-
-function projectScopedKeys(projectId: string) {
-  return PROJECT_SCOPED_FAMILIES.map((family) => [family, projectId] as const)
+// A query belongs to a project when the id sits in either of the two slots after the
+// family name (['report-history', pid, ...], ['defects', 'summary', pid], ...). String()
+// because some keys carry the id as a number (['build-failed-tests', 7, 3]).
+// ponytail: a page or build number equal to the id in the other slot also matches, which
+// only costs one extra refetch.
+function isProjectQuery(projectId: string) {
+  return (query: Query) => query.queryKey.slice(1, 3).some((slot) => String(slot) === projectId)
 }
 
 /**
@@ -140,17 +129,18 @@ export async function invalidateProjectQueries(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() }),
-    ...projectScopedKeys(projectId).map((key) => queryClient.invalidateQueries({ queryKey: key })),
+    queryClient.invalidateQueries({ queryKey: ['runs-feed'] }),
+    queryClient.invalidateQueries({ predicate: isProjectQuery(projectId) }),
   ])
 }
 
 /**
  * Removes all project-scoped queries from the cache.
  * Use when a project is deleted to prevent stale data from briefly rendering
- * if the user navigates back via browser history.
+ * if the user navigates back via browser history. The runs feed lists the
+ * project's runs, so it is marked stale instead of removed.
  */
 export function removeProjectQueries(queryClient: QueryClient, projectId: string): void {
-  for (const key of projectScopedKeys(projectId)) {
-    queryClient.removeQueries({ queryKey: key })
-  }
+  queryClient.removeQueries({ predicate: isProjectQuery(projectId) })
+  void queryClient.invalidateQueries({ queryKey: ['runs-feed'] })
 }
