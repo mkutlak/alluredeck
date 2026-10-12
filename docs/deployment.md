@@ -96,7 +96,7 @@ mise run docker:build     # build both Docker images
 
 The Helm chart deploys AllureDeck to any Kubernetes cluster. See the [Helm Chart README](../charts/alluredeck/README.md) for the full values reference.
 
-Current versions: app **v0.41.0**, chart **0.22.0**.
+Current versions: app **v0.49.0**, chart **0.25.0**.
 
 ```bash
 helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.22.0
