@@ -1,3 +1,27 @@
+## [0.49.1](https://github.com/mkutlak/alluredeck/compare/v0.49.0...v0.49.1) (2026-10-12)
+
+### Bug Fixes
+
+* **api:** ask MCP clients to sign in again when their key or account is refused ([2a24469](https://github.com/mkutlak/alluredeck/commit/2a244697d9f65ff59a348fe4f702d7e69f081bdc))
+* **api:** check the users table before treating a key owner as an env user ([03f8287](https://github.com/mkutlak/alluredeck/commit/03f8287a2dc91e2788ef7797b8842464d71c9997))
+* **api:** copy S3 objects whose keys need escaping ([6b42964](https://github.com/mkutlak/alluredeck/commit/6b4296464e82535ca2bda141880f79eeb54641e7))
+* **api:** don't fail a user's other requests when one cancels its account check ([e2bc4b5](https://github.com/mkutlak/alluredeck/commit/e2bc4b52975c8cbde1c10c565d2c451330e7c2f8))
+* **api:** don't send API-key holders to sign in again when the database fails ([b5b0675](https://github.com/mkutlak/alluredeck/commit/b5b06753dee2a0a6429108bff8e9a63cb82a8829))
+* **api:** forget the env-user cache entry when an account is deactivated ([968f494](https://github.com/mkutlak/alluredeck/commit/968f4940d23f4e76be9d22b58698547ec2229630))
+* **api:** keep webhooks readable when the JWT secret changes ([1ed2d80](https://github.com/mkutlak/alluredeck/commit/1ed2d80cced18da907ff6e03a6febabefd1ecd1a))
+* **api:** let the metrics setup run more than once ([d7d5cd8](https://github.com/mkutlak/alluredeck/commit/d7d5cd88fa7749cc1f9f933bd342013b734949e5))
+* **api:** notice deactivated users within seconds ([c4849af](https://github.com/mkutlak/alluredeck/commit/c4849af45328ea8f1dba5a3ee9b50bae4869d0d5))
+* **api:** put trace IDs on request log lines ([e37e5fc](https://github.com/mkutlak/alluredeck/commit/e37e5fcea2729a9ce49a59485b64fdcb804a21f8))
+* **api:** stop accepting API keys whose owner can't be found ([655b499](https://github.com/mkutlak/alluredeck/commit/655b49965efbd25053f0a5b97bc029b273b47dbb))
+* **api:** stop marking numbered report builds immutable ([da4cdf4](https://github.com/mkutlak/alluredeck/commit/da4cdf487587b69da3806e4457e0d746c159c48f))
+* **docker:** give the MCP server the env user names ([24761c0](https://github.com/mkutlak/alluredeck/commit/24761c047761531d1ead176a8bf68de78b86aa54))
+* **helm:** give the MCP server the env user names ([91aa258](https://github.com/mkutlak/alluredeck/commit/91aa258723a200a7634318f98c3173e68278990e))
+* **ui:** act on projects by numeric id, and refresh every query of one ([6bd1940](https://github.com/mkutlak/alluredeck/commit/6bd194080ca3f5aab9e6c99583804f9f06baf3c2))
+* **ui:** always revalidate API responses with the server ([cf97dea](https://github.com/mkutlak/alluredeck/commit/cf97dea0b49bebf5e34724beb8c40780fa8ef60c))
+* **ui:** catch renaming a child project to its current name again ([49b5744](https://github.com/mkutlak/alluredeck/commit/49b5744cc4f8488f360106474cac6173431516bc))
+* **ui:** clean pending results of the project you clicked ([da35084](https://github.com/mkutlak/alluredeck/commit/da3508488adc738881869599d84a320c147d36cc))
+* **ui:** name projects by their full path in project dialogs ([c25f934](https://github.com/mkutlak/alluredeck/commit/c25f9345f3feaf6afc65ab3bc51822a7f997c42d))
+
 ## [0.49.0](https://github.com/mkutlak/alluredeck/compare/v0.48.0...v0.49.0) (2026-10-12)
 
 ### Features
