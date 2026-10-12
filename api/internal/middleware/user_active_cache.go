@@ -67,13 +67,18 @@ type sfCall struct {
 // this is how long a deactivated user keeps access there.
 const UserActiveTTL = 2 * time.Second
 
+// userActiveLoadTimeout bounds a user lookup. Every caller that missed the
+// cache for the same key waits on one lookup, so it does not stop when the
+// caller that started it is cancelled.
+const userActiveLoadTimeout = 5 * time.Second
+
 // NewUserActiveCache returns an initialised UserActiveCache. ttl<=0 falls back
-// to 30s; maxEntries<=0 falls back to 10000. envUsers are the usernames of the
+// to UserActiveTTL; maxEntries<=0 falls back to 10000. envUsers are the usernames of the
 // env-configured users (ADMIN_USER, VIEWER_USER): they have no users row, so an
 // API key held by one is always active. Empty names are ignored.
 func NewUserActiveCache(s store.UserStorer, ttl time.Duration, maxEntries int, envUsers ...string) *UserActiveCache {
 	if ttl <= 0 {
-		ttl = 30 * time.Second
+		ttl = UserActiveTTL
 	}
 	if maxEntries <= 0 {
 		maxEntries = 10000
@@ -122,7 +127,7 @@ func (c *UserActiveCache) IsActiveForToken(ctx context.Context, sub, provider st
 	if provider != "oidc" {
 		return c.IsActive(ctx, sub)
 	}
-	return c.lookup(oidcKey(sub), func() (*store.User, error) { return c.store.GetByEmail(ctx, sub) })
+	return c.lookup(ctx, oidcKey(sub), func(ctx context.Context) (*store.User, error) { return c.store.GetByEmail(ctx, sub) })
 }
 
 // oidcKey is the cache key of an OIDC access token's email sub. The prefix
@@ -218,11 +223,11 @@ func (c *UserActiveCache) InvalidateOIDC(email string) {
 
 // isActiveByID is the core load path keyed by numeric ID.
 func (c *UserActiveCache) isActiveByID(ctx context.Context, id int64, key string) (bool, error) {
-	return c.lookup(key, func() (*store.User, error) { return c.store.GetByID(ctx, id) })
+	return c.lookup(ctx, key, func(ctx context.Context) (*store.User, error) { return c.store.GetByID(ctx, id) })
 }
 
 // lookup returns the flag cached under key, loading it through get on a miss.
-func (c *UserActiveCache) lookup(key string, get func() (*store.User, error)) (bool, error) {
+func (c *UserActiveCache) lookup(ctx context.Context, key string, get func(context.Context) (*store.User, error)) (bool, error) {
 	// Fast path: read-locked cache hit.
 	if active, ok := c.cached(key); ok {
 		return active, nil
@@ -240,8 +245,11 @@ func (c *UserActiveCache) lookup(key string, get func() (*store.User, error)) (b
 	c.flights[key] = call
 	c.sfMu.Unlock()
 
-	// Perform the load exactly once.
-	call.val, call.err = c.load(key, get)
+	// Perform the load exactly once, on behalf of every waiting caller: detach
+	// it from this caller's cancellation and bound it instead.
+	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), userActiveLoadTimeout)
+	defer cancel()
+	call.val, call.err = c.load(loadCtx, key, get)
 	call.wg.Done()
 
 	c.sfMu.Lock()
@@ -269,8 +277,8 @@ func (c *UserActiveCache) cached(key string) (isActive, ok bool) {
 //     deleted/never-existed users.
 //   - any other error → propagate, do NOT cache (the auth middleware
 //     answers 503 on a transient DB error).
-func (c *UserActiveCache) load(key string, get func() (*store.User, error)) (bool, error) {
-	u, err := get()
+func (c *UserActiveCache) load(ctx context.Context, key string, get func(context.Context) (*store.User, error)) (bool, error) {
+	u, err := get(ctx)
 	if err != nil {
 		if errors.Is(err, store.ErrUserNotFound) {
 			c.storeEntry(key, false)

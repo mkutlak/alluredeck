@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mkutlak/alluredeck/api/internal/store"
@@ -150,6 +151,41 @@ func TestUserActiveCache_ConcurrentMissDedupes(t *testing.T) {
 	if got := n.byID.Load(); got != 1 {
 		t.Fatalf("expected exactly 1 store call across %d concurrent callers, got %d", N, got)
 	}
+}
+
+// TestUserActiveCache_LeaderCancelDoesNotFailFollowers: concurrent misses
+// share one load, so the first caller going away must not cancel it and fail
+// every caller waiting on it.
+func TestUserActiveCache_LeaderCancelDoesNotFailFollowers(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		users := &testutil.MockUserStore{GetByIDFn: func(ctx context.Context, id int64) (*store.User, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-release:
+				return &store.User{ID: id, IsActive: true}, nil
+			}
+		}}
+		c := NewUserActiveCache(users, time.Minute, 10)
+
+		leaderCtx, cancelLeader := context.WithCancel(context.Background())
+		go func() { _, _ = c.IsActive(leaderCtx, "7") }()
+		synctest.Wait() // the leader is loading
+		var ok bool
+		var err error
+		go func() { ok, err = c.IsActive(context.Background(), "7") }()
+		synctest.Wait() // the follower waits on the leader's load
+		cancelLeader()
+		synctest.Wait()
+		close(release)
+		synctest.Wait()
+
+		if err != nil || !ok {
+			t.Fatalf("follower got (%v, %v), want (true, nil)", ok, err)
+		}
+	})
 }
 
 func TestUserActiveCache_SizeBoundEvicts(t *testing.T) {
