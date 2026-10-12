@@ -1,5 +1,12 @@
 version: "2"
 
+run:
+  # Lint the files behind these tags too; without them golangci-lint skips the
+  # integration and leak-profile tests entirely.
+  build-tags:
+    - integration
+    - leakprofile
+
 linters:
   enable:
     - errcheck

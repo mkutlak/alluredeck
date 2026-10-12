@@ -103,7 +103,7 @@ run = "golangci-lint run ./..."
 [tasks."api:vet"]
 description = "Run go vet on API"
 dir = "api"
-run = "go vet ./..."
+run = "go vet -tags=integration,leakprofile ./..."
 
 [tasks."api:tidy"]
 description = "Tidy API module dependencies"
