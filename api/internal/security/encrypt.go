@@ -8,6 +8,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
+
+	"github.com/mkutlak/alluredeck/api/internal/config"
 )
 
 // ErrDecryptionFailed is returned when ciphertext cannot be decrypted.
@@ -17,6 +20,27 @@ var ErrDecryptionFailed = errors.New("decryption failed")
 func DeriveEncryptionKey(secret string) []byte {
 	h := sha256.Sum256([]byte(secret))
 	return h[:]
+}
+
+// EncryptionKeys returns the AES keys stored data may be encrypted under, the
+// one to encrypt new data with first: ENCRYPTION_KEY when set, else the JWT
+// secret. The JWT secret and the development default follow, so data written
+// before ENCRYPTION_KEY was set, or while the secret was still the default,
+// stays readable. Duplicates are dropped.
+func EncryptionKeys(cfg *config.Config) [][]byte {
+	var secrets []string
+	if cfg.EncryptionKey != "" {
+		secrets = append(secrets, cfg.EncryptionKey)
+	}
+	secrets = append(secrets, cfg.JWTSecret, config.DefaultJWTSecret)
+
+	keys := make([][]byte, 0, len(secrets))
+	for i, secret := range secrets {
+		if !slices.Contains(secrets[:i], secret) {
+			keys = append(keys, DeriveEncryptionKey(secret))
+		}
+	}
+	return keys
 }
 
 // Encrypt encrypts plaintext using AES-256-GCM and returns a base64-encoded ciphertext.
@@ -70,4 +94,17 @@ func Decrypt(encoded string, key []byte) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// DecryptWithKeys decrypts encoded with the first key that opens it. GCM
+// authentication rejects every other key, so a wrong key never yields garbage.
+// It returns ErrDecryptionFailed when no key opens the value.
+func DecryptWithKeys(encoded string, keys [][]byte) (string, error) {
+	for _, key := range keys {
+		plain, err := Decrypt(encoded, key)
+		if !errors.Is(err, ErrDecryptionFailed) {
+			return plain, err
+		}
+	}
+	return "", ErrDecryptionFailed
 }

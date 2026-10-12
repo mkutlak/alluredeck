@@ -746,7 +746,7 @@ var _ JobQueuer = (*RiverJobManager)(nil)
 // for the regression_detected webhook event and to power the periodic digest
 // job; it may be nil during tests that don't exercise those paths, in which
 // case both are skipped.
-func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, testResultStore store.TestResultStorer, defectReader store.DefectReader, dataStore storage.Store, cfg *config.Config, encKey []byte, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
+func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner *PlaywrightRunner, webhookStore store.WebhookStorer, buildStore store.BuildStorer, testResultStore store.TestResultStorer, defectReader store.DefectReader, dataStore storage.Store, cfg *config.Config, externalURL string, maxWorkers int, jobTimeout time.Duration, logger *zap.Logger) (*RiverJobManager, error) {
 	jm := &RiverJobManager{pool: pool, logger: logger}
 
 	workers := river.NewWorkers()
@@ -764,7 +764,6 @@ func NewRiverJobManager(pool *pgxpool.Pool, generator ReportGenerator, pwRunner 
 	river.AddWorker(workers, &SendWebhookWorker{
 		webhookStore: webhookStore,
 		httpClient:   newWebhookHTTPClient(10 * time.Second),
-		encKey:       encKey,
 		logger:       logger,
 	})
 

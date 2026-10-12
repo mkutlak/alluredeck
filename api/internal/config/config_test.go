@@ -110,6 +110,17 @@ func TestLoadConfig_EnvVarParsing(t *testing.T) {
 		}
 	})
 
+	t.Run("EncryptionKeyFromEnv", func(t *testing.T) {
+		t.Setenv("ENCRYPTION_KEY", "webhook-key")
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if cfg.EncryptionKey != "webhook-key" {
+			t.Errorf("ENCRYPTION_KEY: want webhook-key, got %q", cfg.EncryptionKey)
+		}
+	})
+
 	t.Run("RunMigrationsFromEnv", func(t *testing.T) {
 		t.Setenv("RUN_MIGRATIONS", "false")
 		cfg, err := LoadConfig()

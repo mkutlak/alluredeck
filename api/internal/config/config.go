@@ -148,6 +148,7 @@ type Config struct {
 	ViewerUser                string          `yaml:"viewer_user" envconfig:"VIEWER_USER"`
 	ViewerPass                string          `yaml:"viewer_pass" envconfig:"VIEWER_PASS"`
 	JWTSecret                 string          `yaml:"jwt_secret_key" envconfig:"JWT_SECRET_KEY"` //nolint:gosec // field name is intentional, not a leaked secret
+	EncryptionKey             string          `yaml:"encryption_key" envconfig:"ENCRYPTION_KEY"` //nolint:gosec // field name is intentional, not a leaked secret
 	MakeViewerEndpointsPublic bool            `yaml:"make_viewer_endpoints_public" envconfig:"MAKE_VIEWER_ENDPOINTS_PUBLIC"`
 	AllureVersionPath         string          `yaml:"allure_version_path" envconfig:"ALLURE_VERSION_FILE"`
 	ProjectsPath              string          `yaml:"projects_path" envconfig:"PROJECTS_PATH"`
@@ -239,7 +240,11 @@ type Config struct {
 	MigrationTimeout time.Duration `yaml:"migration_timeout" envconfig:"MIGRATION_TIMEOUT"`
 }
 
-const defaultJWTSecret = "super-secret-key-for-dev"
+// DefaultJWTSecret is the development secret used while JWT_SECRET_KEY is unset.
+// Validate refuses it once security is enabled.
+const DefaultJWTSecret = "super-secret-key-for-dev"
+
+const defaultJWTSecret = DefaultJWTSecret
 
 // LoadConfig reads configuration from three sources with the following precedence:
 // env vars (highest) > YAML file > hardcoded defaults (lowest).

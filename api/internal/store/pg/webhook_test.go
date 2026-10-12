@@ -10,13 +10,56 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/mkutlak/alluredeck/api/internal/config"
 	"github.com/mkutlak/alluredeck/api/internal/security"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/store/pg"
 )
 
 func newWebhookStore(f *fixture) *pg.WebhookStore {
-	return pg.NewWebhookStore(f.s, security.DeriveEncryptionKey("test-encryption-secret"), zap.NewNop())
+	return pg.NewWebhookStore(f.s, [][]byte{security.DeriveEncryptionKey("test-encryption-secret")}, zap.NewNop())
+}
+
+// TestPGWebhookStore_KeyChange: a webhook saved while the JWT secret was the
+// development default stays readable (List, GetByID, ListActiveForEvent, with
+// its secret) after the secret changes, and is encrypted under the new key
+// once it is updated. A store that knows neither key skips the row.
+func TestPGWebhookStore_KeyChange(t *testing.T) {
+	f := newFixture(t)
+	keysFor := func(jwtSecret string) *pg.WebhookStore {
+		return pg.NewWebhookStore(f.s, security.EncryptionKeys(&config.Config{JWTSecret: jwtSecret}), zap.NewNop())
+	}
+	oldStore, newStore := keysFor(config.DefaultJWTSecret), keysFor("rotated-secret")
+
+	secret := "s3cr3t"
+	hook, err := oldStore.Create(f.ctx, &store.Webhook{ProjectID: f.id, Name: "hook", TargetType: "generic",
+		URL: "https://example.com/hook", Secret: &secret, Events: []string{"report_completed"}, IsActive: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if got, err := newStore.GetByID(f.ctx, hook.ID); err != nil || got.URL != hook.URL || got.Secret == nil || *got.Secret != secret {
+		t.Errorf("GetByID under the new key = %+v, %v; want the URL and secret", got, err)
+	}
+	if got, err := newStore.List(f.ctx, f.id); err != nil || len(got) != 1 || got[0].URL != hook.URL {
+		t.Errorf("List under the new key = %+v, %v; want the webhook", got, err)
+	}
+	if got, err := newStore.ListActiveForEvent(f.ctx, f.id, "report_completed"); err != nil ||
+		len(got) != 1 || got[0].URL != hook.URL || got[0].Secret == nil || *got[0].Secret != secret {
+		t.Errorf("ListActiveForEvent under the new key = %+v, %v; want the webhook with its secret", got, err)
+	}
+
+	if err := newStore.Update(f.ctx, hook); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	// Primary key only: proves the update re-encrypted under it, not under the default.
+	primaryOnly := pg.NewWebhookStore(f.s, security.EncryptionKeys(&config.Config{JWTSecret: "rotated-secret"})[:1], zap.NewNop())
+	if got, err := primaryOnly.ListActiveForEvent(f.ctx, f.id, "report_completed"); err != nil || len(got) != 1 {
+		t.Errorf("ListActiveForEvent with the primary key only = %+v, %v; want the webhook", got, err)
+	}
+	if got, err := keysFor("unrelated").ListActiveForEvent(f.ctx, f.id, "report_completed"); err != nil || len(got) != 0 {
+		t.Errorf("ListActiveForEvent without the key = %+v, %v; want the row skipped", got, err)
+	}
 }
 
 // TestPGWebhookStore walks one project's webhooks: Create stamps the id and

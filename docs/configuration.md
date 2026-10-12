@@ -70,6 +70,7 @@ export DEV_MODE="true"
 | `VIEWER_USER` | `viewer_user` | *(empty)* | Read-only viewer username |
 | `VIEWER_PASS` | `viewer_pass` | *(empty)* | Read-only viewer password |
 | `JWT_SECRET_KEY` | `jwt_secret_key` | `super-secret-key-for-dev` | HMAC-SHA256 signing key for JWT tokens. **Must be changed in production.** |
+| `ENCRYPTION_KEY` | `encryption_key` | *(empty)* | Key for the stored webhook URLs and secrets; `JWT_SECRET_KEY` is used when empty. Webhooks saved under the JWT secret or the default one stay readable. To rotate `JWT_SECRET_KEY` without losing webhooks, first set this to the current JWT secret, then change the JWT secret. Use the same value on the API and MCP servers |
 | `JWT_ACCESS_TOKEN_EXPIRES` | `jwt_access_token_expires` | `3600` | Access token lifetime in seconds (default: 1 hour) |
 | `JWT_REFRESH_TOKEN_EXPIRES` | `jwt_refresh_token_expires` | `2592000` | Refresh token lifetime in seconds (default: 30 days) |
 

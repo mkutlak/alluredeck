@@ -37,7 +37,7 @@ func TestRiverJobManager(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	logger := zap.NewNop()
 	jm, err := runner.NewRiverJobManager(s.Pool(), riverMockGen{}, nil, pg.NewWebhookStore(s, nil, logger),
-		pg.NewBuildStore(s, logger), nil, nil, nil, nil, nil, "", 1, 5*time.Minute, logger)
+		pg.NewBuildStore(s, logger), nil, nil, nil, nil, "", 1, 5*time.Minute, logger)
 	if err != nil {
 		t.Fatalf("NewRiverJobManager: %v", err)
 	}

@@ -55,13 +55,13 @@ func run() int {
 	flag.Usage = usage
 	flag.Parse()
 
-	cfg, encKey, logger := mustLoadConfig()
+	cfg, encKeys, logger := mustLoadConfig()
 	defer func() { _ = logger.Sync() }()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	stores, err := bootstrap.InitStores(ctx, cfg, bootstrap.DefaultPoolConfig(), encKey, logger)
+	stores, err := bootstrap.InitStores(ctx, cfg, bootstrap.DefaultPoolConfig(), encKeys, logger)
 	if err != nil {
 		logger.Error("failed to open PostgreSQL database", zap.Error(err))
 		return 1
@@ -277,7 +277,7 @@ Flags:
 // mustLoadConfig loads and validates configuration and initialises the logger.
 // It mirrors the helper in cmd/api and cmd/backfill so all binaries read
 // configuration identically. Terminates the process on any fatal error.
-func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
+func mustLoadConfig() (*config.Config, [][]byte, *zap.Logger) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: configuration error: %v\n", err)
@@ -296,6 +296,6 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 		}
 	}
 
-	encKey := security.DeriveEncryptionKey(cfg.JWTSecret)
-	return cfg, encKey, logger
+	encKeys := security.EncryptionKeys(cfg)
+	return cfg, encKeys, logger
 }

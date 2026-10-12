@@ -16,29 +16,42 @@ import (
 
 // WebhookStore implements store.WebhookStorer using PostgreSQL.
 type WebhookStore struct {
-	pool   *pgxpool.Pool
-	encKey []byte
-	logger *zap.Logger
+	pool    *pgxpool.Pool
+	encKeys [][]byte
+	logger  *zap.Logger
 }
 
-// NewWebhookStore creates a new WebhookStore.
-func NewWebhookStore(s *PGStore, encKey []byte, logger *zap.Logger) *WebhookStore {
-	return &WebhookStore{pool: s.pool, encKey: encKey, logger: logger}
+// NewWebhookStore creates a new WebhookStore. encKeys come from
+// security.EncryptionKeys: values are encrypted under the first key and
+// decrypted under whichever of them opens the value, so rows written under an
+// earlier key stay readable and move to the first key when next saved.
+func NewWebhookStore(s *PGStore, encKeys [][]byte, logger *zap.Logger) *WebhookStore {
+	return &WebhookStore{pool: s.pool, encKeys: encKeys, logger: logger}
 }
 
 var _ store.WebhookStorer = (*WebhookStore)(nil)
 
+var errNoEncryptionKey = errors.New("no encryption key configured")
+
+// encrypt encrypts plaintext under the first key.
+func (ws *WebhookStore) encrypt(plaintext string) (string, error) {
+	if len(ws.encKeys) == 0 {
+		return "", errNoEncryptionKey
+	}
+	return security.Encrypt(plaintext, ws.encKeys[0])
+}
+
 // Create inserts a new webhook, encrypting URL and Secret before storage.
 // Returns the created webhook with generated ID and timestamps.
 func (ws *WebhookStore) Create(ctx context.Context, wh *store.Webhook) (*store.Webhook, error) {
-	encURL, err := security.Encrypt(wh.URL, ws.encKey)
+	encURL, err := ws.encrypt(wh.URL)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt webhook url: %w", err)
 	}
 
 	var encSecret *string
 	if wh.Secret != nil {
-		s, err := security.Encrypt(*wh.Secret, ws.encKey)
+		s, err := ws.encrypt(*wh.Secret)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt webhook secret: %w", err)
 		}
@@ -80,13 +93,13 @@ func (ws *WebhookStore) GetByID(ctx context.Context, webhookID string) (*store.W
 		return nil, fmt.Errorf("get webhook by id: %w", err)
 	}
 
-	wh.URL, err = security.Decrypt(encURL, ws.encKey)
+	wh.URL, err = security.DecryptWithKeys(encURL, ws.encKeys)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt webhook url: %w", err)
 	}
 
 	if encSecret != nil {
-		plain, err := security.Decrypt(*encSecret, ws.encKey)
+		plain, err := security.DecryptWithKeys(*encSecret, ws.encKeys)
 		if err != nil {
 			return nil, fmt.Errorf("decrypt webhook secret: %w", err)
 		}
@@ -120,7 +133,7 @@ func (ws *WebhookStore) List(ctx context.Context, projectID int64) ([]store.Webh
 			return nil, fmt.Errorf("scan webhook row: %w", err)
 		}
 
-		wh.URL, err = security.Decrypt(encURL, ws.encKey)
+		wh.URL, err = security.DecryptWithKeys(encURL, ws.encKeys)
 		if err != nil {
 			ws.logger.Warn("failed to decrypt webhook url", zap.String("webhook_id", wh.ID), zap.Error(err))
 			continue
@@ -140,14 +153,14 @@ func (ws *WebhookStore) List(ctx context.Context, projectID int64) ([]store.Webh
 // Update updates a webhook's mutable fields. The URL and Secret are re-encrypted.
 // Returns store.ErrWebhookNotFound if no rows were affected.
 func (ws *WebhookStore) Update(ctx context.Context, wh *store.Webhook) error {
-	encURL, err := security.Encrypt(wh.URL, ws.encKey)
+	encURL, err := ws.encrypt(wh.URL)
 	if err != nil {
 		return fmt.Errorf("encrypt webhook url: %w", err)
 	}
 
 	var encSecret *string
 	if wh.Secret != nil {
-		s, err := security.Encrypt(*wh.Secret, ws.encKey)
+		s, err := ws.encrypt(*wh.Secret)
 		if err != nil {
 			return fmt.Errorf("encrypt webhook secret: %w", err)
 		}
@@ -217,14 +230,14 @@ func (ws *WebhookStore) ListActiveForEvent(ctx context.Context, projectID int64,
 			return nil, fmt.Errorf("scan active webhook row: %w", err)
 		}
 
-		wh.URL, err = security.Decrypt(encURL, ws.encKey)
+		wh.URL, err = security.DecryptWithKeys(encURL, ws.encKeys)
 		if err != nil {
 			ws.logger.Warn("failed to decrypt webhook url", zap.String("webhook_id", wh.ID), zap.Error(err))
 			continue
 		}
 
 		if encSecret != nil {
-			plain, err := security.Decrypt(*encSecret, ws.encKey)
+			plain, err := security.DecryptWithKeys(*encSecret, ws.encKeys)
 			if err != nil {
 				ws.logger.Warn("failed to decrypt webhook secret", zap.String("webhook_id", wh.ID), zap.Error(err))
 				continue

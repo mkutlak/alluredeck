@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	cfg, encKey, logger := mustLoadConfig()
+	cfg, encKeys, logger := mustLoadConfig()
 
 	if !cfg.MCPServerEnabled {
 		logger.Info("MCP server disabled via feature flag", zap.String("env", "ENABLE_MCP_SERVER"))
@@ -56,7 +56,7 @@ func main() {
 
 	// Open PostgreSQL pool with MCP-specific MaxConns (smaller than cmd/api default).
 	poolCfg := bootstrap.PoolConfig{MaxConns: cfg.MCPPoolMaxConns}
-	stores, err := bootstrap.InitStores(context.Background(), cfg, poolCfg, encKey, logger)
+	stores, err := bootstrap.InitStores(context.Background(), cfg, poolCfg, encKeys, logger)
 	if err != nil {
 		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
 	}
@@ -149,7 +149,7 @@ func createDataStore(cfg *config.Config, logger *zap.Logger) (storage.Store, err
 // mustLoadConfig loads and validates configuration, initialises the logger,
 // hashes passwords if security is enabled, and derives the encryption key.
 // Terminates the process on any fatal configuration error.
-func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
+func mustLoadConfig() (*config.Config, [][]byte, *zap.Logger) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: configuration error: %v\n", err)
@@ -168,6 +168,6 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 		}
 	}
 
-	encKey := security.DeriveEncryptionKey(cfg.JWTSecret)
-	return cfg, encKey, logger
+	encKeys := security.EncryptionKeys(cfg)
+	return cfg, encKeys, logger
 }

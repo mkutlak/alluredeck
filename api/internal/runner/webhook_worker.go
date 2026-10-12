@@ -32,7 +32,6 @@ type SendWebhookWorker struct {
 	river.WorkerDefaults[SendWebhookArgs]
 	webhookStore store.WebhookStorer
 	httpClient   *http.Client
-	encKey       []byte
 	logger       *zap.Logger
 }
 

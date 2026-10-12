@@ -44,6 +44,11 @@ viewer_pass: ""
 # Default: "super-secret-key-for-dev"
 jwt_secret_key: ""
 
+# Encrypts stored webhook URLs and secrets; the JWT secret is used when empty.
+# To rotate jwt_secret_key without losing webhooks, first set this to the
+# current JWT secret. Prefer setting via ENCRYPTION_KEY env var.
+encryption_key: ""
+
 # JWT access token lifetime in seconds. Env var: JWT_ACCESS_TOKEN_EXPIRES
 # Default: 900 (15 minutes)
 jwt_access_token_expires: 900

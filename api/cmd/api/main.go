@@ -126,7 +126,7 @@ func main() {
 	migrateOnly := flag.Bool("migrate-only", false, "apply pending database migrations then exit (used by the Helm pre-upgrade migration Job)")
 	flag.Parse()
 
-	cfg, encKey, logger := mustLoadConfig()
+	cfg, encKeys, logger := mustLoadConfig()
 	defer func() { _ = logger.Sync() }()
 
 	// Migrate-and-exit mode: open the store (which applies pending goose + River
@@ -134,7 +134,7 @@ func main() {
 	// single pre-upgrade Job be the migration authority while replicas start
 	// with RUN_MIGRATIONS=false.
 	if *migrateOnly {
-		runMigrateOnly(cfg, encKey, logger)
+		runMigrateOnly(cfg, encKeys, logger)
 		return
 	}
 
@@ -159,7 +159,7 @@ func main() {
 		logger.Fatal("failed to initialize storage", zap.Error(err))
 	}
 
-	s, sqlDB, locker, pgDB := mustInitStores(cfg, encKey, logger)
+	s, sqlDB, locker, pgDB := mustInitStores(cfg, encKeys, logger)
 	defer func() { _ = pgDB.Close() }()
 
 	// NOTE: the slow, non-essential startup work (child storage-path migration,
@@ -191,7 +191,7 @@ func main() {
 		Logger:          logger,
 	})
 
-	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, s.testResult, s.defect, dataStore, cfg, encKey, cfg.ExternalURL, 2, cfg.ReportGenerationTimeout.Duration(), logger)
+	rjm, err := runner.NewRiverJobManager(pgDB.Pool(), allureCore, pwRunner, s.webhook, s.build, s.testResult, s.defect, dataStore, cfg, cfg.ExternalURL, 2, cfg.ReportGenerationTimeout.Duration(), logger)
 	if err != nil {
 		logger.Fatal("failed to create River job manager", zap.Error(err))
 	}
@@ -422,7 +422,7 @@ func recoverAndLog(logger *zap.Logger, where string) {
 // mustLoadConfig loads and validates configuration, sets up the logger,
 // hashes passwords (if security is enabled), and derives the encryption key.
 // It terminates the process on any fatal configuration error.
-func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
+func mustLoadConfig() (*config.Config, [][]byte, *zap.Logger) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		// Logger is not yet initialised; write to stderr and exit.
@@ -444,20 +444,20 @@ func mustLoadConfig() (*config.Config, []byte, *zap.Logger) {
 		}
 	}
 
-	encKey := security.DeriveEncryptionKey(cfg.JWTSecret)
-	return cfg, encKey, logger
+	encKeys := security.EncryptionKeys(cfg)
+	return cfg, encKeys, logger
 }
 
 // mustInitStores opens the PostgreSQL database connection and initialises all
-// store instances via the shared bootstrap package. encKey is required for the
+// store instances via the shared bootstrap package. encKeys is required for the
 // webhook store. Returns the populated stores struct, the *sql.DB handle needed
 // by SystemHandler, the Locker interface, and the raw *pg.PGStore so the caller
 // can pass its pool to the job manager and register a deferred close.
 // runMigrateOnly applies pending migrations and exits. cfg.RunMigrations is
 // forced true since applying migrations is the entire purpose of this mode.
-func runMigrateOnly(cfg *config.Config, encKey []byte, logger *zap.Logger) {
+func runMigrateOnly(cfg *config.Config, encKeys [][]byte, logger *zap.Logger) {
 	cfg.RunMigrations = true
-	bs, err := bootstrap.InitStores(context.Background(), cfg, bootstrap.DefaultPoolConfig(), encKey, logger)
+	bs, err := bootstrap.InitStores(context.Background(), cfg, bootstrap.DefaultPoolConfig(), encKeys, logger)
 	if err != nil {
 		logger.Fatal("migrate-only: migrations failed", zap.Error(err))
 	}
@@ -467,10 +467,10 @@ func runMigrateOnly(cfg *config.Config, encKey []byte, logger *zap.Logger) {
 	logger.Info("migrate-only: migrations applied successfully")
 }
 
-func mustInitStores(cfg *config.Config, encKey []byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
+func mustInitStores(cfg *config.Config, encKeys [][]byte, logger *zap.Logger) (stores, *sql.DB, store.Locker, *pg.PGStore) {
 	initCtx := context.Background()
 
-	bs, err := bootstrap.InitStores(initCtx, cfg, bootstrap.DefaultPoolConfig(), encKey, logger)
+	bs, err := bootstrap.InitStores(initCtx, cfg, bootstrap.DefaultPoolConfig(), encKeys, logger)
 	if err != nil {
 		logger.Fatal("failed to open PostgreSQL database", zap.Error(err))
 	}

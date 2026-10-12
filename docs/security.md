@@ -169,7 +169,7 @@ Webhook URLs and secrets are **encrypted at rest** using AES-GCM. URLs are **mas
 
 ## Encryption at Rest
 
-Sensitive webhook fields (URL and secret) are encrypted at rest using AES-GCM with a key derived from the `JWT_SECRET_KEY`. The encryption key is set at startup and must not change between restarts — changing `JWT_SECRET_KEY` on a running deployment with existing webhooks will break decryption for those records.
+Sensitive webhook fields (URL and secret) are encrypted at rest using AES-GCM with a key derived from `ENCRYPTION_KEY`, or from `JWT_SECRET_KEY` when that is not set. Webhooks saved under the JWT secret or under the development default stay readable and are re-encrypted under the current key the next time they are saved. A key that is no longer configured cannot be recovered, and webhooks saved under it are skipped. To rotate `JWT_SECRET_KEY`, first set `ENCRYPTION_KEY` to the current JWT secret.
 
 ---
 
@@ -188,5 +188,5 @@ Key items specific to this guide:
 - [ ] Set `JWT_SECRET_KEY` to at least 32 random bytes — the API rejects the insecure default at startup
 - [ ] Configure `TRUST_FORWARDED_FOR=true` when running behind a reverse proxy
 - [ ] Review `audit_log` table periodically; implement a retention policy appropriate for your compliance requirements
-- [ ] If rotating `JWT_SECRET_KEY`, re-encrypt webhook secrets before deploying the new key
+- [ ] If rotating `JWT_SECRET_KEY`, first set `ENCRYPTION_KEY` to the current JWT secret so stored webhooks stay readable
 - [ ] Use [API keys](features.md#api-keys-for-cicd) rather than user credentials for CI/CD pipelines — API keys are role-scoped, audited, and revocable without affecting the user's session. Keys are **instance-wide by default**; set an optional `project_ids` allow-list at creation to restrict a key to specific projects (enforced on project routes — a scoped key cannot read, modify, delete, or create projects outside its list).

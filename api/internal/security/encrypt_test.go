@@ -1,9 +1,13 @@
 package security
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"testing"
+
+	"github.com/mkutlak/alluredeck/api/internal/config"
 )
 
 // TestDeriveEncryptionKey pins the derivation (SHA-256 of the secret, 32
@@ -60,6 +64,60 @@ func TestDecrypt_Rejects(t *testing.T) {
 	} {
 		if _, err := Decrypt(tc.input, tc.key); !errors.Is(err, ErrDecryptionFailed) {
 			t.Errorf("%s: got %v, want ErrDecryptionFailed", tc.name, err)
+		}
+	}
+}
+
+// TestDecryptWithKeys: a value decrypts under whichever listed key encrypted
+// it, however far down the list; a list without that key (or an empty one)
+// cannot read it.
+func TestDecryptWithKeys(t *testing.T) {
+	t.Parallel()
+	x, y := DeriveEncryptionKey("key-x"), DeriveEncryptionKey("key-y")
+	ciphertext, err := Encrypt("sensitive data", x)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		keys [][]byte
+		want error
+	}{
+		{"first key", [][]byte{x, y}, nil},
+		{"later key", [][]byte{y, x}, nil},
+		{"key absent", [][]byte{y}, ErrDecryptionFailed},
+		{"no keys", nil, ErrDecryptionFailed},
+	} {
+		got, err := DecryptWithKeys(ciphertext, tc.keys)
+		if !errors.Is(err, tc.want) || (tc.want == nil && got != "sensitive data") {
+			t.Errorf("%s: got (%q, %v), want error %v", tc.name, got, err, tc.want)
+		}
+	}
+}
+
+// TestEncryptionKeys: the first key encrypts new data and is ENCRYPTION_KEY
+// when set, else the JWT secret; the JWT secret and the development default
+// follow so data written under either still decrypts. Duplicates collapse. An
+// emptied JWT secret still counts, since data may have been written under it.
+func TestEncryptionKeys(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		cfg  config.Config
+		want []string // secrets whose derived keys are expected, in order
+	}{
+		{"JWT secret only", config.Config{JWTSecret: "jwt"}, []string{"jwt", config.DefaultJWTSecret}},
+		{"ENCRYPTION_KEY leads", config.Config{EncryptionKey: "enc", JWTSecret: "jwt"}, []string{"enc", "jwt", config.DefaultJWTSecret}},
+		{"default JWT secret", config.Config{JWTSecret: config.DefaultJWTSecret}, []string{config.DefaultJWTSecret}},
+		{"ENCRYPTION_KEY equals the JWT secret", config.Config{EncryptionKey: "jwt", JWTSecret: "jwt"}, []string{"jwt", config.DefaultJWTSecret}},
+		{"emptied JWT secret", config.Config{}, []string{"", config.DefaultJWTSecret}},
+	} {
+		var want [][]byte
+		for _, secret := range tc.want {
+			want = append(want, DeriveEncryptionKey(secret))
+		}
+		if got := EncryptionKeys(&tc.cfg); !slices.EqualFunc(got, want, bytes.Equal) {
+			t.Errorf("%s: got %d keys, want the keys of %q in that order", tc.name, len(got), tc.want)
 		}
 	}
 }

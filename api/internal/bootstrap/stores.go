@@ -86,14 +86,14 @@ func (s *Stores) Close() error {
 // runs all pending migrations, and wires every store implementation. The
 // returned *Stores.pgDB is retained for pool access (e.g. River job manager).
 //
-// encKey is required for the webhook store (AES-encrypted webhook secrets).
-// Pass security.DeriveEncryptionKey(cfg.JWTSecret) from the caller.
+// encKeys is required for the webhook store (AES-encrypted webhook URLs and secrets).
+// Pass security.EncryptionKeys(cfg) from the caller.
 //
 // The one-time filesystem metadata sync (pg.SyncMetadata) is NOT run here; the
 // caller invokes it separately using the concrete ProjectPG/BuildPG stores
 // exposed on the returned *Stores. cmd/api runs it in a background goroutine
 // after binding the HTTP listener so slow startup work never blocks readiness.
-func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, encKey []byte, logger *zap.Logger) (*Stores, error) {
+func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, encKeys [][]byte, logger *zap.Logger) (*Stores, error) {
 	// Apply PoolConfig overrides onto cfg fields before handing cfg to pg.Open.
 	// We work on a shallow copy of the config so the caller's cfg is unchanged.
 	cfgCopy := *cfg
@@ -130,7 +130,7 @@ func InitStores(ctx context.Context, cfg *config.Config, poolCfg PoolConfig, enc
 		Attachment:          pg.NewAttachmentStore(pgDB),
 		User:                pg.NewUserStore(pgDB),
 		Defect:              pg.NewDefectStore(pgDB),
-		Webhook:             pg.NewWebhookStore(pgDB, encKey, logger),
+		Webhook:             pg.NewWebhookStore(pgDB, encKeys, logger),
 		Pipeline:            pg.NewPipelineStore(pgDB),
 		Preference:          pg.NewPreferenceStore(pgDB),
 		Audit:               pg.NewAuditStore(pgDB),
