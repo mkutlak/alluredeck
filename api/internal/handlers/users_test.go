@@ -578,6 +578,32 @@ func TestUserHandler_Update(t *testing.T) {
 	})
 }
 
+// TestUserHandler_InvalidateActiveCacheForgetsEnvUser: an env-user name
+// cached as having no users row must not outlive a row with that email being
+// deactivated, or an API key named by it stays active until the cache TTL.
+func TestUserHandler_InvalidateActiveCacheForgetsEnvUser(t *testing.T) {
+	t.Parallel()
+	ops := &store.User{ID: 7, Email: mail("ops")}
+	exists := false
+	users := &testutil.MockUserStore{GetByEmailFn: func(context.Context, string) (*store.User, error) {
+		if !exists {
+			return nil, store.ErrUserNotFound
+		}
+		return ops, nil
+	}}
+	cache := middleware.NewUserActiveCache(users, time.Hour, 0, ops.Email)
+	h := NewUserHandler(users, zap.NewNop()).WithUserActiveCache(cache)
+
+	if active, err := cache.IsActiveByAPIKeyUsername(context.Background(), ops.Email); err != nil || !active {
+		t.Fatalf("env user without a row: got (%v, %v), want (true, nil)", active, err)
+	}
+	exists = true // a row with that email appears, inactive
+	h.invalidateActiveCache(ops)
+	if active, err := cache.IsActiveByAPIKeyUsername(context.Background(), ops.Email); err != nil || active {
+		t.Fatalf("after invalidation: got (%v, %v), want (false, nil)", active, err)
+	}
+}
+
 func TestUserHandler_Delete(t *testing.T) {
 	t.Parallel()
 	runUserRows(t, http.MethodDelete, (*UserHandler).Delete, []userRow{

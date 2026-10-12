@@ -22,7 +22,8 @@ import (
 // supported — they resolve to the same in-memory entry keyed by the
 // stringified user_id, so a deactivation invalidates both paths together.
 // OIDC access tokens, whose sub is an email, are cached under a separate
-// oidcKey entry that InvalidateOIDC purges.
+// oidcKey entry that InvalidateOIDC purges. An env-user name found to have no
+// users row is cached under an envUserKey entry that InvalidateEnvUser purges.
 //
 // Concurrency model: RWMutex for the map; an inline singleflight per key for
 // the load (we roll our own ~25 LOC because the project rule forbids new
@@ -40,7 +41,7 @@ type UserActiveCache struct {
 	envUsers   map[string]bool // configured env-user names: active when no users row has the name
 
 	mu      sync.RWMutex
-	entries map[string]userActiveEntry // keyed by stringified user.ID or oidcKey(email)
+	entries map[string]userActiveEntry // keyed by stringified user.ID, oidcKey(email) or envUserKey(name)
 
 	sfMu    sync.Mutex
 	flights map[string]*sfCall
@@ -74,8 +75,9 @@ const userActiveLoadTimeout = 5 * time.Second
 
 // NewUserActiveCache returns an initialised UserActiveCache. ttl<=0 falls back
 // to UserActiveTTL; maxEntries<=0 falls back to 10000. envUsers are the usernames of the
-// env-configured users (ADMIN_USER, VIEWER_USER): they have no users row, so an
-// API key held by one is always active. Empty names are ignored.
+// env-configured users (ADMIN_USER, VIEWER_USER): an API key held by one is
+// active while no users row has that name as its email; a row that does decides
+// instead. Empty names are ignored.
 func NewUserActiveCache(s store.UserStorer, ttl time.Duration, maxEntries int, envUsers ...string) *UserActiveCache {
 	if ttl <= 0 {
 		ttl = UserActiveTTL
@@ -219,6 +221,13 @@ func (c *UserActiveCache) Invalidate(sub string) {
 // token whose sub is email. Safe to call for an email that is not cached.
 func (c *UserActiveCache) InvalidateOIDC(email string) {
 	c.Invalidate(oidcKey(email))
+}
+
+// InvalidateEnvUser purges the entry ResolveAPIKeyUsername caches for an
+// env-user name that had no users row, so a row with that email is looked up
+// on the next request. Safe to call for a name that is not cached.
+func (c *UserActiveCache) InvalidateEnvUser(name string) {
+	c.Invalidate(envUserKey(name))
 }
 
 // isActiveByID is the core load path keyed by numeric ID.

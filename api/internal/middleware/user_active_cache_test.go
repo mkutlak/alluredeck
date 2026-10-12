@@ -73,10 +73,12 @@ func TestUserActiveCache_Lookup(t *testing.T) {
 		{"API key of an email username goes by email", byKey, "x@y.z", true, nil, true, nil, 0, 2},
 		{"API key of an unknown email is inactive", byKey, "nope@nowhere", true, store.ErrUserNotFound, false, nil, 0, 2},
 		{"API key lookup failure is an error", byKey, "x@y.z", true, boom, false, boom, 0, 2},
+		{"API key of a numeric env name goes by email", byKey, "1000", false, store.ErrUserNotFound, true, nil, 0, 1},
+		{"API key of an env user whose lookup fails is an error", byKey, "admin", false, boom, false, boom, 0, 2},
 	}
 	for _, tc := range tests {
 		users, n := countingUsers(tc.active, tc.storeErr, 0)
-		c := NewUserActiveCache(users, time.Minute, 10, "admin", "ops", "")
+		c := NewUserActiveCache(users, time.Minute, 10, "admin", "ops", "", "1000")
 		for range 2 {
 			got, err := tc.lookup(c, context.Background(), tc.arg)
 			if got != tc.want || !errors.Is(err, tc.wantErr) {
@@ -222,5 +224,17 @@ func TestUserActiveCache_ByEmailMergesWithByID(t *testing.T) {
 	}
 	if n.byID.Load() != 0 || n.byEmail.Load() != 1 {
 		t.Fatalf("lookups by ID %d, by email %d; want 0, 1", n.byID.Load(), n.byEmail.Load())
+	}
+}
+
+// TestUserActiveCache_EnvNameOfAUser: a users row whose email is an env-user
+// name is that user, so an API key named by it resolves to the row's ID.
+func TestUserActiveCache_EnvNameOfAUser(t *testing.T) {
+	t.Parallel()
+	users, _ := countingUsers(true, nil, 0)
+	c := NewUserActiveCache(users, time.Minute, 10, "ops")
+	got, err := c.ResolveAPIKeyUsername(context.Background(), "ops")
+	if want := (APIKeyIdentity{UserID: 42, IsActive: true}); err != nil || got != want {
+		t.Fatalf("got (%+v, %v), want (%+v, nil)", got, err, want)
 	}
 }

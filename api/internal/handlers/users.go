@@ -763,8 +763,9 @@ func (h *UserHandler) cascadeDeleteAPIKeys(ctx context.Context, r *http.Request,
 }
 
 // invalidateActiveCache drops the auth middleware's cached is_active flags for
-// the user — under their ID and, for OIDC access tokens, their email — so a
-// change to it applies on their next request rather than after the cache TTL.
+// the user — under their ID and, for OIDC access tokens and an env-user name
+// equal to it, their email — so a change to it applies on their next request
+// rather than after the cache TTL.
 // No-op when the cache is unwired.
 func (h *UserHandler) invalidateActiveCache(u *store.User) {
 	if h.activeCache == nil {
@@ -772,6 +773,7 @@ func (h *UserHandler) invalidateActiveCache(u *store.User) {
 	}
 	h.activeCache.Invalidate(strconv.FormatInt(u.ID, 10))
 	h.activeCache.InvalidateOIDC(u.Email)
+	h.activeCache.InvalidateEnvUser(u.Email)
 }
 
 // blacklistCurrentAccessToken extracts the access token from the current
