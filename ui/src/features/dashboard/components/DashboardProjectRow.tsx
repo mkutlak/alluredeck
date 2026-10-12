@@ -222,6 +222,7 @@ export function DashboardProjectRow({
         <RenameProjectDialog
           projectId={String(project.project_id)}
           label={label}
+          currentSlug={project.slug}
           numericId={project.project_id}
           open={renameOpen}
           onOpenChange={setRenameOpen}

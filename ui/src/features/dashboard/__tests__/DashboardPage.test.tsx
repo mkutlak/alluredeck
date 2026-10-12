@@ -224,6 +224,17 @@ describe('DashboardPage', () => {
       await waitFor(() => expect(projectsApi.renameProject).toHaveBeenCalledWith('9', 'smoke'))
     })
 
+    it('refuses to rename the clicked child to its current name', async () => {
+      const user = userEvent.setup()
+      await openActions(user, /rename project/i)
+
+      await user.type(await screen.findByLabelText('New project ID'), 'e2e')
+      await user.click(screen.getByRole('button', { name: 'Rename' }))
+
+      expect(screen.getByText('New ID must differ from current')).toBeInTheDocument()
+      expect(projectsApi.renameProject).not.toHaveBeenCalled()
+    })
+
     it('moves the clicked child by numeric id and never offers it as its own parent', async () => {
       vi.mocked(projectsApi.getProjects).mockResolvedValue({
         data: [

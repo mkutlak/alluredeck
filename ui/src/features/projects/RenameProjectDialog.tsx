@@ -20,6 +20,8 @@ interface Props {
   projectId: string
   /** Current name shown in the dialog; the id alone is not meaningful to a reader. */
   label?: string
+  /** Current slug; a new ID equal to it is no rename. A child's label also names its parent. */
+  currentSlug: string
   numericId?: number
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -30,6 +32,7 @@ const ID_PATTERN = /^[a-zA-Z0-9_-]+$/
 export function RenameProjectDialog({
   projectId,
   label = projectId,
+  currentSlug,
   numericId,
   open,
   onOpenChange,
@@ -68,7 +71,7 @@ export function RenameProjectDialog({
       setError('Only letters, numbers, hyphens, and underscores')
       return
     }
-    if (trimmed === label) {
+    if (trimmed === currentSlug) {
       setError('New ID must differ from current')
       return
     }
