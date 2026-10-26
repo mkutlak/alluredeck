@@ -35,7 +35,7 @@ function makeTestCase(name: string, start: number): TimelineTestCase {
 describe('TimelineChart', () => {
   it('forwards all test cases to every panel and the builds to the gantt chart', () => {
     const testCases = [makeTestCase('alpha', 1_000_000), makeTestCase('beta', 1_010_000)]
-    const builds = [{ build_order: 2 }, { build_order: 1 }] as TimelineBuildEntry[]
+    const builds = [{ build_number: 2 }, { build_number: 1 }] as TimelineBuildEntry[]
     render(
       <TimelineChart
         testCases={testCases}

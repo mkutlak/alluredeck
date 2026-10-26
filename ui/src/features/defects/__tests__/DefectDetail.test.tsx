@@ -29,8 +29,8 @@ function makeDefect(overrides: Partial<DefectListRow> = {}): DefectListRow {
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     test_result_count_in_build: 3,
-    first_seen_build_order: 1,
-    last_seen_build_order: 5,
+    first_seen_build_number: 1,
+    last_seen_build_number: 5,
     is_regression: false,
     is_new: false,
     known_issue: null,
@@ -100,8 +100,8 @@ describe('DefectDetail', () => {
     renderDetail({
       first_seen_build_id: 101,
       last_seen_build_id: 105,
-      first_seen_build_order: 1,
-      last_seen_build_order: 5,
+      first_seen_build_number: 1,
+      last_seen_build_number: 5,
     })
     expect(screen.getByText('Build #1')).toBeInTheDocument()
     expect(screen.getByText('Build #5')).toBeInTheDocument()

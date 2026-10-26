@@ -62,11 +62,11 @@ export function DefectDetail({ defect, projectId }: DefectDetailProps) {
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-4">
         <div>
           <span className="text-muted-foreground">First seen</span>
-          <p className="font-medium">Build #{defect.first_seen_build_order}</p>
+          <p className="font-medium">Build #{defect.first_seen_build_number}</p>
         </div>
         <div>
           <span className="text-muted-foreground">Last seen</span>
-          <p className="font-medium">Build #{defect.last_seen_build_order}</p>
+          <p className="font-medium">Build #{defect.last_seen_build_number}</p>
         </div>
         <div>
           <span className="text-muted-foreground">Total occurrences</span>

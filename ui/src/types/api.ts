@@ -368,7 +368,7 @@ export interface TimelineData {
 }
 
 export interface TimelineBuildEntry {
-  build_order: number
+  build_number: number
   created_at: string
   test_cases: TimelineTestCase[]
   summary: TimelineSummary
@@ -444,7 +444,7 @@ export interface AdminResultsEntry {
 // Dashboard (cross-project overview)
 // ---------------------------------------------------------------------------
 export interface DashboardLatestBuild {
-  build_order: number
+  build_number: number
   created_at: string
   statistics: AllureStatistic
   pass_rate: number
@@ -456,7 +456,7 @@ export interface DashboardLatestBuild {
 }
 
 export interface DashboardSparklinePoint {
-  build_order: number
+  build_number: number
   pass_rate: number
 }
 
@@ -508,7 +508,7 @@ export interface Branch {
 // Test history
 // ---------------------------------------------------------------------------
 export interface TestHistoryEntry {
-  build_order: number
+  build_number: number
   build_id: number
   status: string
   duration_ms: number
@@ -664,8 +664,8 @@ export interface DefectFingerprint {
 
 export interface DefectListRow extends DefectFingerprint {
   test_result_count_in_build: number | null
-  first_seen_build_order: number
-  last_seen_build_order: number
+  first_seen_build_number: number
+  last_seen_build_number: number
   is_regression: boolean
   is_new: boolean
   known_issue: KnownIssue | null
@@ -985,6 +985,8 @@ export interface FailureSummaryData {
 // ---------------------------------------------------------------------------
 // Flaky impact analytics (C3.2)
 // ---------------------------------------------------------------------------
+// Unlike the other build-number fields, this payload really is keyed *_build_order
+// (store.FlakyImpact json tags); the rename to build_number never reached it.
 export interface FlakyImpact {
   full_name: string
   flaky_count: number

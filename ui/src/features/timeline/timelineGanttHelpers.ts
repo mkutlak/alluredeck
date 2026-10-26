@@ -133,7 +133,7 @@ export function computeMinimapBars(
 // ---------------------------------------------------------------------------
 
 export interface BuildBand {
-  buildOrder: number
+  buildNumber: number
   createdAt: string
   yOffset: number
   bandHeight: number
@@ -170,7 +170,7 @@ export function computeMultiBuildLayout(
     const layout = computeGanttLayout(build.test_cases, xScale, barHeight, barGap)
 
     bands.push({
-      buildOrder: build.build_order,
+      buildNumber: build.build_number,
       createdAt: build.created_at,
       yOffset: currentY,
       bandHeight: layout.totalHeight,

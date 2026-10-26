@@ -45,7 +45,7 @@ function tc(name: string, start: number, duration: number): TimelineTestCase {
 
 function build(order: number, cases: TimelineTestCase[], truncated = false): TimelineBuildEntry {
   return {
-    build_order: order,
+    build_number: order,
     created_at: '2026-03-25T12:00:00Z',
     test_cases: cases,
     summary: {

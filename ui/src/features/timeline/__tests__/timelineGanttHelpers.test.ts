@@ -22,7 +22,7 @@ function makeTC(start: number, stop: number): TimelineTestCase {
 
 function makeBuild(order: number, testCases: TimelineTestCase[]): TimelineBuildEntry {
   return {
-    build_order: order,
+    build_number: order,
     created_at: `2026-03-${order}T00:00:00Z`,
     test_cases: testCases,
     summary: { total: 0, min_start: 0, max_stop: 0, total_duration: 0, truncated: false },
@@ -149,7 +149,7 @@ describe('computeMultiBuildLayout', () => {
 
     // Band heights: 2 rows * 8px, an empty build 0px, 1 row 8px; 24px between bands.
     expect(
-      bands.map((b) => [b.buildOrder, b.createdAt, b.yOffset, b.bandHeight, b.layout.bars.length]),
+      bands.map((b) => [b.buildNumber, b.createdAt, b.yOffset, b.bandHeight, b.layout.bars.length]),
     ).toEqual([
       [3, '2026-03-3T00:00:00Z', 0, 16, 2],
       [2, '2026-03-2T00:00:00Z', 40, 0, 0],

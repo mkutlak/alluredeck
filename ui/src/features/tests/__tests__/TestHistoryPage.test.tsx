@@ -12,14 +12,14 @@ vi.mock('@/api/test-history')
 mockApiClient()
 
 function entry(
-  build_order: number,
+  build_number: number,
   status: string,
   ci_commit_sha: string | undefined,
   retries = 0,
 ): TestHistoryEntry {
   return {
-    build_order,
-    build_id: 100 + build_order,
+    build_number,
+    build_id: 100 + build_number,
     status,
     duration_ms: 1000,
     created_at: '2026-03-01T10:00:00Z',

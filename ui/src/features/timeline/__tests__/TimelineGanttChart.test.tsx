@@ -31,7 +31,7 @@ const makeTC = (overrides: Partial<TimelineTestCase> = {}): TimelineTestCase => 
 })
 
 function makeBuild(order: number, testCases: TimelineTestCase[], createdAt: string) {
-  return { build_order: order, created_at: createdAt, test_cases: testCases } as TimelineBuildEntry
+  return { build_number: order, created_at: createdAt, test_cases: testCases } as TimelineBuildEntry
 }
 
 const colors: StatusColorMap = {

@@ -27,7 +27,7 @@ const mockData: DashboardData = {
       slug: 'proj-alpha',
       created_at: '2025-01-01T00:00:00Z',
       latest_build: {
-        build_order: 5,
+        build_number: 5,
         created_at: '2025-03-01T10:00:00Z',
         statistics: { passed: 90, failed: 5, broken: 2, skipped: 3, unknown: 0, total: 100 },
         pass_rate: 90.0,

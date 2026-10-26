@@ -121,7 +121,7 @@ function TestHistoryContent({ projectId, historyId, branch }: TestHistoryContent
             <TableBody>
               {history.map((entry: TestHistoryEntry) => (
                 <TableRow key={entry.build_id}>
-                  <TableCell className="font-medium">#{entry.build_order}</TableCell>
+                  <TableCell className="font-medium">#{entry.build_number}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Badge variant={getStatusVariant(entry.status)}>{entry.status}</Badge>

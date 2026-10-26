@@ -261,7 +261,7 @@ export function TimelineGanttChart({
       <g clipPath="url(#gantt-clip)">
         {isMultiBuild && multiBuildResult
           ? multiBuildResult.bands.map((band, bandIdx) => (
-              <g key={band.buildOrder}>
+              <g key={band.buildNumber}>
                 {/* Band label */}
                 <text
                   x={MARGIN.left + 4}
@@ -270,7 +270,7 @@ export function TimelineGanttChart({
                   fontSize={10}
                   fontWeight={500}
                 >
-                  Build #{band.buildOrder} — {formatBandDate(band.createdAt)}
+                  Build #{band.buildNumber} — {formatBandDate(band.createdAt)}
                 </text>
 
                 {/* Separator line (between bands, not before the first) */}

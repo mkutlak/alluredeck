@@ -82,7 +82,7 @@ export function DefectRow({
         )}
 
         <span className="text-muted-foreground text-xs whitespace-nowrap">
-          #{defect.first_seen_build_order}–#{defect.last_seen_build_order}
+          #{defect.first_seen_build_number}–#{defect.last_seen_build_number}
         </span>
 
         {expanded ? (
