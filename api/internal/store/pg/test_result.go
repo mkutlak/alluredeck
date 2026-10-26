@@ -42,8 +42,9 @@ func (ts *TestResultStore) InsertBatch(ctx context.Context, results []store.Test
 		r := &results[i]
 		// A single build can legitimately contain several results that share
 		// the same non-empty historyId: Allure writes one *-result.json per
-		// retry/flaky attempt, so parseStabilityEntries emits one entry per
-		// attempt. Those collide on the idx_test_results_build_history partial
+		// retry/flaky attempt, so for Allure 2 reports parseStabilityEntries
+		// emits one entry per attempt (Allure 3 superseded attempts carry
+		// isRetry and are skipped there). Those collide on the idx_test_results_build_history partial
 		// unique index. Collapse them to one row per (build_id, history_id),
 		// keeping the latest attempt (greatest stop_ms) so a retried test
 		// records its final outcome. The guard makes the winner independent of

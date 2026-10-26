@@ -1,0 +1,1 @@
+{"uuid":"a1","historyId":"hid-flaky","testCaseId":"tc-flaky","name":"flakyTest","fullName":"suite.flakyTest","status":"failed","statusDetails":{"flaky":true,"message":"boom"},"stage":"finished","start":1000,"stop":2000,"labels":[{"name":"suite","value":"suite"}]}

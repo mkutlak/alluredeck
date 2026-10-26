@@ -41,6 +41,8 @@ type stabilityEntry struct {
 	NewFailed     bool   `json:"newFailed"`
 	NewPassed     bool   `json:"newPassed"`
 	RetriesCount  int    `json:"retriesCount"`
+	Flaky         bool   `json:"flaky"`   // Allure 3 top-level; legacy nests it in StatusDetails
+	IsRetry       bool   `json:"isRetry"` // Allure 3: a superseded attempt; the final attempt is false
 	StatusDetails *struct {
 		Flaky bool `json:"flaky"`
 	} `json:"statusDetails"`
@@ -56,6 +58,12 @@ type stabilityEntry struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"labels"`
+}
+
+// isFlaky reports whether the entry is flaky in either report shape: Allure 3's
+// top-level `flaky`, or the legacy `statusDetails.flaky`.
+func (se *stabilityEntry) isFlaky() bool {
+	return se.Flaky || (se.StatusDetails != nil && se.StatusDetails.Flaky)
 }
 
 // GenerateBatchID returns a random 32-character hex string for use as a
@@ -188,7 +196,7 @@ func writeExecutorJSON(resultsDir, projectID, execName, execFrom, execType strin
 }
 
 // parseStabilityEntries reads test-result JSON files from the generated report
-// and returns stability entries for processing.
+// and returns one stability entry per test (superseded retry attempts dropped).
 func (a *Allure) parseStabilityEntries(ctx context.Context, storageKey, reportID string) ([]stabilityEntry, error) {
 	relBase := "reports/" + reportID + "/data/test-results"
 	entries, err := a.store.ReadDir(ctx, storageKey, relBase)
@@ -209,6 +217,13 @@ func (a *Allure) parseStabilityEntries(ctx context.Context, storageKey, reportID
 		}
 		var se stabilityEntry
 		if json.Unmarshal(data, &se) != nil {
+			continue
+		}
+		// Allure 3's awesome plugin writes every attempt; superseded ones
+		// (isRetry) repeat the final attempt's flaky/retriesCount, which would
+		// double-count them and make the shared fullName read as ambiguous.
+		// Allure's own statistic skips them too. Allure 2 entries lack the field.
+		if se.IsRetry {
 			continue
 		}
 		results = append(results, se)
@@ -316,7 +331,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 		if stabilityEntries, err := a.parseStabilityEntries(ctx, storageKey, "latest"); err == nil {
 			for i := range stabilityEntries {
 				se := &stabilityEntries[i]
-				if se.StatusDetails != nil && se.StatusDetails.Flaky {
+				if se.isFlaky() {
 					storeStats.FlakyCount++
 				}
 				if se.RetriesCount > 0 {
@@ -352,7 +367,7 @@ func (a *Allure) storeAndPruneBuild(ctx context.Context, projectID int64, slug, 
 						if se.Time != nil {
 							dur = se.Time.Duration
 						}
-						flaky := se.StatusDetails != nil && se.StatusDetails.Flaky
+						flaky := se.isFlaky()
 
 						// Extract start/stop: nested Time takes priority, top-level as fallback.
 						var startMs, stopMs *int64
