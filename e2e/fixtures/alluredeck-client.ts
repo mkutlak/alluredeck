@@ -147,6 +147,20 @@ export class AllureDeckClient {
     }
   }
 
+  /** Authenticated JSON call against the API; `path` is relative to the API base (e.g. `/users`). */
+  async api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: {
+        ...this.authHeaders(),
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+    if (!res.ok) throw new Error(`${method} ${path} failed: ${res.status} ${await res.text()}`)
+    return (await res.json().catch(() => undefined)) as T
+  }
+
   getReportUrl(projectId: string, reportId = 'latest'): string {
     const baseUrl = process.env.ALLUREDECK_URL ?? 'http://localhost:7474'
     return `${baseUrl}/projects/${encodeURIComponent(projectId)}/reports/${reportId}`

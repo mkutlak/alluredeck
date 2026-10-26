@@ -356,6 +356,54 @@ docker run --rm -v {{config_root}}/e2e:/work "$PW_IMAGE" \
   sh -c 'rm -rf /work/test-results /work/playwright-report /work/auth-state.json'
 '''
 
+# ══ Docs ══════════════════════════════════════════════════════
+
+[tasks."docs:screenshots"]
+description = "Regenerate docs/screenshots with seeded demo data (isolated Docker stack)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+for port in 7474 5050; do
+  if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then
+    echo "Port $port is already in use. Stop the default stack first: mise run docker:down" >&2
+    exit 1
+  fi
+done
+
+COMPOSE="docker compose -p alluredeck-docs -f {{config_root}}/docker/docker-compose.yml"
+PW="docker run --rm --network host -e ALLUREDECK_URL=http://localhost:7474 -e ALLUREDECK_API_URL=http://localhost:5050/api/v1 -w /work"
+OWN="{{exec(command='id -u')}}:{{exec(command='id -g')}}"
+trap '$COMPOSE down -v' EXIT
+
+# Show the released version rather than "dev" in the sidebar footer.
+export VITE_APP_VERSION="$(git -C {{config_root}} tag --list 'v[0-9]*' --sort=-v:refname | head -n1 | sed 's/^v//')"
+
+wait_for() {
+  for _ in $(seq 1 90); do
+    curl -fsS -o /dev/null "$1" && return 0
+    sleep 2
+  done
+  echo "Timed out waiting for $1" >&2
+  return 1
+}
+
+$COMPOSE up --build -d alluredeck-ui allure-api postgres
+wait_for http://localhost:5050/health
+wait_for http://localhost:7474
+
+echo "==> Seeding demo data"
+$PW -v {{config_root}}/e2e:/work "$PW_IMAGE" \
+  sh -c "npm install --silent && npx tsx docs/seed-demo.ts; STATUS=\$?; chown -R $OWN /work/node_modules 2>/dev/null; exit \$STATUS"
+
+echo "==> Backdating builds (6h apart, newest at now)"
+$COMPOSE exec -T postgres psql -U allure -d allure -v ON_ERROR_STOP=1 < {{config_root}}/e2e/docs/finalize.sql
+
+echo "==> Capturing screenshots"
+$PW -v {{config_root}}/e2e:/work -v {{config_root}}/docs/screenshots:/screenshots -e SCREENSHOT_DIR=/screenshots "$PW_IMAGE" \
+  sh -c "npm install --silent && npx playwright test -c docs/playwright.config.ts; STATUS=\$?; chown -R $OWN /work/node_modules /work/test-results /screenshots 2>/dev/null; exit \$STATUS"
+'''
+
 # ══ Helm ══════════════════════════════════════════════════════
 
 [tasks."helm:lint"]
