@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { RunSuiteChip } from './RunSuiteChip'
+import { isFailingSuite } from './rowFormat'
 import type { PipelineSuite } from '@/types/api'
 
 export interface RunSuiteChipsProps {
@@ -16,7 +17,8 @@ export interface RunSuiteChipsProps {
 const VISIBLE_LIMIT = 4
 
 /**
- * Renders only the suites that failed, worst first.
+ * Renders only the suites that failed, worst first. A suite whose report could not be
+ * read counts: it has no failed tests listed, but it failed its run.
  *
  * A run can hold twenty suites of which most passed. Passing suites are not
  * news and cost three wrapped lines of chips per run, so they collapse to a
@@ -26,7 +28,7 @@ export function RunSuiteChips({ suites, runPath, origins = [] }: RunSuiteChipsPr
   const [showAll, setShowAll] = useState(false)
 
   const failing = suites
-    .filter((s) => s.failed > 0)
+    .filter(isFailingSuite)
     .sort((a, b) => b.failed - a.failed || a.slug.localeCompare(b.slug))
   // The API's suites_passed rule: an unreadable or all-skipped suite did not pass.
   const passedCount = suites.filter((s) => s.status === 'passed').length

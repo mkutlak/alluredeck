@@ -4,6 +4,7 @@ import { Split } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
+import { isFailingSuite } from './rowFormat'
 import { suiteReportHref } from './runKey'
 import type { PipelineSuite } from '@/types/api'
 
@@ -39,13 +40,14 @@ export function RunSuiteChip({ suite, runPath }: RunSuiteChipProps) {
 
   const href = runPath ? `${runPath}#suite-${suite.project_id}` : suiteReportHref(suite)
   // The glyph is hidden and the counts are bare numbers, so the name says what they mean.
+  // A suite whose report could not be read has no count, so the name just says it failed.
   // A passing suite needs no name: RunSuiteChips draws chips only for failing ones.
-  const failedText = `${label}: ${suite.failed} failed${isSharded ? ` across ${shardCount} shards` : ''}`
+  const failedText = `${label}: ${suite.failed > 0 ? `${suite.failed} failed` : 'failed'}${isSharded ? ` across ${shardCount} shards` : ''}`
 
   const chip = (
     <NavLink
       to={href}
-      aria-label={suite.failed > 0 ? failedText : undefined}
+      aria-label={isFailingSuite(suite) ? failedText : undefined}
       className="hover:bg-accent inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors"
       data-testid="run-suite-chip"
     >

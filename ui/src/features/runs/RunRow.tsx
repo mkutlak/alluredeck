@@ -193,7 +193,7 @@ export function RunRow({ run }: RunRowProps) {
       </div>
 
       {/* Line 2 — only when something failed, so a green run stays one line. */}
-      {hasFailures && (
+      {suitesFailing > 0 && (
         <div className="mt-1.5 pl-6">
           <RunSuiteChips suites={run.suites} runPath={href} origins={origins} />
         </div>
