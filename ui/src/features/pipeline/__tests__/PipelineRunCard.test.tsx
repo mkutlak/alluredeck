@@ -89,7 +89,8 @@ describe('PipelineRunCard', () => {
         }}
       />,
     )
-    expect(screen.getByText('— overall').className).toMatch(/d20f39/)
+    expect(screen.getByText('— overall')).toHaveClass('text-fact')
+    expect(screen.getByText('1 suite failing').className).toMatch(/d20f39/)
   })
 
   it('expands to show suite grid on click', async () => {

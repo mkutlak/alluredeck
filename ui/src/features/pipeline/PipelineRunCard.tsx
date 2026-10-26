@@ -8,9 +8,10 @@ import {
 } from 'lucide-react'
 
 import { formatDate, formatDuration, formatPassRate } from '@/lib/utils'
-import { getPassRateColorClass, STATUS_TEXT_CLASSES } from '@/lib/status-colors'
+import { STATUS_TEXT_CLASSES } from '@/lib/status-colors'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { RunGlyph } from '@/features/runs/RunFacts'
 import { summarizeRun } from '@/features/runs/rowFormat'
 import { SuiteBadge } from './SuiteBadge'
 import type { PipelineRun } from '@/types/api'
@@ -24,15 +25,20 @@ export function PipelineRunCard({ run }: PipelineRunCardProps) {
   const { aggregate } = run
   const shortSHA = run.commit_sha?.slice(0, 7)
   const hasPipeline = !!run.pipeline_id
-  // Nothing ran (every suite skipped): "—" in neutral ink, not a red 0%. Suite
-  // status, not zero counts: a build with unreadable stats also has total 0.
-  const allSkipped = run.suites.length > 0 && run.suites.every((s) => s.status === 'skipped')
-  // Still uploading: the counts cover only the suites that arrived, so no green or red.
-  const { awaiting } = summarizeRun(run)
+  const { verdict, awaiting, failedCount, suitesFailing } = summarizeRun(run)
+  // The rate is a plain fact: the glyph and the red failed-test count carry the verdict.
+  // Nothing ran, or suites are still uploading (the counts cover only those that
+  // arrived): the counts and the rate take the neutral ink.
   const rateClass =
-    allSkipped || awaiting > 0
-      ? STATUS_TEXT_CLASSES.skipped
-      : getPassRateColorClass(aggregate.pass_rate)
+    verdict === 'skipped' || verdict === 'awaiting' ? STATUS_TEXT_CLASSES.skipped : 'text-fact'
+  // A suite whose report could not be read fails with no test to count, so it is
+  // named instead, as in the feed's summary.
+  const redFact =
+    failedCount > 0
+      ? `${failedCount} ${failedCount === 1 ? 'failed test' : 'failed tests'}`
+      : suitesFailing > 0
+        ? `${suitesFailing} ${suitesFailing === 1 ? 'suite' : 'suites'} failing`
+        : null
 
   return (
     <Card>
@@ -102,11 +108,18 @@ export function PipelineRunCard({ run }: PipelineRunCardProps) {
       <CardContent className="px-4 pt-0 pb-4">
         {/* Summary line */}
         <p className="text-muted-foreground text-sm">
+          <RunGlyph run={run} />{' '}
           <span className={rateClass}>
             {awaiting > 0
               ? `awaiting ${awaiting} ${awaiting === 1 ? 'suite' : 'suites'}`
               : `${aggregate.suites_passed}/${aggregate.suites_total} suites passing`}
           </span>
+          {redFact && (
+            <>
+              {' · '}
+              <span className={`font-medium ${STATUS_TEXT_CLASSES.failed}`}>{redFact}</span>
+            </>
+          )}
           {' · '}
           <span className={rateClass}>
             {formatPassRate(aggregate.tests_passed, aggregate.tests_total, aggregate.tests_skipped)}{' '}

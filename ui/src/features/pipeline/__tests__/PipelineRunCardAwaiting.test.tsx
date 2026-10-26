@@ -71,7 +71,7 @@ describe('PipelineRunCard for a pipeline run that is still uploading', () => {
   it.each([undefined, 0])('keeps "x/y suites passing" when awaiting_suites is %s', (awaiting) => {
     renderWithProviders(<PipelineRunCard run={makeRun(awaiting)} />)
 
-    expect(screen.getByText('2/2 suites passing')).toHaveClass('text-[#40a02b]')
+    expect(screen.getByText('2/2 suites passing')).toHaveClass('text-fact')
     expect(screen.queryByText(/awaiting/)).not.toBeInTheDocument()
   })
 })
