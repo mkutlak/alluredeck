@@ -58,7 +58,7 @@ describe('SuiteBadge', () => {
       />,
     )
     const badge = screen.getByText(/—/)
-    expect(badge).toHaveClass('text-[#6c6f85]')
+    expect(badge).toHaveClass('text-[#5c5f77]')
     expect(badge.className).not.toMatch(/bg-primary|bg-destructive/)
     expect(badge).not.toHaveTextContent(/[✓✗⚠]/)
   })

@@ -40,7 +40,7 @@ export const STATUS_BADGE_CLASSES = {
   broken:
     'border-transparent bg-[#fe640b]/15 text-[#fe640b] dark:bg-[#fab387]/15 dark:text-[#fab387]',
   skipped:
-    'border-transparent bg-[#8c8fa1]/15 text-[#6c6f85] dark:bg-[#7f849c]/15 dark:text-[#a6adc8]',
+    'border-transparent bg-[#8c8fa1]/15 text-[#5c5f77] dark:bg-[#7f849c]/15 dark:text-[#a6adc8]',
 } as const
 
 // Full CVA-compatible badge class string for informational (blue) content — light + dark
@@ -49,7 +49,7 @@ export const INFO_BADGE_CLASSES =
 
 // Full CVA-compatible badge class string for neutral content — reuses the skipped overlay grays
 export const NEUTRAL_BADGE_CLASSES =
-  'border-transparent bg-[#8c8fa1]/15 text-[#6c6f85] dark:bg-[#7f849c]/15 dark:text-[#a6adc8]'
+  'border-transparent bg-[#8c8fa1]/15 text-[#5c5f77] dark:bg-[#7f849c]/15 dark:text-[#a6adc8]'
 
 // Accent (Catppuccin mauve) — used for trace/tooling badges that need a distinct hue
 export const ACCENT_TEXT_CLASSES = 'text-[#8839ef] dark:text-[#cba6f7]'
