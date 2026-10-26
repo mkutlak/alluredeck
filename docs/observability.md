@@ -17,7 +17,7 @@ AllureDeck exposes OpenTelemetry traces, Prometheus-scrapeable metrics, and trac
 - **HTTP requests** — every inbound request gets a span with route pattern (e.g. `GET /api/v1/projects/{id}`), method, status code, and duration. Metrics: `http.server.request.duration` (histogram), `http.server.active_requests` (gauge).
 - **PostgreSQL queries** — every pgx query gets a span with `db.statement` (truncated to 1 KB), `db.operation`, pool utilisation. Metrics: `db.client.operation.duration` (histogram), `db.client.connections.usage` (gauge).
 - **River background jobs** — every job execution gets a span linked to the originating request span. Metrics: `river.job.duration.seconds` (histogram by kind), `river.jobs.completed.total` (by kind + outcome), `river.queue.depth` (gauge).
-- **Outbound HTTP** — S3 operations, webhook delivery, and OIDC token exchange are each wrapped with `otelhttp.NewTransport`, producing child spans.
+- **Outbound HTTP** — webhook delivery and OIDC token exchange are each wrapped with `otelhttp.NewTransport`, producing child spans. S3 operations get child spans from the AWS SDK's native tracing (`smithyoteltracing`).
 - **Go runtime** — `go.goroutines`, `go.memory.used`, `go.gc.duration` and related runtime metrics emitted automatically.
 
 ### Trace propagation
