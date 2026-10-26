@@ -88,7 +88,7 @@ export function RunFailures({
   // This component is only mounted once its run is expanded, so a feed of
   // collapsed runs issues no failure requests at all. The key changes when a failing suite
   // arrives (see runFailuresOptions): the list on screen stays until the new one is in.
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, isPlaceholderData, refetch } = useQuery({
     ...runFailuresOptions(groupProjectId ?? 0, runKey, failingBuildIds(run)),
     placeholderData: keepPreviousData,
     enabled: groupProjectId != null && runKey !== '',
@@ -223,10 +223,14 @@ export function RunFailures({
             // or ○ while suites are awaited.
             sectionVerdict={asPage && bySuite ? suiteVerdict(group, truncated) : undefined}
             historyBranch={run.branch}
+            // While the list is the previous run's stand-in, a new suite's rows are on their way
+            // (a suite whose report could not be read has none to wait for).
             emptyNote={
-              truncated
-                ? 'Not listed: this run has more failures than were loaded.'
-                : 'No failing tests listed for this suite.'
+              isPlaceholderData && (group.suite?.failed ?? 0) > 0
+                ? "Loading this suite's failures…"
+                : truncated
+                  ? 'Not listed: this run has more failures than were loaded.'
+                  : 'No failing tests listed for this suite.'
             }
             openSummaries={openSummaries}
             onToggleSummary={(key) => setOpenSummaries((prev) => ({ ...prev, [key]: !prev[key] }))}
