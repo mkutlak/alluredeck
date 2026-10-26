@@ -14,6 +14,7 @@ golangci-lint = "2"
 helm          = "3"
 yq            = "4"
 swag          = "latest"
+zizmor        = "1"
 
 # ── Build metadata (injected into binaries / images) ──────────
 [env]
@@ -373,6 +374,12 @@ run = "helm package charts/alluredeck"
 description = "Bump chart version (append patch|minor|major; default patch) and commit"
 depends = ["helm:lint"]
 run = "bash scripts/helm-release.sh"
+
+# ══ GitHub Actions ════════════════════════════════════════════
+
+[tasks."gha:lint"]
+description = "Security-lint workflows and dependabot.yml (set GH_TOKEN for online audits)"
+run = "zizmor ."
 
 # ══ Utilities ═════════════════════════════════════════════════
 
