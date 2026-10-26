@@ -1,46 +1,56 @@
 version: 2
+
+# Every ecosystem: monthly version updates (1st of the month, UTC), minor and
+# patch bumps grouped into one PR, majors as separate PRs. The 7-day cooldown
+# matches mise's minimum_release_age, so freshly published (possibly
+# compromised) releases are skipped. Security updates ignore both the schedule
+# and the cooldown and still open immediately.
 updates:
   # Go dependencies
   - package-ecosystem: gomod
     directory: "/api"
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "03:15"
+    cooldown:
+      default-days: 7
+    groups:
+      go:
+        patterns: ["*"]
+        update-types: [minor, patch]
     open-pull-requests-limit: 5
     labels:
       - dependencies
       - go
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
     pull-request-branch-name:
       separator: "-"
-    allow:
-      - dependency-type: "production"
-      - dependency-type: "development"
     assignees:
       - mkutlak
-      
+
   # NPM
   - package-ecosystem: npm
     directory: "/ui"
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "03:15"
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: [minor, patch]
     open-pull-requests-limit: 5
     labels:
       - dependencies
       - npm
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
     pull-request-branch-name:
       separator: "-"
-    allow:
-      - dependency-type: "production"
-      - dependency-type: "development"
     ignore:
       # Held at vitest 4 until allure-vitest supports vitest 5 — see "vitest-4-hold" in ui/package.json
       - dependency-name: "vitest"
@@ -50,40 +60,47 @@ updates:
     assignees:
       - mkutlak
 
-  # GitHub Actions
+  # GitHub Actions (pinned by SHA; Dependabot bumps the SHA and the version comment)
   - package-ecosystem: github-actions
-    directory: "/.github"
+    directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "03:15"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
     open-pull-requests-limit: 5
     labels:
       - dependencies
       - github-actions
     commit-message:
       prefix: "chore(ci)"
-      include: "scope"
     pull-request-branch-name:
       separator: "-"
     assignees:
       - mkutlak
 
-
   # Docker
   - package-ecosystem: docker
     directory: "/docker"
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "03:15"
+    cooldown:
+      default-days: 7
+    groups:
+      docker:
+        patterns: ["*"]
+        update-types: [minor, patch]
     open-pull-requests-limit: 5
     labels:
       - dependencies
       - docker
     commit-message:
       prefix: "chore(docker)"
-      include: "scope"
     pull-request-branch-name:
       separator: "-"
     assignees:
