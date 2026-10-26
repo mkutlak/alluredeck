@@ -2,7 +2,7 @@ apiVersion: v2
 name: alluredeck
 description: Allure Reports Dashboard
 type: application
-version: 0.26.1
+version: 0.26.2
 appVersion: "0.50.0"
 home: https://github.com/mkutlak/alluredeck
 icon: https://raw.githubusercontent.com/mkutlak/alluredeck/main/docs/screenshots/gopher_deck.png
