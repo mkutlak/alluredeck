@@ -10,6 +10,7 @@ import { resolveEffectiveBranch } from '@/features/projects/overviewHelpers'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
+import { runKeyOf } from '@/features/runs/runKey'
 import { PipelineRunCard } from './PipelineRunCard'
 
 interface PipelineRunsTabProps {
@@ -77,7 +78,7 @@ export function PipelineRunsTab({ projectId, childIds }: PipelineRunsTabProps) {
       ) : (
         <div className="space-y-3">
           {runs.map((run) => (
-            <PipelineRunCard key={run.commit_sha} run={run} />
+            <PipelineRunCard key={runKeyOf(run)} run={run} />
           ))}
         </div>
       )}
