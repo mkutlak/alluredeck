@@ -23,4 +23,20 @@ describe('SuitePassRateChart', () => {
     )
     expect(await screen.findByText('No suite data available')).toBeInTheDocument()
   })
+
+  // --chart-1 is a bare HSL triplet ("109 58% 40%"), not a colour: the bars need hsl() around it.
+  it('colours the bars with the chart-1 theme colour as an hsl() value', async () => {
+    vi.mocked(analyticsApi.fetchSuitePassRates).mockResolvedValue({
+      data: [{ suite: 'checkout', pass_rate: 80, passed: 8, total: 10 }],
+      metadata: { message: 'ok' },
+    })
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SuitePassRateChart projectId="myproject" />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText(/--color-pass_rate:/, { ignore: false })).toHaveTextContent(
+      '--color-pass_rate: hsl(var(--chart-1));',
+    )
+  })
 })

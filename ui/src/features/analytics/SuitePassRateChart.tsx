@@ -17,7 +17,7 @@ const BUILDS = 20
 const chartConfig = {
   pass_rate: {
     label: 'Pass Rate (%)',
-    color: 'var(--chart-1)',
+    color: 'hsl(var(--chart-1))',
   },
 } satisfies ChartConfig
 
