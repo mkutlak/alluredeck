@@ -1,3 +1,17 @@
+## [0.50.0](https://github.com/mkutlak/alluredeck/compare/v0.49.1...v0.50.0) (2026-10-26)
+
+### Features
+
+* **ui:** give the Pipeline Runs card a verdict and state its pass rate as a fact ([8532c9d](https://github.com/mkutlak/alluredeck/commit/8532c9d20d2773c9021ae4cb4d60da14284f742d))
+
+### Bug Fixes
+
+* **ui:** give a suite whose report could not be read its chip in the feed ([a736629](https://github.com/mkutlak/alluredeck/commit/a73662984b50e19bd4755b2525103ba041a59d26))
+* **ui:** key pipeline run cards by run, not by commit ([318db31](https://github.com/mkutlak/alluredeck/commit/318db312350909cd444511bc5fd36e0c6c954eae))
+* **ui:** make command palette group headings readable ([067ddd5](https://github.com/mkutlak/alluredeck/commit/067ddd528bc76c93a5f6a727fa49ce19925e1f99))
+* **ui:** say a newly failing suite's tests are loading, not missing ([6a16d3c](https://github.com/mkutlak/alluredeck/commit/6a16d3c48c434659a63c198ccdb232158aed85a9))
+* **ui:** set skipped and neutral badge text in Graphite ([adaadd4](https://github.com/mkutlak/alluredeck/commit/adaadd4bf258d8db37725804b80ef9f6d2f817a5)), closes [#6c6f85](https://github.com/mkutlak/alluredeck/issues/6c6f85) [#5c5f77](https://github.com/mkutlak/alluredeck/issues/5c5f77)
+
 ## [0.49.1](https://github.com/mkutlak/alluredeck/compare/v0.49.0...v0.49.1) (2026-10-12)
 
 ### Bug Fixes
