@@ -45,7 +45,8 @@ export interface ResolvedProject {
 
 /**
  * Builds the breadcrumb trail for a pathname. Returns null on the runs feed
- * ("/"), where no breadcrumb bar is shown. Links always use numeric ids.
+ * ("/") and on pages outside the project hierarchy (/admin, /settings/*), where
+ * no breadcrumb bar is shown. Links always use numeric ids.
  */
 export function buildBreadcrumbs(
   pathname: string,
@@ -67,8 +68,10 @@ export function buildBreadcrumbs(
     ]
   }
 
+  if (!/^\/projects(\/|$)/i.test(pathname)) return null
+
   // Always include root
-  const crumbs: Crumb[] = [{ label: 'Projects', href: '/' }]
+  const crumbs: Crumb[] = [{ label: 'Projects', href: '/projects' }]
 
   if (!params.id) return crumbs
 
@@ -93,7 +96,7 @@ export function buildBreadcrumbs(
   crumbs.push({ label: projectLabel, icon: 'file' })
 
   // Determine sub-route segments after /projects/:id/
-  const afterId = pathname.replace(/^\/projects\/[^/]+\/?/, '')
+  const afterId = pathname.replace(/^\/projects\/[^/]+\/?/i, '')
   const segments = afterId ? afterId.split('/').filter(Boolean) : []
 
   const firstSeg = segments[0]

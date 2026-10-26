@@ -47,11 +47,20 @@ describe('BreadcrumbBar', () => {
         .getAllByRole('link')
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
-      ['Projects', '/'],
+      ['Projects', '/projects'],
       ['Parent Group', '/projects/10'],
       ['Overview', '/projects/20'],
     ])
     expect(nav).toHaveTextContent(/Child Project.*Report #99$/)
+  })
+
+  // jsdom has no layout, so pin the class: the current crumb is capped at 70% of the trail, and a
+  // trail that shrink-wraps its crumbs made that 70% of its own content ("Pro..." on /projects).
+  it('lets the trail fill the bar so the current crumb truncates only against the bar width', () => {
+    renderAt('/projects/child-proj', { project: child })
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('list'),
+    ).toHaveClass('flex-1')
   })
 
   it('shows skeleton placeholders while loading', () => {

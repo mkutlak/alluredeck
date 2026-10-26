@@ -34,7 +34,9 @@ export function BreadcrumbBar() {
       ) : (
         // Crumbs truncate rather than wrap: a long group name used to spill three lines
         // out of the 40px bar on a phone. The short root and the current page do not shrink.
-        <ol className="flex min-w-0 items-center gap-1.5">
+        // flex-1: the current page's max-w-[70%] must resolve against the bar, not against a
+        // trail that shrink-wraps its crumbs (that cut a lone "Projects" root to "Pro...").
+        <ol className="flex min-w-0 flex-1 items-center gap-1.5">
           {crumbs.map((crumb, i) => {
             const isLast = i === crumbs.length - 1
             return (

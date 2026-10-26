@@ -31,47 +31,74 @@ const trail = (
 describe('buildBreadcrumbs', () => {
   it.each<[string, string, BreadcrumbParams, ProjectEntry | undefined, string[] | null]>([
     ['nothing on the runs feed "/"', '/', {}, undefined, null],
+    // The Projects list is the root of the project trail; as the last crumb the bar shows it as
+    // the current page.
+    [
+      'just the Projects root on the projects list',
+      '/projects',
+      {},
+      undefined,
+      ['Projects -> /projects'],
+    ],
+    // These pages sit outside the project hierarchy, so they get no trail, like "/".
+    ['nothing on /admin', '/admin', {}, undefined, null],
+    ['nothing on /admin/proposals', '/admin/proposals', {}, undefined, null],
+    ['nothing on /settings/*', '/settings/api-keys', {}, undefined, null],
+    ['nothing on an unknown path', '/nope', {}, undefined, null],
     [
       'root link and plain current project',
       '/projects/30',
       { id: '30' },
       standalone,
-      ['Projects -> /', 'Standalone'],
+      ['Projects -> /projects', 'Standalone'],
     ],
     [
       'the parent linked by numeric id',
       '/projects/20',
       { id: '20' },
       child,
-      ['Projects -> /', 'Parent Group -> /projects/10', 'Child Project'],
+      ['Projects -> /projects', 'Parent Group -> /projects/10', 'Child Project'],
     ],
     [
       'the current tab as plain text',
       '/projects/30/analytics',
       { id: '30' },
       standalone,
-      ['Projects -> /', 'Standalone', 'Analytics'],
+      ['Projects -> /projects', 'Standalone', 'Analytics'],
+    ],
+    // Routes match case-insensitively, so /Projects/30/analytics is the same page.
+    [
+      'the same trail when the path differs in case',
+      '/Projects/30/analytics',
+      { id: '30' },
+      standalone,
+      ['Projects -> /projects', 'Standalone', 'Analytics'],
     ],
     [
       'a linked Overview tab and plain report under reports/',
       '/projects/30/reports/42',
       { id: '30', reportId: '42' },
       standalone,
-      ['Projects -> /', 'Standalone', 'Overview -> /projects/30', 'Report #42'],
+      ['Projects -> /projects', 'Standalone', 'Overview -> /projects/30', 'Report #42'],
     ],
     [
       'a linked Attachments tab (numeric id for a slug param) and plain source under trace/',
       '/projects/standalone/trace/my-trace.zip',
       { id: 'standalone', source: 'my-trace.zip' },
       standalone,
-      ['Projects -> /', 'Standalone', 'Attachments -> /projects/30/attachments', 'my-trace.zip'],
+      [
+        'Projects -> /projects',
+        'Standalone',
+        'Attachments -> /projects/30/attachments',
+        'my-trace.zip',
+      ],
     ],
     [
       '"Build Comparison" on compare',
       '/projects/30/compare',
       { id: '30' },
       standalone,
-      ['Projects -> /', 'Standalone', 'Build Comparison'],
+      ['Projects -> /projects', 'Standalone', 'Build Comparison'],
     ],
     // A slug route param must still link by the numeric project_id.
     [
@@ -80,7 +107,7 @@ describe('buildBreadcrumbs', () => {
       { id: 'child-proj', reportId: '99' },
       child,
       [
-        'Projects -> /',
+        'Projects -> /projects',
         'Parent Group -> /projects/10',
         'Child Project',
         'Overview -> /projects/20',
