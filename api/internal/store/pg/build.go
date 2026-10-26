@@ -296,10 +296,13 @@ func (bs *BuildStore) GetPreviousBuild(ctx context.Context, projectID int64, bui
 	return b, nil
 }
 
-// GetLatestBuild returns the build marked is_latest=TRUE for a project.
+// GetLatestBuild returns the project's newest published build. is_latest is
+// maintained per branch, so several rows can carry it; the highest build_order
+// among them is the project-wide latest (the same rule GetDashboardData uses).
 func (bs *BuildStore) GetLatestBuild(ctx context.Context, projectID int64) (store.Build, error) {
 	row := bs.pool.QueryRow(ctx, buildSelectCols+`
-		WHERE project_id=$1 AND is_latest=TRUE`, projectID)
+		WHERE project_id=$1 AND is_latest=TRUE
+		ORDER BY build_order DESC LIMIT 1`, projectID)
 	b, err := scanBuildRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
