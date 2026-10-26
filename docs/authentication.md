@@ -19,7 +19,7 @@ AllureDeck uses 3-level role-based access control:
 
 ## Local Authentication
 
-Configured via environment variables. Enabled by default.
+Configured via environment variables. Off by default: `SECURITY_ENABLED` is `false` in the API. In that mode requests are not authenticated and carry no role, but role checks still run, so every role-checked endpoint returns `403 Access denied: missing claims` until you enable it. The full-stack Docker Compose files and the Helm chart set it to `true`.
 
 ```bash
 SECURITY_ENABLED=true
@@ -80,9 +80,10 @@ Key security properties:
 | `OIDC_ADMIN_GROUPS` | No | — | Comma-separated group IDs that map to the `admin` role |
 | `OIDC_EDITOR_GROUPS` | No | — | Comma-separated group IDs that map to the `editor` role |
 | `OIDC_DEFAULT_ROLE` | No | `viewer` | Role assigned when no group matches |
-| `OIDC_STATE_COOKIE_SECRET` | Yes* | — | AES encryption key for state cookies (exactly 32 bytes) |
+| `OIDC_STATE_COOKIE_SECRET` | Yes* | — | AES encryption key for state cookies. Must be exactly 16, 24, or 32 bytes (AES-128/192/256); 32 recommended |
 | `OIDC_POST_LOGIN_REDIRECT` | No | `/` | Frontend URL to redirect to after successful SSO login |
 | `OIDC_END_SESSION_URL` | No | — | RP-initiated logout URL (optional) |
+| `OIDC_AUTO_LINK_BY_EMAIL` | No | `false` | How to resolve a sign-in whose email already belongs to another account (see [Email Collisions](#email-collisions)) |
 
 *Required when `OIDC_ENABLED=true`. The server refuses to start if any required field is missing.
 
@@ -94,11 +95,22 @@ Roles are resolved from IdP group claims using a highest-priority-wins strategy:
 2. Else if any group matches `OIDC_EDITOR_GROUPS` → **editor**
 3. Else → `OIDC_DEFAULT_ROLE` (default: **viewer**)
 
+### Email Collisions
+
+Email addresses are unique across providers. When an SSO sign-in presents an email that already belongs to an account created another way (for example a local account), the outcome depends on `OIDC_AUTO_LINK_BY_EMAIL`:
+
+| Setting | Result |
+|---------|--------|
+| `false` (default) | Sign-in is rejected with `409 Conflict`. An administrator must untangle the duplicate identities |
+| `true` | The existing account is rebound to the SSO identity **if** the IdP's ID token has `email_verified=true`, and the sign-in succeeds. An unverified email is still rejected with `409` |
+
+Every rejection records an `auth.login.failure` audit event with `metadata.reason` set to `oidc_email_collision`, `oidc_email_collision_unverified`, `oidc_email_collision_lookup_failed`, or `oidc_email_collision_relink_failed` (the last two are internal failures while auto-linking); a successful link records `previous_provider` in the `auth.login.success` metadata. Enable auto-link only with an IdP that verifies email ownership — otherwise anyone who can register an arbitrary email there can take over the matching account. See [security.md](security.md#email-uniqueness-across-providers).
+
 ### User Lifecycle
 
 - **First login:** A user record is created automatically (JIT provisioning) with the resolved role
 - **Subsequent logins:** The user's name, email, and role are updated from the latest token claims
-- **Deactivation:** Set `is_active=false` in the `users` table. The user receives a `403 Forbidden` on next SSO login even though IdP authentication succeeds
+- **Deactivation:** An admin deactivates the user from **Administration → Users** (or `DELETE /api/v1/users/{id}`; see [user-management.md](user-management.md)). Access ends on the user's next request, within about 2 seconds: access tokens and API keys are refused and every refresh-token family — including SSO sessions — is revoked. The user receives `403 Forbidden` ("Account is deactivated") on the next SSO login even though IdP authentication succeeds. Reactivating the account lets the user sign in again, but API keys are not restored when deactivation went through `DELETE` (what the Users page uses) — they are deleted, and the user must create new ones
 
 ---
 
@@ -233,6 +245,15 @@ api:
 
 The Secret must include `oidcClientSecret` and `oidcStateCookieSecret` keys alongside the existing auth keys.
 
+The chart has no value for `OIDC_AUTO_LINK_BY_EMAIL`. Set it with `api.extraEnv`:
+
+```yaml
+api:
+  extraEnv:
+    - name: OIDC_AUTO_LINK_BY_EMAIL
+      value: "true"
+```
+
 ---
 
 ## Generating Secrets
@@ -262,5 +283,6 @@ head -c 32 /dev/urandom | base64 | head -c 32
 | SSO login redirects but callback returns 400 | State mismatch or expired | Ensure `OIDC_REDIRECT_URL` exactly matches what's registered in the IdP; check clock sync between API server and IdP |
 | User gets `viewer` role despite being in an admin group | Group ID mismatch | Compare the group claim value in the ID token against `OIDC_ADMIN_GROUPS`; Azure AD uses GUIDs, Keycloak uses paths like `/group-name` |
 | Azure AD user gets `viewer` despite group membership | Group overage (200+ groups) | Reduce group count or use filtered group claims |
-| User gets 403 after successful SSO auth | Account deactivated | Check `is_active` in the `users` table |
+| User gets 403 after successful SSO auth | Account deactivated | Reactivate the user on the Users page, or check `is_active` in the `users` table |
+| SSO login returns 409 "An account with this email already exists under a different identity" | Email collides with an existing account and `OIDC_AUTO_LINK_BY_EMAIL=false` (or the IdP did not assert `email_verified`) | Enable `OIDC_AUTO_LINK_BY_EMAIL` for a trusted IdP, or have an administrator resolve the duplicate account |
 | SSO button not visible on login page | Config endpoint reports OIDC disabled | Verify `OIDC_ENABLED=true` and the API is reachable |

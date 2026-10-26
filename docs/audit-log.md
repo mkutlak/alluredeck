@@ -1,6 +1,6 @@
 # Audit Log
 
-AllureDeck records security-sensitive operations to an `audit_log` table in PostgreSQL. Every authentication event and user lifecycle change produces a structured row that can be queried for incident response, compliance, or operational monitoring.
+AllureDeck records security-sensitive operations to an `audit_log` table in PostgreSQL. Every authentication event, user lifecycle change, and MCP proposal action produces a structured row that can be queried for incident response, compliance, or operational monitoring.
 
 Related documentation: [Security](security.md) · [User Management](user-management.md) · [Authentication](authentication.md)
 
@@ -10,7 +10,7 @@ Related documentation: [Security](security.md) · [User Management](user-managem
 
 1. [Events Recorded](#events-recorded)
 2. [Event Schema](#event-schema)
-3. [Viewing the Audit Log](#viewing-the-audit-log)
+3. [Querying the Audit Log](#querying-the-audit-log)
 4. [Retention](#retention)
 5. [Using Audit Events for Security Investigations](#using-audit-events-for-security-investigations)
 
@@ -50,6 +50,18 @@ Every audit event has an **action** string, an **outcome** (`success` or `failur
 | `api_keys.delete` | User deletes an API key | `key_name` |
 | `api_keys.cascade_delete` | All API keys deleted for a user (password reset or deactivation) | `trigger`, `username`, `deleted` (count) |
 
+### MCP Proposal Events
+
+Recorded when the [MCP server](operations/mcp-server.md) creates a proposal and when an admin reviews it. All have `target_type` `proposal` and the proposal ID as `target_id`. The `mcp.propose_*` rows leave `actor_id` null and record the proposing account (the owner of the API key) in `actor_label`; the approve and reject rows set `actor_id` to the reviewing admin's user ID when the JWT subject is numeric. For a config-file `ADMIN_USER` the subject is not numeric, so `actor_id` is null there too and `actor_label` holds the subject.
+
+| Action | Trigger | Recorded by | Metadata |
+|--------|---------|-------------|----------|
+| `mcp.propose_defect_classify` | An MCP client proposed a defect classification | cmd/mcp | `project_id`, `fingerprint_hash`, `category` |
+| `mcp.propose_known_issue` | An MCP client proposed a known-issue pattern | cmd/mcp | `project_id`, `regex_pattern`, `dry_run_count` |
+| `mcp.propose_flaky` | An MCP client proposed marking a test as flaky | cmd/mcp | `project_id`, `test_full_name`, `history_id` |
+| `mcp.proposal_approve` | An admin approved a proposal in **Administration → Pending Proposals** | cmd/api | `proposal_id` plus the proposal's fields (`fingerprint_hash` and `proposed_category`, `regex_pattern` and `project_id`, or `test_full_name` and `history_id`, depending on the type) |
+| `mcp.proposal_reject` | An admin rejected a proposal | cmd/api | `proposal_id`, `proposal_type`, `reason` |
+
 ---
 
 ## Event Schema
@@ -62,7 +74,7 @@ Each row in `audit_log` contains:
 | `occurred_at` | timestamptz | When the event was recorded |
 | `actor_id` | bigint (nullable) | `users.id` of the initiating user; null for unauthenticated events (e.g. failed login before identity resolves) |
 | `actor_label` | text | Denormalised email or username — readable after the actor is deleted or renamed |
-| `target_type` | text | Entity type acted on: `user`, `api_key`, or `session` |
+| `target_type` | text | Entity type acted on: `user`, `api_key`, `session`, or `proposal` |
 | `target_id` | text | Stringified ID of the target entity |
 | `action` | text | Action string (see tables above) |
 | `outcome` | text | `success` or `failure` |
@@ -75,7 +87,7 @@ Each row in `audit_log` contains:
 
 ## Querying the Audit Log
 
-There is no in-app audit viewer in AllureDeck v0.34. Audit events are written to the PostgreSQL `audit_log` table; query them directly from the database, or pipe them into your existing log/SIEM pipeline (`pg_dump`, logical replication, or a periodic export job).
+There is no in-app audit viewer and no API endpoint for the audit log. Audit events are written to the PostgreSQL `audit_log` table; query them directly from the database, or pipe them into your existing log/SIEM pipeline (`pg_dump`, logical replication, or a periodic export job).
 
 Indexes on `occurred_at`, `(actor_id, occurred_at)`, and `(action, occurred_at)` keep typical investigation queries fast.
 

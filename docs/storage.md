@@ -12,14 +12,21 @@ Allure project data is stored under `PROJECTS_PATH` (default: `/data/projects`),
 
 ```
 /data/projects/
+  staging/
+    {batchID}.tar.gz   # uploads spooled for async processing (transient)
   {project-id}/
-    results/      # uploaded Allure result files
+    results/           # uploaded Allure result files
     reports/
-      latest/     # most recently generated report
-      {N}/        # historical report builds (variable dirs only)
+      latest/          # most recently generated report
+      {N}/             # historical report builds (variable dirs only)
+    playwright-reports/
+      latest/          # most recent Playwright HTML report
+      {N}/             # complete Playwright report per build
 ```
 
-Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per historical build — static assets are served from `latest/`, saving approximately 90% disk space per build.
+Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per historical Allure build — static assets are served from `latest/`, saving approximately 90% disk space per build. Playwright builds are the opposite: each `playwright-reports/{N}/` is a complete, self-contained HTML report.
+
+`staging/` holds tar.gz archives from [async uploads](async-uploads.md) between the upload request and the background worker that processes them. The worker deletes a blob only after the upload is extracted and its report generated successfully. After a failure the blob stays in place for inspection until the hourly cleanup job removes it, once it is more than 7 days old.
 
 ### Environment Variables
 
@@ -27,7 +34,7 @@ Only "variable" subdirectories (`data/`, `widgets/`, `history/`) are stored per 
 |----------|---------|-------------|
 | `STORAGE_TYPE` | `local` | Storage backend type |
 | `PROJECTS_PATH` | `/data/projects` | Project data root directory |
-| `DATABASE_URL` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
+| `DATABASE_URL` | *(none — required)* | PostgreSQL connection string; the API refuses to start without it |
 | `KEEP_HISTORY` | `true` | Retain previous report builds |
 | `KEEP_HISTORY_LATEST` | `100` | Max historical builds per project |
 | `KEEP_HISTORY_MAX_AGE_DAYS` | `0` | Delete reports older than N days (0 = disabled) |
@@ -59,9 +66,12 @@ Reports are stored in an S3-compatible bucket. The API downloads results to a te
 ### S3 Key Structure
 
 ```
-projects/{project-id}/results/         # uploaded result files
-projects/{project-id}/reports/latest/  # latest generated report
-projects/{project-id}/reports/{N}/     # historical builds (variable dirs only)
+staging/{batchID}.tar.gz                     # transient async-upload spool (bucket root)
+projects/{project-id}/results/               # uploaded result files
+projects/{project-id}/reports/latest/        # latest generated report
+projects/{project-id}/reports/{N}/           # historical builds (variable dirs only)
+projects/{project-id}/playwright-reports/latest/  # latest Playwright report
+projects/{project-id}/playwright-reports/{N}/     # Playwright report per build
 ```
 
 ### Required Settings
@@ -179,16 +189,25 @@ orphans: it diffs every storage project prefix's `reports/<build_order>/`
 directories against the `builds` table and removes directories whose build no
 longer exists in the database.
 
+`gcstorage` is not part of the API image, the Helm chart, or any `mise` task. Build it from the repository:
+
 ```bash
-gcstorage              # dry-run: report orphaned report dirs
-gcstorage -apply       # actually delete them
-gcstorage -project 7   # restrict to project_id 7
+cd api
+CGO_ENABLED=0 go build -o bin/gcstorage ./cmd/gcstorage
+```
+
+Then run it:
+
+```bash
+./bin/gcstorage              # dry-run: report orphaned report dirs
+./bin/gcstorage -apply       # actually delete them
+./bin/gcstorage -project 7   # restrict to project_id 7
 ```
 
 It reads the same environment variables as the API (database, `STORAGE_TYPE`,
 S3 settings), defaults to a dry-run, and never deletes storage prefixes that
 match no project storage key — those (deleted or renamed projects) are only
-reported. Run it once after upgrading; ongoing retention no longer orphans data.
+reported. Run it once after upgrading; ongoing retention no longer orphans data. With local storage it must see the same `PROJECTS_PATH` volume as the API; with S3 it only needs the database and S3 settings.
 
 ## Related
 

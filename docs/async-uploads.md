@@ -69,7 +69,7 @@ Orphaned staging blobs (from jobs that permanently fail) are cleaned up by a per
 
 ### 3. Client polls for progress
 
-Poll `GET /api/v1/projects/{project_id}/jobs/{job_id}` until `status` is `completed` or `failed`:
+Poll `GET /api/v1/projects/{project_id}/jobs/{job_id}` until `status` is `completed` or `failed`. This endpoint requires the `admin` role: a key owned by an editor can upload results but receives `403` when it polls.
 
 ```bash
 curl -s "https://alluredeck.example.com/api/v1/projects/my-project/jobs/42" \
@@ -113,6 +113,17 @@ Example response on completion:
 
 **Phase values:** `pending`, `extracting_staged`, `preparing_local`, `generating_report`, `publishing_report`, `finalizing`, `completed`, `failed`.
 
+### Retrying and cancelling jobs
+
+Admins can act on a job from **Administration → System Monitor** (`/admin`), in the Jobs card:
+
+| Action | Available for status | Effect |
+|--------|----------------------|--------|
+| **Cancel** | `pending`, `running`, `retrying` | Cancels the job |
+| **Retry** | `failed` | Makes the job available to a worker again immediately. Only the UI restricts the button to failed jobs; the retry endpoint accepts any job that is not running |
+
+The same actions are available through the admin API: `POST /api/v1/admin/jobs/{job_id}/cancel` and `POST /api/v1/admin/jobs/{job_id}/retry`.
+
 ---
 
 ## API endpoint
@@ -120,7 +131,9 @@ Example response on completion:
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/v1/projects/{project_id}/results?async=true` | Stage a tar.gz and return `202` with `job_id` |
-| `GET` | `/api/v1/projects/{project_id}/jobs/{job_id}` | Poll job status, phase, and progress |
+| `GET` | `/api/v1/projects/{project_id}/jobs/{job_id}` | Poll job status, phase, and progress (admin) |
+| `POST` | `/api/v1/admin/jobs/{job_id}/retry` | Re-queue a job (admin). The API does not check the job's state: any job that is not running is made available again, including completed or cancelled ones |
+| `POST` | `/api/v1/admin/jobs/{job_id}/cancel` | Cancel a pending, running, or retrying job (admin) |
 
 ### Query parameters for the upload
 
@@ -185,3 +198,4 @@ done
 - If the worker fails after partial extraction, the temp directory is cleaned up automatically and the staging blob is retained for River retries (up to the River max-attempts limit, default 25).
 - Webhook notifications fire after successful report generation, identical to the synchronous path.
 - The Admin System Monitor (`/admin`) shows async jobs (`parse_staged_targz`) alongside regular `generate_report` jobs.
+- A job that exhausts its retries increments the `aldeck_jobs_failed_total` metric (labelled by job `kind`) and sends a `report_failed` [webhook](webhooks.md#events).

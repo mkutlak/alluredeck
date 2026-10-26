@@ -72,7 +72,7 @@ Each defect record carries:
 | `open` | Open |
 | `fixed` | Fixed |
 | `muted` | Muted |
-| `won't fix` | Won't Fix |
+| `wont_fix` | Won't Fix |
 
 ---
 
@@ -80,7 +80,7 @@ Each defect record carries:
 
 ![Defects List](screenshots/defects-list.png)
 
-Navigate to a project and click **Defects** in the sidebar (available for non-parent projects). The view is at `/projects/{id}/defects`.
+Open a project and click the **Defects** tab in the project header. Parent (group) projects have no Defects tab — open one of their child projects. The view is at `/projects/{id}/defects`.
 
 **Summary cards at the top:**
 
@@ -106,7 +106,7 @@ A trend chart below the cards shows defect counts per build over time.
 
 ## Build-Level View
 
-Accessible from the Report History table: click the build row's action menu and select "Defects", or navigate to `/projects/{id}/builds/{build_id}/defects`.
+Open `/projects/{id}/builds/{build_id}/defects` directly. The UI does not link to this page — there is no entry for it in the Report History table or the project tabs — but the page and the matching API endpoints are available.
 
 This view shows only the defects observed in a specific build, with summary badges for **Groups**, **Affected tests**, **New**, and **Regressions**.
 
@@ -133,7 +133,7 @@ Check multiple rows to reveal the bulk action toolbar. Available actions:
 - **Set category** — apply a category to all selected defects in one API call
 - **Set resolution** — apply a resolution to all selected defects in one API call
 
-Bulk operations call `POST /api/v1/projects/{project_id}/defects/bulk` with an array of defect IDs and the new values.
+Bulk operations call `POST /api/v1/projects/{project_id}/defects/bulk` with an array of defect IDs (`defect_ids`) and the new values.
 
 ---
 
@@ -146,6 +146,6 @@ Bulk operations call `POST /api/v1/projects/{project_id}/defects/bulk` with an a
 | `GET` | `/api/v1/projects/{project_id}/defects/{defect_id}` | Single defect metadata |
 | `GET` | `/api/v1/projects/{project_id}/defects/{defect_id}/tests` | Tests currently attached to this defect |
 | `PATCH` | `/api/v1/projects/{project_id}/defects/{defect_id}` | Update category, resolution, or known-issue link (editor+). Body: `{"category":"product_bug","resolution":"muted"}` |
-| `POST` | `/api/v1/projects/{project_id}/defects/bulk` | Bulk-update category / resolution on many defects (editor+). Body: `{"ids":[1,2,3],"category":"test_bug"}` |
+| `POST` | `/api/v1/projects/{project_id}/defects/bulk` | Bulk-update category / resolution on many defects (editor+). Body: `{"defect_ids":["<defect-id>","<defect-id>"],"category":"test_bug"}` |
 | `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/defects` | Defects observed in a specific build |
 | `GET` | `/api/v1/projects/{project_id}/builds/{build_id}/defects/summary` | Build-scoped summary counts |

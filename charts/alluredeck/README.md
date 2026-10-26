@@ -103,7 +103,9 @@ This keeps the connection string out of the ConfigMap entirely.
 
 ### Schema migrations
 
-The API runs [goose](https://github.com/pressly/goose) migrations automatically on startup. No manual schema setup is required — just point the chart at an empty database and the API will create all tables on first boot.
+By default every API replica runs [goose](https://github.com/pressly/goose) and River migrations on startup (`RUN_MIGRATIONS=true`). No manual schema setup is required — point the chart at an empty database and the API creates all tables on first boot. Replicas that start together are serialised by a PostgreSQL advisory lock, so only one applies the migrations while the others wait (bounded by `MIGRATION_TIMEOUT`, default `5m`).
+
+To apply migrations before the new API pods start instead, enable the pre-upgrade [Migration Job](#migration-job). API replicas then skip migrations on boot; MCP pods (if enabled) still run them at boot, serialised by the same advisory lock.
 
 ### Common PostgreSQL deployment options
 
@@ -166,6 +168,16 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 
 ## Configuration
 
+### General
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `nameOverride` | Override the chart name used in resource names | `""` |
+| `fullnameOverride` | Override the full resource name prefix | `""` |
+| `externalUrl` | Public base URL of the deployment (for example `https://alluredeck.example.com`). Used to sign absolute attachment download URLs and to build proposal review links. Empty = derived from `ingress.host` only when `ingress.enabled=true` (`https` when `ingress.tls` is set, otherwise `http`); otherwise no external URL is set. With MCP enabled an empty external URL fails config validation and the pods crash-loop (the MCP pod, and the API when `api.config.mcpEnabled` is `"true"`) | `""` |
+
+In this README `<fullname>` is the release name when it contains `alluredeck`, otherwise `<release>-alluredeck`; `fullnameOverride` replaces it. Component resources are named `<fullname>-api`, `<fullname>-ui`, and `<fullname>-mcp`.
+
 ### Global
 
 `global.*` values are cluster-wide defaults inherited by any sub-chart key that doesn't set its own value (most commonly PVC `storageClassName`).
@@ -181,6 +193,7 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | --- | ----------- | ------- |
 | `api.image.repository` | API container image | `ghcr.io/mkutlak/alluredeck-api` |
 | `api.image.tag` | Image tag | `""` (appVersion) |
+| `api.image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `api.config.devMode` | Enable dev mode | `"false"` |
 | `api.config.logLevel` | Log level | `"info"` |
 | `api.config.storageType` | File storage backend (`local` or `s3`) | `"local"` |
@@ -193,8 +206,10 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.config.uploadWriteConcurrency` | Parallel storage writes during tar.gz extraction (Allure + Playwright); tune to MinIO/S3 capacity | `"32"` |
 | `api.config.apiResponseLessVerbose` | Return minimal JSON responses (omit verbose fields) | `"false"` |
 | `api.config.staticContentProjects` | Root directory for static project content (embedded report overlay file server) | `"/data/projects"` |
+| `api.config.reportGenerationTimeout` | Maximum wall-clock time for one report generation job (download results, run the Allure CLI, upload the report). Accepts a Go duration (`"5m"`, `"1h"`) or integer seconds. Raise for very large result sets | `"5m"` |
+| `api.config.mcpEnabled` | Sets `ENABLE_MCP_SERVER` on the API pod: registers the proposal routes and shows **Pending Proposals** in the UI. Set it together with `mcp.enabled`; requires `externalUrl` (or `ingress.enabled=true` with `ingress.host`) | `"false"` |
 | `api.config.goMemLimit` | Go memory limit (set to ~80% of memory limit) | `"768MiB"` |
-| `api.config.swaggerEnabled` | Enable Swagger UI | `"false"` |
+| `api.config.swaggerEnabled` | Serve the API reference at `/swagger/` | `"false"` |
 | `api.config.makeViewerEndpointsPublic` | Allow unauthenticated read access | `"false"` |
 | `api.config.corsAllowedOrigins` | CORS origins (auto-computed from ingress if empty) | `[]` |
 | `api.config.checkResultsEverySeconds` | Polling interval for the local-storage result watcher; `"NONE"` disables it. No effect on retention, and the watcher is already off when `storageType=s3` | `"NONE"` |
@@ -204,6 +219,28 @@ For IAM authentication, configure a service account with the appropriate RDS IAM
 | `api.resources.requests.cpu` | CPU request | `100m` |
 | `api.resources.requests.memory` | Memory request | `256Mi` |
 | `api.resources.limits.memory` | Memory limit | `1Gi` |
+
+### API and UI workload settings
+
+`api.*` and `ui.*` share these pod-level keys. Unless noted, each exists under both prefixes.
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `replicaCount`, `revisionHistoryLimit` | Replica count and retained ReplicaSet history | `1`, `3` |
+| `resources` | Requests and limits (see the tables above for defaults) | per component |
+| `podSecurityContext`, `securityContext` | Non-root, `readOnlyRootFilesystem`, all capabilities dropped | UID/GID `1000` (API), `101` (UI) |
+| `strategy` | Deployment update strategy | `{}` |
+| `service.type`, `service.port`, `service.annotations` | Service settings | `ClusterIP`, `8080`, `{}` |
+| `livenessProbe`, `readinessProbe`, `startupProbe` | Probe definitions. API: `/health` for liveness and startup, `/ready` for readiness. UI: `/` | see `values.yaml` |
+| `terminationGracePeriodSeconds` | Shutdown grace period (API only) | `35` |
+| `extraArgs` | Extra container arguments (API only) | `[]` |
+| `extraEnv`, `extraEnvFrom` | Extra environment variables and sources | `[]` |
+| `extraVolumes`, `extraVolumeMounts`, `initContainers`, `sidecars`, `lifecycle` | Pod and container extensions | `[]` / `{}` |
+| `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints` | Scheduling | empty |
+| `priorityClassName`, `dnsPolicy`, `dnsConfig` | Pod settings | empty |
+| `serviceAccount.create`, `serviceAccount.name`, `serviceAccount.annotations` | ServiceAccount (annotations carry the IRSA role ARN) | `false`, `""`, `{}` |
+| `podAnnotations`, `podLabels` | Extra pod metadata | `{}` |
+| `persistence.projects.*` | Project data volume, used when `storageType=local` (API only; see [Storage](#storage)) | enabled, `10Gi`, `ReadWriteOnce` |
 
 > **`api.kind` tip:** use `StatefulSet` when `storageType=local` so the API pod re-binds to the same PVC on restart. Use `Deployment` for S3/MinIO storage or ephemeral dev environments where no PVC is needed.
 
@@ -284,6 +321,7 @@ See [docs/authentication.md](../../docs/authentication.md) for Keycloak, Okta, G
 | `ui.image.tag` | Image tag | `""` (appVersion) |
 | `ui.config.apiUrl` | API base URL (auto-computed if empty) | `""` |
 | `ui.config.appTitle` | Application title | `"AllureDeck"` |
+| `ui.config.appVersion` | Version string shown in the UI sidebar footer | `""` (appVersion) |
 | `ui.replicaCount` | Number of UI replicas | `1` |
 | `ui.resources.requests.cpu` | CPU request | `50m` |
 | `ui.resources.requests.memory` | Memory request | `64Mi` |
@@ -296,11 +334,12 @@ See [docs/authentication.md](../../docs/authentication.md) for Keycloak, Okta, G
 | `ingress.enabled` | Enable Ingress | `false` |
 | `ingress.ingressClassName` | Ingress class | `""` |
 | `ingress.host` | Hostname | `""` |
+| `ingress.annotations` | Ingress annotations (for example `proxy-body-size`, cert-manager issuer) | `{}` |
 | `ingress.tls` | TLS configuration | `[]` |
-| `ingress.api.path` | API path | `/api` |
-| `ingress.swagger.enabled` | Expose Swagger UI via Ingress | `false` |
-| `ingress.swagger.path` | Swagger path | `/swagger` |
-| `ingress.ui.path` | UI path | `/` |
+| `ingress.swagger.enabled` | Route `/swagger` to the API | `false` |
+| `ingress.extraPaths` | Extra paths inserted before the catch-all UI rule (see [Extra ingress paths](#extra-ingress-paths)) | `[]` |
+
+The paths themselves are not configurable. See [Ingress routing](#ingress-routing).
 
 ## Storage
 
@@ -381,9 +420,9 @@ Required Secret keys:
 | `oidcStateCookieSecret` | AES-GCM key for state cookie encryption (exactly 16/24/32 bytes) | `api.oidc.enabled=true` |
 | `S3_ACCESS_KEY` | S3 access key ID | `api.s3.existingSecret` used and not on IRSA |
 | `S3_SECRET_KEY` | S3 secret access key | `api.s3.existingSecret` used and not on IRSA |
-| `mcpSigningKey` | HMAC signing key for MCP request authentication | `mcp.enabled=true` and the Secret is shared with the API (i.e. `api.security.existingSecret` is set and `mcp.security.existingSecret` is not) |
+| `mcpSigningKey` | HMAC key (`MCP_SIGNING_KEY`) that signs attachment download URLs and the state of write confirmations. It does not authenticate MCP requests | `mcp.enabled=true` and the Secret is shared with the API (i.e. `api.security.existingSecret` is set and `mcp.security.existingSecret` is not) |
 
-**Tip:** you can put all of these keys in a single `Secret` and reference it from each of `api.security.existingSecret`, `api.s3.existingSecret`, and `api.oidc.existingSecret` (whichever the chart wires up for each section) — that way one Secret resource holds every credential the chart needs.
+**Tip:** you can put all of these keys in a single `Secret` and reference it from `api.security.existingSecret` and `api.s3.existingSecret` (and `mcp.security.existingSecret` for MCP) — that way one Secret resource holds every credential the chart needs. The OIDC keys (`oidcClientSecret`, `oidcStateCookieSecret`) are read from `api.security.existingSecret`; there is no separate OIDC Secret reference.
 
 **3-role RBAC:** the chart wires three roles — `admin`, `editor`, and `viewer`. With local auth only, the `admin` account (from `adminUser`/`adminPassword`) has role `admin` and `viewerUser`/`viewerPassword` has role `viewer`; there's no local "editor" account. With OIDC enabled, group-based role mapping via `api.oidc.adminGroups` / `api.oidc.editorGroups` / `api.oidc.defaultRole` promotes SSO users into any of the three roles. See the [OIDC SSO](#oidc-sso) section above.
 
@@ -391,11 +430,26 @@ Required Secret keys:
 
 The chart creates a single unified Ingress with path-based routing:
 
-| Path | Backend |
-| ---- | ------- |
-| `/` | UI |
-| `/api` | API |
-| `/swagger` | API (if `ingress.swagger.enabled`) |
+| Path | Backend | Condition |
+| ---- | ------- | --------- |
+| `/` | UI | always |
+| `/api` | API | always |
+| `/trace` | API (embedded Playwright trace viewer) | always |
+| `/swagger` | API | `ingress.swagger.enabled` |
+| `/mcp` | MCP | `mcp.enabled` |
+| `/attachments` | API (signed attachment downloads handed out by the MCP server) | `mcp.enabled` |
+
+The API serves `/attachments` only when it has `MCP_SIGNING_KEY` set to the same value as the MCP server. The chart injects that variable into the MCP pod only, so share it with the API when you need signed downloads:
+
+```yaml
+api:
+  extraEnv:
+    - name: MCP_SIGNING_KEY
+      valueFrom:
+        secretKeyRef:
+          name: alluredeck-mcp        # the Secret the MCP pod reads (<fullname>-mcp when chart-managed)
+          key: mcpSigningKey
+```
 
 Example with TLS:
 
@@ -419,7 +473,7 @@ ingress:
 
 ### Extra ingress paths
 
-The chart's Ingress has hardcoded `/api` → API, `/trace` → API, and `/` → UI routes. If you need to expose additional services under the same host (e.g. a Grafana dashboard on `/grafana`), use `ingress.extraPaths` to inject extra rules **before** the catch-all UI rule:
+The chart's Ingress has hardcoded `/api` → API, `/trace` → API, and `/` → UI routes (plus `/swagger`, `/mcp`, and `/attachments` when enabled). If you need to expose additional services under the same host (e.g. a Grafana dashboard on `/grafana`), use `ingress.extraPaths` to inject extra rules **before** the catch-all UI rule:
 
 ```yaml
 ingress:
@@ -437,14 +491,20 @@ Each extra path becomes an additional backend on the same Ingress resource, inhe
 
 ## MCP server
 
-The MCP (Model Context Protocol) server is an **optional** component that exposes a structured API for AI-assisted test analysis tooling. It is disabled by default.
+The MCP (Model Context Protocol) server is an **optional** component that exposes a structured API for AI-assisted test analysis tooling. It is disabled by default. See [MCP Server Operations](../../docs/operations/mcp-server.md) for tools, client setup, and troubleshooting.
 
 ### Enabling the MCP server
 
 ```yaml
+externalUrl: "https://alluredeck.example.com"   # or enable the Ingress with ingress.host
+api:
+  config:
+    mcpEnabled: "true"    # proposal routes + Pending Proposals page in the API
 mcp:
   enabled: true
 ```
+
+The MCP server (and the API when `api.config.mcpEnabled` is `"true"`) fails config validation and crash-loops without an external URL. Set `externalUrl`, or enable the Ingress with `ingress.host`. When `ingress.enabled=true`, the Ingress adds `/mcp` (MCP service) and `/attachments` (API) — see [Ingress routing](#ingress-routing).
 
 ### Image
 
@@ -459,18 +519,20 @@ mcp:
 The chart resolves the MCP Secret name using this precedence:
 
 1. **`mcp.security.existingSecret`** is set → MCP reads from that Secret (dedicated MCP secret).
-2. **`api.security.existingSecret`** is set (but `mcp.security.existingSecret` is not) → MCP reads from the API's existing Secret. The chart does **not** generate a separate `<release>-mcp` Secret. The shared Secret must include `mcpSigningKey` in addition to `jwtSecretKey` and `databaseURL`.
-3. **Neither is set** (fully chart-managed) → the chart auto-creates a Secret named `<release>-mcp` containing the following keys:
+2. **`api.security.existingSecret`** is set (but `mcp.security.existingSecret` is not) → MCP reads from the API's existing Secret. The chart does **not** generate a separate `<fullname>-mcp` Secret. The shared Secret must include `mcpSigningKey` in addition to `jwtSecretKey` and `databaseURL`.
+3. **Neither is set** (fully chart-managed) → the chart auto-creates a Secret named `<fullname>-mcp` containing the following keys:
 
 | Key | Description |
 | --- | ----------- |
-| `mcpSigningKey` | HMAC signing key for MCP request authentication (auto-generated if blank) |
-| `jwtSecretKey` | JWT HMAC signing key shared with the API (auto-generated if blank) |
+| `mcpSigningKey` | HMAC key that signs attachment download URLs and write-confirmation state (auto-generated if blank) |
+| `jwtSecretKey` | JWT HMAC signing key; must equal the API's (taken from `api.security.jwtSecretKey`, random if blank — see the note below) |
 | `databaseURL` | PostgreSQL connection string (taken from `api.config.databaseURL`) |
+
+> **Set `api.security.jwtSecretKey` explicitly** (or use `api.security.existingSecret`). When it is blank, the API Secret and the chart-managed MCP Secret each generate their own random key, so tokens issued by the API fail validation on the MCP server.
 
 The auto-generated Secret is annotated with `helm.sh/resource-policy: keep` so it survives `helm uninstall`. The signing key is preserved across upgrades via Helm `lookup`.
 
-Whichever Secret that is, MCP reads `adminUser` and `viewerUser` from the API's Secret (`api.security.existingSecret`, or the chart-managed `<release>-api`). API keys created by those env users are stored under those names, and MCP refuses them as inactive unless it knows the names.
+Whichever Secret that is, MCP reads `adminUser` and `viewerUser` from the API's Secret (`api.security.existingSecret`, or the chart-managed `<fullname>-api`). API keys created by those env users are stored under those names, and MCP refuses them as inactive unless it knows the names.
 
 **Sharing the API's existing Secret with MCP** (recommended when you already use `api.security.existingSecret`):
 
@@ -513,8 +575,10 @@ mcp:
 After rotating the `mcpSigningKey` in the Secret, restart the MCP Deployment to pick up the new value:
 
 ```bash
-kubectl rollout restart deployment/<release>-mcp -n <namespace>
+kubectl rollout restart deployment/<fullname>-mcp -n <namespace>
 ```
+
+Rotation invalidates unexpired attachment download URLs and any write confirmation in flight: the retry of a pending `propose_*` call fails with `confirmation state rejected`, and the client must call the tool again to be prompted anew. If you share the key with the API through `api.extraEnv`, restart the API too.
 
 ### MCP values reference
 
@@ -523,18 +587,122 @@ kubectl rollout restart deployment/<release>-mcp -n <namespace>
 | `mcp.enabled` | Enable the MCP server | `false` |
 | `mcp.replicaCount` | Number of MCP replicas | `1` |
 | `mcp.port` | Container port | `8081` |
-| `mcp.config.enableMcpServer` | Enable MCP server endpoint | `true` |
-| `mcp.config.allowedOrigins` | Allowed CORS origins | `""` |
+| `mcp.config.enableMcpServer` | Enable MCP server endpoint (`ENABLE_MCP_SERVER`) | `true` |
+| `mcp.config.allowedOrigins` | Allowed browser `Origin` values (`MCP_ALLOWED_ORIGINS`, comma-separated). Requests without an `Origin` header are always accepted; empty accepts every browser origin | `""` |
 | `mcp.config.rateLimitPerMin` | Rate limit (requests per minute) | `60` |
 | `mcp.config.rateLimitBurst` | Rate limit burst size | `10` |
 | `mcp.config.poolMaxConns` | Max database connection pool size | `8` |
+| `mcp.config.stateless` | MCP 2026-07-28 stateless transport (`MCP_STATELESS`). Set `false` only for a client that needs session-based transport, and then keep `mcp.replicaCount` at `1` | `true` |
+| `mcp.config.toolCosts` | Per-tool rate-limit pricing as `tool=cost,tool=cost` (`MCP_TOOL_COSTS`), layered over the built-in defaults. Costs above `rateLimitBurst` are clamped to it | `""` |
+| `mcp.probes.liveness`, `mcp.probes.readiness`, `mcp.probes.startup` | `GET /health` probes. Liveness and readiness take `path`, `port`, `initialDelaySeconds`, `periodSeconds`; startup takes `path`, `port`, `periodSeconds`, `failureThreshold` | `/health` on `8081`; liveness 10s delay / 20s period, readiness 5s / 10s, startup 5s period / 12 failures |
 | `mcp.resources` | Resource requests/limits | `requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}` |
 | `mcp.serviceAccount.create` | Create a dedicated ServiceAccount | `true` |
 | `mcp.serviceAccount.name` | Override ServiceAccount name | `""` |
 | `mcp.serviceAccount.annotations` | ServiceAccount annotations (e.g. IRSA) | `{}` |
+| `mcp.serviceAccount.automountServiceAccountToken` | Mount the ServiceAccount token into the pod. The MCP server does not call the Kubernetes API; keep `false` unless a sidecar needs it | `false` |
+| `mcp.serviceAccountName` | Deprecated — use `mcp.serviceAccount.name` | `""` |
 | `mcp.security.signingKey` | Fixed MCP signing key (auto-generated if empty) | `""` |
 | `mcp.security.existingSecret` | Use a pre-created Secret | `""` |
 | `mcp.service.type` | Service type | `ClusterIP` |
+
+The MCP pod reads `api.config.storageType` and, for S3, `api.s3.*` and the S3 credentials. With `storageType=s3` it uses the API's bucket and can inline attachment content. With `storageType=local` the chart mounts no project volume into the MCP pod, so it cannot read attachment files and returns signed download URLs instead. With `observability.enabled=true` it also exports traces using the `observability.*` values, and its process starts a metrics listener on `:9464`; the chart creates no port, Service, or ServiceMonitor for it.
+
+## Autoscaling and disruption budgets
+
+Both are **disabled by default**.
+
+### Autoscaling
+
+Set `autoscaling.enabled=true` to create HorizontalPodAutoscalers. The matching Deployment then omits `replicas`, so the HPA owns the replica count.
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `autoscaling.enabled` | Create HPAs | `false` |
+| `autoscaling.ui.minReplicas` / `maxReplicas` | UI replica bounds | `1` / `5` |
+| `autoscaling.ui.targetCPUUtilizationPercentage` | Average CPU utilisation target | `80` |
+| `autoscaling.api.minReplicas` / `maxReplicas` | API replica bounds | `1` / `5` |
+| `autoscaling.api.targetCPUUtilizationPercentage` | Average CPU utilisation target | `80` |
+
+- The UI HPA renders whenever autoscaling is enabled.
+- The API HPA renders **only when `api.config.storageType=s3`**. Local storage uses a `ReadWriteOnce` volume that can bind to a single node, so the API never autoscales with it.
+- The HPAs scale on CPU only.
+
+### PodDisruptionBudget
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `podDisruptionBudget.enabled` | Create PDBs | `false` |
+| `podDisruptionBudget.ui.minAvailable` | Pods that must stay available during voluntary disruptions | `1` |
+| `podDisruptionBudget.api.minAvailable` | Pods that must stay available during voluntary disruptions | `1` |
+
+A PDB is created only when the workload runs more than one replica (`replicaCount > 1`, or an active HPA with `minReplicas > 1`). With the defaults (one replica, autoscaling off) no PDB object is rendered even when `podDisruptionBudget.enabled=true`, because `minAvailable: 1` on a single replica would block every node drain.
+
+## Migration Job
+
+By default each API replica runs database migrations on boot (see [Schema migrations](#schema-migrations)). With `migrationJob.enabled=true` the chart instead runs them in a Helm hook Job before the new pods start.
+
+```yaml
+migrationJob:
+  enabled: true
+```
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `migrationJob.enabled` | Run a pre-upgrade migration Job | `false` |
+| `migrationJob.migrationTimeout` | Deadline for the migration (`MIGRATION_TIMEOUT`): a Go duration such as `"10m"` or `"1h"` (a bare integer other than `"0"` is rejected). `"0"` disables the deadline, useful for very large migrations | `"10m"` |
+| `migrationJob.backoffLimit` | Job retries on transient failure. Keep it low | `2` |
+| `migrationJob.activeDeadlineSeconds` | Cap on total Job time including retries | `900` |
+
+How it works:
+
+- The Job is a `pre-install,pre-upgrade` hook (weight `-5`). It runs the API image as `alluredeck-api --migrate-only` with `RUN_MIGRATIONS=true`, applies the pending goose and River migrations under the schema-migration advisory lock, and exits without starting the HTTP server.
+- The chart sets `run_migrations: false` (and `migration_timeout`) in the API ConfigMap, so API replicas start without migrating. The MCP ConfigMap does not set it: MCP pods still run migrations on boot, serialised by the advisory lock.
+- The Job receives the database, JWT, and admin/viewer credentials but not `OIDC_CLIENT_SECRET` or `OIDC_STATE_COOKIE_SECRET`. With `api.oidc.enabled=true` it fails config validation unless you pass those two variables to it, for example through `api.extraEnvFrom` (the Job reads `api.extraEnv` and `api.extraEnvFrom`) with a Secret whose keys are named `OIDC_CLIENT_SECRET` and `OIDC_STATE_COOKIE_SECRET`.
+- The Job is deleted after it succeeds and before the next one is created.
+- Helm runs `pre-install` and `pre-upgrade` hooks before it creates or updates the release's other resources. The Job reads the API ConfigMap and Secret, which do not exist on a first install: leave `migrationJob.enabled=false` for the first install and enable it for later upgrades. On an upgrade the Job sees the previous release's ConfigMap and Secret.
+
+**Rollback runbook** — read before enabling on a live cluster:
+
+1. Take a database backup before every `helm upgrade`. Some migrations cannot be reversed (`0031_surrogate_pk.sql` deliberately fails on `down`), so a schema rollback means restoring the backup, not running `goose down`.
+2. To roll back after a destructive migration: restore the database from the pre-upgrade backup, pin `api.image.tag` to the previous version, and run `helm upgrade`. The Job then applies the older migration set.
+3. Keep at least one full backup per release.
+
+## Observability
+
+OpenTelemetry traces and a Prometheus metrics endpoint are **disabled by default**. When `observability.enabled=false` the chart injects no `OBSERVABILITY_*` / `OTEL_*` variables and creates no metrics Service or ServiceMonitor. For what is instrumented, metric names, and dashboards see [docs/observability.md](../../docs/observability.md).
+
+| Key | Description | Default |
+| --- | ----------- | ------- |
+| `observability.enabled` | Master switch | `false` |
+| `observability.serviceName` | `service.name` resource attribute on spans and metrics | `"alluredeck-api"` |
+| `observability.environment` | `deployment.environment.name` attribute (for example `production`); omitted when empty | `""` |
+| `observability.traces.endpoint` | OTLP collector `host:port` with no scheme (for example `otel-collector.observability.svc:4318`) | `""` |
+| `observability.traces.protocol` | `http/protobuf` or `grpc` | `"http/protobuf"` |
+| `observability.traces.sampleRatio` | Fraction of traces sampled, `1.0` = all. Do not use `0`: Helm's `default` renders it as `1` | `1.0` |
+| `observability.traces.insecure` | Disable TLS to the collector (in-cluster or local collectors) | `false` |
+| `observability.metrics.enabled` | Serve Prometheus metrics from the API on a dedicated port and create a `<fullname>-api-metrics` ClusterIP Service for scraping | `true` |
+| `observability.metrics.port` | Metrics container and Service port | `9464` |
+| `observability.metrics.path` | Scrape path | `"/metrics"` |
+| `observability.serviceMonitor.enabled` | Create a Prometheus Operator `ServiceMonitor` (requires `metrics.enabled` and the ServiceMonitor CRD) | `false` |
+| `observability.serviceMonitor.interval` / `scrapeTimeout` | Scrape interval and timeout | `"30s"` / `"10s"` |
+| `observability.serviceMonitor.labels` | Extra labels, to match your Prometheus `serviceMonitorSelector` | `{}` |
+| `observability.serviceMonitor.relabelings` / `metricRelabelings` | Relabel configs applied before and after scraping | `[]` |
+
+Known limitation: `traces.endpoint` must not include a scheme, and with `http/protobuf` spans can be posted to `/` instead of `/v1/traces` because the endpoint reaches the exporter through an environment variable. See [Observability](../../docs/observability.md#observabilitytraces).
+
+The chart exposes metrics for the API pod only: it declares the port and creates the Service and ServiceMonitor for the API. The MCP pod exports traces with the same `observability.*` trace settings; its own metrics listener (`:9464`) is not exposed.
+
+```yaml
+observability:
+  enabled: true
+  environment: production
+  traces:
+    endpoint: "otel-collector.observability.svc:4318"
+  serviceMonitor:
+    enabled: true
+    labels:
+      prometheus: kube-prometheus
+```
 
 ## Verifying image provenance
 
@@ -557,8 +725,9 @@ These commands validate that each image was built by a GitHub Actions workflow i
 
 When `networkPolicy.enabled=true`, the chart creates NetworkPolicy resources that restrict ingress traffic:
 
-- **API pods** — accept traffic from UI pods and (optionally) the ingress controller
+- **API pods** — accept traffic from UI pods and (when `ingress.enabled=true`) the ingress controller
 - **UI pods** — accept traffic on the service port
+- **MCP pods** (when `mcp.enabled=true`) — accept traffic from the ingress controller when `ingress.enabled=true`
 
 Egress is unrestricted by default. On clusters with default-deny egress policies, add your own egress rules (e.g., to allow the API to reach PostgreSQL on port 5432) via `extraResources`.
 

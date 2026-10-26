@@ -1,6 +1,6 @@
 # Security
 
-This guide covers AllureDeck's security controls in depth. For deployment configuration (TLS, JWT secrets, CORS) see [deployment.md](deployment.md#security). For OIDC SSO setup see [authentication.md](authentication.md).
+This guide covers AllureDeck's security controls in depth. For deployment configuration (TLS, JWT secrets, CORS) see [deployment.md](deployment.md#security). For OIDC SSO setup see [authentication.md](authentication.md). To report a vulnerability, follow [SECURITY.md](../SECURITY.md).
 
 ---
 
@@ -35,7 +35,7 @@ Algorithm: HMAC-SHA256 (`HS256`). Key: `JWT_SECRET_KEY`.
 
 Every token carries a unique **JTI** (JWT ID). Revoked JTIs are persisted to the `jwt_blacklist` table and survive restarts. A background goroutine prunes expired blacklist entries.
 
-The API refuses to start when `SECURITY_ENABLED=true` and `JWT_SECRET_KEY` is the insecure default (`super-secret-key-for-dev`).
+Authentication is off unless `SECURITY_ENABLED=true` — the API default is `false`, and the full-stack Compose files and the Helm chart turn it on. Role checks run either way: with it off, requests carry no identity and role-checked endpoints return `403 Access denied: missing claims`. The API refuses to start when `SECURITY_ENABLED=true` and `JWT_SECRET_KEY` is the insecure default (`super-secret-key-for-dev`).
 
 For full token lifetime configuration and RBAC details see [deployment.md](deployment.md#security).
 
@@ -62,7 +62,8 @@ Sessions are revoked immediately (not just after token expiry) in these cases:
 |---------|----------------|
 | User password change (self) | All other refresh-token families for that user; current access token JTI blacklisted |
 | Admin password reset | All refresh-token families for the target user; all API keys deleted |
-| Account deactivation | All refresh-token families for the target user; all API keys deleted |
+| Account deactivation (`DELETE /api/v1/users/{id}`, the Users page) | All refresh-token families for the target user; all API keys deleted |
+| Account deactivation (`PATCH /api/v1/users/{id}` with `active: false`) | All refresh-token families for the target user; API keys are suspended and work again on reactivation |
 | Refresh token reuse detected | Entire token family marked `compromised` |
 | Explicit logout | Current refresh-token family revoked; access token JTI blacklisted |
 
@@ -94,9 +95,14 @@ Username matching is case-insensitive and whitespace-trimmed.
 
 ## Per-IP Rate Limiting
 
-A token-bucket rate limiter operates at the IP level for all API requests. Each IP gets an independent bucket. When the bucket empties, the API returns `429 Too Many Requests` with `Retry-After: 1`.
+Token-bucket rate limiters operate at the IP level on the credential, token, and account-provisioning endpoints. They do **not** cover other API requests. Each IP gets an independent bucket per limiter. When the bucket empties, the API returns `429 Too Many Requests` with `Retry-After: 1`.
 
-Behind a reverse proxy, set `TRUST_FORWARDED_FOR=true` so the limiter uses the real client IP from `X-Forwarded-For` rather than the proxy's IP.
+| Limiter | Rate and burst | Routes |
+|---------|----------------|--------|
+| Shared | 5 requests/s, burst 10 | `POST /api/v1/login`<br>`POST /api/v1/auth/refresh`<br>`POST /api/v1/users/me/password`<br>`GET /api/v1/projects/{project_id}/builds/{build_id}/tests/{history_id}/failure-summary` (AI summaries)<br>`GET /api/v1/auth/oidc/login` and `GET /api/v1/auth/oidc/callback` (only when OIDC is enabled) |
+| User provisioning | 5 requests/min, burst 5 | `POST /api/v1/users`<br>`POST /api/v1/users/{id}/password` (admin reset) |
+
+Behind a reverse proxy, set `TRUST_FORWARDED_FOR=true` so the limiter uses the real client IP (the first `X-Forwarded-For` entry) rather than the proxy's IP. Enable it only when a trusted proxy sets that header; otherwise clients can spoof their IP.
 
 Stale IP entries are cleaned up periodically in the background.
 
@@ -153,15 +159,26 @@ A user's email address is globally unique across all authentication providers. T
 - When an OIDC user authenticates via JIT provisioning, the server rejects the provisioning if the email is already registered under a different provider
 - Email addresses are normalised to lowercase at creation time
 
+By default an OIDC sign-in that collides with an existing account is rejected with `409` and an `auth.login.failure` audit event (`metadata.reason="oidc_email_collision"`). Setting `OIDC_AUTO_LINK_BY_EMAIL=true` instead rebinds the existing account to the new OIDC identity, but **only** when the identity provider asserts `email_verified=true`; an unverified colliding email is still rejected (`oidc_email_collision_unverified`). Successful links record the account's `previous_provider` in the `auth.login.success` audit metadata. Enable it only for identity providers you fully trust to verify email ownership — otherwise anyone who can register an arbitrary email at the provider can take over the matching local account.
+
 ---
 
 ## Webhook URL Security
 
-Webhook target URLs are validated before storage to prevent Server-Side Request Forgery (SSRF):
+Webhook target URLs are checked twice to prevent Server-Side Request Forgery (SSRF).
+
+**At save time** (create and update):
 
 - Only `http` and `https` schemes are accepted
-- The URL's hostname is resolved; any result in a private IP range (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback (127.0.0.1, ::1), or link-local range is rejected
+- The URL's hostname is resolved; any result in a private IP range (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, plus IPv6 `fc00::/7`), loopback (127.0.0.1, ::1), link-local, or unspecified range is rejected, including IPv4-mapped IPv6 forms such as `::ffff:127.0.0.1`
 - `localhost` is explicitly blocked
+
+**At delivery time** — a hostname that was public when saved can later resolve to an internal address (DNS rebinding), so every delivery re-checks:
+
+- The delivery client resolves the hostname itself and refuses the connection if **any** resolved address is loopback, private, link-local, or unspecified
+- It then connects to the validated address directly, so the address that was checked is the address that is used and DNS cannot change in between
+- At most 4 redirects are followed (the 5th is refused), and each redirect target is re-validated with the same rules, so a public URL cannot bounce a delivery to an internal host
+- The delivery client does not use proxy environment variables
 
 Webhook URLs and secrets are **encrypted at rest** using AES-GCM. URLs are **masked in API responses** (scheme + host only, e.g. `https://hooks.slack.com/****`). Secrets are never returned by any API endpoint; only the `has_secret` boolean is exposed.
 
@@ -169,7 +186,7 @@ Webhook URLs and secrets are **encrypted at rest** using AES-GCM. URLs are **mas
 
 ## Encryption at Rest
 
-Sensitive webhook fields (URL and secret) are encrypted at rest using AES-GCM with a key derived from `ENCRYPTION_KEY`, or from `JWT_SECRET_KEY` when that is not set. Webhooks saved under the JWT secret or under the development default stay readable and are re-encrypted under the current key the next time they are saved. A key that is no longer configured cannot be recovered, and webhooks saved under it are skipped. To rotate `JWT_SECRET_KEY`, first set `ENCRYPTION_KEY` to the current JWT secret.
+Sensitive webhook fields (URL and secret) are encrypted at rest using AES-256-GCM. The key is the SHA-256 of `ENCRYPTION_KEY` (any string, any length), or of `JWT_SECRET_KEY` when that is not set. Webhooks saved under the JWT secret or under the development default stay readable and are re-encrypted under the current key the next time they are saved. A key that is no longer configured cannot be recovered, and webhooks saved under it are skipped. To rotate `JWT_SECRET_KEY`, first set `ENCRYPTION_KEY` to the current JWT secret.
 
 ---
 

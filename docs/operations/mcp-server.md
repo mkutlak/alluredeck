@@ -27,7 +27,7 @@ Because the transport is stateless, `mcp.replicaCount` may now be raised above 1
 
 ## Prerequisites
 
-- AllureDeck v0.34.1 or later
+- AllureDeck v0.35.0 or later
 - PostgreSQL with migration 0041 applied (`defect_proposals`, `known_issue_proposals`, `flaky_proposals` tables)
 - For the diagnosis tool suite (`diagnose_failure` clusters/verdict, `diagnose_pipeline`, `get_attachment`, retry signals): migrations 0049–0051 applied. All three are instant — 0049 is a no-op (see below), 0050/0051 only create a table and an index.
   **Rollout note:** the legacy duplicate "shell" test rows (the
@@ -52,55 +52,86 @@ On the **cmd/mcp** deployment:
 
 ```bash
 ENABLE_MCP_SERVER=true
+MCP_SIGNING_KEY=<random-secret>     # required; signs attachment URLs and write confirmations
+EXTERNAL_URL=https://your.host      # required; see below
+DATABASE_URL=postgres://...         # same database as cmd/api
+SECURITY_ENABLED=true
+JWT_SECRET_KEY=<same as cmd/api>    # tokens issued by the API must validate here
+MCP_PORT=8081                       # listen port (default)
 MCP_ALLOWED_ORIGINS=https://your.host
 MCP_RATE_LIMIT_PER_MIN=60
 MCP_RATE_LIMIT_BURST=10
-MCP_STATELESS=true          # 2026-07-28 stateless transport (default)
-MCP_TOOL_COSTS=""           # per-tool rate-limit pricing override
+MCP_POOL_MAX_CONNS=8                # database connection pool size (default)
+MCP_STATELESS=true                  # 2026-07-28 stateless transport (default)
+MCP_TOOL_COSTS=""                   # per-tool rate-limit pricing override
 ```
+
+`cmd/mcp` exits at startup when `MCP_SIGNING_KEY` is empty. Set `STORAGE_TYPE` and the `S3_*` variables to match `cmd/api` so attachment content can be inlined. With local storage the MCP process needs read access to the same project directory (the Helm chart mounts none into the MCP pod); otherwise attachments fall back to signed download URLs.
 
 Set `ADMIN_USER` and `VIEWER_USER` to the same values as on **cmd/api**. API keys created by those env users are stored under their names, and the MCP server refuses such a key as `account inactive` unless it knows the names. The Helm chart and the compose files pass the API's values.
 
-`EXTERNAL_URL` is required whenever `ENABLE_MCP_SERVER=true` — the server signs absolute attachment download URLs and builds proposal review links from it. The Helm chart derives it automatically (see `alluredeck.externalURL`).
+`EXTERNAL_URL` is required whenever `ENABLE_MCP_SERVER=true`, on both binaries — the server signs absolute attachment download URLs and builds proposal review links from it, and config validation fails without it. The Helm chart derives it from `externalUrl`, or from `ingress.host` when that is unset and `ingress.enabled=true`; with neither, no `EXTERNAL_URL` is set and the pods crash-loop on config validation.
 
-On the **cmd/api** deployment (exposes the admin proposals route):
+On the **cmd/api** deployment (exposes the admin proposals routes and the **Pending Proposals** page):
 
 ```bash
 ENABLE_MCP_SERVER=true
+EXTERNAL_URL=https://your.host
 ```
 
 Leave `MCP_RATE_LIMIT_PER_MIN` and `MCP_RATE_LIMIT_BURST` unset to use defaults (60 req/min, burst 10).
 
 ### Docker Compose
 
+The repository's `docker/docker-compose.yml` already ships an `alluredeck-mcp` service on port 8081; `mise run docker:up` starts it with the API and UI. Excerpt (`depends_on`, `healthcheck`, and the dev default `JWT_SECRET_KEY` omitted):
+
 ```yaml
 services:
-  mcp:
+  alluredeck-mcp:
+    image: alluredeck-mcp:dev
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.mcp
-    ports:
-      - "8081:8081"
     environment:
       ENABLE_MCP_SERVER: "true"
-      MCP_ALLOWED_ORIGINS: "http://localhost:5050"
-      LOG_LEVEL: "info"
-      DATABASE_URL: "postgres://user:pass@postgres:5432/alluredeck"
+      DATABASE_URL: "postgresql://allure:allure@postgres:5432/allure?sslmode=disable"
+      SECURITY_ENABLED: "1"
+      # Must match allure-api's JWT_SECRET_KEY (the file ships a dev default)
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-...}"
+      # Must match allure-api's, or API keys of these users are refused here
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      VIEWER_USER: "${VIEWER_USER:-viewer}"
+      # DEV ONLY: replace MCP_SIGNING_KEY with a real secret in production
+      MCP_SIGNING_KEY: "${MCP_SIGNING_KEY:-dev-only-replace-in-prod}"
+      EXTERNAL_URL: "${EXTERNAL_URL:-http://localhost:8081}"
+    ports:
+      - "8081:8081"
 ```
+
+To use the **Pending Proposals** page in this stack, also set `ENABLE_MCP_SERVER: "true"` and `EXTERNAL_URL` on the `allure-api` service. `docker/docker-compose-s3.yml` has the same service wired to MinIO.
 
 ### Helm
 
 ```bash
 helm upgrade --install alluredeck charts/alluredeck \
   --set mcp.enabled=true \
-  --set mcp.image.tag=v0.13.0 \
+  --set api.config.mcpEnabled=true \
+  --set externalUrl="https://your.host" \
   --set mcp.config.allowedOrigins="https://your.host"
 ```
+
+`mcp.enabled` deploys the MCP server; `api.config.mcpEnabled` turns on the proposal routes and the **Pending Proposals** page in the API. The MCP image tag defaults to the chart's `appVersion`. To pin one, use the tag without a `v` prefix (for example `--set mcp.image.tag=0.50.0`). With `mcp.enabled=true` the ingress also routes `/mcp` to the MCP service and `/attachments` to the API. See the [chart README](../../charts/alluredeck/README.md#mcp-server) for every `mcp.*` value.
 
 ### Verification
 
 ```bash
-kubectl logs -f deploy/alluredeck-mcp | grep "MCP server listening"
+kubectl logs -f deploy/alluredeck-mcp | grep "starting MCP server"
+```
+
+The line includes the listen address (`addr`). The health endpoint answers `{"status":"ok"}` without authentication:
+
+```bash
+curl -s http://localhost:8081/health
 ```
 
 If disabled, you will see `MCP server disabled via feature flag`.
@@ -112,7 +143,7 @@ If disabled, you will see `MCP server disabled via feature flag`.
 ### Personal Tokens
 
 1. Log in to the AllureDeck UI
-2. Navigate to **Settings → API Keys**
+2. Open **Administration → API Keys** in the sidebar
 3. Click **Create API Key**
 4. Toggle **Allow MCP writes** if proposals are needed
 5. Copy the token — it is shown once and cannot be retrieved again
@@ -162,7 +193,7 @@ is still worth it for CI: revoking it leaves human keys untouched, the audit
 log attributes proposals to `mcp-bot@…` rather than to a person, and CI does
 not consume part of someone's 5-key budget.
 
-Create the account through **Settings → Users** (or your OIDC provider), give it
+Create the account through **Administration → Users** (or your OIDC provider), give it
 the **editor** role, then sign in as it and create the key. It must be an
 account that can actually authenticate — a `users` row alone is not enough,
 because the key is minted from that account's session.
@@ -258,6 +289,41 @@ Restart Claude Desktop after editing.
 
 ---
 
+## Tools and resources
+
+The server registers 19 tools. All except the three `propose_*` tools are read-only. The **Cost** column is the default rate-limit price of one call (see [Common Failure Modes](#common-failure-modes) and `MCP_TOOL_COSTS`). The limiter prices a request by its `Mcp-Name` header, which MCP 2026-07-28 clients send; a request without that header costs 1, and so does a tool not listed.
+
+| Tool | Purpose | Cost |
+|------|---------|------|
+| `list_projects` | List projects with pagination; use it to find project IDs | 1 |
+| `list_recent_builds` | Recent builds for a project, optionally filtered by branch; returns the build IDs other tools need | 1 |
+| `resolve_url` | Resolve a UI URL or a (project, build number) pair to a `build_id`; also returns `run_url`, the UI page of the whole pipeline run | 1 |
+| `find_test_by_name` | Case-insensitive substring search over test names (up to 100 matches) | 2 |
+| `list_failing_tests` | Failing tests in a build | 1 |
+| `get_test_failure` | Error, stack trace, test attachments, CI context, defect fingerprint, and Allure `environment.properties` for one test | 1 |
+| `get_test_history` | Run history of a test across builds, optionally for one branch | 3 |
+| `compare_builds` | Tests that regressed, were fixed, appeared, or disappeared between two builds | 3 |
+| `diagnose_failure` | One-call diagnosis of a build: deduplicated failures, root-cause clusters, build verdict, last-good diff | 5 |
+| `diagnose_pipeline` | `diagnose_failure` across every shard build of a pipeline, clustered across shards | 8 |
+| `list_defects` | Defect fingerprints for a project, filterable by category and resolution | 1 |
+| `get_defect_cluster` | Details of one defect cluster by fingerprint hash | 1 |
+| `match_known_issues` | Active known-issue regex patterns of a project that match an error message | 1 |
+| `list_attachments` | Attachment metadata for a test in a build | 1 |
+| `get_attachment` | Attachment content (text inline, images as image blocks, otherwise a signed download URL). Requires `project_id` and `attachment_id` | 3 |
+| `list_proposals` | Proposals for a project, filterable by kind and review status | 2 |
+| `propose_classify_defect` | Propose a defect category (and optionally resolution) for a fingerprint | 1 |
+| `propose_known_issue` | Propose a known-issue regex rule; dry-runs the pattern against recent failures first | 1 |
+| `propose_mark_flaky` | Propose marking a test as flaky by `test_full_name` and `history_id` | 1 |
+
+Resources:
+
+| URI template | Content |
+|--------------|---------|
+| `alluredeck://attachment/{id}` | Attachment content; large files return a signed download link |
+| `alluredeck://project/{project_id}/build/{build_id}/test/{history_id}` | Plain text with the test's `status`, `duration_ms`, and an `attachments` count for the build. Only failed or broken tests resolve; any other test returns "not found". Use `get_test_failure` for the full payload |
+
+---
+
 ## Quick start in Claude Code
 
 **Install**
@@ -297,14 +363,14 @@ claude mcp add --transport http alluredeck https://your.host/mcp \
    - Claude calls `propose_mark_flaky` with the test identifier.
    - The tool does not apply the change directly — it creates a proposal and returns a `review_url`.
    - The propose tools are idempotent: an identical pending proposal is detected and returned as `duplicate_of` instead of being re-queued, and `list_proposals` lets the agent check existing proposal state first.
-   - A human must approve or reject the proposal at `/admin/proposals` in the AllureDeck UI.
+   - A human must approve or reject the proposal at `/admin/proposals` (**Administration → Pending Proposals**) in the AllureDeck UI.
    - Output: confirmation that the proposal was created and the `review_url` to action it.
 
 ---
 
 ## Write confirmations
 
-The three `propose_*` tools ask the user to confirm before writing anything. The prompt states exactly what will be recorded; for `propose_known_issue` it also reports how many of the last 1000 failure messages the regex matches, and warns when that exceeds half the sample — an over-broad pattern is the failure mode this gate exists to catch.
+The three `propose_*` tools (`propose_classify_defect`, `propose_known_issue`, `propose_mark_flaky`) ask the user to confirm before writing anything. The prompt states exactly what will be recorded; for `propose_known_issue` it also reports how many of the last 1000 failure messages the regex matches, and warns when that exceeds half the sample — an over-broad pattern is the failure mode this gate exists to catch.
 
 Nothing is written until the user accepts: no proposal row, no `audit_log` entry. Declining is reported as a successful call that wrote nothing, so the agent does not treat it as a retryable error.
 
@@ -316,13 +382,13 @@ Human approval in `/admin/proposals` is unchanged and remains the gate that actu
 
 The confirmation carries an opaque `RequestState` through the client and back. Because the server is stateless and the client controls that round trip, the value is HMAC-SHA256 signed with `MCP_SIGNING_KEY` and bound to the tool, the calling user, and a hash of the arguments, with a 10-minute expiry. A caller therefore cannot forge an approval, reuse one tool's approval for another, or approve a narrow change and then retry with a broader one.
 
-Rotating `MCP_SIGNING_KEY` invalidates any confirmation in flight (the user simply gets asked again) and any unexpired attachment download URL.
+Rotating `MCP_SIGNING_KEY` invalidates any confirmation in flight (the retry fails with `confirmation state rejected`; calling the tool again prompts the user anew) and any unexpired attachment download URL.
 
 ---
 
 ## Audit Log
 
-Every MCP call that mutates the database inserts an `audit_log` row with one of these actions:
+Every MCP call that mutates the database inserts an `audit_log` row with one of these actions (see [Audit Log](../audit-log.md#mcp-proposal-events) for the metadata of each):
 
 - `mcp.propose_defect_classify` — proposed a defect classification
 - `mcp.propose_known_issue` — proposed a known-issue pattern
@@ -330,19 +396,21 @@ Every MCP call that mutates the database inserts an `audit_log` row with one of 
 - `mcp.proposal_approve` — admin approved a proposal (logged by cmd/api)
 - `mcp.proposal_reject` — admin rejected a proposal (logged by cmd/api)
 
+The `mcp.propose_*` rows leave `actor_id` null and store the proposing account in `actor_label`.
+
 ### Query Recent Audit Entries
 
 ```sql
 SELECT
-  actor_user_id,
+  occurred_at,
+  actor_label,
   action,
   target_type,
   target_id,
-  outcome,
-  created_at
+  outcome
 FROM audit_log
 WHERE action LIKE 'mcp.%'
-ORDER BY created_at DESC
+ORDER BY occurred_at DESC
 LIMIT 50;
 ```
 
@@ -350,16 +418,14 @@ LIMIT 50;
 
 ```sql
 SELECT
-  a.actor_user_id,
-  u.email,
-  a.action,
-  a.outcome,
-  COUNT(*) as count,
-  MAX(a.created_at) as latest
-FROM audit_log a
-LEFT JOIN users u ON a.actor_user_id = u.id
-WHERE a.action LIKE 'mcp.%'
-GROUP BY a.actor_user_id, u.email, a.action, a.outcome
+  actor_label,
+  action,
+  outcome,
+  COUNT(*) AS count,
+  MAX(occurred_at) AS latest
+FROM audit_log
+WHERE action LIKE 'mcp.%'
+GROUP BY actor_label, action, outcome
 ORDER BY latest DESC;
 ```
 
@@ -372,16 +438,15 @@ ORDER BY latest DESC;
 | 401 Unauthorized on every MCP call | Bearer token invalid or expired | Check `api_keys.last_used` in Postgres; re-issue token if needed |
 | 403 Forbidden with "origin not allowed" | Client's Origin header not in `MCP_ALLOWED_ORIGINS` | Update `MCP_ALLOWED_ORIGINS` env var; comma-separated list |
 | "account inactive" on MCP for a key the REST API accepts | The key belongs to an env-config user, and `ADMIN_USER`/`VIEWER_USER` are unset or different on cmd/mcp | Give cmd/mcp the same `ADMIN_USER` and `VIEWER_USER` as cmd/api |
-| Missing-Origin requests blocked (non-browser clients) | Feature disabled | Leave `MCP_ALLOWED_ORIGINS` empty to allow missing-Origin requests |
 | 429 Too Many Requests on every call | Per-API-key rate limit exceeded | Increase `MCP_RATE_LIMIT_PER_MIN` or contact admin to raise burst quota |
-| 429 only on `diagnose_failure` / `diagnose_pipeline` / `get_attachment` / `get_test_history` | Expensive tools cost more than one request each (defaults: `diagnose_pipeline=8`, `diagnose_failure=5`, `get_attachment=3`, `list_proposals=2`) | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
+| 429 only on `diagnose_failure` / `diagnose_pipeline` / `get_attachment` / `get_test_history` / `compare_builds` | Expensive tools cost more than one request each (defaults: `diagnose_pipeline=8`, `diagnose_failure=5`, `get_test_history=3`, `compare_builds=3`, `get_attachment=3`, `find_test_by_name=2`, `list_proposals=2`) | Raise `MCP_RATE_LIMIT_BURST`, or reprice the tool via `MCP_TOOL_COSTS` (e.g. `diagnose_failure=2`) |
 | `propose_*` returns a prompt instead of a proposal | Working as intended — the client supports confirmations | Accept the prompt; the proposal is created on the retry leg |
 | "confirmation state rejected" on a `propose_*` retry | `MCP_SIGNING_KEY` changed, or the 10-minute window elapsed | Re-run the tool; the user will be asked again |
 | `propose_*` refuses with "owned by a configuration-file user" | The key was created while signed in as an env-config user (`ADMIN_USER` or `VIEWER_USER`), which has no `users` row to attribute the proposal to | Re-issue the key while signed in as a registered account — see [Using a dedicated bot account](#using-a-dedicated-bot-account) |
 | Session errors after scaling to >1 replica | `MCP_STATELESS=false` with multiple replicas | Set `MCP_STATELESS=true`, or return `mcp.replicaCount` to 1 |
 | Tool returns "history_id required" | Client passed empty `history_id` parameter | history_id is mandatory due to a partial-index caveat in migration 0015; do not omit |
 | Attachment fetch returns a signed URL | Binary attachment >2MB | This is expected behavior; follow the signed URL within 10 minutes |
-| `GET /api/v1/proposals` returns 404 | Feature flag off on cmd/api | Set `ENABLE_MCP_SERVER=true` on the cmd/api deployment and redeploy |
+| `GET /api/v1/proposals/{type}` (`defect`, `known_issue`, or `flaky`) returns 404 | Feature flag off on cmd/api | Set `ENABLE_MCP_SERVER=true` (and `EXTERNAL_URL`) on the cmd/api deployment and redeploy; with Helm, set `api.config.mcpEnabled=true` |
 
 ---
 

@@ -237,8 +237,9 @@ mcp:
     # doing so also means replicaCount must stay at 1.
     stateless: true              # plumbed as MCP_STATELESS
     # Per-tool rate-limit pricing, as "tool=cost,tool=cost". Layered over the
-    # built-in defaults (diagnose_failure=5, get_test_history=3,
-    # compare_builds=3, find_test_by_name=2); unlisted tools cost 1. Costs
+    # built-in defaults (diagnose_pipeline=8, diagnose_failure=5,
+    # get_test_history=3, compare_builds=3, get_attachment=3,
+    # find_test_by_name=2, list_proposals=2); unlisted tools cost 1. Costs
     # larger than rateLimitBurst are clamped to it.
     toolCosts: ""                # plumbed as MCP_TOOL_COSTS
   resources:
@@ -431,13 +432,11 @@ autoscaling:
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
-    # targetMemoryUtilizationPercentage: 80  # uncomment to add a memory metric
 
   api:
     minReplicas: 1
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
-    # targetMemoryUtilizationPercentage: 80  # uncomment to add a memory metric
 
 # ---------------------------------------------------------------------------
 # PodDisruptionBudget (opt-in — disabled by default)
@@ -452,19 +451,16 @@ podDisruptionBudget:
 
   ui:
     minAvailable: 1
-    # maxUnavailable: 1  # alternative to minAvailable; comment minAvailable out if using this
 
   api:
     minAvailable: 1
-    # maxUnavailable: 1  # alternative to minAvailable; comment minAvailable out if using this
 
 # ---------------------------------------------------------------------------
 # Pre-upgrade migration Job (opt-in — disabled by default)
 # ---------------------------------------------------------------------------
 # When enabled, a Helm hook Job runs the API image with RUN_MIGRATIONS=true
 # before any Deployment pods start (helm.sh/hook: pre-install,pre-upgrade).
-# This moves migrations out of the per-replica boot path and into a single
-# authority, eliminating the concurrent-migrator race entirely.
+# This moves API migrations out of the per-replica boot path.
 #
 # ROLLBACK RUNBOOK (read before enabling on a live cluster):
 #   1. Take a database backup BEFORE every `helm upgrade` when this is enabled.
@@ -476,14 +472,15 @@ podDisruptionBudget:
 #      c. Run `helm upgrade` — the Job will apply the old migration set.
 #   3. Keep at least one full DB backup per release in your backup store.
 #
-# When migrationJob.enabled=true the api Deployment (and mcp if enabled) render
-# RUN_MIGRATIONS=false so only the Job migrates; replicas start migration-free.
-# When disabled (default) each replica runs migrations on boot, now safely
-# serialised by the Postgres advisory lock added in pg.Open().
+# When migrationJob.enabled=true the API ConfigMap sets run_migrations: false,
+# so API replicas start migration-free. MCP pods still migrate on boot. Either
+# way, concurrent migrators are serialised by the Postgres advisory lock in
+# pg.Open(). The Job does not receive the OIDC secrets, so with OIDC enabled
+# pass them via api.extraEnvFrom or the Job fails config validation.
 migrationJob:
   enabled: false
   # Wall-clock deadline for the migration Job container. Must be a Go duration
-  # string or integer seconds. "0" disables the deadline (useful for very large
+  # string ("10m"); bare integers other than "0" are rejected. "0" disables the deadline (useful for very large
   # migrations such as 0031_surrogate_pk). Defaults to 10m for the Job since it
   # runs once with no concurrency pressure; the per-replica default is 5m.
   migrationTimeout: "10m"
@@ -506,18 +503,21 @@ observability:
   # Resource attribute: service.name sent with every span and metric.
   serviceName: "alluredeck-api"
 
-  # Resource attribute: deployment.environment (e.g. "production", "staging").
-  # Leave empty to omit the attribute.
+  # Resource attribute: deployment.environment.name (e.g. "production", "staging").
+  # Left empty, the attribute is still set, with an empty value.
   environment: ""
 
   # OTLP trace export settings.
   traces:
-    # OTLP endpoint for the collector (HTTP). Example:
-    #   "http://otel-collector.observability.svc:4318"
+    # OTLP collector endpoint as host:port, without scheme or path. Example:
+    #   "otel-collector.observability.svc:4317" (with protocol: grpc)
+    # Known limitation: with http/protobuf and a hostname, spans are posted to
+    # "/" instead of /v1/traces; use grpc. See docs/observability.md.
     endpoint: ""
     # Transport protocol: "http/protobuf" (default) or "grpc".
     protocol: "http/protobuf"
-    # Ratio of traces to sample: 1.0 = 100 %, 0.1 = 10 %, 0.0 = off.
+    # Ratio of traces to sample: 1.0 = 100 %, 0.1 = 10 %. 0 is not supported:
+    # Helm's default renders it as 1.
     sampleRatio: 1.0
     # Set true to disable TLS for local / in-cluster collectors.
     insecure: false

@@ -12,7 +12,7 @@ Copy changes, ARIA refactors, and Tailwind churn must not break E2E tests. The `
 ### Existing testids
 - `sidebar-nav-overview`, `sidebar-nav-analytics`, `sidebar-nav-defects`, `sidebar-nav-timeline`, `sidebar-nav-known-issues`, `sidebar-nav-attachments`
 - `project-overview`, `report-list`, `report-row` (with `data-report-id`)
-- `projects-grid`, `project-card` (with `data-project-slug`)
+- `icon-folder` (group row), `icon-file-text` (project row) on `/projects`; rows and the table have no testids
 - `allure-iframe`, `view-toggle-playwright`, `view-toggle-allure`
 - `runs-feed`, `run-row`, `run-row-toggle`, `run-suite-chips`, `run-suite-chips-more`, `run-suite-chip`, `run-suite-chip-shards`
 - `run-failures`, `run-failure-grouping`, `run-failure-grouping-suite`, `run-failure-grouping-error`, `run-failure-group`, `run-failure-row`

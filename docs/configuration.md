@@ -38,15 +38,18 @@ export JWT_SECRET_KEY="<generated-via-openssl>"
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
 | `PORT` | `port` | `8080` | TCP port the API server listens on |
-| `DEV_MODE` | `dev_mode` | `false` | Enable development mode: console logging (not JSON), relaxed request validation, verbose output |
-| `TLS` | `tls` | `false` | Enable TLS/HTTPS. Requires `TLS_CERT_FILE` and `TLS_KEY_FILE` environment variables |
+| `DEV_MODE` | `dev_mode` | `false` | Enable development mode: human-readable console logging (zap's development config) instead of JSON. Also reported by `GET /api/v1/config`; it does not relax any validation |
+| `TLS` | `tls` | `false` | Declare that clients reach the API over HTTPS: marks the auth cookies `Secure` and adds the `Strict-Transport-Security` header. The API itself always listens on plain HTTP — terminate TLS at your ingress, load balancer, or reverse proxy (see [deployment.md](deployment.md#tls)) |
 | `LOG_LEVEL` | `log_level` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
 | `CONFIG_FILE` | *(n/a)* | `/app/alluredeck/config.yaml` | Path to the YAML configuration file (environment variable only) |
-| `SWAGGER_ENABLED` | `swagger_enabled` | `false` | Enable Swagger UI at `/swagger/index.html` |
-| `SWAGGER_HOST` | `swagger_host` | `""` | Override the host shown in Swagger UI (auto-detected if empty) |
+| `SWAGGER_ENABLED` | `swagger_enabled` | `false` | Serve the Scalar API reference at `/swagger/` |
+| `SWAGGER_HOST` | `swagger_host` | `""` | Override the host in the OpenAPI spec behind the API reference (the browser's current host is used if empty) |
 | `MAX_UPLOAD_SIZE_MB` | `max_upload_size_mb` | `100` | Maximum upload size in MB for test result archives |
 | `MAX_ARCHIVE_FILE_COUNT` | `max_archive_file_count` | `5000` | Maximum number of files allowed in a tar.gz archive upload |
 | `UPLOAD_WRITE_CONCURRENCY` | `upload_write_concurrency` | `32` | Bounded concurrency for parallel storage writes during tar.gz upload extraction (Allure + Playwright). Tune to MinIO/S3 capacity and pod resources |
+| `RUN_MIGRATIONS` | `run_migrations` | `true` | Apply database migrations (goose + River) on startup, serialized by a Postgres advisory lock. Set `false` when a dedicated migration step is the single authority (Helm `migrationJob.enabled=true` does this for you) |
+| `MIGRATION_TIMEOUT` | `migration_timeout` | `5m` | Wall-clock limit for the locked migration block (Go duration). `0` disables the deadline for very long migrations |
+| `BACKGROUND_JOBS_ENABLED` | `background_jobs_enabled` | `true` | Start this instance's job workers (uploads, report generation, webhooks), the retention scheduler, and the file watcher. Set `false` for read-only instances that share a database with a primary deployment, such as the [preview stack](deployment.md#preview-stack) |
 | `GOMEMLIMIT` | *(n/a)* | *(not set)* | Go runtime memory limit (e.g., `1GiB`). Set to ~80% of your container memory limit to prevent OOM kills |
 
 ### Example
@@ -64,13 +67,13 @@ export DEV_MODE="true"
 
 | Environment Variable | YAML Key | Default | Description |
 |----------------------|----------|---------|-------------|
-| `SECURITY_ENABLED` | `security_enabled` | `false` | Enable HTTP Basic and JWT authentication, and role-based access control |
+| `SECURITY_ENABLED` | `security_enabled` | `false` | Enable JWT/API-key authentication. Role checks always run: when `false`, no identity is attached to requests, so every role-checked route (projects, uploads, users, admin) returns `403 Access denied: missing claims`. Only public endpoints (`/health`, `/ready`, `/api/v1/version`, `/api/v1/config`) answer, plus viewer-level read routes when `MAKE_VIEWER_ENDPOINTS_PUBLIC=true`. Set it to `true` for a usable instance — the full-stack Docker Compose files and the Helm chart do |
 | `ADMIN_USER` | `admin_user` | *(empty)* | Admin username (used when `SECURITY_ENABLED=true`) |
 | `ADMIN_PASS` | `admin_pass` | *(empty)* | Admin password (used when `SECURITY_ENABLED=true`) |
 | `VIEWER_USER` | `viewer_user` | *(empty)* | Read-only viewer username |
 | `VIEWER_PASS` | `viewer_pass` | *(empty)* | Read-only viewer password |
 | `JWT_SECRET_KEY` | `jwt_secret_key` | `super-secret-key-for-dev` | HMAC-SHA256 signing key for JWT tokens. **Must be changed in production.** |
-| `ENCRYPTION_KEY` | `encryption_key` | *(empty)* | Key for the stored webhook URLs and secrets; `JWT_SECRET_KEY` is used when empty. Webhooks saved under the JWT secret or the default one stay readable. To rotate `JWT_SECRET_KEY` without losing webhooks, first set this to the current JWT secret, then change the JWT secret. Use the same value on the API and MCP servers |
+| `ENCRYPTION_KEY` | `encryption_key` | *(empty)* | Any string. AllureDeck derives an AES-256 key from it (SHA-256) to encrypt stored webhook URLs and secrets; `JWT_SECRET_KEY` is used when empty. Webhooks saved under the JWT secret or the default one stay readable. To rotate `JWT_SECRET_KEY` without losing webhooks, first set this to the current JWT secret, then change the JWT secret. Use the same value on the API and MCP servers. Under Helm the chart has no value for it: set it on the API with `api.extraEnv`/`extraEnvFrom`; the MCP deployment has no `extraEnv`, so the MCP pod cannot receive it |
 | `JWT_ACCESS_TOKEN_EXPIRES` | `jwt_access_token_expires` | `3600` | Access token lifetime in seconds (default: 1 hour) |
 | `JWT_REFRESH_TOKEN_EXPIRES` | `jwt_refresh_token_expires` | `2592000` | Refresh token lifetime in seconds (default: 30 days) |
 
@@ -83,10 +86,10 @@ export DEV_MODE="true"
 
 ### Production Security Requirements
 
-When `SECURITY_ENABLED=true`, the API enforces the following:
+When `SECURITY_ENABLED=true`:
 
 - **JWT Secret** — if `JWT_SECRET_KEY` is still the default value (`super-secret-key-for-dev`), the API refuses to start
-- **Admin Credentials** — must be set (both `ADMIN_USER` and `ADMIN_PASS`)
+- **Admin Credentials** — not checked at startup, but set both `ADMIN_USER` and `ADMIN_PASS`: without them the environment-configured admin cannot log in
 
 Generate a strong JWT secret:
 
@@ -103,10 +106,13 @@ For details on roles, token types, CSRF protection, and the production security 
 |----------------------|----------|---------|-------------|
 | `STORAGE_TYPE` | `storage_type` | `local` | Storage backend: `local` (filesystem) or `s3` (S3/MinIO) |
 | `PROJECTS_PATH` | `projects_path` | `/data/projects` | Directory where Allure project results and reports are stored. Must be readable and writable |
-| `DATABASE_URL` | `database_url` | `postgres://alluredeck:alluredeck@localhost:5432/alluredeck?sslmode=disable` | PostgreSQL connection string |
+| `DATABASE_URL` | `database_url` | *(none — required)* | PostgreSQL connection string (`postgres://…` / `postgresql://…`, or keyword form with `host=` / `dbname=`). The API refuses to start without a valid value |
 | `DB_MAX_OPEN_CONNS` | `db_max_open_conns` | `25` | Maximum open database connections |
 | `DB_MAX_IDLE_CONNS` | `db_max_idle_conns` | `5` | Maximum idle database connections kept in the pool |
 | `DB_CONN_MAX_LIFETIME` | `db_conn_max_lifetime` | `5m` | Maximum connection lifetime before the pool recycles it (Go duration string, e.g., `30m`, `1h`) |
+| `DB_STATEMENT_TIMEOUT` | `db_statement_timeout` | `30s` | Postgres `statement_timeout` applied to every pooled connection (Go duration). `0` leaves it unset |
+| `DB_LOCK_TIMEOUT` | `db_lock_timeout` | `5s` | Postgres `lock_timeout` applied to every pooled connection. `0` leaves it unset |
+| `DB_IDLE_IN_TX_TIMEOUT` | `db_idle_in_tx_timeout` | `15s` | Postgres `idle_in_transaction_session_timeout` applied to every pooled connection. `0` leaves it unset |
 | `KEEP_HISTORY` | `keep_history` | `true` | Retain report history between builds. When `false`, only the latest report is kept |
 | `KEEP_HISTORY_LATEST` | `keep_history_latest` | `100` | Maximum number of historical reports to keep per project (when `keep_history=true`). Set to `0` to disable count-based pruning entirely (unlimited history) — `0` does not mean "keep zero" |
 | `KEEP_HISTORY_MAX_AGE_DAYS` | `keep_history_max_age_days` | `0` | Delete reports older than N days. Set to `0` (default) to disable age-based pruning. Both count-based and age-based retention work together — a build is deleted if it exceeds either limit. The latest build per project is never deleted. When set above `0`, this also drives stale-branch garbage collection: non-default branches whose most recent build is older than the cutoff are deleted entirely (their builds and the branch entry), processed in batches of 50 per sweep. The default branch is never garbage-collected |
@@ -220,8 +226,8 @@ These variables configure the React frontend. They are injected at container **r
 
 | Environment Variable | Default | Description |
 |----------------------|---------|-------------|
-| `VITE_API_URL` | `http://localhost:5050` | AllureDeck API base URL. Include the `/api/v1` path. Example: `https://api.example.com/api/v1` |
-| `VITE_APP_TITLE` | `AllureDeck` | Browser tab title and top-bar brand text |
+| `VITE_API_URL` | `http://localhost:5050` | AllureDeck API base URL. Include the `/api/v1` path — the UI appends routes directly to this value. The bare default only matches the Docker Compose API port; `docker/docker-compose.yml` sets `http://localhost:5050/api/v1`. For `mise run api:run` (API on port 8080) use `http://localhost:8080/api/v1` |
+| `VITE_APP_TITLE` | `AllureDeck` | Browser tab title (the top bar shows only the logo) |
 | `VITE_APP_VERSION` | `dev` | Version string displayed in the UI (e.g., from CI/CD pipeline) |
 
 ### Example (Docker)
@@ -238,7 +244,7 @@ docker run \
 
 ### Minimal (Development)
 
-Store locally, security disabled:
+Store locally, security disabled. [`api/config.example.yaml`](../api/config.example.yaml) in the repository is the fully commented template; the snippets below are trimmed examples.
 
 ```yaml
 # AllureDeck API - Example Configuration File
@@ -264,6 +270,7 @@ admin_pass: ""
 viewer_user: ""
 viewer_pass: ""
 jwt_secret_key: ""
+encryption_key: ""
 jwt_access_token_expires: 3600
 jwt_refresh_token_expires: 2592000
 make_viewer_endpoints_public: false
@@ -286,6 +293,7 @@ db_max_open_conns: 25
 # --- Report generation ---
 check_results_every_secs: "NONE"
 allure_version_path: "/app/version"
+report_generation_timeout: "5m"
 
 # --- UI / API behaviour ---
 api_response_less_verbose: false
@@ -331,6 +339,7 @@ admin_pass: ""
 viewer_user: ""
 viewer_pass: ""
 jwt_secret_key: ""
+encryption_key: ""
 jwt_access_token_expires: 3600
 jwt_refresh_token_expires: 2592000
 make_viewer_endpoints_public: false
@@ -353,6 +362,7 @@ db_conn_max_lifetime: "30m"
 # --- Report generation ---
 check_results_every_secs: "60"
 allure_version_path: "/app/version"
+report_generation_timeout: "5m"
 
 # --- UI / API behaviour ---
 api_response_less_verbose: true
@@ -420,16 +430,74 @@ LLM_MODEL=llama3.1
 # LLM_API_KEY intentionally unset for a local Ollama server
 ```
 
-Helm users can supply these via `api.config` / an environment override or, for `LLM_API_KEY`, an
-`existingSecret` — treat the key like any other secret (see [Sensitive Values](#sensitive-values)).
+The Helm chart has no `llm` values. Pass the variables through `api.extraEnv` (or `api.extraEnvFrom`
+for a whole Secret/ConfigMap) and keep `LLM_API_KEY` in a Kubernetes Secret — treat it like any other
+secret (see [Sensitive Values](#sensitive-values)):
+
+```yaml
+api:
+  extraEnv:
+    - name: LLM_ENABLED
+      value: "true"
+    - name: LLM_BASE_URL
+      value: http://ollama:11434/v1
+    - name: LLM_MODEL
+      value: llama3.1
+    - name: LLM_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: alluredeck-llm
+          key: api-key
+```
+
+The same applies to `ENCRYPTION_KEY` and `OIDC_AUTO_LINK_BY_EMAIL`, which the chart does not template either. These go on the API pod only: the chart's MCP deployment has no `extraEnv`/`extraEnvFrom`.
+
+## MCP Server
+
+The MCP server is a separate binary (`cmd/mcp`, image `ghcr.io/mkutlak/alluredeck-mcp`) that shares the API's configuration loader. See [operations/mcp-server.md](operations/mcp-server.md) for setup, tools, and rate limits.
+
+| Environment Variable | YAML Key | Default | Description |
+|----------------------|----------|---------|-------------|
+| `ENABLE_MCP_SERVER` | `mcp_server_enabled` | `false` | On the **API**: registers the proposal review endpoints (`/api/v1/proposals/*`) and shows the admin "Pending Proposals" page. On the **MCP binary**: must be `true`, otherwise the process exits. Requires `EXTERNAL_URL` |
+| `MCP_PORT` | `mcp_port` | `8081` | TCP port the MCP binary listens on |
+| `MCP_SIGNING_KEY` | `mcp_signing_key` | *(empty)* | HMAC-SHA256 key for signed attachment download URLs (`{EXTERNAL_URL}/attachments/{id}`). The MCP binary refuses to start without it; the API serves `/attachments/{id}` only when it is set. Use the same value on both |
+| `MCP_ALLOWED_ORIGINS` | `mcp_allowed_origins` | *(empty)* | Comma-separated allowed browser `Origin` values. Requests without an `Origin` header (non-browser clients) are always allowed; an empty setting also allows every browser origin and logs a warning |
+| `MCP_RATE_LIMIT_PER_MIN` | `mcp_rate_limit_per_min` | `60` | Sustained requests per minute per API key or user |
+| `MCP_RATE_LIMIT_BURST` | `mcp_rate_limit_burst` | `10` | Token-bucket burst size per key |
+| `MCP_TOOL_COSTS` | `mcp_tool_costs` | *(empty)* | Per-tool rate-limit cost overrides, e.g. `diagnose_failure=5,compare_builds=3`. Unlisted tools cost `1` unless a built-in default applies; costs above the burst are clamped |
+| `MCP_STATELESS` | `mcp_stateless` | `true` | Use the MCP 2026-07-28 stateless transport (no `initialize` handshake, no session affinity, safe to run several replicas). Set `false` only for a client that needs session-based transport |
+| `MCP_POOL_MAX_CONNS` | `mcp_pool_max_conns` | `8` | Maximum size of the MCP binary's pgx connection pool |
+
+The MCP binary also reads the database, storage, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, `ADMIN_USER`/`VIEWER_USER`, and `OBSERVABILITY_*` variables from the sections above and below. `ADMIN_USER` and `VIEWER_USER` must match the API's values, or API keys of those users are refused.
+
+## Observability (OpenTelemetry and Prometheus)
+
+Disabled by default. For the operator view — what is emitted, Helm values, PromQL, troubleshooting — see [observability.md](observability.md).
+
+| Environment Variable | YAML Key | Default | Description |
+|----------------------|----------|---------|-------------|
+| `OBSERVABILITY_ENABLED` | `observability.enabled` | `false` | Master switch for traces and metrics |
+| `OBSERVABILITY_SERVICE_NAME` | `observability.service_name` | `alluredeck-api` | `service.name` resource attribute |
+| `OBSERVABILITY_SERVICE_VERSION` | `observability.service_version` | *(build version)* | `service.version` resource attribute |
+| `OBSERVABILITY_ENVIRONMENT` | `observability.environment` | *(empty)* | `deployment.environment.name` resource attribute (e.g. `production`) |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `observability.traces.endpoint` | *(empty)* | OTLP collector as `host:port` **without a scheme** (e.g. `otel-collector:4317`). Empty falls back to the exporter default: `localhost:4318` for `http/protobuf`, `localhost:4317` for `grpc`. **Known limitation:** with `http/protobuf`, setting this through the environment variable (or Helm) and a hostname makes the SDK POST to `/` instead of `/v1/traces`; use `grpc`, an IP literal, or the YAML key — see [observability.md](observability.md#known-limitation-httpprotobuf-with-the-environment-variable-helm) |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | `observability.traces.protocol` | `http/protobuf` | `http/protobuf` or `grpc` |
+| `OTEL_TRACES_SAMPLER_ARG` | `observability.traces.sample_ratio` | `1.0` | Parent-based trace-ID ratio sampler, clamped to 0.0–1.0 |
+| `OBSERVABILITY_TRACES_INSECURE` | `observability.traces.insecure` | `false` | Use plain HTTP / insecure gRPC to the collector. Set `true` for an in-cluster collector without TLS |
+| `OBSERVABILITY_METRICS_ENABLED` | `observability.metrics.enabled` | `true` | Serve Prometheus metrics (only when `OBSERVABILITY_ENABLED=true`) |
+| `OBSERVABILITY_METRICS_ADDR` | `observability.metrics.addr` | `:9464` | Listen address of the dedicated metrics server |
+| `OBSERVABILITY_METRICS_PATH` | `observability.metrics.path` | `/metrics` | Scrape path |
+| `OBSERVABILITY_METRICS_ENABLE_PROFILING` | `observability.metrics.enable_profiling` | `false` | Also serve Go `pprof` handlers under `/debug/pprof/` on the metrics address. Unauthenticated — keep that port off public networks |
 
 ## OIDC SSO Configuration
 
-OIDC configuration is documented in the dedicated [Authentication](authentication.md) guide. Key variables include `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and role-mapping groups. See [Authentication — Configuration Reference](authentication.md#configuration-reference) for the full table.
+OIDC configuration is documented in the dedicated [Authentication](authentication.md) guide. Key variables include `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_STATE_COOKIE_SECRET` (16, 24, or 32 bytes), `OIDC_AUTO_LINK_BY_EMAIL` (default `false`), and role-mapping groups. See [Authentication — Configuration Reference](authentication.md#configuration-reference) for the full table.
 
 ## Related Documentation
 
 - [authentication.md](authentication.md) — OIDC SSO, role mapping, provider examples
 - [deployment.md](deployment.md#security) — authentication, authorization, JWT tokens, CSRF protection, TLS, production security checklist
+- [observability.md](observability.md) — traces, metrics, pprof
+- [operations/mcp-server.md](operations/mcp-server.md) — MCP server setup and operations
 - [storage.md](storage.md) — S3/MinIO setup guide and troubleshooting
 - [Helm Chart README](../charts/alluredeck/README.md) — Kubernetes/Helm configuration and secrets management
