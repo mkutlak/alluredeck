@@ -96,10 +96,10 @@ mise run docker:build     # build both Docker images
 
 The Helm chart deploys AllureDeck to any Kubernetes cluster. See the [Helm Chart README](../charts/alluredeck/README.md) for the full values reference.
 
-Current versions: app **v0.50.0**, chart **0.26.0**.
+Current versions: app **v0.50.0**, chart **0.26.1**.
 
 ```bash
-helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.22.0
+helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.26.1
 ```
 
 Access without Ingress:
@@ -113,7 +113,7 @@ With Ingress (single domain, path-based routing):
 
 ```bash
 helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck \
-  --version 0.22.0 \
+  --version 0.26.1 \
   --set ingress.enabled=true \
   --set ingress.host=alluredeck.example.com
 ```
