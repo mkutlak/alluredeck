@@ -10,17 +10,21 @@ on:
       - "mise.lock"
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   release-chart:
     name: Release Helm chart
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the helm-v* tag
+      packages: write # push the chart and ArtifactHub metadata to GHCR
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
 
       - name: Read chart version
         id: version
@@ -57,7 +61,7 @@ jobs:
 
       - name: Install oras
         if: steps.tag-check.outputs.exists == 'false'
-        uses: oras-project/setup-oras@v2
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
 
       - name: Push ArtifactHub metadata
         if: steps.tag-check.outputs.exists == 'false'
@@ -72,8 +76,8 @@ jobs:
 
       - name: Create helm tag
         if: steps.tag-check.outputs.exists == 'false'
+        # Via the API rather than git push, so the checkout never persists credentials.
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: "helm-v${{ steps.version.outputs.version }}"
-        run: |
-          git tag "${TAG}"
-          git push origin "${TAG}"
+        run: gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${TAG}" -f sha="${GITHUB_SHA}"

@@ -16,11 +16,7 @@ on:
       - "docs/**"
 
 permissions:
-  contents: write
-  packages: write
-  pages: write
-  id-token: write
-  attestations: write
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -33,12 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
 
       - name: Cache Go build & modules
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/go-build
@@ -54,12 +52,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
 
       - name: Cache npm
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
@@ -75,19 +75,21 @@ jobs:
     name: Semantic release
     needs: [test-api, test-ui]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the CHANGELOG commit and tag, create the GitHub release
     outputs:
       new-release-published: ${{ steps.semantic.outputs.new_release_published }}
       new-release-version: ${{ steps.semantic.outputs.new_release_version }}
       new-release-git-tag: ${{ steps.semantic.outputs.new_release_git_tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Semantic Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v6
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
         with:
           # All extra plugins are major-pinned so a new upstream major can't
           # break the release lane on its own schedule.
@@ -113,6 +115,11 @@ jobs:
     needs: release
     if: needs.release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push images to GHCR
+      id-token: write # sign the provenance attestation (OIDC)
+      attestations: write # store the provenance attestation
     strategy:
       fail-fast: false
       matrix:
@@ -124,18 +131,19 @@ jobs:
           - image: alluredeck-mcp
             dockerfile: docker/Dockerfile.mcp
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release.outputs.new-release-git-tag }}
+          persist-credentials: false
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -143,7 +151,7 @@ jobs:
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/mkutlak/${{ matrix.image }}
           tags: |
@@ -155,7 +163,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -174,7 +182,7 @@ jobs:
           sbom: true
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.REGISTRY }}/mkutlak/${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}

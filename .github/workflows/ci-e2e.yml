@@ -27,9 +27,11 @@ jobs:
       ALLUREDECK_PASS: ${{ secrets.ALLUREDECK_PASS || 'admin' }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
 
       - name: Build and start stack
         run: docker compose -f docker/docker-compose.yml up -d --build
