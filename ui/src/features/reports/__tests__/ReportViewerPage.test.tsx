@@ -17,9 +17,12 @@ vi.mock('@tanstack/react-query', async () => {
   }
 })
 
-function renderPage(reportType: 'allure' | 'playwright') {
+function renderPage(
+  reportType: 'allure' | 'playwright',
+  projects: Record<string, unknown>[] = [{ project_id: 1, slug: 'proj', report_type: reportType }],
+) {
   mockUseQuery.mockReturnValue({
-    data: { data: [{ project_id: 1, slug: 'proj', report_type: reportType }] },
+    data: { data: projects },
     isLoading: false,
     error: null,
   })
@@ -71,5 +74,14 @@ describe('ReportViewerPage', () => {
 
     await user.click(screen.getByRole('button', { name: /playwright/i }))
     expect(iframe()).toHaveAttribute('src', expect.stringContaining(PLAYWRIGHT_URL))
+  })
+
+  // The iframe title is what screen readers announce, so it names the project like the toolbar does.
+  it('titles the report iframe with the project label, not its id', () => {
+    renderPage('allure', [
+      { project_id: 2, slug: 'webshop', display_name: 'webshop' },
+      { project_id: 1, slug: 'proj', display_name: 'webshop-web', parent_id: 2 },
+    ])
+    expect(iframe()).toHaveAttribute('title', 'Allure report #5 — webshop/webshop-web')
   })
 })

@@ -27,10 +27,11 @@ export function ReportViewerPage() {
       ? `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/playwright-reports/${encodeURIComponent(reportId)}/index.html`
       : `${env.apiUrl}/projects/${encodeURIComponent(projectId)}/reports/${encodeURIComponent(reportId)}/index.html`
 
+  const label = formatProjectLabel(project, projects)
   const iframeTitle =
     viewMode === 'playwright'
-      ? `Playwright report #${reportId} — ${projectId}`
-      : `Allure report #${reportId} — ${projectId}`
+      ? `Playwright report #${reportId} — ${label || projectId}`
+      : `Allure report #${reportId} — ${label || projectId}`
 
   const viewToggleOptions: SegmentedOption<'playwright' | 'allure'>[] = [
     { value: 'playwright', label: 'Playwright', 'data-testid': 'view-toggle-playwright' },
@@ -51,9 +52,7 @@ export function ReportViewerPage() {
         >
           Report #{reportId}
         </Button>
-        <span className="text-muted-foreground font-mono text-sm">
-          {formatProjectLabel(project, projects)}
-        </span>
+        <span className="text-muted-foreground font-mono text-sm">{label}</span>
 
         <div className="flex-1" />
 

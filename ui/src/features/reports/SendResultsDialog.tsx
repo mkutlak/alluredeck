@@ -20,11 +20,18 @@ import { cn } from '@/lib/utils'
 
 interface SendResultsDialogProps {
   projectId: number
+  /** How the project is named in text and toasts (parent/child); defaults to the id. */
+  label?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function SendResultsDialog({ projectId, open, onOpenChange }: SendResultsDialogProps) {
+export function SendResultsDialog({
+  projectId,
+  label = String(projectId),
+  open,
+  onOpenChange,
+}: SendResultsDialogProps) {
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [mutationError, setMutationError] = useState('')
@@ -44,11 +51,11 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
       handledJobRef.current = jobId
       toast({
         title: 'Report generated',
-        description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded and report generated for "${projectId}".`,
+        description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded and report generated for "${label}".`,
       })
       onOpenChange(false)
     }
-  }, [isCompleted, jobId, files.length, projectId, onOpenChange])
+  }, [isCompleted, jobId, files.length, label, onOpenChange])
 
   // Derive display error: job failure error takes priority over mutation error
   const displayError = isFailed && jobError ? jobError : mutationError
@@ -72,7 +79,7 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
         // Upload only — no generate
         toast({
           title: 'Results sent',
-          description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${projectId}".`,
+          description: `${files.length} file${files.length !== 1 ? 's' : ''} uploaded to "${label}".`,
         })
         setFiles([])
         setUploadPhase(null)
@@ -115,7 +122,7 @@ export function SendResultsDialog({ projectId, open, onOpenChange }: SendResults
           <DialogTitle>Send results</DialogTitle>
           <DialogDescription>
             Upload Allure result files (.json, .xml, attachments) for project{' '}
-            <span className="font-mono font-medium">{projectId}</span>.
+            <span className="font-mono font-medium">{label}</span>.
           </DialogDescription>
         </DialogHeader>
 

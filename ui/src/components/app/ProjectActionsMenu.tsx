@@ -13,6 +13,8 @@ import { useAuthStore, selectIsAdmin, selectIsEditor } from '@/store/auth'
 import { SendResultsDialog } from '@/features/reports/SendResultsDialog'
 import { CleanDialog } from '@/features/reports/CleanDialog'
 import { projectIndexOptions } from '@/lib/queries/projects'
+import { formatProjectLabel } from '@/lib/projectLabel'
+import { resolveProjectFromParam } from '@/lib/resolveProject'
 
 export function ProjectActionsMenu() {
   const { id: projectId } = useParams<{ id: string }>()
@@ -23,6 +25,12 @@ export function ProjectActionsMenu() {
     projectsResp?.data?.find((p: { project_id: number }) => p.project_id === Number(projectId))
       ?.report_type ?? 'allure'
   const isAllure = reportType !== 'playwright'
+  // How the dialogs name the project in their text and toasts: parent/child, never the bare id.
+  const label =
+    formatProjectLabel(
+      resolveProjectFromParam(projectId, projectsResp?.data),
+      projectsResp?.data,
+    ) || projectId
   const [sendOpen, setSendOpen] = useState(false)
   const [cleanResultsOpen, setCleanResultsOpen] = useState(false)
   const [cleanHistoryOpen, setCleanHistoryOpen] = useState(false)
@@ -65,15 +73,22 @@ export function ProjectActionsMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <SendResultsDialog projectId={Number(projectId)} open={sendOpen} onOpenChange={setSendOpen} />
+      <SendResultsDialog
+        projectId={Number(projectId)}
+        label={label}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+      />
       <CleanDialog
         projectId={projectId}
+        label={label}
         mode="results"
         open={cleanResultsOpen}
         onOpenChange={setCleanResultsOpen}
       />
       <CleanDialog
         projectId={projectId}
+        label={label}
         mode="history"
         open={cleanHistoryOpen}
         onOpenChange={setCleanHistoryOpen}
