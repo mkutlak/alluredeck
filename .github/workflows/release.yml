@@ -91,18 +91,20 @@ jobs:
         id: semantic
         uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
         with:
-          # All extra plugins are major-pinned so a new upstream major can't
-          # break the release lane on its own schedule.
-          #
+          # semantic-release and all extra plugins are major-pinned so a new
+          # upstream major can't break the release lane on its own schedule.
+          # Without semantic_version the action runs a bare `npm install
+          # semantic-release` on every release, i.e. whatever npm tags latest.
+          semantic_version: "25"
           # conventional-changelog-conventionalcommits is pinned to 8, the last
-          # major compatible with conventional-changelog-writer@8: the action
-          # bundles semantic-release ^25, whose release-notes-generator (v14)
-          # ships writer@8, while preset 9+ requires writer@9 — an unpinned
-          # preset resolves to 10.x and crashes generateNotes with 'Missing
-          # helper'. No stable writer@9 combination exists yet (the writer@9
-          # release-notes-generator is 15.0.0-beta); bump the preset to its
-          # current major once the action bundles release-notes-generator >=15
-          # stable.
+          # major compatible with conventional-changelog-writer@8: semantic-release
+          # 25 depends on release-notes-generator v14, which ships writer@8,
+          # while preset 9+ requires writer@9 — an unpinned preset resolves to
+          # 10.x and crashes generateNotes with 'Missing helper'. No stable
+          # writer@9 combination exists yet (the writer@9 release-notes-generator
+          # is 15.0.0-beta); bump the preset to its current major together with
+          # semantic_version once a semantic-release major ships
+          # release-notes-generator >=15 stable.
           extra_plugins: |
             @semantic-release/changelog@7
             @semantic-release/git@11
