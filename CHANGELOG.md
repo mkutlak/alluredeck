@@ -1,3 +1,18 @@
+## [0.51.0](https://github.com/mkutlak/alluredeck/compare/v0.50.0...v0.51.0) (2026-10-26)
+
+### Features
+
+* **e2e:** seed demo data and regenerate doc screenshots ([2d7e22d](https://github.com/mkutlak/alluredeck/commit/2d7e22dada9b39bd42bc244a4d2aa05338cc9430))
+
+### Bug Fixes
+
+* **api:** record flaky tests from Allure 3 reports once per test ([5a28d01](https://github.com/mkutlak/alluredeck/commit/5a28d014860f34934c8a0736eb9b04adee9e746c))
+* **api:** resolve the latest build deterministically across branches ([34599a0](https://github.com/mkutlak/alluredeck/commit/34599a024fecacc5942a76138ac9d1e1f9f758ba))
+* **ui:** colour the Suite Pass Rates bars ([ba346de](https://github.com/mkutlak/alluredeck/commit/ba346de67ff9a0dec130a640578252c3db41e69e))
+* **ui:** keep the Projects breadcrumb readable and link it to /projects ([d7794a7](https://github.com/mkutlak/alluredeck/commit/d7794a7a4cd96de0aa5c6d2dcabca8bd7aabb61a))
+* **ui:** name projects by label in dialogs and the report viewer ([bf8368e](https://github.com/mkutlak/alluredeck/commit/bf8368eefa873aa8c6ee67c5d6431f2619f32be1))
+* **ui:** read build_number after the API rename ([04b7bf9](https://github.com/mkutlak/alluredeck/commit/04b7bf957b6ce13345f3615365299e8f4d208d03))
+
 ## [0.50.0](https://github.com/mkutlak/alluredeck/compare/v0.49.1...v0.50.0) (2026-10-26)
 
 ### Features
