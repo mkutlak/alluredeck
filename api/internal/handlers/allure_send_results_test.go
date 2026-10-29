@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -318,5 +319,76 @@ func TestSendResults_ForceProjectCreation(t *testing.T) {
 				t.Errorf("child ParentID = %v, want %d", child.ParentID, parent.ID)
 			}
 		})
+	}
+}
+
+// TestSendResults_ForceCreationRejectsTraversal pins that force_project_creation
+// validates both the path slug (ServeMux unescapes %2F into it) and a parent_id
+// slug before anything touches the filesystem or the DB.
+func TestSendResults_ForceCreationRejectsTraversal(t *testing.T) {
+	tests := []struct {
+		name, slug, parent string
+	}{
+		{name: "slug with slashes", slug: "../../escaped"},
+		{name: "parent slug with slashes", slug: "api-users", parent: "../../escaped"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			projects := filepath.Join(root, "a", "b")
+			h, mocks := newTestResultUploadHandler(t, projects)
+			body := jsonResults(t, map[string]string{"file_name": "result.xml", "content_base64": base64.StdEncoding.EncodeToString([]byte("<result/>"))})
+			req := resultsRequest(tc.slug, "application/json", body)
+			req.URL.RawQuery = "force_project_creation=true&parent_id=" + url.QueryEscape(tc.parent)
+			rr := httptest.NewRecorder()
+			h.SendResults(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body.String())
+			}
+			if _, err := os.Stat(filepath.Join(root, "escaped")); !os.IsNotExist(err) {
+				t.Errorf("dir created outside ProjectsPath (stat err %v)", err)
+			}
+			if _, err := mocks.Projects.GetProjectBySlugAny(context.Background(), "../../escaped"); err == nil {
+				t.Error("traversal slug registered in the DB")
+			}
+		})
+	}
+}
+
+// TestSecureFilename_RejectsDotNames pins that a name with no usable base
+// comes back empty: "." or ".." as a result file name used to reach storage,
+// where the S3 key results/{batch}/.. aborted every later report generation.
+func TestSecureFilename_RejectsDotNames(t *testing.T) {
+	for in, want := range map[string]string{
+		"a.json": "a.json", "dir/a.json": "a.json", "../../a.json": "a.json",
+		"": "", ".": "", "..": "", "a/..": "", "../..": "", "/": "",
+	} {
+		if got := secureFilename(in); got != want {
+			t.Errorf("secureFilename(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestSendResults_ForceCreationExistingParent pins that parent_id is checked
+// as a new slug only when the parent must be auto-created: an existing parent
+// whose slug predates a validation rule (here the reserved "staging") still
+// accepts children.
+func TestSendResults_ForceCreationExistingParent(t *testing.T) {
+	ctx := context.Background()
+	h, mocks := newTestResultUploadHandler(t, t.TempDir())
+	parent, err := mocks.Projects.CreateProject(ctx, "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := jsonResults(t, map[string]string{"file_name": "result.xml", "content_base64": base64.StdEncoding.EncodeToString([]byte("<result/>"))})
+	req := resultsRequest("api-users", "application/json", body)
+	req.URL.RawQuery = "force_project_creation=true&parent_id=staging"
+	rr := httptest.NewRecorder()
+	h.SendResults(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	if child, err := mocks.Projects.GetProjectBySlugAny(ctx, "api-users"); err != nil || child.ParentID == nil || *child.ParentID != parent.ID {
+		t.Errorf("child = %+v, %v; want ParentID %d", child, err, parent.ID)
 	}
 }

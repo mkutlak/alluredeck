@@ -74,9 +74,14 @@ func (cr *countingTarReader) Read(p []byte) (int, error) {
 }
 
 // secureBaseName strips any path components from name and returns just the
-// final component. Used to defend against path traversal entries.
+// final component, or "" when none is usable ("", ".", "..", "/"). Used to
+// defend against path traversal entries.
 func secureBaseName(name string) string {
-	return filepath.Base(filepath.Clean(name))
+	base := filepath.Base(filepath.Clean(name))
+	if base == "." || !filepath.IsLocal(base) {
+		return ""
+	}
+	return base
 }
 
 // pendingEntry is a single regular-file entry buffered from the tar stream.
@@ -120,7 +125,7 @@ func readAndValidateTarGz(src io.Reader, maxBytes int64, maxFiles int) ([]pendin
 		}
 
 		safeName := secureBaseName(hdr.Name)
-		if safeName == "." || safeName == "" {
+		if safeName == "" {
 			return nil, fmt.Errorf("entry %q: %w", hdr.Name, ErrArchiveInvalidEntry)
 		}
 		if filepath.Clean(hdr.Name) != safeName {

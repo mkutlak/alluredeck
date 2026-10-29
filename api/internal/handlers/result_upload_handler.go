@@ -138,6 +138,10 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 				writeError(w, http.StatusForbidden, "scoped api key cannot create new projects")
 				return
 			}
+			if err := validateProjectID(h.cfg.ProjectsPath, pathValue); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			slug = pathValue // use path value as slug for new project
 			storageKey = slug
 			// Create filesystem project via runner.
@@ -156,6 +160,10 @@ func (h *ResultUploadHandler) SendResults(w http.ResponseWriter, r *http.Request
 						// Parent slug not found — auto-create it as a top-level project.
 						// force_project_creation=true means "recreate whatever I reference",
 						// which must include the parent after a full-wipe reset.
+						if err := validateProjectID(h.cfg.ProjectsPath, parentIDStr); err != nil {
+							writeError(w, http.StatusBadRequest, err.Error())
+							return
+						}
 						if fsErr := h.runner.CreateProject(r.Context(), parentIDStr); fsErr != nil && !errors.Is(fsErr, runner.ErrProjectExists) {
 							h.logger.Error("auto-creating parent project failed", zap.String("slug", parentIDStr), zap.Error(fsErr))
 							writeError(w, http.StatusInternalServerError, "failed to create parent project")
@@ -343,6 +351,9 @@ func (h *ResultUploadHandler) sendJSONResults(r *http.Request, storageKey, batch
 
 	for i := range body.Results {
 		safeName := secureFilename(body.Results[i].FileName)
+		if safeName == "" {
+			return nil, nil, fmt.Errorf("invalid file_name %q: %w", body.Results[i].FileName, ErrFileNameRequired)
+		}
 		if body.Results[i].ContentBase64 == "" {
 			return nil, nil, fmt.Errorf("'content_base64' required for %q: %w", body.Results[i].FileName, ErrContentBase64Required)
 		}
@@ -378,6 +389,10 @@ func (h *ResultUploadHandler) sendMultipartResults(r *http.Request, storageKey, 
 
 	for _, fh := range files {
 		safeName := secureFilename(fh.Filename)
+		if safeName == "" {
+			failed = append(failed, map[string]string{"file_name": fh.Filename, "message": "invalid file name"})
+			continue
+		}
 		f, err := fh.Open()
 		if err != nil {
 			failed = append(failed, map[string]string{"file_name": safeName, "message": err.Error()})

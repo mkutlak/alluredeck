@@ -51,6 +51,19 @@ func NewLocalStore(cfg *config.Config) *LocalStore {
 	return &LocalStore{cfg: cfg}
 }
 
+// path joins projectID and sub under ProjectsPath. projectID must be one plain
+// directory name and the result must stay inside it, so no caller-supplied
+// value reaches ProjectsPath itself or a sibling project. Every project-scoped
+// method builds its paths here.
+func (ls *LocalStore) path(projectID string, sub ...string) (string, error) {
+	rel := filepath.Join(append([]string{projectID}, sub...)...)
+	if projectID == "." || filepath.Base(projectID) != projectID || !filepath.IsLocal(rel) ||
+		(rel != projectID && !strings.HasPrefix(rel, projectID+string(filepath.Separator))) {
+		return "", fmt.Errorf("%q: %w", rel, ErrInvalidPath)
+	}
+	return filepath.Join(ls.cfg.ProjectsPath, rel), nil
+}
+
 // HealthCheck returns nil when the projects directory exists and is writable.
 // It probes with a create-and-unlink rather than a stat, because the failure
 // mode that matters is a mounted volume owned by another uid: it stats fine but
@@ -74,7 +87,10 @@ func (ls *LocalStore) HealthCheck(_ context.Context) error {
 // CreateProject creates the project directory with results/ and reports/ subdirs.
 // It is idempotent — calling on an existing project is not an error.
 func (ls *LocalStore) CreateProject(_ context.Context, projectID string) error {
-	base := filepath.Join(ls.cfg.ProjectsPath, projectID)
+	base, err := ls.path(projectID)
+	if err != nil {
+		return err
+	}
 	//nolint:gosec // G301: 0o755 required for allure web server to read project dirs
 	if err := os.MkdirAll(filepath.Join(base, "results"), 0o755); err != nil {
 		return fmt.Errorf("create results dir: %w", err)
@@ -89,7 +105,10 @@ func (ls *LocalStore) CreateProject(_ context.Context, projectID string) error {
 // DeleteProject removes the entire project directory.
 // Returns ErrProjectNotFound if the project does not exist.
 func (ls *LocalStore) DeleteProject(_ context.Context, projectID string) error {
-	base := filepath.Join(ls.cfg.ProjectsPath, projectID)
+	base, err := ls.path(projectID)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(base); os.IsNotExist(err) {
 		return fmt.Errorf("project %q: %w", projectID, ErrProjectNotFound)
 	}
@@ -101,8 +120,14 @@ func (ls *LocalStore) DeleteProject(_ context.Context, projectID string) error {
 
 // RenameProject renames the project directory from oldID to newID.
 func (ls *LocalStore) RenameProject(_ context.Context, oldID, newID string) error {
-	oldPath := filepath.Join(ls.cfg.ProjectsPath, oldID)
-	newPath := filepath.Join(ls.cfg.ProjectsPath, newID)
+	oldPath, err := ls.path(oldID)
+	if err != nil {
+		return err
+	}
+	newPath, err := ls.path(newID)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
 		return fmt.Errorf("project %q: %w", oldID, ErrProjectNotFound)
 	}
@@ -117,7 +142,11 @@ func (ls *LocalStore) RenameProject(_ context.Context, oldID, newID string) erro
 
 // ProjectExists returns true if the project directory exists.
 func (ls *LocalStore) ProjectExists(_ context.Context, projectID string) (bool, error) {
-	_, err := os.Stat(filepath.Join(ls.cfg.ProjectsPath, projectID))
+	dir, err := ls.path(projectID)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(dir)
 	if err == nil {
 		return true, nil
 	}
@@ -138,7 +167,7 @@ func (ls *LocalStore) ListProjects(_ context.Context) ([]string, error) {
 	}
 	var projects []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && e.Name() != stagingDir {
 			projects = append(projects, e.Name())
 		}
 	}
@@ -150,7 +179,10 @@ func (ls *LocalStore) ListProjects(_ context.Context) ([]string, error) {
 // filename may contain subdirectories (e.g. "data/screenshot.png"); parent
 // directories are created automatically.
 func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, batchID, filename string, r io.Reader) error {
-	dest := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", batchID, filename)
+	dest, err := ls.path(projectID, "results", batchID, filename)
+	if err != nil {
+		return err
+	}
 	//nolint:gosec // G301: 0o755 required for allure web server to read results
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("create results dir: %w", err)
@@ -168,7 +200,10 @@ func (ls *LocalStore) WriteResultFile(_ context.Context, projectID, batchID, fil
 
 // ListResultFiles returns the names of files (not dirs) in projectID/results/batchID/.
 func (ls *LocalStore) ListResultFiles(_ context.Context, projectID, batchID string) ([]string, error) {
-	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", batchID)
+	resultsDir, err := ls.path(projectID, "results", batchID)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(resultsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -191,12 +226,19 @@ func (ls *LocalStore) CleanBatch(_ context.Context, projectID, batchID string) e
 	if batchID == "" {
 		return fmt.Errorf("batch ID must not be empty")
 	}
-	return os.RemoveAll(filepath.Join(ls.cfg.ProjectsPath, projectID, "results", batchID))
+	dir, err := ls.path(projectID, "results", batchID)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
 }
 
 // ListResultBatches returns the names of batch subdirectories in projectID/results/.
 func (ls *LocalStore) ListResultBatches(_ context.Context, projectID string) ([]string, error) {
-	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results")
+	resultsDir, err := ls.path(projectID, "results")
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(resultsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -215,13 +257,20 @@ func (ls *LocalStore) ListResultBatches(_ context.Context, projectID string) ([]
 
 // CleanResults removes all contents of projectID/results/.
 func (ls *LocalStore) CleanResults(_ context.Context, projectID string) error {
-	return removeDirContents(filepath.Join(ls.cfg.ProjectsPath, projectID, "results"))
+	dir, err := ls.path(projectID, "results")
+	if err != nil {
+		return err
+	}
+	return removeDirContents(dir)
 }
 
 // PrepareLocal ensures results/ and reports/ dirs exist and returns the project directory.
 // LocalStore performs no per-file work, so the progress callback is unused.
 func (ls *LocalStore) PrepareLocal(_ context.Context, projectID string, _ ProgressFn) (string, error) {
-	base := filepath.Join(ls.cfg.ProjectsPath, projectID)
+	base, err := ls.path(projectID)
+	if err != nil {
+		return "", err
+	}
 	//nolint:gosec // G301: 0o755 required for allure web server
 	if err := os.MkdirAll(filepath.Join(base, "results"), 0o755); err != nil {
 		return "", fmt.Errorf("create results dir: %w", err)
@@ -286,19 +335,9 @@ func (ls *LocalStore) DeleteReport(_ context.Context, projectID, reportID string
 		}
 	}
 
-	reportsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports")
-	reportDir := filepath.Join(reportsDir, reportID)
-
-	absReports, err := filepath.Abs(reportsDir)
+	reportDir, err := ls.path(projectID, "reports", reportID)
 	if err != nil {
-		return fmt.Errorf("resolving reports dir: %w", err)
-	}
-	absReport, err := filepath.Abs(reportDir)
-	if err != nil {
-		return fmt.Errorf("resolving report dir: %w", err)
-	}
-	if absReport == absReports || !strings.HasPrefix(absReport, absReports+string(filepath.Separator)) {
-		return ErrInvalidPath
+		return err
 	}
 
 	if _, err := os.Stat(reportDir); os.IsNotExist(err) {
@@ -312,7 +351,10 @@ func (ls *LocalStore) DeleteReport(_ context.Context, projectID, reportID string
 
 // PruneReportDirs removes the directories for the given build orders.
 func (ls *LocalStore) PruneReportDirs(_ context.Context, projectID string, buildNumbers []int) error {
-	reportsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports")
+	reportsDir, err := ls.path(projectID, "reports")
+	if err != nil {
+		return err
+	}
 	for _, bo := range buildNumbers {
 		dirPath := filepath.Join(reportsDir, strconv.Itoa(bo))
 		if err := os.RemoveAll(dirPath); err != nil {
@@ -331,16 +373,19 @@ func (ls *LocalStore) KeepHistory(_ context.Context, projectID, batchID string) 
 		historySubPath = filepath.Join(batchID, "history")
 	}
 
+	base, err := ls.path(projectID)
+	if err != nil {
+		return err
+	}
+	resultsHistoryDir := filepath.Join(base, "results", historySubPath)
 	if !ls.cfg.KeepHistory {
-		historyDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", historySubPath)
-		if err := os.RemoveAll(historyDir); err != nil {
-			return fmt.Errorf("remove history dir %q: %w", historyDir, err)
+		if err := os.RemoveAll(resultsHistoryDir); err != nil {
+			return fmt.Errorf("remove history dir %q: %w", resultsHistoryDir, err)
 		}
 		return nil
 	}
 
-	latestHistoryDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", "latest", "history")
-	resultsHistoryDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", historySubPath)
+	latestHistoryDir := filepath.Join(base, "reports", "latest", "history")
 
 	//nolint:gosec // G301: 0o755 required for allure web server to read history
 	if err := os.MkdirAll(resultsHistoryDir, 0o755); err != nil {
@@ -356,9 +401,13 @@ func (ls *LocalStore) KeepHistory(_ context.Context, projectID, batchID string) 
 // CleanHistory removes all numbered report dirs, clears latest contents,
 // clears results/history, and empties executor.json.
 func (ls *LocalStore) CleanHistory(_ context.Context, projectID string) error {
-	reportsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports")
+	base, err := ls.path(projectID)
+	if err != nil {
+		return err
+	}
+	reportsDir := filepath.Join(base, "reports")
 	latestDir := filepath.Join(reportsDir, "latest")
-	historyDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", "history")
+	historyDir := filepath.Join(base, "results", "history")
 
 	if err := removeDirContents(latestDir); err != nil {
 		return err
@@ -379,7 +428,7 @@ func (ls *LocalStore) CleanHistory(_ context.Context, projectID string) error {
 		return err
 	}
 
-	executorPath := filepath.Join(ls.cfg.ProjectsPath, projectID, "results", "executor.json")
+	executorPath := filepath.Join(base, "results", "executor.json")
 	if _, err := os.Stat(executorPath); err == nil {
 		//nolint:gosec // G306: 0o644 required for allure CLI to read executor file
 		if err := os.WriteFile(executorPath, []byte(""), 0o644); err != nil {
@@ -393,7 +442,11 @@ func (ls *LocalStore) CleanHistory(_ context.Context, projectID string) error {
 // ReadBuildStats reads cached statistics from a numbered report's widget files.
 // Tries widgets/summary.json (Allure 2) first, then widgets/statistic.json (Allure 3).
 func (ls *LocalStore) ReadBuildStats(_ context.Context, projectID string, buildNumber int) (BuildStats, error) {
-	widgetsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", strconv.Itoa(buildNumber), "widgets")
+	buildDir, err := ls.path(projectID, "reports", strconv.Itoa(buildNumber))
+	if err != nil {
+		return BuildStats{}, err
+	}
+	widgetsDir := filepath.Join(buildDir, "widgets")
 
 	// Allure 2: widgets/summary.json
 	if data, err := os.ReadFile(filepath.Join(widgetsDir, "summary.json")); err == nil {
@@ -446,8 +499,7 @@ func (ls *LocalStore) ReadBuildStats(_ context.Context, projectID string, buildN
 				Total:   stat.Total,
 			}
 			// Allure 3 statistic.json has no timing; derive from test result files.
-			testResultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", strconv.Itoa(buildNumber), "data", "test-results")
-			stats.DurationMs = durationFromTestResultFiles(testResultsDir)
+			stats.DurationMs = durationFromTestResultFiles(filepath.Join(buildDir, "data", "test-results"))
 			return stats, nil
 		}
 	}
@@ -457,7 +509,11 @@ func (ls *LocalStore) ReadBuildStats(_ context.Context, projectID string, buildN
 
 // ReadFile reads the file at projectID/relPath and returns its contents.
 func (ls *LocalStore) ReadFile(_ context.Context, projectID, relPath string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(ls.cfg.ProjectsPath, projectID, filepath.FromSlash(relPath)))
+	path, err := ls.path(projectID, filepath.FromSlash(relPath))
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read file %q: %w", relPath, err)
 	}
@@ -466,7 +522,10 @@ func (ls *LocalStore) ReadFile(_ context.Context, projectID, relPath string) ([]
 
 // ReadDir returns the entries of the directory at projectID/relPath.
 func (ls *LocalStore) ReadDir(_ context.Context, projectID, relPath string) ([]DirEntry, error) {
-	dir := filepath.Join(ls.cfg.ProjectsPath, projectID, filepath.FromSlash(relPath))
+	dir, err := ls.path(projectID, filepath.FromSlash(relPath))
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read dir %q: %w", dir, err)
@@ -490,7 +549,10 @@ func (ls *LocalStore) ReadDir(_ context.Context, projectID, relPath string) ([]D
 // OpenReportFile opens projectID/reports/reportID/filePath and returns a ReadCloser
 // and the detected MIME content type.
 func (ls *LocalStore) OpenReportFile(_ context.Context, projectID, reportID, filePath string) (io.ReadCloser, string, error) {
-	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", reportID, filePath)
+	path, err := ls.path(projectID, "reports", reportID, filePath)
+	if err != nil {
+		return nil, "", err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", fmt.Errorf("open report file %q: %w", path, err)
@@ -504,7 +566,10 @@ func (ls *LocalStore) OpenReportFile(_ context.Context, projectID, reportID, fil
 
 // ListReportBuilds returns the numeric build order directories sorted ascending.
 func (ls *LocalStore) ListReportBuilds(_ context.Context, projectID string) ([]int, error) {
-	reportsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "reports")
+	reportsDir, err := ls.path(projectID, "reports")
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(reportsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -529,7 +594,11 @@ func (ls *LocalStore) ListReportBuilds(_ context.Context, projectID string) ([]i
 
 // LatestReportExists returns true if the reports/latest directory exists.
 func (ls *LocalStore) LatestReportExists(_ context.Context, projectID string) (bool, error) {
-	_, err := os.Stat(filepath.Join(ls.cfg.ProjectsPath, projectID, "reports", "latest"))
+	dir, err := ls.path(projectID, "reports", "latest")
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(dir)
 	if err == nil {
 		return true, nil
 	}
@@ -543,7 +612,10 @@ func (ls *LocalStore) LatestReportExists(_ context.Context, projectID string) (b
 // Files named executor.json and allurereport.config.json are excluded to avoid
 // spurious retriggers from files written by GenerateReport.
 func (ls *LocalStore) ResultsDirHash(_ context.Context, projectID string) (string, error) {
-	resultsDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "results")
+	resultsDir, err := ls.path(projectID, "results")
+	if err != nil {
+		return "", err
+	}
 	entries, err := os.ReadDir(resultsDir)
 	if err != nil {
 		return "", fmt.Errorf("read project results dir %q: %w", resultsDir, err)
@@ -593,7 +665,10 @@ func (ls *LocalStore) ResultsDirHash(_ context.Context, projectID string) (strin
 // WritePlaywrightFile writes r to projects/{projectID}/playwright-reports/{subPath}.
 // Parent directories are created automatically.
 func (ls *LocalStore) WritePlaywrightFile(_ context.Context, projectID, subPath string, r io.Reader) error {
-	dest := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", filepath.FromSlash(subPath))
+	dest, err := ls.path(projectID, "playwright-reports", filepath.FromSlash(subPath))
+	if err != nil {
+		return err
+	}
 	//nolint:gosec // G301: 0o755 required for web server to read playwright reports
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("create playwright report dir: %w", err)
@@ -611,8 +686,11 @@ func (ls *LocalStore) WritePlaywrightFile(_ context.Context, projectID, subPath 
 
 // PlaywrightReportExists checks if playwright-reports/{buildNumber}/index.html exists.
 func (ls *LocalStore) PlaywrightReportExists(_ context.Context, projectID string, buildNumber int) (bool, error) {
-	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildNumber), "index.html")
-	_, err := os.Stat(path)
+	path, err := ls.path(projectID, "playwright-reports", strconv.Itoa(buildNumber), "index.html")
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(path)
 	if err == nil {
 		return true, nil
 	}
@@ -624,8 +702,12 @@ func (ls *LocalStore) PlaywrightReportExists(_ context.Context, projectID string
 
 // CopyPlaywrightLatestToBuild copies all files from playwright-reports/latest/ to playwright-reports/{buildNumber}/.
 func (ls *LocalStore) CopyPlaywrightLatestToBuild(_ context.Context, projectID string, buildNumber int) error {
-	src := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", "latest")
-	dst := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildNumber))
+	reportsDir, err := ls.path(projectID, "playwright-reports")
+	if err != nil {
+		return err
+	}
+	src := filepath.Join(reportsDir, "latest")
+	dst := filepath.Join(reportsDir, strconv.Itoa(buildNumber))
 
 	empty, err := isDirEmpty(src)
 	if err != nil {
@@ -647,13 +729,19 @@ func (ls *LocalStore) CopyPlaywrightLatestToBuild(_ context.Context, projectID s
 
 // CleanPlaywrightLatest removes all files from playwright-reports/latest/.
 func (ls *LocalStore) CleanPlaywrightLatest(_ context.Context, projectID string) error {
-	dir := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", "latest")
+	dir, err := ls.path(projectID, "playwright-reports", "latest")
+	if err != nil {
+		return err
+	}
 	return removeDirContents(dir)
 }
 
 // ListPlaywrightDataFiles lists files in playwright-reports/{buildNumber}/data/.
 func (ls *LocalStore) ListPlaywrightDataFiles(_ context.Context, projectID string, buildNumber int) ([]string, error) {
-	dataDir := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", strconv.Itoa(buildNumber), "data")
+	dataDir, err := ls.path(projectID, "playwright-reports", strconv.Itoa(buildNumber), "data")
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -673,7 +761,10 @@ func (ls *LocalStore) ListPlaywrightDataFiles(_ context.Context, projectID strin
 // ReadPlaywrightFile reads a file from playwright-reports/{subPath} and returns a ReadCloser
 // and the detected MIME content type.
 func (ls *LocalStore) ReadPlaywrightFile(_ context.Context, projectID, subPath string) (io.ReadCloser, string, error) {
-	path := filepath.Join(ls.cfg.ProjectsPath, projectID, "playwright-reports", filepath.FromSlash(subPath))
+	path, err := ls.path(projectID, "playwright-reports", filepath.FromSlash(subPath))
+	if err != nil {
+		return nil, "", err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", fmt.Errorf("open playwright file %q: %w", path, err)

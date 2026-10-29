@@ -4,9 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -34,7 +32,18 @@ import (
 //     → fall back to {projectsDir}/{projectID}/reports/latest/{rest}.
 //  3. Neither location has the file → 404.
 func newOverlayHandler(projectsDir string, ps store.ProjectStorer) http.Handler {
-	fs := http.FileServer(http.Dir(projectsDir))
+	root := http.Dir(projectsDir)
+	fs := http.FileServer(root)
+	// exists opens name through root, the same containment check FileServer
+	// applies, so a probe can never stat outside projectsDir.
+	exists := func(name string) bool {
+		f, err := root.Open(name)
+		if err != nil {
+			return false
+		}
+		_ = f.Close()
+		return true
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Canonicalise the URL path to prevent traversal and double-slash issues.
 		cleanURL := path.Clean("/" + r.URL.Path)
@@ -48,10 +57,14 @@ func newOverlayHandler(projectsDir string, ps store.ProjectStorer) http.Handler 
 				cleanURL = "/" + strings.Join(parts, "/")
 			}
 		}
+		// Serve only report trees, like the S3 handler: never the projects
+		// root, staged upload blobs, or raw results.
+		if len(parts) < 3 || parts[1] != "reports" || (parts[2] != "latest" && !middleware.IsNumericID(parts[2])) {
+			http.NotFound(w, r)
+			return
+		}
 
-		diskPath := filepath.Join(projectsDir, filepath.FromSlash(cleanURL))
-
-		if _, err := os.Stat(diskPath); err == nil { //nolint:gosec // G703: path constructed from sanitized URL path segments
+		if exists(cleanURL) {
 			r2 := r.Clone(r.Context())
 			r2.URL.Path = stripIndexHTML(cleanURL)
 			fs.ServeHTTP(w, r2)
@@ -60,14 +73,13 @@ func newOverlayHandler(projectsDir string, ps store.ProjectStorer) http.Handler 
 
 		// Try fallback: for numeric build dirs rewrite the path to latest/.
 		// Expected structure (after leading "/"): {storageKey}/reports/{N}/{rest}
-		if len(parts) >= 3 && parts[1] == "reports" && middleware.IsNumericID(parts[2]) {
+		if parts[2] != "latest" {
 			rest := ""
 			if len(parts) == 4 {
 				rest = "/" + parts[3]
 			}
 			latestURL := "/" + parts[0] + "/reports/latest" + rest
-			latestDisk := filepath.Join(projectsDir, filepath.FromSlash(latestURL))
-			if _, err := os.Stat(latestDisk); err == nil { //nolint:gosec // G703: path constructed from sanitized URL path segments
+			if exists(latestURL) {
 				r2 := r.Clone(r.Context())
 				r2.URL.Path = stripIndexHTML(latestURL)
 				fs.ServeHTTP(w, r2)
@@ -116,8 +128,14 @@ func newPlaywrightReportHandler(st storage.Store, ps store.ProjectStorer) http.H
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		projectID := r.PathValue("projectID")
 		reportID := r.PathValue("reportID")
-		rest := r.PathValue("rest")
+		// ServeMux cleans the escaped path but unescapes wildcard values, so
+		// %2E%2E%2F arrives here as "../": clean rest as a rooted path.
+		rest := strings.TrimPrefix(path.Clean("/"+r.PathValue("rest")), "/")
 
+		if reportID != "latest" && !middleware.IsNumericID(reportID) {
+			http.NotFound(w, r)
+			return
+		}
 		storageKey, ok := resolveStorageKey(r.Context(), ps, projectID)
 		if !ok {
 			http.NotFound(w, r)
@@ -125,12 +143,12 @@ func newPlaywrightReportHandler(st storage.Store, ps store.ProjectStorer) http.H
 		}
 
 		// Serve index.html when no sub-path is requested.
-		if rest == "" || rest == "/" {
+		if rest == "" {
 			rest = "index.html"
 		}
 
 		// Build the subPath as "{reportID}/{rest}" — matches ReadPlaywrightFile's convention.
-		subPath := reportID + "/" + strings.TrimPrefix(rest, "/")
+		subPath := reportID + "/" + rest
 
 		rc, contentType, err := st.ReadPlaywrightFile(r.Context(), storageKey, subPath)
 		if err != nil {

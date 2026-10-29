@@ -110,3 +110,11 @@ func jsonAt(v any, path string) any {
 	}
 	return nil
 }
+
+// TestValidateProjectID_ReservesStaging pins that a new project cannot take
+// the name of the local async-upload staging dir it would share on disk.
+func TestValidateProjectID_ReservesStaging(t *testing.T) {
+	if err := validateProjectID(t.TempDir(), "staging"); !errors.Is(err, ErrProjectReserved) {
+		t.Errorf("validateProjectID(staging) = %v, want ErrProjectReserved", err)
+	}
+}

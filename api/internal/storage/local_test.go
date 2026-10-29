@@ -468,3 +468,92 @@ func TestLocalStore_Playwright(t *testing.T) {
 		t.Errorf("latest after CleanPlaywrightLatest: %d entries, %v", len(entries), err)
 	}
 }
+
+// TestLocalStore_RejectsEscapingPaths pins the storage-layer containment
+// guard: a caller-supplied name that resolves outside ProjectsPath is refused
+// before any filesystem call.
+func TestLocalStore_RejectsEscapingPaths(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	ls := NewLocalStore(&config.Config{ProjectsPath: filepath.Join(root, "projects")})
+	writeFile(t, filepath.Join(root, "secret.txt"), "secret")
+	tests := map[string]func() error{
+		"CreateProject": func() error { return ls.CreateProject(ctx, "../escaped") },
+		"RenameProject": func() error { return ls.RenameProject(ctx, "p", "../escaped") },
+		"ProjectExists": func() error { _, err := ls.ProjectExists(ctx, ".."); return err },
+		"WriteResultFile": func() error {
+			return ls.WriteResultFile(ctx, "p", "b", "../../../../escaped", strings.NewReader("x"))
+		},
+		"ReadFile": func() error { _, err := ls.ReadFile(ctx, "p", "../../secret.txt"); return err },
+		"ReadDir":  func() error { _, err := ls.ReadDir(ctx, "p", "../.."); return err },
+		"OpenReportFile": func() error {
+			_, _, err := ls.OpenReportFile(ctx, "p", "1", "../../../../secret.txt")
+			return err
+		},
+		"ReadPlaywrightFile": func() error {
+			_, _, err := ls.ReadPlaywrightFile(ctx, "p", "../../../secret.txt")
+			return err
+		},
+		"WritePlaywrightFile": func() error {
+			return ls.WritePlaywrightFile(ctx, "p", "../../../escaped", strings.NewReader("x"))
+		},
+	}
+	for name, call := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); !errors.Is(err, ErrInvalidPath) {
+				t.Errorf("err = %v, want ErrInvalidPath", err)
+			}
+		})
+	}
+	checkExists(t, root, map[string]bool{"escaped": false})
+}
+
+// TestLocalStore_ConfinesToProjectDir pins that every project-scoped method
+// takes projectID as one plain directory name and keeps sub-paths inside it:
+// "" or "." must never resolve to ProjectsPath itself (DeleteProject("") used
+// to RemoveAll the whole volume), and no sub-path may reach a sibling project.
+func TestLocalStore_ConfinesToProjectDir(t *testing.T) {
+	ctx := context.Background()
+	projects := t.TempDir()
+	ls := NewLocalStore(&config.Config{ProjectsPath: projects})
+	writeFile(t, filepath.Join(projects, "p", "results", "r.json"), "p")
+	writeFile(t, filepath.Join(projects, "q", "results", "secret.json"), "q")
+	for _, id := range []string{"", ".", "..", "p/results", "../x"} {
+		calls := map[string]func() error{
+			"DeleteProject":   func() error { return ls.DeleteProject(ctx, id) },
+			"CleanResults":    func() error { return ls.CleanResults(ctx, id) },
+			"CleanBatch":      func() error { return ls.CleanBatch(ctx, id, "results") },
+			"CleanHistory":    func() error { return ls.CleanHistory(ctx, id) },
+			"KeepHistory":     func() error { return ls.KeepHistory(ctx, id, "") },
+			"PruneReportDirs": func() error { return ls.PruneReportDirs(ctx, id, []int{1}) },
+			"PrepareLocal":    func() error { _, err := ls.PrepareLocal(ctx, id, nil); return err },
+			"ReadDir":         func() error { _, err := ls.ReadDir(ctx, id, ""); return err },
+		}
+		for name, call := range calls {
+			t.Run(name+"/"+id, func(t *testing.T) {
+				if err := call(); !errors.Is(err, ErrInvalidPath) {
+					t.Errorf("err = %v, want ErrInvalidPath", err)
+				}
+			})
+		}
+	}
+	t.Run("sub-path into a sibling project", func(t *testing.T) {
+		if _, err := ls.ReadFile(ctx, "p", "../q/results/secret.json"); !errors.Is(err, ErrInvalidPath) {
+			t.Errorf("err = %v, want ErrInvalidPath", err)
+		}
+	})
+	checkExists(t, projects, map[string]bool{"p/results/r.json": true, "q/results/secret.json": true})
+}
+
+// TestLocalStore_ListProjectsSkipsStaging pins that the async-upload staging
+// dir is not reported as a project: the watcher auto-registered it, and
+// deleting that phantom project wiped every in-flight upload.
+func TestLocalStore_ListProjectsSkipsStaging(t *testing.T) {
+	projects := t.TempDir()
+	mkdirAll(t, filepath.Join(projects, "p"))
+	writeFile(t, filepath.Join(projects, stagingDir, "b.tar.gz"), "blob")
+	got, err := NewLocalStore(&config.Config{ProjectsPath: projects}).ListProjects(context.Background())
+	if err != nil || !slices.Equal(got, []string{"p"}) {
+		t.Errorf("ListProjects = %v, %v; want [p], nil", got, err)
+	}
+}

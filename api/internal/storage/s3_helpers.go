@@ -133,10 +133,14 @@ func uploadDir(ctx context.Context, uploader s3Uploader, bucket, localDir, s3Pre
 // Returns the number of bytes written on success.
 func downloadObject(ctx context.Context, client s3API, bucket, key, localDir, s3Prefix string) (int64, error) {
 	rel := strings.TrimPrefix(key, s3Prefix)
-	if rel == "" {
+	// Skip a key with no file path below the prefix ("", "..", "../x", "b/.",
+	// a "b/" folder marker): it would land outside localDir, or abort the whole
+	// download on a dir.
+	local := filepath.FromSlash(rel)
+	if rel == "" || strings.HasSuffix(rel, "/") || !filepath.IsLocal(local) || filepath.Base(local) == "." {
 		return 0, nil
 	}
-	localPath := filepath.Join(localDir, filepath.FromSlash(rel))
+	localPath := filepath.Join(localDir, local)
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil { //nolint:gosec // G301: needed for allure web server
 		return 0, fmt.Errorf("mkdir for %q: %w", localPath, err)
 	}

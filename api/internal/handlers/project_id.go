@@ -106,7 +106,10 @@ func validateProjectID(projectsDir, projectID string) error {
 	if strings.ContainsAny(projectID, "/\\") || strings.Contains(projectID, "..") {
 		return ErrProjectInvalidChars
 	}
-	if reservedProjectNames[projectID] {
+	// "staging" is the local async-upload spool dir under projectsDir. It is
+	// reserved for new names only, so an existing "staging" project still
+	// resolves through the lookups that share reservedProjectNames.
+	if reservedProjectNames[projectID] || projectID == "staging" {
 		return fmt.Errorf("project_id %q: %w", projectID, ErrProjectReserved)
 	}
 	// Belt-and-suspenders: verify the resolved path stays under projectsDir.

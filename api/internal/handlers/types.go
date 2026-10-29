@@ -122,7 +122,12 @@ func derefInt(p *int) int {
 	return *p
 }
 
-// secureFilename strips path components so only the base filename remains
+// secureFilename strips path components so only the base filename remains.
+// It returns "" when no usable base is left ("", ".", "..", "/").
 func secureFilename(name string) string {
-	return filepath.Base(filepath.Clean(name))
+	base := filepath.Base(filepath.Clean(name))
+	if base == "." || !filepath.IsLocal(base) {
+		return ""
+	}
+	return base
 }

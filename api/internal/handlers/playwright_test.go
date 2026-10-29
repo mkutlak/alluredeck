@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -184,6 +185,35 @@ func TestPlaywrightHandler_ExtractArchive(t *testing.T) {
 				if !bytes.Equal(got["latest/"+name], want) {
 					t.Errorf("latest/%s: got %d bytes, want %d", name, len(got["latest/"+name]), len(want))
 				}
+			}
+		})
+	}
+}
+
+// TestPlaywrightHandler_ForceCreationRejectsTraversal mirrors the results
+// upload: force_project_creation validates the path slug and a parent_id slug.
+func TestPlaywrightHandler_ForceCreationRejectsTraversal(t *testing.T) {
+	t.Parallel()
+	index := makeTarGz(t, map[string][]byte{"index.html": []byte("<html></html>")})
+	for _, tc := range []struct{ name, slug, parent string }{
+		{name: "slug with slashes", slug: "../../escaped"},
+		{name: "parent slug with slashes", slug: "pw", parent: "../../escaped"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			cfg := &config.Config{ProjectsPath: filepath.Join(root, "a", "b"), MaxUploadSizeMB: 100}
+			mocks := testutil.New()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/x/playwright?force_project_creation=true&parent_id="+url.QueryEscape(tc.parent), bytes.NewReader(index))
+			req.SetPathValue("project_id", tc.slug)
+			req.Header.Set("Content-Type", "application/gzip")
+			rr := httptest.NewRecorder()
+			NewPlaywrightHandler(storage.NewLocalStore(cfg), mocks.Projects, mocks.Builds, nil, cfg, zap.NewNop()).UploadReport(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body.String())
+			}
+			if _, err := os.Stat(filepath.Join(root, "escaped")); !os.IsNotExist(err) {
+				t.Errorf("dir created outside ProjectsPath (stat err %v)", err)
 			}
 		})
 	}

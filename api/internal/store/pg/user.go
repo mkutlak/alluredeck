@@ -215,7 +215,7 @@ func (s *UserStore) ListPaginated(ctx context.Context, params store.ListUsersPar
 	}
 	defer rows.Close()
 
-	users := make([]store.User, 0, limit)
+	users := make([]store.User, 0)
 	for rows.Next() {
 		var u store.User
 		if err := scanUser(rows, &u); err != nil {

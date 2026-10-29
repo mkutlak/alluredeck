@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mkutlak/alluredeck/api/internal/config"
+	"github.com/mkutlak/alluredeck/api/internal/storage"
 	"github.com/mkutlak/alluredeck/api/internal/store"
 	"github.com/mkutlak/alluredeck/api/internal/testutil"
 )
@@ -134,6 +136,70 @@ func TestStorageReportHandlers(t *testing.T) {
 			}
 			if !slices.Equal(reads, tc.wantReads) {
 				t.Errorf("storage reads = %v, want %v", reads, tc.wantReads)
+			}
+		})
+	}
+}
+
+// TestPlaywrightReportHandler_Traversal pins that the unauthenticated
+// Playwright report route cannot read outside the report directory. ServeMux
+// cleans the escaped path but unescapes wildcard values, so %2E%2E%2F reaches
+// PathValue as "../".
+func TestPlaywrightReportHandler_Traversal(t *testing.T) {
+	ps, key := childProjectStore(t)
+	root := t.TempDir()
+	projects := filepath.Join(root, "projects")
+	writeTestFile(t, filepath.Join(projects, key, "playwright-reports", "1", "index.html"), "report")
+	writeTestFile(t, filepath.Join(root, "secret.txt"), "secret")
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/v1/projects/{projectID}/playwright-reports/{reportID}/{rest...}",
+		newPlaywrightReportHandler(storage.NewLocalStore(&config.Config{ProjectsPath: projects}), ps))
+
+	tests := []struct {
+		name     string
+		url      string
+		wantCode int
+		wantBody string
+	}{
+		{"report file is served", "/api/v1/projects/api-happy/playwright-reports/1/index.html", http.StatusOK, "report"},
+		{"dot-dot in report id", "/api/v1/projects/api-happy/playwright-reports/%2E%2E%2F%2E%2E%2F%2E%2E/secret.txt", http.StatusNotFound, ""},
+		{"dot-dot in rest", "/api/v1/projects/api-happy/playwright-reports/1/%2E%2E%2F%2E%2E%2F%2E%2E%2F%2E%2E/secret.txt", http.StatusNotFound, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, tc.url, nil))
+			if rr.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body: %s", rr.Code, tc.wantCode, rr.Body)
+			}
+			if tc.wantBody != "" && rr.Body.String() != tc.wantBody {
+				t.Errorf("body = %q, want %q", rr.Body.String(), tc.wantBody)
+			}
+		})
+	}
+}
+
+// TestOverlayHandler_ReportsOnly pins that the unauthenticated overlay serves
+// only {key}/reports/{latest|N}/..., like the S3 handler: never the projects
+// root listing, staged upload blobs, or raw results.
+func TestOverlayHandler_ReportsOnly(t *testing.T) {
+	ps, _ := childProjectStore(t)
+	dir := t.TempDir()
+	for _, f := range []string{"staging/b.tar.gz", "myproject/results/b/x-result.json", "myproject/reports/notabuild/x.json"} {
+		writeTestFile(t, filepath.Join(dir, filepath.FromSlash(f)), f)
+	}
+	for _, url := range []string{
+		"/",
+		"/staging/b.tar.gz",
+		"/myproject/results/b/x-result.json",
+		"/myproject/reports/1/../../results/b/x-result.json",
+		"/myproject/reports/notabuild/x.json",
+	} {
+		t.Run(url, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			newOverlayHandler(dir, ps).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, url, nil))
+			if rr.Code != http.StatusNotFound {
+				t.Errorf("status = %d, want 404; body: %s", rr.Code, rr.Body)
 			}
 		})
 	}

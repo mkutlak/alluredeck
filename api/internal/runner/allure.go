@@ -891,9 +891,9 @@ func (a *Allure) CleanResults(ctx context.Context, storageKey string) error {
 
 // CreateProject creates the necessary directories for a new project
 func (a *Allure) CreateProject(ctx context.Context, storageKey string) error {
-	projectDir := filepath.Join(a.cfg.ProjectsPath, storageKey)
-
-	if _, err := os.Stat(projectDir); err == nil {
+	if exists, err := a.store.ProjectExists(ctx, storageKey); err != nil {
+		return fmt.Errorf("check project %q: %w", storageKey, err)
+	} else if exists {
 		return fmt.Errorf("%w: %s", ErrProjectExists, storageKey)
 	}
 

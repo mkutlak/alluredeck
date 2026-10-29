@@ -156,3 +156,19 @@ func TestUploadDir(t *testing.T) {
 		})
 	}
 }
+
+// TestDownloadPrefix_SkipsEscapingKeys pins that an object key whose path
+// below the prefix is not local ("..", "../x") is skipped: it must neither
+// write outside the local dir nor abort the download for the whole project.
+func TestDownloadPrefix_SkipsEscapingKeys(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "a", "b")
+	f := newFakeS3(map[string]string{"p/ok.json": "ok", "p/..": "dot-dot", "p/../../escaped": "escaped", "p/b/.": "dot", "p/b/": "", "p/b/x.json": "x"})
+	if err := downloadPrefix(context.Background(), f, testBucket, "p/", dir, 2, 0, zap.NewNop(), nil); err != nil {
+		t.Fatalf("downloadPrefix error = %v", err)
+	}
+	if got := readTree(t, root); !reflect.DeepEqual(got, map[string]string{"a/b/ok.json": "ok", "a/b/b/x.json": "x"}) {
+		t.Errorf("files under root = %v, want only a/b/ok.json and a/b/b/x.json", got)
+	}
+}

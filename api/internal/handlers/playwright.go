@@ -98,6 +98,10 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 				writeError(w, http.StatusForbidden, "scoped api key cannot create new projects")
 				return
 			}
+			if err := validateProjectID(h.cfg.ProjectsPath, pathValue); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			slug = pathValue
 			storageKey = slug
 			if err := h.store.CreateProject(r.Context(), storageKey); err != nil {
@@ -114,6 +118,10 @@ func (h *PlaywrightHandler) UploadReport(w http.ResponseWriter, r *http.Request)
 					if lookupErr != nil {
 						// Parent slug not found — auto-create it as a top-level project,
 						// mirroring the behavior of the Allure results upload handler.
+						if err := validateProjectID(h.cfg.ProjectsPath, parentIDStr); err != nil {
+							writeError(w, http.StatusBadRequest, err.Error())
+							return
+						}
 						if fsErr := h.store.CreateProject(r.Context(), parentIDStr); fsErr != nil {
 							h.logger.Error("auto-creating parent project failed", zap.String("slug", parentIDStr), zap.Error(fsErr))
 							writeError(w, http.StatusInternalServerError, "failed to create parent project")

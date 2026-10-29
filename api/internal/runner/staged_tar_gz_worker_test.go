@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -202,5 +203,18 @@ func TestParseStagedTarGzWorker(t *testing.T) {
 				t.Errorf("phases = %v, want extracting_staged first and %s last", saw, wantLast)
 			}
 		})
+	}
+}
+
+// TestExtractTarGz_RejectsDotDotEntry pins that a bare ".." entry, whose base
+// name is itself, is refused rather than written to the parent directory.
+func TestExtractTarGz_RejectsDotDotEntry(t *testing.T) {
+	t.Parallel()
+	blob := makeTarGzBlob(t, "..")
+	if _, err := ExtractTarGzToStorage(context.Background(), newFakeStagedStore(nil), "proj", "b", bytes.NewReader(blob), TarExtractOptions{}); !errors.Is(err, ErrArchiveInvalidEntry) {
+		t.Errorf("ExtractTarGzToStorage err = %v, want ErrArchiveInvalidEntry", err)
+	}
+	if _, err := ExtractTarGzToDir(context.Background(), bytes.NewReader(blob), filepath.Join(t.TempDir(), "dst"), TarExtractOptions{}); !errors.Is(err, ErrArchiveInvalidEntry) {
+		t.Errorf("ExtractTarGzToDir err = %v, want ErrArchiveInvalidEntry", err)
 	}
 }
