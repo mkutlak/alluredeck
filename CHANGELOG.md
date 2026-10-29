@@ -1,3 +1,10 @@
+## [0.51.1](https://github.com/mkutlak/alluredeck/compare/v0.51.0...v0.51.1) (2026-10-29)
+
+### Bug Fixes
+
+* **api:** block path traversal in report serving and project auto-create ([4a7226d](https://github.com/mkutlak/alluredeck/commit/4a7226d1f0a304f1adbdae0984b1bdcf3af21269))
+* **deps:** bump golang.org/x/net to v0.62.0 ([3fa3b9c](https://github.com/mkutlak/alluredeck/commit/3fa3b9c5fdb20c9838910999015b61984af094c2))
+
 ## [0.51.0](https://github.com/mkutlak/alluredeck/compare/v0.50.0...v0.51.0) (2026-10-26)
 
 ### Features
