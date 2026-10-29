@@ -1,8 +1,8 @@
 # AllureDeck Helm Chart
 
 [![Release Helm Chart](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml/badge.svg)](https://github.com/mkutlak/alluredeck/actions/workflows/release-chart.yml)
-![Version: 0.26.2](https://img.shields.io/badge/Version-0.26.2-informational?style=flat-square)
-![AppVersion: 0.50.0](https://img.shields.io/badge/AppVersion-0.50.0-informational?style=flat-square)
+![Version: 0.26.3](https://img.shields.io/badge/Version-0.26.3-informational?style=flat-square)
+![AppVersion: 0.50.1](https://img.shields.io/badge/AppVersion-0.50.1-informational?style=flat-square)
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 
 A Helm chart for [AllureDeck](https://github.com/mkutlak/alluredeck) — an Allure Reports Dashboard that provides a centralized UI for viewing and managing Allure test reports.
@@ -37,14 +37,14 @@ helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck -f values.yaml
 To pin a specific chart version:
 
 ```bash
-helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.26.2
+helm install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck --version 0.26.3
 ```
 
 **Upgrade an existing release** (preserves auto-generated credentials and previous values):
 
 ```bash
 helm upgrade --install alluredeck oci://ghcr.io/mkutlak/charts/alluredeck \
-  --version 0.26.2 \
+  --version 0.26.3 \
   -f values.yaml
 ```
 
